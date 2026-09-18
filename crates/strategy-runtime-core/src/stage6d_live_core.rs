@@ -2883,6 +2883,25 @@ impl Stage6dDurableRuntimeRecovered {
             .unwrap_or(false)
     }
 
+    /// Identifies a terminal P1-d3 source whose authenticated semantic
+    /// command is CANCEL. This is disposition evidence only: it grants no
+    /// callback, schedule, provider, source-resolution, or Redis authority.
+    #[doc(hidden)]
+    pub fn stage8b_p1d3_truth_source_is_cancel(&self) -> bool {
+        let Stage6dStage5RuntimeAuthority::Restart(restart) = &self.stage5_runtime else {
+            return false;
+        };
+        self.stage8b_p1d3_restart_phase() == Some(Stage6Stage8bP1d3RestartPhase::TruthCommitted)
+            && restart
+                .stage8b_p1_semantic_commit()
+                .is_some_and(|semantic| {
+                    matches!(
+                        semantic.canonical_command.as_ref(),
+                        Some(BrokerCommand::CancelOrder(_))
+                    )
+                })
+    }
+
     /// Exact current M10 whose order evaluation is already covered by the
     /// authenticated replacement package.  It is recovery material only and
     /// cannot authorize schedule selection, provider invocation or XACK.

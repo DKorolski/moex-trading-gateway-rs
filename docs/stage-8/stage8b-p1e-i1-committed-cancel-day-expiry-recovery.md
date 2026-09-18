@@ -1,6 +1,7 @@
 # Stage 8B-P1-e I1 committed Cancel/Day-expiry restart recovery
 
-Status: source review candidate after independently accepted Day-expiry correction
+Status: SOURCE ACCEPTED at `efe56a9af6272f13b2d87f4ad14a2709c605cd42`
+after independently accepted Day-expiry correction
 `a66793885e425465e5c4f49426748333b1cc448b`.
 
 ## Scope
@@ -26,18 +27,24 @@ returns the terminal Ready owner after the inherited expiry transition.
 
 ## Restart evidence
 
-The focused real-Redis acceptance tests prove:
+The focused real-Redis source tests directly prove:
 
 - Cancel command stream length stays unchanged across restart;
 - target-first Cancel retains one exact PEL entry through recovered Cancel and
   durable truth, then reaches zero only at XACK-last;
-- a second restart continues from the durable pending state without repeating
-  provider, callback or dispatch effects;
-- the exact `(seq_ack, seq_truth)` progression and recovered high-water survive
-  restart;
+- a second restart preserves the authenticated seal generation, journal frame
+  count and callback count; durable dispatch/callback totals do not increase
+  during recovered continuation;
 - Day-expiry begins and ends with an empty M10 PEL;
 - Day-expiry restart performs no additional signed-schedule read and preserves
   its authenticated high-water.
+
+In this accepted source slice, absence of Day-expiry XACK is established by
+the source-free call graph plus the unchanged empty PEL; the test did not yet
+contain a direct XACK invocation counter. Exact request-scoped sequence
+allocations and direct provider/callback/publication/claim/XACK counters are
+part of the subsequent owner-loop wiring evidence, not evidence retroactively
+attributed to `efe56a9`.
 
 The inherited signed Cancel fixtures were aligned to the production ordering:
 the published Cancel is bound to the active Working M10 and its V4 candidate is
@@ -46,8 +53,8 @@ exception was added.
 
 ## Deliberately closed
 
-- production owner-loop wiring remains closed and is the next separate source
-  slice;
+- production owner-loop wiring was closed at this immutable source boundary;
+  it is opened only by the following separately reviewed source slice;
 - the process signal/panic/SIGKILL/restart matrix follows that wiring slice;
 - operational Redis DB0/DB15 and VPS activation remain closed;
 - FINAM POST/DELETE/send, broker dispatch, runtime-live and real orders remain

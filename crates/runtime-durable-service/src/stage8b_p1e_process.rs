@@ -53,6 +53,7 @@ use crate::{
     resume_stage8b_p1d4_dispatch_pending_with_redis, resume_stage8b_p1d4_order_pending_with_redis,
     resume_stage8b_p1d4_pre_ack_with_redis, resume_stage8b_p1d4_pre_finalization_with_redis,
     resume_stage8b_p1d4_prepublication_with_redis, resume_stage8b_p1d4_truth_with_redis,
+    resume_stage8b_p1e_committed_cancel_with_redis, resume_stage8b_p1e_committed_day_expiry,
     resume_stage8b_p1e_committed_generated_market_with_redis,
     resume_stage8b_p1e_committed_initial_limit_with_redis,
     resume_stage8b_p1e_ready_source_with_redis,
@@ -67,10 +68,11 @@ use crate::{
     Stage8bP1RedisPreAckRecoveryOutcome, Stage8bP1RedisPrepublicationPending,
     Stage8bP1RedisSemanticCompositionOwner, Stage8bP1RedisSemanticCompositionTransport,
     Stage8bP1RedisSemanticError, Stage8bP1RedisSemanticOutcome,
-    Stage8bP1RedisZeroIntentAckResolved, Stage8bP1eAdoptionRecoveryActionV5,
-    Stage8bP1ePostAcquisitionOwnerV1, Stage8bP1ePreSealRecoveryActionV5,
-    Stage8bP1ePublishedScheduleRouteV1, Stage8bP1eReadyFreshAcquisitionOutcomeV1,
-    Stage8bP1eReadyPendingAcquisitionOutcomeV1,
+    Stage8bP1RedisZeroIntentAckDisposition, Stage8bP1RedisZeroIntentAckResolved,
+    Stage8bP1eAdoptionRecoveryActionV5, Stage8bP1ePostAcquisitionOwnerV1,
+    Stage8bP1ePreSealRecoveryActionV5, Stage8bP1ePublishedScheduleRouteV1,
+    Stage8bP1eReadyFreshAcquisitionOutcomeV1, Stage8bP1eReadyPendingAcquisitionOutcomeV1,
+    Stage8bP1eRecoveredCancelScheduleOutcomeV1, Stage8bP1eRecoveredDayExpiryScheduleOutcomeV1,
     Stage8bP1eRecoveredGeneratedMarketScheduleOutcomeV1,
     Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1, Stage8bP1eRedisControlError,
     Stage8bP1eRedisControlV1, Stage8bP1eRestartKindV1, Stage8bP1eRetainedSourceReceiptV1,
@@ -384,6 +386,8 @@ pub enum Stage8bP1eStartupErrorV1 {
     ReadyBoundaryInvariant,
     #[error("schedule-free recovery exceeded its fixed row budget")]
     RecoveryStepBudgetExceeded,
+    #[error("committed Day-expiry requires an empty canonical M10 PEL")]
+    CommittedDayExpiryPelNotEmpty,
 }
 
 /// Linear S05/S06 result.  The verified diagnostic control connection is held
@@ -489,6 +493,7 @@ impl Stage8bP1eReadyIdleStartupV1 {
         Stage8bP1eReadyPollingV1 {
             owner: _owner,
             control,
+            committed_cancel_disposition: None,
         }
     }
 }
@@ -717,8 +722,18 @@ impl Stage8bP1eRecoveredReadyV1 {
             _route,
             control,
         } = self;
+        let committed_cancel_disposition = match _route.as_ref() {
+            Stage8bP1eRecoveredReadyRouteV1::Limit(resolved) if resolved.cancel_source() => {
+                Some(resolved.disposition())
+            }
+            _ => None,
+        };
         let owner = recovered_ready_owner(*_route)?;
-        Ok(Stage8bP1eReadyPollingV1 { owner, control })
+        Ok(Stage8bP1eReadyPollingV1 {
+            owner,
+            control,
+            committed_cancel_disposition,
+        })
     }
 }
 
@@ -733,11 +748,33 @@ impl Stage8bP1eRecoveredReadyV1 {
 pub struct Stage8bP1eReadyPollingV1 {
     owner: Box<Stage8bP1RedisSemanticCompositionOwner>,
     control: Stage8bP1eRedisControlV1,
+    committed_cancel_disposition: Option<Stage8bP1RedisZeroIntentAckDisposition>,
 }
 
 impl Stage8bP1eReadyPollingV1 {
     pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
         &mut self.control
+    }
+
+    fn is_committed_cancel_resolution(&self) -> bool {
+        self.committed_cancel_disposition.is_some()
+    }
+
+    fn into_committed_cancel_resolved(
+        self,
+    ) -> Result<Stage8bP1eCommittedCancelResolvedV1, Stage8bP1eStartupErrorV1> {
+        let Self {
+            owner,
+            control,
+            committed_cancel_disposition,
+        } = self;
+        let disposition =
+            committed_cancel_disposition.ok_or(Stage8bP1eStartupErrorV1::ReadyBoundaryInvariant)?;
+        drop(owner);
+        Ok(Stage8bP1eCommittedCancelResolvedV1 {
+            disposition,
+            control,
+        })
     }
 
     /// Reclassifies an externally due day timer into the signed-schedule
@@ -888,7 +925,14 @@ pub async fn poll_stage8b_p1e_ready_once_v1(
     ready: Stage8bP1eReadyPollingV1,
     latch: &Stage8bP1eShutdownLatchV1,
 ) -> Result<Stage8bP1eReadyPollOutcomeV1, Stage8bP1eStartupErrorV1> {
-    let Stage8bP1eReadyPollingV1 { owner, control } = ready;
+    let Stage8bP1eReadyPollingV1 {
+        owner,
+        control,
+        committed_cancel_disposition,
+    } = ready;
+    if committed_cancel_disposition.is_some() {
+        return Err(Stage8bP1eStartupErrorV1::ReadyBoundaryInvariant);
+    }
     if let Some(shutdown_intent) = latch.intent().cloned() {
         drop(owner);
         return Ok(Stage8bP1eReadyPollOutcomeV1::Stopped(
@@ -910,7 +954,11 @@ pub async fn poll_stage8b_p1e_ready_once_v1(
                 ))
             } else {
                 Ok(Stage8bP1eReadyPollOutcomeV1::Empty(
-                    Stage8bP1eReadyPollingV1 { owner, control },
+                    Stage8bP1eReadyPollingV1 {
+                        owner,
+                        control,
+                        committed_cancel_disposition: None,
+                    },
                 ))
             }
         }
@@ -1967,7 +2015,11 @@ async fn advance_stage8b_p1e_day_expiry_schedule_with_timeout_v1(
                 Stage8bP1eSignedDayExpiryScheduleOutcomeV1::Ready(owner) => {
                     context.high_water = Some(committed_high_water);
                     Ok(Stage8bP1eDayExpiryScheduleAdvanceOutcomeV1::Ready(
-                        Stage8bP1eReadyPollingV1 { owner, control },
+                        Stage8bP1eReadyPollingV1 {
+                            owner,
+                            control,
+                            committed_cancel_disposition: None,
+                        },
                     ))
                 }
             }
@@ -2342,6 +2394,7 @@ pub enum Stage8bP1eScheduleFreeDrainOutcomeV1 {
 /// external schedule/retry policy before polling may resume.
 pub enum Stage8bP1eScheduleFreeOwnerLoopOutcomeV1 {
     StoppedReady(Stage8bP1eStoppedReadyPollingV1),
+    CommittedCancelResolved(Stage8bP1eCommittedCancelResolvedV1),
     RetainedSource(Stage8bP1eRetainedStartupV1),
     RetainedRecovery(Stage8bP1eRetainedRecoveryBoundaryV1),
     PendingNotClaimable(Stage8bP1eRecoveredPendingNotClaimableV1),
@@ -2356,6 +2409,9 @@ pub enum Stage8bP1eScheduleFreeOwnerLoopOutcomeV1 {
 pub enum Stage8bP1eOwnerLoopOutcomeV1 {
     StoppedReady(Stage8bP1eStoppedReadyPollingV1),
     StoppedSchedule(Stage8bP1eScheduleStoppedRecoveryV1),
+    CommittedCancelRestartRequired(Stage8bP1eCommittedCancelRestartRequiredV1),
+    CommittedCancelResolved(Stage8bP1eCommittedCancelResolvedV1),
+    CommittedDayExpiryResolved(Stage8bP1eCommittedDayExpiryResolvedV1),
     RetainedSource(Stage8bP1eRetainedStartupV1),
     RetainedRecovery(Stage8bP1eRetainedRecoveryBoundaryV1),
     PendingNotClaimable(Stage8bP1eRecoveredPendingNotClaimableV1),
@@ -2365,6 +2421,58 @@ pub enum Stage8bP1eOwnerLoopOutcomeV1 {
     StartupPendingNotClaimable(Stage8bP1ePendingNotClaimableStartupV1),
     StartupLimitSchedule(Stage8bP1eLimitScheduleStartupV1),
     StartupCommittedSchedule(Stage8bP1eCommittedScheduleStartupV1),
+}
+
+/// Terminal composition boundary after a committed CANCEL has persisted its
+/// replacement truth and resolved its exact source XACK. It deliberately owns
+/// no fresh schedule-admission authority.
+pub struct Stage8bP1eCommittedCancelResolvedV1 {
+    disposition: Stage8bP1RedisZeroIntentAckDisposition,
+    control: Stage8bP1eRedisControlV1,
+}
+
+impl Stage8bP1eCommittedCancelResolvedV1 {
+    pub const fn disposition(&self) -> Stage8bP1RedisZeroIntentAckDisposition {
+        self.disposition
+    }
+
+    pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
+        &mut self.control
+    }
+}
+
+/// Terminal composition boundary after source-free committed Day-expiry.
+/// Retaining the recovered owner proves that no source claim/XACK or fresh
+/// schedule admission was introduced while finishing this invocation.
+pub struct Stage8bP1eCommittedDayExpiryResolvedV1 {
+    _owner: Box<Stage8bP1RedisSemanticCompositionOwner>,
+    control: Stage8bP1eRedisControlV1,
+}
+
+impl Stage8bP1eCommittedDayExpiryResolvedV1 {
+    pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
+        &mut self.control
+    }
+}
+
+/// Terminal owner-loop boundary after a committed V4 CANCEL reaches the
+/// durable target-first `P1d3CancelContinuationPending` seal. The transient
+/// owner is deliberately released: the next process invocation must
+/// authenticate and reopen that exact durable frontier before recovered
+/// CANCEL settlement. This prevents both same-owner cached-seal reuse and a
+/// fall-through to fresh signed-schedule admission.
+pub struct Stage8bP1eCommittedCancelRestartRequiredV1 {
+    control: Stage8bP1eRedisControlV1,
+}
+
+impl Stage8bP1eCommittedCancelRestartRequiredV1 {
+    pub const fn kind(&self) -> Stage8bP1eRestartKindV1 {
+        Stage8bP1eRestartKindV1::P1d3CancelContinuationPending
+    }
+
+    pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
+        &mut self.control
+    }
 }
 
 enum Stage8bP1eOwnerLoopEntryV1 {
@@ -2395,6 +2503,23 @@ impl Stage8bP1eOwnerLoopClockV1 {
     }
 }
 
+fn restore_stage8b_p1e_owner_loop_high_water_v1(
+    ready: &Stage8bP1eReadyPollingV1,
+    _reader: &crate::Stage8bP1eRedisScheduleReader,
+    context: &mut strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
+) -> Result<(), Stage8bP1eStartupErrorV1> {
+    #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+    if let Some((public_key_hex, key_valid_from, key_valid_until)) = _reader.test_fixture_trust() {
+        return ready.test_restore_durable_schedule_high_water_with_key(
+            context,
+            &public_key_hex,
+            key_valid_from,
+            key_valid_until,
+        );
+    }
+    ready.restore_durable_schedule_high_water(context)
+}
+
 /// Consumes the sole S05/S06 startup owner and joins every already-composed
 /// route to the long-lived S08/S09 task. Startup routes whose signed authority
 /// bridge is not yet composed remain typed terminal owners; they are never
@@ -2415,6 +2540,12 @@ pub async fn run_stage8b_p1e_startup_owner_loop_v1(
                 .await?
             {
                 Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(ready) => {
+                    if ready.is_committed_cancel_resolution() {
+                        restore_stage8b_p1e_owner_loop_high_water_v1(&ready, reader, context)?;
+                        return Ok(Stage8bP1eOwnerLoopOutcomeV1::CommittedCancelResolved(
+                            ready.into_committed_cancel_resolved()?,
+                        ));
+                    }
                     Stage8bP1eOwnerLoopEntryV1::Ready(ready)
                 }
                 Stage8bP1eScheduleFreeDrainOutcomeV1::RetainedForRestart(retained) => {
@@ -2446,7 +2577,7 @@ pub async fn run_stage8b_p1e_startup_owner_loop_v1(
             let Stage8bP1eCommittedScheduleStartupV1 {
                 durable,
                 transport,
-                control,
+                mut control,
             } = pending;
             if durable.is_generated_market() {
                 match resume_stage8b_p1e_committed_generated_market_with_redis(
@@ -2505,6 +2636,115 @@ pub async fn run_stage8b_p1e_startup_owner_loop_v1(
                                 Stage8bP1eOwnerLoopEntryV1::ScheduleDeferred(deferred)
                             }
                         }
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            } else if durable.is_cancel() {
+                match resume_stage8b_p1e_committed_cancel_with_redis(
+                    durable,
+                    transport,
+                    latch,
+                    commitment_key,
+                )
+                .await
+                {
+                    Ok(Stage8bP1eRecoveredCancelScheduleOutcomeV1::Stopped(receipt)) => {
+                        return Ok(Stage8bP1eOwnerLoopOutcomeV1::StoppedSchedule(
+                            Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                        ));
+                    }
+                    Ok(Stage8bP1eRecoveredCancelScheduleOutcomeV1::CancelCommitted {
+                        outcome,
+                        high_water,
+                    }) => {
+                        apply_recovered_schedule_high_water(context, Some(high_water))?;
+                        let route = match *outcome {
+                            Stage8bP1RedisCancelCommitOutcome::AckCommitted(owner) => {
+                                Stage8bP1eRecoveryStepRouteV1::LimitAckCommitted(Box::new(owner))
+                            }
+                            Stage8bP1RedisCancelCommitOutcome::TruthCommitted(owner) => {
+                                Stage8bP1eRecoveryStepRouteV1::LimitTruthCommitted(Box::new(owner))
+                            }
+                            Stage8bP1RedisCancelCommitOutcome::CancelContinuationPending(owner) => {
+                                debug_assert!(!owner.m10_xack_allowed());
+                                drop(owner);
+                                return Ok(
+                                    Stage8bP1eOwnerLoopOutcomeV1::CommittedCancelRestartRequired(
+                                        Stage8bP1eCommittedCancelRestartRequiredV1 { control },
+                                    ),
+                                );
+                            }
+                        };
+                        match drain_stage8b_p1e_recovery_lifecycle_v1(
+                            Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(Box::new(
+                                Stage8bP1eRecoveryStepV1 {
+                                    route: Box::new(route),
+                                    control,
+                                },
+                            )),
+                            latch,
+                            commitment_key,
+                        )
+                        .await?
+                        {
+                            Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(ready) => {
+                                if !ready.is_committed_cancel_resolution() {
+                                    return Err(Stage8bP1eStartupErrorV1::ReadyBoundaryInvariant);
+                                }
+                                return Ok(Stage8bP1eOwnerLoopOutcomeV1::CommittedCancelResolved(
+                                    ready.into_committed_cancel_resolved()?,
+                                ));
+                            }
+                            Stage8bP1eScheduleFreeDrainOutcomeV1::RetainedForRestart(retained) => {
+                                return Ok(Stage8bP1eOwnerLoopOutcomeV1::RetainedRecovery(
+                                    retained,
+                                ));
+                            }
+                            Stage8bP1eScheduleFreeDrainOutcomeV1::PendingNotClaimable(pending) => {
+                                return Ok(Stage8bP1eOwnerLoopOutcomeV1::PendingNotClaimable(
+                                    pending,
+                                ));
+                            }
+                            Stage8bP1eScheduleFreeDrainOutcomeV1::Blocked(blocked) => {
+                                return Ok(Stage8bP1eOwnerLoopOutcomeV1::Blocked(blocked));
+                            }
+                            Stage8bP1eScheduleFreeDrainOutcomeV1::ScheduleDeferred(deferred) => {
+                                Stage8bP1eOwnerLoopEntryV1::ScheduleDeferred(deferred)
+                            }
+                        }
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            } else if durable.is_day_expiry() {
+                // A committed Day-expiry transition is source-free. The
+                // production composition, rather than the low-level durable
+                // continuation, owns the mandatory proof that no M10 delivery
+                // can be acknowledged by this route.
+                if control.pel_count().await? != 0 {
+                    return Err(Stage8bP1eStartupErrorV1::CommittedDayExpiryPelNotEmpty);
+                }
+                match resume_stage8b_p1e_committed_day_expiry(
+                    durable,
+                    transport,
+                    latch,
+                    commitment_key,
+                ) {
+                    Ok(Stage8bP1eRecoveredDayExpiryScheduleOutcomeV1::Stopped(receipt)) => {
+                        return Ok(Stage8bP1eOwnerLoopOutcomeV1::StoppedSchedule(
+                            Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                        ));
+                    }
+                    Ok(Stage8bP1eRecoveredDayExpiryScheduleOutcomeV1::Ready {
+                        owner,
+                        high_water,
+                    }) => {
+                        apply_recovered_schedule_high_water(context, Some(high_water))?;
+                        return Ok(Stage8bP1eOwnerLoopOutcomeV1::CommittedDayExpiryResolved(
+                            Stage8bP1eCommittedDayExpiryResolvedV1 {
+                                _owner: owner,
+                                control,
+                            },
+                        ));
                     }
                     Err(error) => return Err(error.into()),
                 }
@@ -2607,7 +2847,7 @@ async fn run_stage8b_p1e_owner_loop_from_entry_v1(
     commitment_key: &Stage5gLifecycleCommitmentKey,
 ) -> Result<Stage8bP1eOwnerLoopOutcomeV1, Stage8bP1eStartupErrorV1> {
     if let Stage8bP1eOwnerLoopEntryV1::Ready(ready) = &entry {
-        ready.restore_durable_schedule_high_water(context)?;
+        restore_stage8b_p1e_owner_loop_high_water_v1(ready, reader, context)?;
     }
     let clock = Stage8bP1eOwnerLoopClockV1::new(context.trusted_now);
     loop {
@@ -2618,6 +2858,11 @@ async fn run_stage8b_p1e_owner_loop_from_entry_v1(
                 {
                     Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::StoppedReady(stopped) => {
                         return Ok(Stage8bP1eOwnerLoopOutcomeV1::StoppedReady(stopped));
+                    }
+                    Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::CommittedCancelResolved(resolved) => {
+                        return Ok(Stage8bP1eOwnerLoopOutcomeV1::CommittedCancelResolved(
+                            resolved,
+                        ));
                     }
                     Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::RetainedSource(retained) => {
                         return Ok(Stage8bP1eOwnerLoopOutcomeV1::RetainedSource(retained));
@@ -2697,6 +2942,13 @@ pub async fn run_stage8b_p1e_schedule_free_owner_loop_v1(
     commitment_key: &Stage5gLifecycleCommitmentKey,
 ) -> Result<Stage8bP1eScheduleFreeOwnerLoopOutcomeV1, Stage8bP1eStartupErrorV1> {
     loop {
+        if ready.is_committed_cancel_resolution() {
+            return Ok(
+                Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::CommittedCancelResolved(
+                    ready.into_committed_cancel_resolved()?,
+                ),
+            );
+        }
         match poll_stage8b_p1e_ready_once_v1(ready, latch).await? {
             Stage8bP1eReadyPollOutcomeV1::Empty(next) => ready = next,
             Stage8bP1eReadyPollOutcomeV1::Stopped(stopped) => {
@@ -4072,6 +4324,7 @@ mod tests {
         let deferred = Stage8bP1eReadyPollingV1 {
             owner: Box::new(owner),
             control,
+            committed_cancel_disposition: None,
         }
         .test_into_day_expiry_schedule_with_key(
             &mut context,
@@ -4557,6 +4810,7 @@ mod tests {
         let ready = Stage8bP1eReadyPollingV1 {
             owner: Box::new(owner),
             control,
+            committed_cancel_disposition: None,
         };
         let latch = Stage8bP1eShutdownLatchV1::new();
 
@@ -5617,6 +5871,7 @@ mod tests {
         let result = Stage8bP1eReadyPollingV1 {
             owner: Box::new(owner),
             control,
+            committed_cancel_disposition: None,
         }
         .test_into_day_expiry_schedule_with_key(
             &mut context,
@@ -5688,6 +5943,7 @@ mod tests {
         let deferred = Stage8bP1eReadyPollingV1 {
             owner: Box::new(owner),
             control,
+            committed_cancel_disposition: None,
         }
         .test_into_day_expiry_schedule_with_key(
             &mut context,
@@ -5786,6 +6042,7 @@ mod tests {
         let deferred = Stage8bP1eReadyPollingV1 {
             owner: Box::new(owner),
             control,
+            committed_cancel_disposition: None,
         }
         .test_into_day_expiry_schedule_with_key(
             &mut context,
@@ -5921,6 +6178,7 @@ mod tests {
         let deferred = Stage8bP1eReadyPollingV1 {
             owner: Box::new(owner),
             control,
+            committed_cancel_disposition: None,
         }
         .test_into_day_expiry_schedule_with_key(
             &mut context,
@@ -6260,7 +6518,10 @@ mod tests {
             0,
             "committed V4 restart must not reread signed schedule source"
         );
-        assert_eq!(restart_context.high_water, Some(expected_high_water));
+        assert_eq!(
+            restart_context.high_water,
+            Some(expected_high_water.clone())
+        );
         let pending_after: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
             .arg(&namespace.canonical_m10_stream)
             .arg(&namespace.m10_consumer_group)
@@ -6833,6 +7094,893 @@ mod tests {
             .unwrap();
         assert_eq!(pending_after.count(), 0, "source-free restart cannot XACK");
         drop(owner);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[tokio::test]
+    async fn owner_loop_routes_committed_cancel_ack_truth_to_xack_last() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("owner-loop-committed-cancel-ack-truth");
+        let (published, key, fresh, identity_sha256, candidate_close_ms) =
+            crate::stage8b_p1_semantic::p1e_test_cancel_published(&redis.url, &parent).await;
+        let trusted_now = DateTime::<Utc>::from_timestamp_millis(candidate_close_ms).unwrap();
+        let fixture = crate::stage8b_p1e_schedule_source::tests::p1e_test_open_schedule_envelope(
+            identity_sha256,
+            fresh.stage5c_config_fingerprint(),
+            crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+            trusted_now,
+        );
+        let mut connection =
+            redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let _: String = redis::cmd("XADD")
+            .arg(strategy_runtime_core::STAGE8B_P1E_SCHEDULE_STREAM)
+            .arg("*")
+            .arg("payload")
+            .arg(&fixture.bytes)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let mut binding_reader =
+            crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
+                &redis.url,
+                fixture.public_key_hex.clone(),
+                fixture.key_valid_from,
+                fixture.key_valid_until,
+            )
+            .await
+            .unwrap();
+        let snapshot = match binding_reader
+            .read_newest_guarded(&fixture.context, &Stage8bP1eShutdownLatchV1::new())
+            .await
+            .unwrap()
+        {
+            crate::Stage8bP1eGuardedScheduleReadV1::Read(
+                crate::Stage8bP1eNewestScheduleReadV1::Verified(snapshot),
+            ) => snapshot,
+            _ => panic!("fixture schedule must produce one verified CANCEL snapshot"),
+        };
+        let expected_high_water = snapshot.high_water().clone();
+        crate::stage8b_p1_semantic::p1e_test_commit_cancel_v4_only(
+            published,
+            *snapshot,
+            trusted_now,
+            &key,
+        )
+        .await;
+
+        let namespace = crate::stage8b_p1_redis_namespace();
+        let operational_identity =
+            operational_identity_config(parent.clone(), fresh.stage5c_config_fingerprint());
+        let root_name =
+            crate::Stage7bDurableRootAuthority::expected_directory_name(&operational_identity)
+                .unwrap();
+        let root = crate::Stage7bDurableRootAuthority::validate(
+            parent.join(&root_name),
+            &operational_identity,
+        )
+        .unwrap();
+        let restart = crate::Stage7bRecoveryReadyOwner::stage8b_p1e_test_restart_with_schedule_key(
+            root,
+            operational_identity.clone(),
+            &key,
+            fresh.clone(),
+            fixture.public_key_hex.clone(),
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .unwrap();
+        let Stage8bP1ePreRedisRestartV1::Attachable(restart) =
+            stage8b_p1e_route_pre_redis_restart_v1(restart)
+        else {
+            panic!("authenticated committed CANCEL must be attachable")
+        };
+        tokio::time::sleep(StdDuration::from_millis(5)).await;
+        crate::stage8b_p1_semantic::p1e_i1_begin_direct_effect_audit();
+        let session =
+            crate::stage8b_p1_supervisor::stage8b_p1e_test_verified_redis_session_v1(&redis.url)
+                .await;
+        let startup = acquire_stage8b_p1e_startup_owner_v1(restart, session)
+            .await
+            .unwrap();
+        let mut reader = crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
+            &redis.url,
+            fixture.public_key_hex.clone(),
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .await
+        .unwrap();
+        let mut context = fixture.context.clone();
+        let outcome = run_stage8b_p1e_startup_owner_loop_v1(
+            startup,
+            &mut reader,
+            &mut context,
+            &Stage8bP1eShutdownLatchV1::new(),
+            &key,
+        )
+        .await
+        .unwrap();
+        let resolved = match outcome {
+            Stage8bP1eOwnerLoopOutcomeV1::CommittedCancelResolved(resolved) => resolved,
+            _ => panic!("committed CANCEL ACK/truth must stop at typed XACK-last completion"),
+        };
+        assert_eq!(
+            resolved.disposition(),
+            Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending
+        );
+        drop(resolved);
+        let effects = crate::stage8b_p1_semantic::p1e_i1_take_direct_effect_audit();
+        assert_eq!(effects.provider_total, 1);
+        assert_eq!(effects.callback_total, 0);
+        assert_eq!(effects.publication_total, 0);
+        assert!(effects.claim_total > 0);
+        assert_eq!(effects.xack_total, 1);
+        assert_eq!(effects.schedule_read_total, 0);
+        assert_eq!(reader.test_read_attempts(), 0);
+        assert_eq!(context.high_water, Some(expected_high_water));
+        let pending: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending.count(), 0);
+
+        let root = crate::Stage7bDurableRootAuthority::validate(
+            parent.join(root_name),
+            &operational_identity,
+        )
+        .unwrap();
+        let restart = crate::Stage7bRecoveryReadyOwner::stage8b_p1e_test_restart_with_schedule_key(
+            root,
+            operational_identity,
+            &key,
+            fresh,
+            fixture.public_key_hex,
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .unwrap();
+        let audit = restart.stage8b_p1d4_test_runtime_audit().unwrap();
+        let cancel = audit
+            .sequence_allocations
+            .iter()
+            .find(|allocation| allocation.outcome_kind == "cancel_canceled")
+            .expect("committed CANCEL must retain its exact terminal allocation");
+        let seq_ack = cancel.seq_ack.expect("CANCEL ACK sequence");
+        let seq_truth = cancel.seq_truth.expect("CANCEL truth sequence");
+        assert_eq!(seq_ack.checked_add(1), Some(seq_truth));
+        assert!(matches!(
+            restart,
+            Stage7bRestartOutcome::P1d3TruthCommitted(_)
+        ));
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[tokio::test]
+    async fn owner_loop_routes_committed_target_first_cancel_to_xack_last() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("owner-loop-committed-target-first-cancel");
+        let (published, key, fresh, identity_sha256, candidate_close_ms) =
+            crate::stage8b_p1_semantic::p1e_test_target_first_cancel_published(&redis.url, &parent)
+                .await;
+        let trusted_now = DateTime::<Utc>::from_timestamp_millis(candidate_close_ms).unwrap();
+        let fixture = crate::stage8b_p1e_schedule_source::tests::p1e_test_open_schedule_envelope(
+            identity_sha256,
+            fresh.stage5c_config_fingerprint(),
+            crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+            trusted_now,
+        );
+        let mut connection =
+            redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let _: String = redis::cmd("XADD")
+            .arg(strategy_runtime_core::STAGE8B_P1E_SCHEDULE_STREAM)
+            .arg("*")
+            .arg("payload")
+            .arg(&fixture.bytes)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let mut binding_reader =
+            crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
+                &redis.url,
+                fixture.public_key_hex.clone(),
+                fixture.key_valid_from,
+                fixture.key_valid_until,
+            )
+            .await
+            .unwrap();
+        let snapshot = match binding_reader
+            .read_newest_guarded(&fixture.context, &Stage8bP1eShutdownLatchV1::new())
+            .await
+            .unwrap()
+        {
+            crate::Stage8bP1eGuardedScheduleReadV1::Read(
+                crate::Stage8bP1eNewestScheduleReadV1::Verified(snapshot),
+            ) => snapshot,
+            _ => panic!("fixture schedule must produce one verified CANCEL snapshot"),
+        };
+        let expected_high_water = snapshot.high_water().clone();
+        crate::stage8b_p1_semantic::p1e_test_commit_cancel_v4_only(
+            published,
+            *snapshot,
+            trusted_now,
+            &key,
+        )
+        .await;
+
+        let namespace = crate::stage8b_p1_redis_namespace();
+        let commands_before: usize = redis::cmd("XLEN")
+            .arg(&namespace.canonical_command_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let operational_identity =
+            operational_identity_config(parent.clone(), fresh.stage5c_config_fingerprint());
+        let root_name =
+            crate::Stage7bDurableRootAuthority::expected_directory_name(&operational_identity)
+                .unwrap();
+        let root = crate::Stage7bDurableRootAuthority::validate(
+            parent.join(&root_name),
+            &operational_identity,
+        )
+        .unwrap();
+        let restart = crate::Stage7bRecoveryReadyOwner::stage8b_p1e_test_restart_with_schedule_key(
+            root,
+            operational_identity.clone(),
+            &key,
+            fresh.clone(),
+            fixture.public_key_hex.clone(),
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .unwrap();
+        let audit_before = restart.stage8b_p1d4_test_runtime_audit().unwrap();
+        let Stage8bP1ePreRedisRestartV1::Attachable(restart) =
+            stage8b_p1e_route_pre_redis_restart_v1(restart)
+        else {
+            panic!("authenticated committed CANCEL must be attachable")
+        };
+        tokio::time::sleep(StdDuration::from_millis(5)).await;
+        let session =
+            crate::stage8b_p1_supervisor::stage8b_p1e_test_verified_redis_session_v1(&redis.url)
+                .await;
+        let startup = acquire_stage8b_p1e_startup_owner_v1(restart, session)
+            .await
+            .unwrap();
+        let mut reader = crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
+            &redis.url,
+            fixture.public_key_hex.clone(),
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .await
+        .unwrap();
+        let mut context = fixture.context.clone();
+        let outcome = run_stage8b_p1e_startup_owner_loop_v1(
+            startup,
+            &mut reader,
+            &mut context,
+            &Stage8bP1eShutdownLatchV1::new(),
+            &key,
+        )
+        .await
+        .unwrap();
+        let restart_required = match outcome {
+            Stage8bP1eOwnerLoopOutcomeV1::CommittedCancelRestartRequired(boundary) => boundary,
+            _ => panic!("target-first CANCEL must stop at its authenticated restart boundary"),
+        };
+        assert_eq!(
+            restart_required.kind(),
+            Stage8bP1eRestartKindV1::P1d3CancelContinuationPending
+        );
+        drop(restart_required);
+
+        assert_eq!(reader.test_read_attempts(), 0);
+        assert_eq!(context.high_water, Some(expected_high_water.clone()));
+        let pending_at_restart: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(
+            pending_at_restart.count(),
+            1,
+            "target-first restart boundary cannot acknowledge the source"
+        );
+        let commands_at_restart: usize = redis::cmd("XLEN")
+            .arg(&namespace.canonical_command_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(commands_at_restart, commands_before);
+
+        let root = crate::Stage7bDurableRootAuthority::validate(
+            parent.join(&root_name),
+            &operational_identity,
+        )
+        .unwrap();
+        let restart = crate::Stage7bRecoveryReadyOwner::stage8b_p1e_test_restart_with_schedule_key(
+            root,
+            operational_identity.clone(),
+            &key,
+            fresh.clone(),
+            fixture.public_key_hex.clone(),
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .unwrap();
+        let audit_at_restart = restart.stage8b_p1d4_test_runtime_audit().unwrap();
+        assert_eq!(audit_at_restart.callback_count, audit_before.callback_count);
+        assert_eq!(
+            audit_at_restart.dispatch_v1_total,
+            audit_before.dispatch_v1_total + 1,
+            "the committed CANCEL executes exactly once before target-first restart"
+        );
+        assert!(matches!(
+            &restart,
+            Stage7bRestartOutcome::P1d3CancelContinuationPending(_)
+        ));
+        let Stage8bP1ePreRedisRestartV1::Attachable(restart) =
+            stage8b_p1e_route_pre_redis_restart_v1(restart)
+        else {
+            panic!("authenticated recovered-CANCEL continuation must be attachable")
+        };
+        tokio::time::sleep(StdDuration::from_millis(5)).await;
+        crate::stage8b_p1_semantic::p1e_i1_begin_direct_effect_audit();
+        let session =
+            crate::stage8b_p1_supervisor::stage8b_p1e_test_verified_redis_session_v1(&redis.url)
+                .await;
+        let startup = acquire_stage8b_p1e_startup_owner_v1(restart, session)
+            .await
+            .unwrap();
+        let mut restart_reader =
+            crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
+                &redis.url,
+                fixture.public_key_hex.clone(),
+                fixture.key_valid_from,
+                fixture.key_valid_until,
+            )
+            .await
+            .unwrap();
+        let mut restart_context = fixture.context.clone();
+        let outcome = run_stage8b_p1e_startup_owner_loop_v1(
+            startup,
+            &mut restart_reader,
+            &mut restart_context,
+            &Stage8bP1eShutdownLatchV1::new(),
+            &key,
+        )
+        .await
+        .unwrap();
+        let resolved = match outcome {
+            Stage8bP1eOwnerLoopOutcomeV1::CommittedCancelResolved(resolved) => resolved,
+            _ => panic!("recovered CANCEL must stop at typed XACK-last completion"),
+        };
+        assert_eq!(
+            resolved.disposition(),
+            Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending
+        );
+        drop(resolved);
+        let effects = crate::stage8b_p1_semantic::p1e_i1_take_direct_effect_audit();
+        assert_eq!(effects.provider_total, 0);
+        assert_eq!(effects.callback_total, 0);
+        assert_eq!(effects.publication_total, 0);
+        assert!(effects.claim_total > 0);
+        assert_eq!(effects.xack_total, 1);
+        assert_eq!(effects.schedule_read_total, 0);
+
+        assert_eq!(restart_reader.test_read_attempts(), 0);
+        assert_eq!(
+            restart_context.high_water,
+            Some(expected_high_water.clone())
+        );
+        let commands_after: usize = redis::cmd("XLEN")
+            .arg(&namespace.canonical_command_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(
+            commands_after, commands_before,
+            "CANCEL cannot be republished"
+        );
+        let pending_after: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending_after.count(), 0);
+
+        let root = crate::Stage7bDurableRootAuthority::validate(
+            parent.join(&root_name),
+            &operational_identity,
+        )
+        .unwrap();
+        let restart = crate::Stage7bRecoveryReadyOwner::stage8b_p1e_test_restart_with_schedule_key(
+            root,
+            operational_identity.clone(),
+            &key,
+            fresh.clone(),
+            fixture.public_key_hex.clone(),
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .unwrap();
+        let audit_after = restart.stage8b_p1d4_test_runtime_audit().unwrap();
+        assert_eq!(
+            audit_after
+                .sequence_allocations
+                .iter()
+                .map(|allocation| allocation.outcome_kind.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "initial_working",
+                "later_filled",
+                "cancel_execution_observed"
+            ]
+        );
+        let target_truth = audit_after
+            .sequence_allocations
+            .iter()
+            .find(|allocation| allocation.outcome_kind == "later_filled")
+            .expect("target-first CANCEL must retain target truth allocation");
+        assert!(target_truth.seq_ack.is_none());
+        let target_truth_sequence = target_truth.seq_truth.expect("target truth sequence");
+        assert_eq!(
+            target_truth.sequence_allocation_frontier.checked_add(1),
+            Some(target_truth_sequence)
+        );
+        let recovered_cancel_ack = audit_after
+            .sequence_allocations
+            .iter()
+            .find(|allocation| allocation.outcome_kind == "cancel_execution_observed")
+            .expect("target-first CANCEL must retain exact recovered ACK allocation");
+        assert!(recovered_cancel_ack.seq_truth.is_none());
+        assert_eq!(
+            recovered_cancel_ack.sequence_allocation_frontier,
+            target_truth_sequence
+        );
+        assert_eq!(
+            recovered_cancel_ack.seq_ack,
+            target_truth_sequence.checked_add(1)
+        );
+        assert_eq!(audit_after.callback_count, audit_before.callback_count);
+        assert_eq!(
+            audit_after.dispatch_v1_total, audit_at_restart.dispatch_v1_total,
+            "recovered CANCEL continuation cannot repeat provider dispatch"
+        );
+        assert!(matches!(
+            &restart,
+            Stage7bRestartOutcome::P1d3TruthCommitted(_)
+        ));
+
+        let exact_sequence_allocations = audit_after.sequence_allocations.clone();
+        let Stage8bP1ePreRedisRestartV1::Attachable(restart) =
+            stage8b_p1e_route_pre_redis_restart_v1(restart)
+        else {
+            panic!("truth-committed CANCEL response-loss replay must be attachable")
+        };
+        crate::stage8b_p1_semantic::p1e_i1_begin_direct_effect_audit();
+        let session =
+            crate::stage8b_p1_supervisor::stage8b_p1e_test_verified_redis_session_v1(&redis.url)
+                .await;
+        let startup = acquire_stage8b_p1e_startup_owner_v1(restart, session)
+            .await
+            .unwrap();
+        let mut replay_reader =
+            crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
+                &redis.url,
+                fixture.public_key_hex.clone(),
+                fixture.key_valid_from,
+                fixture.key_valid_until,
+            )
+            .await
+            .unwrap();
+        let mut replay_context = fixture.context.clone();
+        let replay = run_stage8b_p1e_startup_owner_loop_v1(
+            startup,
+            &mut replay_reader,
+            &mut replay_context,
+            &Stage8bP1eShutdownLatchV1::new(),
+            &key,
+        )
+        .await
+        .unwrap();
+        let replay_resolved = match replay {
+            Stage8bP1eOwnerLoopOutcomeV1::CommittedCancelResolved(resolved) => resolved,
+            _ => panic!("final-XACK response loss must settle at the typed CANCEL boundary"),
+        };
+        assert_eq!(
+            replay_resolved.disposition(),
+            Stage8bP1RedisZeroIntentAckDisposition::AlreadyAcknowledged
+        );
+        assert_eq!(replay_reader.test_read_attempts(), 0);
+        assert_eq!(replay_context.high_water, Some(expected_high_water));
+        drop(replay_resolved);
+        let replay_effects = crate::stage8b_p1_semantic::p1e_i1_take_direct_effect_audit();
+        assert_eq!(replay_effects.provider_total, 0);
+        assert_eq!(replay_effects.callback_total, 0);
+        assert_eq!(replay_effects.publication_total, 0);
+        assert_eq!(replay_effects.claim_total, 0);
+        assert_eq!(replay_effects.xack_total, 0);
+        assert_eq!(replay_effects.schedule_read_total, 0);
+
+        let root = crate::Stage7bDurableRootAuthority::validate(
+            parent.join(root_name),
+            &operational_identity,
+        )
+        .unwrap();
+        let replay_restart =
+            crate::Stage7bRecoveryReadyOwner::stage8b_p1e_test_restart_with_schedule_key(
+                root,
+                operational_identity,
+                &key,
+                fresh,
+                fixture.public_key_hex,
+                fixture.key_valid_from,
+                fixture.key_valid_until,
+            )
+            .unwrap();
+        let replay_audit = replay_restart.stage8b_p1d4_test_runtime_audit().unwrap();
+        assert_eq!(
+            replay_audit.sequence_allocations, exact_sequence_allocations,
+            "final-XACK response loss cannot allocate another ACK/truth sequence"
+        );
+        assert_eq!(
+            replay_audit.dispatch_v1_total,
+            audit_after.dispatch_v1_total
+        );
+        assert_eq!(replay_audit.callback_count, audit_after.callback_count);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[tokio::test]
+    async fn owner_loop_routes_committed_day_expiry_source_free_to_terminal() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("owner-loop-committed-day-expiry");
+        let (owner, key, fresh, identity, boundary_ms) =
+            crate::stage8b_p1_semantic::p1e_test_day_expiry_ready(&redis.url, &parent).await;
+        let boundary = DateTime::<Utc>::from_timestamp_millis(boundary_ms).unwrap();
+        let mut fixture =
+            crate::stage8b_p1e_schedule_source::tests::p1e_test_closed_schedule_envelope(
+                identity,
+                fresh.stage5c_config_fingerprint(),
+                crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+                boundary,
+            );
+        fixture.bytes =
+            crate::stage8b_p1e_schedule_source::tests::p1e_test_revised_schedule_envelope(
+                &fixture.bytes,
+                2,
+                2,
+                boundary,
+            );
+        let mut connection =
+            redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let _: String = redis::cmd("XADD")
+            .arg(strategy_runtime_core::STAGE8B_P1E_SCHEDULE_STREAM)
+            .arg("*")
+            .arg("payload")
+            .arg(&fixture.bytes)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let mut binding_reader =
+            crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
+                &redis.url,
+                fixture.public_key_hex.clone(),
+                fixture.key_valid_from,
+                fixture.key_valid_until,
+            )
+            .await
+            .unwrap();
+        let snapshot = match binding_reader
+            .read_newest_guarded(&fixture.context, &Stage8bP1eShutdownLatchV1::new())
+            .await
+            .unwrap()
+        {
+            crate::Stage8bP1eGuardedScheduleReadV1::Read(
+                crate::Stage8bP1eNewestScheduleReadV1::Verified(snapshot),
+            ) => snapshot,
+            _ => panic!("fixture schedule must produce one verified Closed snapshot"),
+        };
+        let expected_high_water = snapshot.high_water().clone();
+        crate::stage8b_p1_semantic::p1e_test_commit_day_expiry_v4_only(
+            owner, *snapshot, boundary, &key,
+        );
+        let namespace = crate::stage8b_p1_redis_namespace();
+        let commands_before: usize = redis::cmd("XLEN")
+            .arg(&namespace.canonical_command_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let operational_identity =
+            operational_identity_config(parent.clone(), fresh.stage5c_config_fingerprint());
+        let root_name =
+            crate::Stage7bDurableRootAuthority::expected_directory_name(&operational_identity)
+                .unwrap();
+        let root = crate::Stage7bDurableRootAuthority::validate(
+            parent.join(&root_name),
+            &operational_identity,
+        )
+        .unwrap();
+        let restart = crate::Stage7bRecoveryReadyOwner::stage8b_p1e_test_restart_with_schedule_key(
+            root,
+            operational_identity.clone(),
+            &key,
+            fresh.clone(),
+            fixture.public_key_hex.clone(),
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .unwrap();
+        let audit_before = restart.stage8b_p1d4_test_runtime_audit().unwrap();
+        let Stage8bP1ePreRedisRestartV1::Attachable(restart) =
+            stage8b_p1e_route_pre_redis_restart_v1(restart)
+        else {
+            panic!("authenticated committed Day-expiry must be attachable")
+        };
+        crate::stage8b_p1_semantic::p1e_i1_begin_direct_effect_audit();
+        let session =
+            crate::stage8b_p1_supervisor::stage8b_p1e_test_verified_redis_session_v1(&redis.url)
+                .await;
+        let startup = acquire_stage8b_p1e_startup_owner_v1(restart, session)
+            .await
+            .unwrap();
+        let mut reader = crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
+            &redis.url,
+            fixture.public_key_hex.clone(),
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .await
+        .unwrap();
+        let mut context = fixture.context;
+        let outcome = run_stage8b_p1e_startup_owner_loop_v1(
+            startup,
+            &mut reader,
+            &mut context,
+            &Stage8bP1eShutdownLatchV1::new(),
+            &key,
+        )
+        .await
+        .unwrap();
+        let Stage8bP1eOwnerLoopOutcomeV1::CommittedDayExpiryResolved(resolved) = outcome else {
+            panic!("source-free Day-expiry must stop at its typed terminal boundary")
+        };
+        drop(resolved);
+        let effects = crate::stage8b_p1_semantic::p1e_i1_take_direct_effect_audit();
+        assert_eq!(effects.provider_total, 0);
+        assert_eq!(effects.callback_total, 0);
+        assert_eq!(effects.publication_total, 0);
+        assert_eq!(effects.claim_total, 0);
+        assert_eq!(effects.xack_total, 0);
+        assert_eq!(effects.schedule_read_total, 0);
+
+        assert_eq!(reader.test_read_attempts(), 0);
+        assert_eq!(context.high_water, Some(expected_high_water));
+        let pending_after: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending_after.count(), 0);
+        let commands_after: usize = redis::cmd("XLEN")
+            .arg(&namespace.canonical_command_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(commands_after, commands_before);
+
+        let root = crate::Stage7bDurableRootAuthority::validate(
+            parent.join(root_name),
+            &operational_identity,
+        )
+        .unwrap();
+        let restart = crate::Stage7bRecoveryReadyOwner::stage8b_p1e_test_restart_with_schedule_key(
+            root,
+            operational_identity,
+            &key,
+            fresh,
+            fixture.public_key_hex,
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .unwrap();
+        let audit_after = restart.stage8b_p1d4_test_runtime_audit().unwrap();
+        assert!(
+            audit_after
+                .sequence_allocations
+                .starts_with(&audit_before.sequence_allocations),
+            "Day-expiry must preserve the exact pre-restart sequence prefix"
+        );
+        let expiry = audit_after
+            .sequence_allocations
+            .strip_prefix(audit_before.sequence_allocations.as_slice())
+            .and_then(|suffix| match suffix {
+                [expiry] if expiry.outcome_kind == "later_expired" => Some(expiry),
+                _ => None,
+            })
+            .expect("source-free Day-expiry must allocate one terminal truth sequence");
+        assert!(expiry.seq_ack.is_none());
+        assert_eq!(
+            expiry.seq_truth,
+            expiry.sequence_allocation_frontier.checked_add(1)
+        );
+        assert_eq!(audit_after.callback_count, audit_before.callback_count);
+        assert_eq!(
+            audit_after.dispatch_v1_total,
+            audit_before.dispatch_v1_total
+        );
+        assert!(matches!(restart, Stage7bRestartOutcome::Ready(_)));
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[tokio::test]
+    async fn owner_loop_rejects_committed_day_expiry_when_pel_is_not_empty() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("owner-loop-day-expiry-nonempty-pel");
+        let (owner, key, fresh, identity, boundary_ms) =
+            crate::stage8b_p1_semantic::p1e_test_day_expiry_ready(&redis.url, &parent).await;
+        let boundary = DateTime::<Utc>::from_timestamp_millis(boundary_ms).unwrap();
+        let mut fixture =
+            crate::stage8b_p1e_schedule_source::tests::p1e_test_closed_schedule_envelope(
+                identity,
+                fresh.stage5c_config_fingerprint(),
+                crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+                boundary,
+            );
+        fixture.bytes =
+            crate::stage8b_p1e_schedule_source::tests::p1e_test_revised_schedule_envelope(
+                &fixture.bytes,
+                2,
+                2,
+                boundary,
+            );
+        let mut connection =
+            redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let _: String = redis::cmd("XADD")
+            .arg(strategy_runtime_core::STAGE8B_P1E_SCHEDULE_STREAM)
+            .arg("*")
+            .arg("payload")
+            .arg(&fixture.bytes)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let mut binding_reader =
+            crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
+                &redis.url,
+                fixture.public_key_hex.clone(),
+                fixture.key_valid_from,
+                fixture.key_valid_until,
+            )
+            .await
+            .unwrap();
+        let snapshot = match binding_reader
+            .read_newest_guarded(&fixture.context, &Stage8bP1eShutdownLatchV1::new())
+            .await
+            .unwrap()
+        {
+            crate::Stage8bP1eGuardedScheduleReadV1::Read(
+                crate::Stage8bP1eNewestScheduleReadV1::Verified(snapshot),
+            ) => snapshot,
+            _ => panic!("fixture schedule must produce one verified Closed snapshot"),
+        };
+        crate::stage8b_p1_semantic::p1e_test_commit_day_expiry_v4_only(
+            owner, *snapshot, boundary, &key,
+        );
+        let namespace = crate::stage8b_p1_redis_namespace();
+        let injected_id: String = redis::cmd("XADD")
+            .arg(&namespace.canonical_m10_stream)
+            .arg("*")
+            .arg("payload")
+            .arg("{}")
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let claimed: redis::streams::StreamReadReply = redis::cmd("XREADGROUP")
+            .arg("GROUP")
+            .arg(&namespace.m10_consumer_group)
+            .arg("day-expiry-negative")
+            .arg("COUNT")
+            .arg(1)
+            .arg("STREAMS")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(">")
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(claimed.keys[0].ids[0].id, injected_id);
+
+        let operational_identity =
+            operational_identity_config(parent.clone(), fresh.stage5c_config_fingerprint());
+        let root_name =
+            crate::Stage7bDurableRootAuthority::expected_directory_name(&operational_identity)
+                .unwrap();
+        let root_path = parent.join(root_name);
+        let durable_before = durable_file_snapshot(&root_path);
+        let root =
+            crate::Stage7bDurableRootAuthority::validate(root_path.clone(), &operational_identity)
+                .unwrap();
+        let restart = crate::Stage7bRecoveryReadyOwner::stage8b_p1e_test_restart_with_schedule_key(
+            root,
+            operational_identity,
+            &key,
+            fresh,
+            fixture.public_key_hex.clone(),
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .unwrap();
+        let Stage8bP1ePreRedisRestartV1::Attachable(restart) =
+            stage8b_p1e_route_pre_redis_restart_v1(restart)
+        else {
+            panic!("authenticated committed Day-expiry must be attachable")
+        };
+        crate::stage8b_p1_semantic::p1e_i1_begin_direct_effect_audit();
+        let session =
+            crate::stage8b_p1_supervisor::stage8b_p1e_test_verified_redis_session_v1(&redis.url)
+                .await;
+        let startup = acquire_stage8b_p1e_startup_owner_v1(restart, session)
+            .await
+            .unwrap();
+        let mut reader = crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
+            &redis.url,
+            fixture.public_key_hex,
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .await
+        .unwrap();
+        let mut context = fixture.context;
+        let error = match run_stage8b_p1e_startup_owner_loop_v1(
+            startup,
+            &mut reader,
+            &mut context,
+            &Stage8bP1eShutdownLatchV1::new(),
+            &key,
+        )
+        .await
+        {
+            Ok(_) => panic!("nonempty PEL must fail before Day-expiry continuation"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            error,
+            Stage8bP1eStartupErrorV1::CommittedDayExpiryPelNotEmpty
+        ));
+        let effects = crate::stage8b_p1_semantic::p1e_i1_take_direct_effect_audit();
+        assert_eq!(effects.provider_total, 0);
+        assert_eq!(effects.callback_total, 0);
+        assert_eq!(effects.publication_total, 0);
+        assert_eq!(effects.claim_total, 0);
+        assert_eq!(effects.xack_total, 0);
+        assert_eq!(effects.schedule_read_total, 0);
+        assert_eq!(reader.test_read_attempts(), 0);
+        assert_eq!(context.high_water, None);
+        let pending_after: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending_after.count(), 1);
+        assert_eq!(durable_file_snapshot(&root_path), durable_before);
         fs::remove_dir_all(parent).unwrap();
     }
 

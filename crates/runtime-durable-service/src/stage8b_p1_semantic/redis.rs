@@ -74,6 +74,61 @@ fn p1e_i0_take_post_permit_parse_audit() -> u64 {
     })
 }
 
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct P1eI1DirectEffectCountersV1 {
+    pub(crate) provider_total: u64,
+    pub(crate) callback_total: u64,
+    pub(crate) publication_total: u64,
+    pub(crate) claim_total: u64,
+    pub(crate) xack_total: u64,
+    pub(crate) schedule_read_total: u64,
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static P1E_I1_DIRECT_EFFECT_AUDIT: std::cell::Cell<Option<P1eI1DirectEffectCountersV1>> = const {
+        std::cell::Cell::new(None)
+    };
+}
+
+#[cfg(test)]
+pub(crate) fn p1e_i1_begin_direct_effect_audit() {
+    P1E_I1_DIRECT_EFFECT_AUDIT.with(|audit| {
+        assert!(
+            audit.get().is_none(),
+            "P1-e I1 direct effect audit is already active"
+        );
+        audit.set(Some(P1eI1DirectEffectCountersV1::default()));
+    });
+}
+
+#[cfg(test)]
+pub(crate) fn p1e_i1_take_direct_effect_audit() -> P1eI1DirectEffectCountersV1 {
+    P1E_I1_DIRECT_EFFECT_AUDIT.with(|audit| {
+        let observed = audit
+            .get()
+            .expect("P1-e I1 direct effect audit must be active");
+        audit.set(None);
+        observed
+    })
+}
+
+#[cfg(test)]
+fn p1e_i1_observe_direct_effect(update: impl FnOnce(&mut P1eI1DirectEffectCountersV1)) {
+    P1E_I1_DIRECT_EFFECT_AUDIT.with(|audit| {
+        if let Some(mut observed) = audit.get() {
+            update(&mut observed);
+            audit.set(Some(observed));
+        }
+    });
+}
+
+#[cfg(test)]
+pub(crate) fn p1e_i1_observe_direct_schedule_read() {
+    p1e_i1_observe_direct_effect(|observed| observed.schedule_read_total += 1);
+}
+
 fn parse_exact_after_p1e_permit(
     delivery: &Stage8bP1PendingM10Delivery,
     expected_operational_identity_sha256: &str,
@@ -144,11 +199,13 @@ fn p1e_i0_observe_replacement_seal_commit() {
 #[cfg(test)]
 fn p1e_i0_observe_callback() {
     p1e_i0_observe_effect(|observed| observed.callback_total += 1);
+    p1e_i1_observe_direct_effect(|observed| observed.callback_total += 1);
 }
 
 #[cfg(test)]
 fn p1e_i0_observe_publication() {
     p1e_i0_observe_effect(|observed| observed.publication_total += 1);
+    p1e_i1_observe_direct_effect(|observed| observed.publication_total += 1);
 }
 
 #[cfg(test)]
@@ -159,6 +216,7 @@ fn p1e_i0_observe_publication_revalidation() {
 #[cfg(test)]
 fn p1e_i0_observe_xack() {
     p1e_i0_observe_effect(|observed| observed.xack_total += 1);
+    p1e_i1_observe_direct_effect(|observed| observed.xack_total += 1);
 }
 
 #[cfg(test)]
@@ -295,6 +353,7 @@ fn p1d4_take_observed_effect_audit() -> P1d4ObservedEffectAudit {
 
 #[cfg(test)]
 fn p1d4_observe_p1d3_provider() {
+    p1e_i1_observe_direct_effect(|observed| observed.provider_total += 1);
     if let Some(audit) = p1d4_effect_audit()
         .lock()
         .expect("P1-d4 effect audit lock")
@@ -1634,6 +1693,7 @@ pub enum Stage8bP1RedisPreAckRecoveryOutcome {
 pub struct Stage8bP1RedisLimitResolved {
     owner: Box<Stage8bP1RedisSemanticCompositionOwner>,
     disposition: Stage8bP1RedisZeroIntentAckDisposition,
+    cancel_source: bool,
 }
 
 pub struct Stage8bP1RedisFeedbackResolved {
@@ -2161,6 +2221,7 @@ impl Stage8bP1RedisLimitTruthCommitted {
     pub async fn acknowledge_source(
         mut self,
     ) -> Result<Stage8bP1RedisLimitResolved, Stage8bP1RedisSemanticError> {
+        let cancel_source = self.durable.source_is_cancel();
         let disposition = self
             .transport
             .backend
@@ -2174,6 +2235,7 @@ impl Stage8bP1RedisLimitTruthCommitted {
                 transport: self.transport,
             }),
             disposition,
+            cancel_source,
         })
     }
 }
@@ -2181,6 +2243,10 @@ impl Stage8bP1RedisLimitTruthCommitted {
 impl Stage8bP1RedisLimitResolved {
     pub fn disposition(&self) -> Stage8bP1RedisZeroIntentAckDisposition {
         self.disposition
+    }
+
+    pub(crate) const fn cancel_source(&self) -> bool {
+        self.cancel_source
     }
 
     pub fn into_ready_owner(self) -> Box<Stage8bP1RedisSemanticCompositionOwner> {
@@ -5619,12 +5685,14 @@ pub async fn resume_stage8b_p1d3_truth_with_redis(
     else {
         return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch);
     };
+    let cancel_source = durable.source_is_cancel();
     let disposition = transport.backend.acknowledge_exact(&pending_m10).await?;
     crate::recovery::stage8b_p1d4_test_crash_frontier("F16");
     let stage7 = durable.into_ready_after_source_resolution();
     Ok(Stage8bP1RedisLimitResolved {
         owner: Box::new(Stage8bP1RedisSemanticCompositionOwner { stage7, transport }),
         disposition,
+        cancel_source,
     })
 }
 
@@ -5998,6 +6066,8 @@ impl Stage8bP1RedisBackend {
     ) -> Result<Option<Stage8bP1PendingM10Delivery>, Stage8bP1RedisSemanticError> {
         for _ in 0..self.config.max_claim_pages {
             let start = self.claim_cursor.clone();
+            #[cfg(test)]
+            p1e_i1_observe_direct_effect(|observed| observed.claim_total += 1);
             let reply: StreamAutoClaimReply = redis::cmd("XAUTOCLAIM")
                 .arg(&self.namespace.canonical_m10_stream)
                 .arg(&self.namespace.m10_consumer_group)

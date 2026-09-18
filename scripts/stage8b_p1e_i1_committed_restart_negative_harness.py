@@ -48,7 +48,14 @@ def main() -> None:
         ("pel-mid", "process", '"target truth cannot acknowledge M10"', '"removed target-first PEL check"'),
         ("cancel-no-reread", "process", '"committed Cancel restart cannot reread signed schedule"', '"removed cancel reread check"'),
         ("expiry-no-reread", "process", '"committed Day-expiry restart cannot reread signed schedule"', '"removed expiry reread check"'),
-        ("closed-wiring", "document", "production owner-loop wiring remains closed", "production owner-loop wiring is open"),
+        ("historical-wiring-boundary", "document", "production owner-loop wiring was closed at this immutable source boundary", "production owner-loop wiring was never closed"),
+        ("owner-cancel-terminal", "process", "CommittedCancelResolved(Stage8bP1eCommittedCancelResolvedV1)", "RemovedCancelResolved(Stage8bP1eCommittedCancelResolvedV1)"),
+        ("owner-expiry-terminal", "process", "CommittedDayExpiryResolved(Stage8bP1eCommittedDayExpiryResolvedV1)", "RemovedDayExpiryResolved(Stage8bP1eCommittedDayExpiryResolvedV1)"),
+        ("owner-expiry-pel", "process", "if control.pel_count().await? != 0", "if false"),
+        ("owner-direct-cancel-test", "process", "owner_loop_routes_committed_cancel_ack_truth_to_xack_last", "removed_direct_cancel_owner_test"),
+        ("owner-target-first-test", "process", "owner_loop_routes_committed_target_first_cancel_to_xack_last", "removed_target_first_owner_test"),
+        ("owner-day-expiry-test", "process", "owner_loop_routes_committed_day_expiry_source_free_to_terminal", "removed_day_expiry_owner_test"),
+        ("owner-document-no-fresh", "owner_document", "does not return to fresh schedule admission", "may return to fresh schedule admission"),
     ]
     section_cases = [
         ("cancel-reclaim", "redis", "pub async fn resume_stage8b_p1e_committed_cancel_with_redis(", ".reclaim_exact_binding(", ".removed_reclaim_exact_binding("),
@@ -58,6 +65,15 @@ def main() -> None:
         ("expiry-effect", "redis", "pub fn resume_stage8b_p1e_committed_day_expiry(", ".expire_working_limit(authority, commitment_key)?", ".removed_expire_working_limit(authority, commitment_key)?"),
         ("pel-truth", "process", "async fn committed_target_first_cancel_restart_preserves_pel_and_xacks_truth_last()", '"S_truth must precede XACK-last"', '"removed truth-before-XACK check"'),
         ("pel-last", "process", "async fn committed_target_first_cancel_restart_preserves_pel_and_xacks_truth_last()", "assert_eq!(pending_after.count(), 0)", "assert_eq!(pending_after.count(), 1)"),
+        ("direct-sequence", "process", "async fn owner_loop_routes_committed_cancel_ack_truth_to_xack_last()", "seq_ack.checked_add(1)", "Some(seq_ack)"),
+        ("response-loss", "process", "async fn owner_loop_routes_committed_target_first_cancel_to_xack_last()", "Stage8bP1RedisZeroIntentAckDisposition::AlreadyAcknowledged", "Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending"),
+        ("replay-sequence", "process", "async fn owner_loop_routes_committed_target_first_cancel_to_xack_last()", "replay_audit.sequence_allocations", "audit_after.sequence_allocations"),
+        ("replay-xack", "process", "async fn owner_loop_routes_committed_target_first_cancel_to_xack_last()", "replay_effects.xack_total, 0", "replay_effects.xack_total, 1"),
+        ("target-sequence", "process", "async fn owner_loop_routes_committed_target_first_cancel_to_xack_last()", "target_truth_sequence.checked_add(1)", "target_truth_sequence.checked_add(2)"),
+        ("replay-schedule-read", "process", "async fn owner_loop_routes_committed_target_first_cancel_to_xack_last()", "replay_effects.schedule_read_total, 0", "replay_effects.schedule_read_total, 1"),
+        ("expiry-claim", "process", "async fn owner_loop_routes_committed_day_expiry_source_free_to_terminal()", "effects.claim_total, 0", "effects.claim_total, 1"),
+        ("expiry-schedule-read", "process", "async fn owner_loop_routes_committed_day_expiry_source_free_to_terminal()", "effects.schedule_read_total, 0", "effects.schedule_read_total, 1"),
+        ("expiry-sequence", "process", "async fn owner_loop_routes_committed_day_expiry_source_free_to_terminal()", "expiry.sequence_allocation_frontier.checked_add(1)", "expiry.sequence_allocation_frontier.checked_add(2)"),
     ]
     passed = 0
     for name, key, old, new in cases:

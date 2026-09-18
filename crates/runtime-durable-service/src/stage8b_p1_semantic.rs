@@ -34,6 +34,12 @@ use crate::stage8b_p1_bootstrap::{
 
 mod redis;
 
+#[cfg(test)]
+pub(crate) use redis::{
+    p1e_i1_begin_direct_effect_audit, p1e_i1_observe_direct_schedule_read,
+    p1e_i1_take_direct_effect_audit,
+};
+
 pub(crate) use redis::{
     resume_stage8b_p1e_cancel_with_signed_schedule_timeout,
     resume_stage8b_p1e_command_published_with_signed_schedule_timeout,

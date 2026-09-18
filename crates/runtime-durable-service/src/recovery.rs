@@ -2561,6 +2561,10 @@ impl Stage8bP1d3TruthCommittedOwner {
         true
     }
 
+    pub(crate) fn source_is_cancel(&self) -> bool {
+        self.ready.recovered.stage8b_p1d3_truth_source_is_cancel()
+    }
+
     #[cfg(test)]
     pub(crate) fn stage8b_p1d3_test_restart_snapshot(&self) -> (u64, u64, usize) {
         (

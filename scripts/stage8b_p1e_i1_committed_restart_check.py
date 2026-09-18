@@ -27,6 +27,7 @@ def load_content(root: pathlib.Path = ROOT) -> dict[str, str]:
         "redis": "crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs",
         "process": "crates/runtime-durable-service/src/stage8b_p1e_process.rs",
         "document": "docs/stage-8/stage8b-p1e-i1-committed-cancel-day-expiry-recovery.md",
+        "owner_document": "docs/stage-8/stage8b-p1e-i1-committed-owner-loop-wiring.md",
     }
     return {name: (root / path).read_text(encoding="utf-8") for name, path in paths.items()}
 
@@ -47,6 +48,7 @@ def validate_content(content: dict[str, str]) -> None:
     redis = content["redis"]
     process = content["process"]
     document = content["document"]
+    owner_document = content["owner_document"]
 
     for token in (
         "pub fn cancel_publication_seal(&self) -> Option<(u64, &str)>",
@@ -144,10 +146,40 @@ def validate_content(content: dict[str, str]) -> None:
         require(forbidden not in expiry_resume, f"Day-expiry is no longer source-free: {forbidden}")
 
     production_process = process.split("#[cfg(test)]\nmod tests {", 1)[0]
+    for token in (
+        "resume_stage8b_p1e_committed_cancel_with_redis(",
+        "resume_stage8b_p1e_committed_day_expiry(",
+        "CommittedDayExpiryPelNotEmpty",
+        "CommittedCancelRestartRequired",
+        "ready.is_committed_cancel_resolution()",
+        "ready.into_committed_cancel_resolved()?",
+    ):
+        require(token in production_process, f"committed owner-loop invariant missing: {token}")
     require(
-        "resume_stage8b_p1e_committed_cancel_with_redis" not in production_process
-        and "resume_stage8b_p1e_committed_day_expiry" not in production_process,
-        "production owner-loop wiring opened inside the restart-only slice",
+        production_process.count(
+            "CommittedCancelResolved(Stage8bP1eCommittedCancelResolvedV1)"
+        )
+        == 2,
+        "both schedule-free and combined loops must expose typed Cancel completion",
+    )
+    require(
+        production_process.count(
+            "CommittedDayExpiryResolved(Stage8bP1eCommittedDayExpiryResolvedV1)"
+        )
+        == 1,
+        "combined loop must expose exactly one typed Day-expiry completion",
+    )
+    require(
+        "if control.pel_count().await? != 0" in production_process,
+        "Day-expiry must fail closed unless the canonical M10 PEL is empty",
+    )
+    require(
+        "Stage8bP1eOwnerLoopEntryV1::Ready(Stage8bP1eReadyPollingV1" not in section(
+            production_process,
+            "            } else if durable.is_day_expiry() {",
+            "            } else if !durable.is_initial_limit() {",
+        ),
+        "committed Day-expiry cannot regain fresh polling authority",
     )
     cancel_test = section(
         process,
@@ -181,11 +213,75 @@ def validate_content(content: dict[str, str]) -> None:
         "target-first",
         "truth-before-XACK",
         "source-free",
-        "production owner-loop wiring remains closed",
+        "production owner-loop wiring was closed at this immutable source boundary",
         "signal/panic/SIGKILL",
         "FINAM POST/DELETE/send",
     ):
         require(token in document, f"review boundary documentation missing: {token}")
+
+    direct_cancel_test = section(
+        process,
+        "    async fn owner_loop_routes_committed_cancel_ack_truth_to_xack_last()",
+        "    async fn owner_loop_routes_committed_target_first_cancel_to_xack_last()",
+    )
+    target_first_owner_test = section(
+        process,
+        "    async fn owner_loop_routes_committed_target_first_cancel_to_xack_last()",
+        "    async fn owner_loop_routes_committed_day_expiry_source_free_to_terminal()",
+    )
+    day_expiry_owner_test = section(
+        process,
+        "    async fn owner_loop_routes_committed_day_expiry_source_free_to_terminal()",
+        "    async fn owner_loop_rejects_committed_day_expiry_when_pel_is_not_empty()",
+    )
+    for token in (
+        "Stage8bP1eOwnerLoopOutcomeV1::CommittedCancelResolved",
+        "Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending",
+        'allocation.outcome_kind == "cancel_canceled"',
+        "seq_ack.checked_add(1)",
+        "effects.provider_total",
+        "effects.claim_total",
+        "effects.xack_total",
+        "effects.schedule_read_total, 0",
+    ):
+        require(token in direct_cancel_test, f"direct Cancel owner-loop evidence missing: {token}")
+    for token in (
+        "Stage8bP1eOwnerLoopOutcomeV1::CommittedCancelRestartRequired",
+        "Stage8bP1eOwnerLoopOutcomeV1::CommittedCancelResolved",
+        "Stage8bP1RedisZeroIntentAckDisposition::AlreadyAcknowledged",
+        "replay_audit.sequence_allocations",
+        "exact_sequence_allocations",
+        "replay_effects.xack_total, 0",
+        "replay_effects.schedule_read_total, 0",
+        "replay_reader.test_read_attempts(), 0",
+        'allocation.outcome_kind == "later_filled"',
+        'allocation.outcome_kind == "cancel_execution_observed"',
+        "target_truth_sequence.checked_add(1)",
+    ):
+        require(token in target_first_owner_test, f"target-first owner-loop evidence missing: {token}")
+    for token in (
+        "Stage8bP1eOwnerLoopOutcomeV1::CommittedDayExpiryResolved",
+        "effects.provider_total, 0",
+        "effects.callback_total, 0",
+        "effects.publication_total, 0",
+        "effects.claim_total, 0",
+        "effects.xack_total, 0",
+        "effects.schedule_read_total, 0",
+        "reader.test_read_attempts(), 0",
+        'expiry.outcome_kind == "later_expired"',
+        "expiry.seq_ack.is_none()",
+        "expiry.sequence_allocation_frontier.checked_add(1)",
+    ):
+        require(token in day_expiry_owner_test, f"Day-expiry owner-loop evidence missing: {token}")
+    for token in (
+        "typed `CommittedCancelResolved`",
+        "typed `CommittedDayExpiryResolved`",
+        "does not return to fresh schedule admission",
+        "actual command logs and exit codes",
+        "SIGTERM/panic/SIGKILL",
+        "FINAM POST/DELETE/send",
+    ):
+        require(token in owner_document, f"owner-loop documentation missing: {token}")
 
 
 def main() -> None:

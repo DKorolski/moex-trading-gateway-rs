@@ -260,6 +260,17 @@ impl Stage8bP1eRedisScheduleReader {
         Ok(reader)
     }
 
+    #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+    pub(crate) fn test_fixture_trust(&self) -> Option<(String, DateTime<Utc>, DateTime<Utc>)> {
+        self.fixture_trust.as_ref().map(|trust| {
+            (
+                trust.public_key_hex.clone(),
+                trust.key_valid_from,
+                trust.key_valid_until,
+            )
+        })
+    }
+
     async fn read_newest_with_timeout(
         &mut self,
         context: &Stage8bP1eScheduleVerificationContextV1,
@@ -268,6 +279,7 @@ impl Stage8bP1eRedisScheduleReader {
         #[cfg(test)]
         {
             self.read_attempts += 1;
+            crate::stage8b_p1_semantic::p1e_i1_observe_direct_schedule_read();
         }
         let reply: StreamRangeReply = tokio::time::timeout(
             operation_timeout,
