@@ -36,8 +36,8 @@ mod redis;
 
 #[cfg(test)]
 pub(crate) use redis::{
-    p1e_i1_begin_direct_effect_audit, p1e_i1_observe_direct_schedule_read,
-    p1e_i1_take_direct_effect_audit,
+    p1e_i1_begin_direct_effect_audit, p1e_i1_inject_xack_response_loss_once,
+    p1e_i1_observe_direct_schedule_read, p1e_i1_take_direct_effect_audit,
 };
 
 pub(crate) use redis::{

@@ -13,9 +13,13 @@ real orders.
 Committed Cancel is routed exhaustively through ACK, truth and target-first
 continuation owners. Target-first stops at an explicit restart-required
 boundary. After truth, the exact source is XACKed last and the loop returns a
-typed `CommittedCancelResolved` result instead of re-entering fresh schedule
-admission. A repeated restart after a lost final-XACK response returns
-`AlreadyAcknowledged` without another XACK or sequence allocation.
+typed `CommittedCancelResolved` result. That completion retains the sole Ready
+owner and exposes an explicit consuming handoff back to Ready polling. The
+completed V4 is not admitted again, while a strictly newer exact canonical M10
+may advance from the durable semantic watermark. A repeated restart after a
+lost final-XACK response returns `AlreadyAcknowledged` without another XACK or
+sequence allocation, then the same consuming handoff reaches the next
+canonical M10.
 
 Committed Day-expiry first proves that the canonical M10 PEL is empty. It then
 executes the source-free durable continuation and returns a typed `CommittedDayExpiryResolved`
@@ -28,18 +32,28 @@ Real-Redis owner-loop tests cover:
 
 - direct committed Cancel ACK -> truth -> XACK-last;
 - target-first Cancel -> restart-required -> recovered truth -> XACK-last;
-- restart after final-XACK response loss with `AlreadyAcknowledged`;
+- an injected XACK response loss after Redis accepted the command, followed by
+  restart and `AlreadyAcknowledged`;
+- explicit owner handoff and next-canonical-M10 progress after fresh Cancel,
+  committed Cancel and target-first response-loss replay;
 - exact request-scoped sequence-allocation preservation across replay;
-- direct provider/callback/publication/XAUTOCLAIM/XACK/schedule-read invocation
-  counters;
+- direct provider/callback/publication/XAUTOCLAIM/XACK/schedule-read counters;
+  publication and XACK each expose separate attempt and success counters around
+  their real Redis transport calls;
+- a real generic Cancel publication positive control (`attempt=1`, `success=1`)
+  and transport-error control (`attempt=1`, `success=0`);
 - source-free Day-expiry with zero claim, XACK, schedule-read, publication,
   callback and provider effects;
 - Day-expiry's one autonomous terminal-truth allocation with no ACK sequence;
 - fail-closed Day-expiry when the canonical M10 PEL is non-empty;
 - restored signed-schedule high-water without a new schedule read.
 
-The terminal typed outcomes deliberately carry no fresh schedule-polling
-authority. This enforces the accepted rule: an already committed V4 does not return to fresh schedule admission in the same recovery invocation.
+The typed Cancel completion deliberately prevents implicit polling: the caller
+must consume `into_ready_polling`. The move clears the transient completion
+marker and transfers the same authenticated owner, so the old committed V4
+does not return to fresh schedule admission while the next canonical M10 can
+progress. Day-expiry remains a terminal source-free outcome and carries no
+fresh schedule-polling authority.
 
 ## Evidence discipline correction
 

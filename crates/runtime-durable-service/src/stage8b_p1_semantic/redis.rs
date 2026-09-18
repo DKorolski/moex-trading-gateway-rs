@@ -79,8 +79,10 @@ fn p1e_i0_take_post_permit_parse_audit() -> u64 {
 pub(crate) struct P1eI1DirectEffectCountersV1 {
     pub(crate) provider_total: u64,
     pub(crate) callback_total: u64,
+    pub(crate) publication_attempt_total: u64,
     pub(crate) publication_total: u64,
     pub(crate) claim_total: u64,
+    pub(crate) xack_attempt_total: u64,
     pub(crate) xack_total: u64,
     pub(crate) schedule_read_total: u64,
 }
@@ -127,6 +129,43 @@ fn p1e_i1_observe_direct_effect(update: impl FnOnce(&mut P1eI1DirectEffectCounte
 #[cfg(test)]
 pub(crate) fn p1e_i1_observe_direct_schedule_read() {
     p1e_i1_observe_direct_effect(|observed| observed.schedule_read_total += 1);
+}
+
+#[cfg(test)]
+fn p1e_i1_observe_publication_attempt() {
+    p1e_i1_observe_direct_effect(|observed| observed.publication_attempt_total += 1);
+}
+
+#[cfg(test)]
+fn p1e_i1_observe_publication_success() {
+    p1e_i1_observe_direct_effect(|observed| observed.publication_total += 1);
+}
+
+#[cfg(test)]
+fn p1e_i1_observe_xack_attempt() {
+    p1e_i1_observe_direct_effect(|observed| observed.xack_attempt_total += 1);
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static P1E_I1_XACK_RESPONSE_LOSS_ONCE: std::cell::Cell<bool> = const {
+        std::cell::Cell::new(false)
+    };
+}
+
+#[cfg(test)]
+pub(crate) fn p1e_i1_inject_xack_response_loss_once() {
+    P1E_I1_XACK_RESPONSE_LOSS_ONCE.with(|armed| {
+        assert!(
+            !armed.replace(true),
+            "XACK response-loss injection is already armed"
+        );
+    });
+}
+
+#[cfg(test)]
+fn p1e_i1_take_xack_response_loss() -> bool {
+    P1E_I1_XACK_RESPONSE_LOSS_ONCE.with(|armed| armed.replace(false))
 }
 
 fn parse_exact_after_p1e_permit(
@@ -205,7 +244,6 @@ fn p1e_i0_observe_callback() {
 #[cfg(test)]
 fn p1e_i0_observe_publication() {
     p1e_i0_observe_effect(|observed| observed.publication_total += 1);
-    p1e_i1_observe_direct_effect(|observed| observed.publication_total += 1);
 }
 
 #[cfg(test)]
@@ -1273,10 +1311,12 @@ impl Stage8bP1RedisSemanticCompositionOwner {
         let binding = binding_from_delivery(&delivery, operational_identity_sha256.clone());
         let accepted_bar = parse_exact_after_p1e_permit(&delivery, &operational_identity_sha256)?
             .into_stage5c_semantic_bar()?;
-        match self
-            .stage7
-            .commit_stage8b_p1_semantic(accepted_bar, binding, commitment_key)?
-        {
+        let outcome =
+            self.stage7
+                .commit_stage8b_p1_semantic(accepted_bar, binding, commitment_key)?;
+        #[cfg(test)]
+        p1e_i0_observe_callback();
+        match outcome {
             Stage8bP1SemanticCommitOutcome::ZeroIntent { owner, receipt } => {
                 let disposition = self.transport.backend.acknowledge_exact(&delivery).await?;
                 Ok(Stage8bP1RedisSemanticOutcome::Ready {
@@ -1521,11 +1561,15 @@ impl Stage8bP1RedisPrepublicationPending {
         if self.durable.stage8b_p1d4_generated_market_candidate() {
             return Err(Stage8bP1RedisSemanticError::CommandPublicationConflict);
         }
+        #[cfg(test)]
+        p1e_i1_observe_publication_attempt();
         let receipt = self
             .transport
             .backend
             .publish_exact_command(&self.durable, &self.pending_m10)
             .await?;
+        #[cfg(test)]
+        p1e_i1_observe_publication_success();
         let (stage7, evidence, command) = self.durable.into_p1c_parts();
         Ok(Stage8bP1RedisCommandPublished {
             stage7,
@@ -1561,11 +1605,15 @@ impl Stage8bP1RedisPrepublicationPending {
                 commitment_key,
             )?;
         crate::recovery::stage8b_p1d4_test_crash_frontier("GM00");
+        #[cfg(test)]
+        p1e_i1_observe_publication_attempt();
         let receipt = self
             .transport
             .backend
             .publish_reserved_p1d4_command(&durable, &self.pending_m10, &prepared)
             .await?;
+        #[cfg(test)]
+        p1e_i1_observe_publication_success();
         #[cfg(test)]
         p1d4_observe_generated_market_event(P1d4ObservedEffectEvent::GeneratedPublication);
         crate::recovery::stage8b_p1d4_test_crash_frontier("GM01");
@@ -5081,12 +5129,16 @@ pub async fn resume_stage8b_p1d4_prepublication_with_redis(
         return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch);
     };
     let prepared = prepare_recovered_p1d4_publication(&durable)?;
+    #[cfg(test)]
+    p1e_i1_observe_publication_attempt();
     let receipt = transport
         .backend
         .publish_reserved_p1d4_command(&durable, &pending_m10, &prepared)
         .await?;
     #[cfg(test)]
     p1e_i0_observe_publication();
+    #[cfg(test)]
+    p1e_i1_observe_publication_success();
     #[cfg(test)]
     p1d4_observe_generated_market_event(P1d4ObservedEffectEvent::GeneratedPublication);
     let (stage7, evidence, command, reservation, binding) = durable.into_p1d4_publication_parts();
@@ -6141,6 +6193,8 @@ impl Stage8bP1RedisBackend {
             }
             0 => Err(Stage8bP1RedisSemanticError::ExactSourceConflict),
             1 if pending.ids[0].id == delivery.redis_id() => {
+                #[cfg(test)]
+                p1e_i1_observe_xack_attempt();
                 let acknowledged: usize = redis::cmd("XACK")
                     .arg(&self.namespace.canonical_m10_stream)
                     .arg(&self.namespace.m10_consumer_group)
@@ -6154,6 +6208,14 @@ impl Stage8bP1RedisBackend {
                     &self.namespace.m10_consumer_group,
                     delivery.redis_id(),
                 );
+                #[cfg(test)]
+                if p1e_i1_take_xack_response_loss() {
+                    return Err(redis::RedisError::from((
+                        redis::ErrorKind::IoError,
+                        "injected XACK response loss after transport completion",
+                    ))
+                    .into());
+                }
                 if acknowledged == 1 {
                     #[cfg(test)]
                     p1e_i0_observe_xack();
@@ -10683,6 +10745,28 @@ pub(crate) mod tests {
         String,
         Stage8bP1RedisCommandPublished,
     ) {
+        let (key, fresh, identity, pending) = prepare_p1d4_cancel_prepublication_with_successor(
+            redis_url,
+            parent,
+            target_state,
+            include_successor,
+        )
+        .await;
+        let published = pending.publish_exact_command().await.unwrap();
+        (key, fresh, identity, published)
+    }
+
+    async fn prepare_p1d4_cancel_prepublication_with_successor(
+        redis_url: &str,
+        parent: &Path,
+        target_state: P1d4CancelTargetState,
+        include_successor: bool,
+    ) -> (
+        Stage5gLifecycleCommitmentKey,
+        strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        String,
+        Stage8bP1RedisPrepublicationPending,
+    ) {
         let (mut pending, key, fresh, identity) = one_intent_pending_at(redis_url, parent).await;
         pending
             .transport
@@ -10807,15 +10891,12 @@ pub(crate) mod tests {
         let durable = stage7
             .stage8b_p1d3_test_inject_one_intent(binding, cancel, cancel_attribution, &key)
             .unwrap();
-        let published = Stage8bP1RedisPrepublicationPending {
+        let pending = Stage8bP1RedisPrepublicationPending {
             durable,
             transport,
             pending_m10,
-        }
-        .publish_exact_command()
-        .await
-        .unwrap();
-        (key, fresh, identity, published)
+        };
+        (key, fresh, identity, pending)
     }
 
     #[cfg(feature = "stage8a4-i3-test-fixtures")]
@@ -15581,6 +15662,80 @@ pub(crate) mod tests {
             .query_async(&mut connection)
             .await;
         assert!(pending.is_err());
+    }
+
+    #[tokio::test]
+    async fn p1e_i1_cancel_publication_audit_counts_transport_attempt_and_success_separately() {
+        let success_redis = RedisServer::start().await;
+        let success_parent = temp_directory("cancel-publication-audit-success");
+        let (_key, _fresh, _identity, pending) = prepare_p1d4_cancel_prepublication_with_successor(
+            &success_redis.url,
+            &success_parent,
+            P1d4CancelTargetState::Working,
+            false,
+        )
+        .await;
+        let namespace = stage8b_p1_redis_namespace();
+        let mut success_connection = success_redis.connection().await;
+        let commands_before: usize = redis::cmd("XLEN")
+            .arg(&namespace.canonical_command_stream)
+            .query_async(&mut success_connection)
+            .await
+            .unwrap();
+        assert_eq!(commands_before, 0);
+
+        p1e_i1_begin_direct_effect_audit();
+        let published = pending.publish_exact_command().await.unwrap();
+        let success = p1e_i1_take_direct_effect_audit();
+        assert_eq!(
+            published.p1e_schedule_route(),
+            Stage8bP1ePublishedScheduleRouteV1::Cancel
+        );
+        assert_eq!(success.publication_attempt_total, 1);
+        assert_eq!(success.publication_total, 1);
+        let commands_after: usize = redis::cmd("XLEN")
+            .arg(&namespace.canonical_command_stream)
+            .query_async(&mut success_connection)
+            .await
+            .unwrap();
+        assert_eq!(commands_after, 1);
+        drop(published);
+        fs::remove_dir_all(success_parent).unwrap();
+
+        let failure_redis = RedisServer::start().await;
+        let failure_parent = temp_directory("cancel-publication-audit-failure");
+        let (_key, _fresh, _identity, pending) = prepare_p1d4_cancel_prepublication_with_successor(
+            &failure_redis.url,
+            &failure_parent,
+            P1d4CancelTargetState::Working,
+            false,
+        )
+        .await;
+        let mut failure_connection = failure_redis.connection().await;
+        let removed: usize = redis::cmd("XGROUP")
+            .arg("DESTROY")
+            .arg(&namespace.canonical_command_stream)
+            .arg(&namespace.stage7b_command_consumer_group)
+            .query_async(&mut failure_connection)
+            .await
+            .unwrap();
+        assert_eq!(removed, 1);
+
+        p1e_i1_begin_direct_effect_audit();
+        assert!(matches!(
+            pending.publish_exact_command().await,
+            Err(Stage8bP1RedisSemanticError::Redis(_))
+        ));
+        let failure = p1e_i1_take_direct_effect_audit();
+        assert_eq!(failure.publication_attempt_total, 1);
+        assert_eq!(failure.publication_total, 0);
+        let commands_after_failure: usize = redis::cmd("XLEN")
+            .arg(&namespace.canonical_command_stream)
+            .query_async(&mut failure_connection)
+            .await
+            .unwrap();
+        assert_eq!(commands_after_failure, 0);
+        fs::remove_dir_all(failure_parent).unwrap();
     }
 
     #[tokio::test]

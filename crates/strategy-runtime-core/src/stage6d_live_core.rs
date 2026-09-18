@@ -2772,7 +2772,12 @@ impl Stage6dDurableRuntimeRecovered {
         Some(
             if restart
                 .stage8b_p1_semantic_commit()
-                .is_some_and(|semantic| pending_semantic.matches_semantic_commit(semantic))
+                .is_some_and(|semantic| {
+                    pending_semantic.matches_semantic_commit(semantic)
+                        || replacement
+                            .terminal_semantic_commit_covers_or_follows_source(Some(semantic))
+                            .unwrap_or(false)
+                })
             {
                 Stage6Stage8bP1d3RestartPhase::SemanticCallbackCommitted
             } else {
@@ -3995,17 +4000,27 @@ pub fn apply_stage8b_p1d3_semantic_transition(
             }
             _ => return Err(Stage6dLiveCoreError::RestartRuntimeRequired),
         };
-        let expected_semantic_source = current
+        let replacement = current
             .stage8b_p1d3_replacement()
-            .and_then(|replacement| replacement.pending_semantic_source_binding().ok().flatten())
             .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
-        if expected_semantic_source.redis_id() != binding.m10_redis_id
-            || expected_semantic_source.semantic_id_sha256() != binding.m10_semantic_id_sha256
-            || expected_semantic_source.payload_sha256() != binding.m10_payload_sha256
-            || current
-                .stage8b_p1_semantic_commit()
-                .is_some_and(|semantic| expected_semantic_source.matches_semantic_commit(semantic))
-        {
+        let expected_semantic_source = replacement
+            .pending_semantic_source_binding()
+            .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+        let exact_pending = expected_semantic_source.as_ref().is_some_and(|expected| {
+            expected.redis_id() == binding.m10_redis_id
+                && expected.semantic_id_sha256() == binding.m10_semantic_id_sha256
+                && expected.payload_sha256() == binding.m10_payload_sha256
+                && !current
+                    .stage8b_p1_semantic_commit()
+                    .is_some_and(|semantic| expected.matches_semantic_commit(semantic))
+        });
+        let terminal_successor = replacement
+            .terminal_semantic_continuation_allows(
+                current.stage8b_p1_semantic_commit(),
+                &binding.m10_redis_id,
+            )
+            .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+        if !exact_pending && !terminal_successor {
             return Err(Stage6dLiveCoreError::DurableOrderingViolation);
         }
         (

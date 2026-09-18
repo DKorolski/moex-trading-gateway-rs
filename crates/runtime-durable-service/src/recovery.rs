@@ -3411,10 +3411,13 @@ impl Stage7bRecoveryReadyOwner {
             Some(Stage6Stage8bP1d3RestartPhase::ReadyForEvaluation) => {
                 Err(Stage7bRecoveryError::SealInvalid)
             }
-            Some(Stage6Stage8bP1d3RestartPhase::SemanticCallbackCommitted) | None => Ok(false),
+            Some(
+                Stage6Stage8bP1d3RestartPhase::TruthCommitted
+                | Stage6Stage8bP1d3RestartPhase::SemanticCallbackCommitted,
+            )
+            | None => Ok(false),
             Some(
                 Stage6Stage8bP1d3RestartPhase::AckCommitted
-                | Stage6Stage8bP1d3RestartPhase::TruthCommitted
                 | Stage6Stage8bP1d3RestartPhase::CancelContinuationPending
                 | Stage6Stage8bP1d3RestartPhase::SemanticCallbackPending,
             ) => Err(Stage7bRecoveryError::SealInvalid),
@@ -3713,13 +3716,35 @@ impl Stage7bRecoveryReadyOwner {
             ..
         } = self;
         stage8b_p1_test_crash_barrier("before-request-accepted-append");
-        match apply_stage8b_p1_semantic_transition(
-            recovered,
-            accepted_bar,
-            binding,
-            source,
-            commitment_key,
-        )? {
+        let tick_size = STAGE8B_P1_TICK_SIZE
+            .parse::<f64>()
+            .map_err(|_| Stage7bRecoveryError::SealInvalid)?;
+        let p1d3_terminal_continuation = matches!(
+            recovered.stage8b_p1d3_restart_phase(),
+            Some(
+                Stage6Stage8bP1d3RestartPhase::TruthCommitted
+                    | Stage6Stage8bP1d3RestartPhase::SemanticCallbackCommitted
+            )
+        );
+        let transition = if p1d3_terminal_continuation {
+            strategy_runtime_core::apply_stage8b_p1d3_semantic_transition(
+                recovered,
+                accepted_bar,
+                binding,
+                source,
+                tick_size,
+                commitment_key,
+            )?
+        } else {
+            apply_stage8b_p1_semantic_transition(
+                recovered,
+                accepted_bar,
+                binding,
+                source,
+                commitment_key,
+            )?
+        };
+        match transition {
             Stage6Stage8bP1SemanticTransition::ZeroIntent {
                 recovered,
                 stage5g_restart_package,

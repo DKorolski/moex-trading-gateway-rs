@@ -1259,6 +1259,46 @@ impl Stage8bP1d3ReplacementProjectionV1 {
         Ok(binding)
     }
 
+    /// A terminal P1-d3 book no longer needs an order-evaluation step.  Once
+    /// the exact terminal source has been resolved, the semantic commit is the
+    /// durable watermark for later canonical M10 callbacks.  This predicate
+    /// deliberately grants no callback authority by itself; callers must
+    /// still own the authenticated restart capability and prove a strictly
+    /// newer exact Redis source.
+    pub(crate) fn terminal_semantic_commit_covers_or_follows_source(
+        &self,
+        semantic: Option<&crate::stage5g_p1_semantic::Stage5gP1SemanticCommitProjectionV1>,
+    ) -> Result<bool, Stage8bP1d3Error> {
+        self.validate()?;
+        if !matches!(
+            self.phase,
+            Stage8bP1d3BookPhase::Terminal | Stage8bP1d3BookPhase::CancelRecovered
+        ) {
+            return Ok(false);
+        }
+        let Some(source) = self.pending_semantic_source_binding()? else {
+            return Ok(false);
+        };
+        let Some(semantic) = semantic.filter(|semantic| semantic.validate()) else {
+            return Ok(false);
+        };
+        let source_ms = exact_m10_redis_id_ms(&source.redis_id)?;
+        let semantic_ms = exact_m10_redis_id_ms(&semantic.m10_redis_id)?;
+        Ok(semantic_ms >= source_ms)
+    }
+
+    pub(crate) fn terminal_semantic_continuation_allows(
+        &self,
+        current_semantic: Option<&crate::stage5g_p1_semantic::Stage5gP1SemanticCommitProjectionV1>,
+        next_redis_id: &str,
+    ) -> Result<bool, Stage8bP1d3Error> {
+        if !self.terminal_semantic_commit_covers_or_follows_source(current_semantic)? {
+            return Ok(false);
+        }
+        let current = current_semantic.ok_or(Stage8bP1d3Error::InvalidTransition)?;
+        Ok(exact_m10_redis_id_ms(next_redis_id)? > exact_m10_redis_id_ms(&current.m10_redis_id)?)
+    }
+
     pub(crate) fn pending_cancel_after_target_matches_semantic_commit(
         &self,
         semantic: Option<&crate::stage5g_p1_semantic::Stage5gP1SemanticCommitProjectionV1>,

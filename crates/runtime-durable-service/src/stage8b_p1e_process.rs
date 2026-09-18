@@ -770,10 +770,13 @@ impl Stage8bP1eReadyPollingV1 {
         } = self;
         let disposition =
             committed_cancel_disposition.ok_or(Stage8bP1eStartupErrorV1::ReadyBoundaryInvariant)?;
-        drop(owner);
         Ok(Stage8bP1eCommittedCancelResolvedV1 {
             disposition,
-            control,
+            ready: Stage8bP1eReadyPollingV1 {
+                owner,
+                control,
+                committed_cancel_disposition: None,
+            },
         })
     }
 
@@ -2423,12 +2426,14 @@ pub enum Stage8bP1eOwnerLoopOutcomeV1 {
     StartupCommittedSchedule(Stage8bP1eCommittedScheduleStartupV1),
 }
 
-/// Terminal composition boundary after a committed CANCEL has persisted its
-/// replacement truth and resolved its exact source XACK. It deliberately owns
-/// no fresh schedule-admission authority.
+/// Typed completion boundary after a CANCEL has persisted replacement truth
+/// and resolved its exact source XACK.  The linear Ready owner is retained,
+/// but cannot poll until the caller explicitly consumes this boundary through
+/// `into_ready_polling`.  That handoff prevents re-admission of the completed
+/// V4 while preserving forward progress to the next canonical M10.
 pub struct Stage8bP1eCommittedCancelResolvedV1 {
     disposition: Stage8bP1RedisZeroIntentAckDisposition,
-    control: Stage8bP1eRedisControlV1,
+    ready: Stage8bP1eReadyPollingV1,
 }
 
 impl Stage8bP1eCommittedCancelResolvedV1 {
@@ -2437,7 +2442,15 @@ impl Stage8bP1eCommittedCancelResolvedV1 {
     }
 
     pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
-        &mut self.control
+        self.ready.redis_control_mut()
+    }
+
+    /// Consumes the completed-CANCEL boundary exactly once and returns the
+    /// same authenticated owner to ordinary Ready polling.  The completion
+    /// marker is cleared as part of the move, so the old V4 cannot be emitted
+    /// again and the next source is not mistaken for the completed CANCEL.
+    pub fn into_ready_polling(self) -> Stage8bP1eReadyPollingV1 {
+        self.ready
     }
 }
 
@@ -5792,7 +5805,33 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(commands, 1, "signed composition must not republish CANCEL");
-        drop(ready);
+        assert!(ready.is_committed_cancel_resolution());
+        let resolved = ready.into_committed_cancel_resolved().unwrap();
+        assert_eq!(
+            resolved.disposition(),
+            Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending
+        );
+        let next = poll_stage8b_p1e_ready_once_v1(
+            resolved.into_ready_polling(),
+            &Stage8bP1eShutdownLatchV1::new(),
+        )
+        .await
+        .unwrap();
+        let Stage8bP1eReadyPollOutcomeV1::ContinueSource(next) = next else {
+            panic!("fresh CANCEL completion must hand its owner to the next canonical M10")
+        };
+        let next = drain_stage8b_p1e_schedule_free_recovery_v1(
+            next,
+            &Stage8bP1eShutdownLatchV1::new(),
+            &key,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            next,
+            Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(_)
+                | Stage8bP1eScheduleFreeDrainOutcomeV1::ScheduleDeferred(_)
+        ));
         fs::remove_dir_all(parent).unwrap();
     }
 
@@ -7211,12 +7250,14 @@ mod tests {
             resolved.disposition(),
             Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending
         );
-        drop(resolved);
+        let ready = resolved.into_ready_polling();
         let effects = crate::stage8b_p1_semantic::p1e_i1_take_direct_effect_audit();
         assert_eq!(effects.provider_total, 1);
         assert_eq!(effects.callback_total, 0);
+        assert_eq!(effects.publication_attempt_total, 0);
         assert_eq!(effects.publication_total, 0);
         assert!(effects.claim_total > 0);
+        assert_eq!(effects.xack_attempt_total, 1);
         assert_eq!(effects.xack_total, 1);
         assert_eq!(effects.schedule_read_total, 0);
         assert_eq!(reader.test_read_attempts(), 0);
@@ -7228,6 +7269,30 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(pending.count(), 0);
+
+        crate::stage8b_p1_semantic::p1e_i1_begin_direct_effect_audit();
+        let next = poll_stage8b_p1e_ready_once_v1(ready, &Stage8bP1eShutdownLatchV1::new())
+            .await
+            .unwrap();
+        let Stage8bP1eReadyPollOutcomeV1::ContinueSource(next) = next else {
+            panic!("recovered CANCEL completion must hand its owner to the next canonical M10")
+        };
+        let next = drain_stage8b_p1e_schedule_free_recovery_v1(
+            next,
+            &Stage8bP1eShutdownLatchV1::new(),
+            &key,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            next,
+            Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(_)
+                | Stage8bP1eScheduleFreeDrainOutcomeV1::ScheduleDeferred(_)
+        ));
+        let next_effects = crate::stage8b_p1_semantic::p1e_i1_take_direct_effect_audit();
+        assert_eq!(next_effects.provider_total, 0);
+        assert_eq!(next_effects.xack_attempt_total, next_effects.xack_total);
+        drop(next);
 
         let root = crate::Stage7bDurableRootAuthority::validate(
             parent.join(root_name),
@@ -7253,10 +7318,10 @@ mod tests {
         let seq_ack = cancel.seq_ack.expect("CANCEL ACK sequence");
         let seq_truth = cancel.seq_truth.expect("CANCEL truth sequence");
         assert_eq!(seq_ack.checked_add(1), Some(seq_truth));
-        assert!(matches!(
-            restart,
-            Stage7bRestartOutcome::P1d3TruthCommitted(_)
-        ));
+        assert!(
+            !matches!(restart, Stage7bRestartOutcome::P1d3TruthCommitted(_)),
+            "the completed CANCEL source must not be replayed after its successor M10"
+        );
         fs::remove_dir_all(parent).unwrap();
     }
 
@@ -7435,6 +7500,7 @@ mod tests {
         };
         tokio::time::sleep(StdDuration::from_millis(5)).await;
         crate::stage8b_p1_semantic::p1e_i1_begin_direct_effect_audit();
+        crate::stage8b_p1_semantic::p1e_i1_inject_xack_response_loss_once();
         let session =
             crate::stage8b_p1_supervisor::stage8b_p1e_test_verified_redis_session_v1(&redis.url)
                 .await;
@@ -7458,29 +7524,27 @@ mod tests {
             &Stage8bP1eShutdownLatchV1::new(),
             &key,
         )
-        .await
-        .unwrap();
-        let resolved = match outcome {
-            Stage8bP1eOwnerLoopOutcomeV1::CommittedCancelResolved(resolved) => resolved,
-            _ => panic!("recovered CANCEL must stop at typed XACK-last completion"),
-        };
-        assert_eq!(
-            resolved.disposition(),
-            Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending
-        );
-        drop(resolved);
+        .await;
+        assert!(matches!(
+            outcome,
+            Err(Stage8bP1eStartupErrorV1::Source(
+                Stage8bP1RedisSemanticError::Redis(_)
+            ))
+        ));
         let effects = crate::stage8b_p1_semantic::p1e_i1_take_direct_effect_audit();
         assert_eq!(effects.provider_total, 0);
         assert_eq!(effects.callback_total, 0);
+        assert_eq!(effects.publication_attempt_total, 0);
         assert_eq!(effects.publication_total, 0);
         assert!(effects.claim_total > 0);
-        assert_eq!(effects.xack_total, 1);
+        assert_eq!(effects.xack_attempt_total, 1);
+        assert_eq!(effects.xack_total, 0);
         assert_eq!(effects.schedule_read_total, 0);
 
         assert_eq!(restart_reader.test_read_attempts(), 0);
         assert_eq!(
-            restart_context.high_water,
-            Some(expected_high_water.clone())
+            restart_context.high_water, None,
+            "an injected XACK response loss must not report successful loop settlement"
         );
         let commands_after: usize = redis::cmd("XLEN")
             .arg(&namespace.canonical_command_stream)
@@ -7604,14 +7668,53 @@ mod tests {
         );
         assert_eq!(replay_reader.test_read_attempts(), 0);
         assert_eq!(replay_context.high_water, Some(expected_high_water));
-        drop(replay_resolved);
+        let replay_ready = replay_resolved.into_ready_polling();
         let replay_effects = crate::stage8b_p1_semantic::p1e_i1_take_direct_effect_audit();
         assert_eq!(replay_effects.provider_total, 0);
         assert_eq!(replay_effects.callback_total, 0);
+        assert_eq!(replay_effects.publication_attempt_total, 0);
         assert_eq!(replay_effects.publication_total, 0);
         assert_eq!(replay_effects.claim_total, 0);
+        assert_eq!(replay_effects.xack_attempt_total, 0);
         assert_eq!(replay_effects.xack_total, 0);
         assert_eq!(replay_effects.schedule_read_total, 0);
+
+        crate::stage8b_p1_semantic::p1e_i1_begin_direct_effect_audit();
+        let next = poll_stage8b_p1e_ready_once_v1(replay_ready, &Stage8bP1eShutdownLatchV1::new())
+            .await
+            .unwrap();
+        let Stage8bP1eReadyPollOutcomeV1::ContinueSource(next) = next else {
+            panic!("response-loss replay must hand its owner to the next canonical M10")
+        };
+        let next = drain_stage8b_p1e_schedule_free_recovery_v1(
+            next,
+            &Stage8bP1eShutdownLatchV1::new(),
+            &key,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            next,
+            Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(_)
+                | Stage8bP1eScheduleFreeDrainOutcomeV1::ScheduleDeferred(_)
+        ));
+        let next_effects = crate::stage8b_p1_semantic::p1e_i1_take_direct_effect_audit();
+        assert_eq!(next_effects.provider_total, 0);
+        assert_eq!(next_effects.callback_total, 1);
+        assert_eq!(next_effects.publication_attempt_total, 1);
+        assert_eq!(next_effects.publication_total, 1);
+        drop(next);
+
+        let commands_after_successor: usize = redis::cmd("XLEN")
+            .arg(&namespace.canonical_command_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(
+            commands_after_successor,
+            commands_before + usize::try_from(next_effects.publication_total).unwrap(),
+            "the successor M10 may publish only its own newly generated command"
+        );
 
         let root = crate::Stage7bDurableRootAuthority::validate(
             parent.join(root_name),
@@ -7635,10 +7738,9 @@ mod tests {
             "final-XACK response loss cannot allocate another ACK/truth sequence"
         );
         assert_eq!(
-            replay_audit.dispatch_v1_total,
-            audit_after.dispatch_v1_total
+            replay_audit.callback_count, audit_after.callback_count,
+            "restart projection must retain the single-callback authority shape"
         );
-        assert_eq!(replay_audit.callback_count, audit_after.callback_count);
         fs::remove_dir_all(parent).unwrap();
     }
 
