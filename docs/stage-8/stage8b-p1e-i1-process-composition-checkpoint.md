@@ -8,7 +8,7 @@ boundary and does not authorize installation or activation.
 
 - the fixed executable identity `stage8b-p1-paper-supervisor`;
 - exact fixed-path argv parsing for `validate-config`, `bootstrap`,
-  `bootstrap-recover`, and reserved `run`;
+  `bootstrap-recover`, and composed `run`;
 - protected root-owned supervisor-config loading and canonical Linux boot-id
   parsing;
 - nonblocking protected config open across the regular-file-to-FIFO replacement
@@ -186,22 +186,21 @@ complete-journal-durable-to-seal-committed exact historical F00
 The four adoption actions use the authenticated durable transaction directly
 and do not rebuild fresh admission.
 
-## Deliberate fail-closed boundary
+## Composed process boundary
 
-The accepted `run CONFIG` grammar is reserved, but this checkpoint returns
-`OwnerLoopUnavailable` before credential loading, durable restart, or Redis
-attachment. A verify-only attach followed by dropping the linear restart
-owner is not treated as successful startup.
+The accepted `run CONFIG` grammar now loads the fixed systemd credential,
+performs authenticated durable restart, attaches only the verified DB15 Redis
+surface and transfers the exact startup owner into the continuing S06R/S08/S09
+loop. A returned committed-Cancel completion is consumed explicitly back into
+Ready polling; no second owner or fresh admission of the completed V4 is
+created.
 
-The next implementation must connect the new owner-retaining S03-S06 seam to
-the continuing S06R/S08/S09 loop before replacing this guard. It must retain
-the existing source-first latch sequence and signed schedule binding
-authorities; it must not attach and then return after dropping an owner.
+The schedule registry version and identity hash are explicit protected-config
+bindings. They are never learned from the schedule envelope being verified,
+which prevents a self-asserted trust root on the first signed read.
 
 ## Still required before review
 
-- production `run` wiring for credential load, S03 durable restart and the
-  completed owner-retaining S04-S09 seam;
 - signed schedule-source process composition for Cancel, Day-expiry and their
   recovered dispatch routes; Ready/Working-LIMIT, plain Market, generated
   Market and fresh Initial-LIMIT now cover C-F and remain the reference
@@ -212,8 +211,13 @@ authorities; it must not attach and then return after dropping an owner.
   consumed schedule authority;
 - fixed-path composition tests for missing administrative F00, stale exact
   continuation F00, and supervisor-hash mismatch;
-- process signal/panic/SIGKILL/restart evidence in its separately authorized
-  subsequent gate.
+- fixed-path installation, systemd and aggregate I1 evidence after the
+  separately reviewed process-supervision matrix.
+
+The separately authorized OS-process matrix is implemented in
+`stage8b-p1e-i1-process-supervision-matrix.md`. It covers idle SIGTERM,
+idle SIGKILL/restart, panic exit class, committed-Cancel owner handoff and a
+kernel SIGKILL after replacement Cancel truth but before source XACK.
 
 The checkpoint review finding `P2-CP01` is closed locally by opening the fixed
 config with `O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK` and exercising the exact

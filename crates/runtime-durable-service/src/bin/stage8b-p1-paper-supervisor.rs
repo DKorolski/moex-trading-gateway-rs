@@ -20,6 +20,7 @@ async fn main() -> ExitCode {
                 Stage8bP1eProcessSuccessV1::ConfigValid => "config-valid",
                 Stage8bP1eProcessSuccessV1::BootstrapAdopted => "bootstrap-adopted",
                 Stage8bP1eProcessSuccessV1::RecoveryApplied => "recovery-applied",
+                Stage8bP1eProcessSuccessV1::RunStopped => "run-stopped",
             };
             println!("stage8b-p1-paper-supervisor: {status}");
             ExitCode::SUCCESS

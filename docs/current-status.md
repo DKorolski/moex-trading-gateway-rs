@@ -13,17 +13,23 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 ## Active Stage 8B-P1-e I1 slice
 
 Cancel signed-schedule composition `cc1f02c`, Day-expiry P1-DEX01 correction
-`a667938` and committed Cancel/Day-expiry restart source `efe56a9` are
-independently SOURCE ACCEPTED. The current source candidate wires those
-committed V4 owners into the production owner loop. Cancel has exhaustive
+`a667938`, committed Cancel/Day-expiry restart source `efe56a9` and committed
+owner-loop correction `e2ce442` are independently SOURCE ACCEPTED. The active
+source candidate composes that accepted owner loop into the fixed-path `run`
+process: credential load, authenticated durable restart, verify-only Redis
+attach and one retained S06R/S08/S09 owner. Cancel has exhaustive
 ACK/truth/target-first routing, typed restart and terminal boundaries,
 XACK-last and idempotent final-XACK response-loss replay. Day-expiry requires
 an empty canonical M10 PEL and returns a source-free typed terminal owner.
 Neither route can fall through to fresh schedule admission.
 
-This is not full I1 closure. The next separate slice is the OS-process
-SIGTERM/panic/SIGKILL/restart matrix with retained command logs and exact exit
-status. Redis DB0/VPS activation, paper-provider execution, FINAM write/send,
+This is not full I1 closure. The active source candidate now includes the
+separate OS-process SIGTERM/panic/SIGKILL/restart matrix: idle shutdown and
+restart, exact panic exit class, committed-Cancel owner handoff and a durable
+truth-before-XACK crash/restart witness. Its review package must contain
+retained command logs and exact exit status; no operational stand is activated
+by this source work. Redis DB0/VPS activation, paper-provider execution,
+FINAM write/send,
 broker dispatch, runtime-live and real orders remain closed.
 
 ## Current accepted boundary

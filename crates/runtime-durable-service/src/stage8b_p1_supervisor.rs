@@ -4,7 +4,7 @@
 //! production Hybrid profile, strict non-secret process configuration and the
 //! redacted coordinator/telemetry vocabulary used by the later process loop.
 
-use std::{collections::BTreeSet, fmt, future::Future, time::Duration as StdDuration};
+use std::{collections::BTreeSet, fmt, future::Future, sync::Arc, time::Duration as StdDuration};
 
 use chrono::{DateTime, Duration, NaiveTime, SecondsFormat, Utc};
 use serde::{
@@ -104,6 +104,8 @@ pub struct Stage8bP1eSupervisorConfigV1 {
     pub runtime_profile_id: String,
     pub runtime_profile_sha256: String,
     pub first_boot_source_bundle_sha256: String,
+    pub schedule_registry_version: String,
+    pub schedule_registry_identity_sha256: String,
     pub redis_url: String,
     pub redis_deployment_manifest_sha256: String,
     pub redis_runtime_policy_id: String,
@@ -123,6 +125,8 @@ pub struct Stage8bP1eValidatedSupervisorConfigV1 {
     redis_url: String,
     redis_deployment_manifest_sha256: String,
     first_boot_source_bundle_sha256: String,
+    schedule_registry_version: String,
+    schedule_registry_identity_sha256: String,
     redis_config: Stage8bP1RedisConfig,
     namespace: Stage8bP1RedisNamespace,
     health_interval_ms: u64,
@@ -172,6 +176,20 @@ impl Stage8bP1eValidatedSupervisorConfigV1 {
 
     pub fn first_boot_source_bundle_sha256(&self) -> &str {
         &self.first_boot_source_bundle_sha256
+    }
+
+    /// Exact broker-neutral instrument-registry version accepted by the
+    /// signed schedule reader.  It is config-bound rather than learned from
+    /// the schedule envelope being authenticated.
+    pub fn schedule_registry_version(&self) -> &str {
+        &self.schedule_registry_version
+    }
+
+    /// Exact broker-neutral registry identity accepted by the signed schedule
+    /// reader.  Keeping this outside the envelope closes a self-asserted trust
+    /// loop during the first schedule read after a clean Ready restart.
+    pub fn schedule_registry_identity_sha256(&self) -> &str {
+        &self.schedule_registry_identity_sha256
     }
 
     pub fn redis_config(&self) -> &Stage8bP1RedisConfig {
@@ -229,6 +247,10 @@ impl Stage8bP1eValidatedSupervisorConfigV1 {
 }
 
 impl Stage8bP1eRedisAttachPlanV1 {
+    pub fn redis_url(&self) -> &str {
+        &self.redis_url
+    }
+
     pub fn consumer_name(&self) -> &str {
         &self.redis_config.consumer_name
     }
@@ -306,6 +328,10 @@ pub struct Stage8bP1eVerifiedRedisSessionV1 {
 }
 
 impl Stage8bP1eVerifiedRedisSessionV1 {
+    pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
+        &mut self.control
+    }
+
     pub fn into_parts(
         self,
     ) -> (
@@ -661,6 +687,8 @@ pub fn validate_stage8b_p1e_supervisor_config_v1(
         || config.redis_runtime_policy_sha256 != STAGE8B_P1E_REDIS_RUNTIME_POLICY_SHA256
         || config.telemetry_contract_sha256 != STAGE8B_P1E_TELEMETRY_CONTRACT_SHA256
         || !is_sha256_hex(&config.first_boot_source_bundle_sha256)
+        || !valid_registry_version(&config.schedule_registry_version)
+        || !is_sha256_hex(&config.schedule_registry_identity_sha256)
         || !is_sha256_hex(&config.redis_deployment_manifest_sha256)
         || !matches!(
             config.redis_url.as_str(),
@@ -705,11 +733,21 @@ pub fn validate_stage8b_p1e_supervisor_config_v1(
         redis_url: config.redis_url,
         redis_deployment_manifest_sha256: config.redis_deployment_manifest_sha256,
         first_boot_source_bundle_sha256: config.first_boot_source_bundle_sha256,
+        schedule_registry_version: config.schedule_registry_version,
+        schedule_registry_identity_sha256: config.schedule_registry_identity_sha256,
         redis_config,
         namespace: stage8b_p1_redis_namespace(),
         health_interval_ms: config.health_interval_ms,
         shutdown_grace_ms: config.shutdown_grace_ms,
     })
+}
+
+fn valid_registry_version(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
 pub struct Stage8bP1RuntimeProfileV1;
@@ -1210,7 +1248,7 @@ pub enum Stage8bP1eTerminalFailureV1 {
 /// deadline and request sequence until process completion. A normal durable
 /// checkpoint is therefore not itself a process-completion event.
 pub struct Stage8bP1eCoordinatorV1 {
-    shutdown_latch: Stage8bP1eShutdownLatchV1,
+    shutdown_latch: Arc<Stage8bP1eShutdownLatchV1>,
 }
 
 impl Default for Stage8bP1eCoordinatorV1 {
@@ -1220,10 +1258,17 @@ impl Default for Stage8bP1eCoordinatorV1 {
 }
 
 impl Stage8bP1eCoordinatorV1 {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
-            shutdown_latch: Stage8bP1eShutdownLatchV1::new(),
+            shutdown_latch: Arc::new(Stage8bP1eShutdownLatchV1::new()),
         }
+    }
+
+    /// Shared first-wins latch observed by the sole owner task and mutated
+    /// only through coordinator decisions.  Cloning this handle does not
+    /// clone lifecycle authority or the retained owner.
+    pub fn shutdown_latch(&self) -> Arc<Stage8bP1eShutdownLatchV1> {
+        Arc::clone(&self.shutdown_latch)
     }
 
     pub fn shutdown_intent(&self) -> Option<&Stage8bP1eShutdownIntentV1> {
@@ -1844,6 +1889,8 @@ mod tests {
             runtime_profile_id: STAGE8B_P1E_RUNTIME_PROFILE_ID.to_string(),
             runtime_profile_sha256: STAGE8B_P1E_RUNTIME_PROFILE_SHA256.to_string(),
             first_boot_source_bundle_sha256: "11".repeat(32),
+            schedule_registry_version: "imoexf-v1".to_string(),
+            schedule_registry_identity_sha256: "44".repeat(32),
             redis_url: STAGE8B_P1E_REDIS_URL_IPV4.to_string(),
             redis_deployment_manifest_sha256: "22".repeat(32),
             redis_runtime_policy_id: STAGE8B_P1E_REDIS_RUNTIME_POLICY_ID.to_string(),
@@ -2063,6 +2110,28 @@ mod tests {
                 Err(Stage8bP1eSupervisorConfigError::InvalidConfig)
             ));
         }
+    }
+
+    #[test]
+    fn config_rejects_unbound_or_malformed_schedule_registry_identity() {
+        let parent = durable_parent();
+        for version in ["", "registry with spaces", "registry/other"] {
+            let mut config = supervisor_config(parent.clone());
+            config.schedule_registry_version = version.to_string();
+            assert!(matches!(
+                validate_stage8b_p1e_supervisor_config_v1(config, [1; 16]),
+                Err(Stage8bP1eSupervisorConfigError::InvalidConfig)
+            ));
+        }
+        for identity in ["", "aa", &"gg".repeat(32)] {
+            let mut config = supervisor_config(parent.clone());
+            config.schedule_registry_identity_sha256 = identity.to_string();
+            assert!(matches!(
+                validate_stage8b_p1e_supervisor_config_v1(config, [1; 16]),
+                Err(Stage8bP1eSupervisorConfigError::InvalidConfig)
+            ));
+        }
+        fs::remove_dir(parent).unwrap();
     }
 
     #[test]
