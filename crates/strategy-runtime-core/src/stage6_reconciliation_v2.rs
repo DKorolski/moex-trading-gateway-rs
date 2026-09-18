@@ -1874,8 +1874,35 @@ fn valid_v4_route_binding(
                 && binding.working_book_transition_sha256.is_none()
         }
         (
-            crate::Stage8bP1eScheduleTransitionKindV1::WorkingLimitEvaluation
-            | crate::Stage8bP1eScheduleTransitionKindV1::CancelStep,
+            crate::Stage8bP1eScheduleTransitionKindV1::CancelStep,
+            crate::Stage8bP1eScheduleAuthorityKindV1::ScheduleStep,
+        ) => {
+            binding
+                .strategy_request_id
+                .as_deref()
+                .is_some_and(|value| !value.is_empty() && value.len() <= 256)
+                && binding
+                    .canonical_command_sha256
+                    .as_deref()
+                    .is_some_and(valid_sha256_text)
+                && binding
+                    .active_broker_order_id
+                    .as_deref()
+                    .is_some_and(|value| !value.is_empty() && value.len() <= 256)
+                && binding
+                    .working_book_transition_sha256
+                    .as_deref()
+                    .is_some_and(valid_sha256_text)
+                && binding
+                    .publication_seal_generation
+                    .is_some_and(|value| value > 0)
+                && binding
+                    .publication_seal_commitment_sha256
+                    .as_deref()
+                    .is_some_and(valid_sha256_text)
+        }
+        (
+            crate::Stage8bP1eScheduleTransitionKindV1::WorkingLimitEvaluation,
             crate::Stage8bP1eScheduleAuthorityKindV1::ScheduleStep,
         )
         | (
@@ -1892,6 +1919,8 @@ fn valid_v4_route_binding(
                     .working_book_transition_sha256
                     .as_deref()
                     .is_some_and(valid_sha256_text)
+                && binding.publication_seal_generation.is_none()
+                && binding.publication_seal_commitment_sha256.is_none()
         }
         _ => false,
     }

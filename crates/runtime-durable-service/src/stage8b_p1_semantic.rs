@@ -47,6 +47,7 @@ pub(crate) use redis::tests::p1e_test_initial_limit_published;
 #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
 pub(crate) use redis::tests::{
     p1e_test_cancel_published, p1e_test_cancel_published_without_successor,
+    p1e_test_target_first_cancel_published,
 };
 
 #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
@@ -62,6 +63,12 @@ pub(crate) use redis::resume_stage8b_p1e_day_expiry_with_signed_schedule;
 
 #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
 pub(crate) use redis::tests::p1e_test_commit_initial_limit_v4_only;
+
+#[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+pub(crate) use redis::tests::{
+    p1e_test_commit_cancel_v4_only, p1e_test_commit_day_expiry_v4_only,
+    p1e_test_resume_p1d3_cancel_continuation,
+};
 
 #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
 pub(crate) use redis::tests::p1e_test_commit_generated_market_v4_only;
@@ -97,6 +104,7 @@ pub use redis::{
     resume_stage8b_p1d4_pre_finalization_with_redis, resume_stage8b_p1d4_prepublication_with_redis,
     resume_stage8b_p1d4_truth_with_redis, resume_stage8b_p1e_cancel_with_signed_schedule,
     resume_stage8b_p1e_command_published_with_signed_schedule,
+    resume_stage8b_p1e_committed_cancel_with_redis, resume_stage8b_p1e_committed_day_expiry,
     resume_stage8b_p1e_committed_generated_market_with_redis,
     resume_stage8b_p1e_committed_initial_limit_with_redis,
     resume_stage8b_p1e_generated_market_with_signed_schedule,
@@ -120,6 +128,7 @@ pub use redis::{
     Stage8bP1ePostAcquisitionDecisionV1, Stage8bP1ePostAcquisitionOwnerV1,
     Stage8bP1ePublishedScheduleRouteV1, Stage8bP1eReadyFreshAcquisitionOutcomeV1,
     Stage8bP1eReadyPendingAcquisitionOutcomeV1, Stage8bP1eReadySourceRouteV1,
+    Stage8bP1eRecoveredCancelScheduleOutcomeV1, Stage8bP1eRecoveredDayExpiryScheduleOutcomeV1,
     Stage8bP1eRecoveredGeneratedMarketScheduleOutcomeV1,
     Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1, Stage8bP1eRetainedSourceReceiptV1,
     Stage8bP1eRoutedContinuationV1, Stage8bP1eRoutedPostAcquisitionDecisionV1,

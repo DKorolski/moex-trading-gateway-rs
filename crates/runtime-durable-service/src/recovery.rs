@@ -924,6 +924,21 @@ pub(crate) struct Stage8bP1eGeneratedMarketRestartMaterial {
     pub(crate) publication_binding: Stage8bP1d4CommandPublicationBindingV1,
 }
 
+pub(crate) struct Stage8bP1eCancelRestartMaterial {
+    pub(crate) evidence: Stage6Stage8bP1SemanticCommitEvidenceV1,
+    pub(crate) command: BrokerCommand,
+    pub(crate) operational_identity_sha256: String,
+    pub(crate) predecessor_m10: strategy_runtime_core::Stage8bP1eM10IdentityV1,
+    pub(crate) candidate_m10: strategy_runtime_core::Stage8bP1eM10IdentityV1,
+    pub(crate) high_water: strategy_runtime_core::Stage8bP1eScheduleHighWaterV1,
+    pub(crate) publication_seal_generation: u64,
+    pub(crate) publication_seal_commitment_sha256: String,
+}
+
+pub(crate) struct Stage8bP1eDayExpiryRestartMaterial {
+    pub(crate) high_water: strategy_runtime_core::Stage8bP1eScheduleHighWaterV1,
+}
+
 enum Stage8bP1eScheduleRecoveryTrust {
     Production,
     #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
@@ -1012,6 +1027,110 @@ impl Stage8bP1eScheduleBindingCommittedOwner {
         self.binding.transition_kind()
             == strategy_runtime_core::Stage8bP1eScheduleTransitionKindV1::MarketExecution
             && self.binding.generated_market_publication_seal().is_some()
+    }
+
+    pub(crate) fn is_cancel(&self) -> bool {
+        self.binding.transition_kind()
+            == strategy_runtime_core::Stage8bP1eScheduleTransitionKindV1::CancelStep
+    }
+
+    pub(crate) fn is_day_expiry(&self) -> bool {
+        self.binding.transition_kind()
+            == strategy_runtime_core::Stage8bP1eScheduleTransitionKindV1::DayExpiry
+    }
+
+    pub(crate) fn cancel_restart_material(
+        &self,
+    ) -> Result<Option<Stage8bP1eCancelRestartMaterial>, Stage7bRecoveryError> {
+        if !self.is_cancel() {
+            return Ok(None);
+        }
+        self.ready.require_lifecycle_available()?;
+        if self.binding.operational_identity_sha256()
+            != self.ready.stage8b_p1_operational_identity_sha256()
+        {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        let (evidence, command) = self
+            .ready
+            .recovered
+            .stage8b_p1_prepublication_material()
+            .ok_or(Stage7bRecoveryError::SealInvalid)?;
+        let BrokerCommand::CancelOrder(cancel) = &command else {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        };
+        let request_id = evidence
+            .strategy_request_id
+            .ok_or(Stage7bRecoveryError::SealInvalid)?;
+        let command_sha256 = sha256_hex(
+            &serde_json::to_vec(&command).map_err(|_| Stage7bRecoveryError::SealInvalid)?,
+        );
+        let binding = self.binding.request_or_order_binding();
+        let (publication_seal_generation, publication_seal_commitment_sha256) = self
+            .binding
+            .cancel_publication_seal()
+            .ok_or(Stage7bRecoveryError::SealInvalid)?;
+        if evidence.m10_redis_id != self.binding.predecessor_m10().redis_id
+            || evidence.m10_semantic_id_sha256 != self.binding.predecessor_m10().semantic_id_sha256
+            || evidence.m10_payload_sha256 != self.binding.predecessor_m10().payload_sha256
+            || cancel.request_id != request_id
+            || binding.strategy_request_id.as_deref() != Some(request_id.to_string().as_str())
+            || evidence.canonical_command_sha256.as_deref() != Some(command_sha256.as_str())
+            || binding.canonical_command_sha256.as_deref() != Some(command_sha256.as_str())
+            || binding.active_broker_order_id.as_deref() != Some(cancel.order_id.as_str())
+            || publication_seal_generation.checked_add(1)
+                != Some(self.receipt.covering_seal_generation)
+        {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        Ok(Some(Stage8bP1eCancelRestartMaterial {
+            evidence,
+            command,
+            operational_identity_sha256: self
+                .ready
+                .stage8b_p1_operational_identity_sha256()
+                .to_string(),
+            predecessor_m10: self.binding.predecessor_m10().clone(),
+            candidate_m10: self.binding.candidate_or_last_eligible_m10().clone(),
+            high_water: self
+                .binding
+                .recovered_high_water()
+                .map_err(|_| Stage7bRecoveryError::SealInvalid)?,
+            publication_seal_generation,
+            publication_seal_commitment_sha256: publication_seal_commitment_sha256.to_string(),
+        }))
+    }
+
+    pub(crate) fn day_expiry_restart_material(
+        &self,
+    ) -> Result<Option<Stage8bP1eDayExpiryRestartMaterial>, Stage7bRecoveryError> {
+        if !self.is_day_expiry() {
+            return Ok(None);
+        }
+        self.ready.require_lifecycle_available()?;
+        if self.binding.operational_identity_sha256()
+            != self.ready.stage8b_p1_operational_identity_sha256()
+        {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        let (active_order, transition_sha256, predecessor, last_evaluated) = self
+            .ready
+            .stage8b_p1e_day_expiry_binding_parts()?
+            .ok_or(Stage7bRecoveryError::SealInvalid)?;
+        let binding = self.binding.request_or_order_binding();
+        if binding.active_broker_order_id.as_deref() != Some(active_order.as_str())
+            || binding.working_book_transition_sha256.as_deref() != Some(transition_sha256.as_str())
+            || self.binding.predecessor_m10() != &predecessor
+            || self.binding.candidate_or_last_eligible_m10() != &last_evaluated
+        {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        Ok(Some(Stage8bP1eDayExpiryRestartMaterial {
+            high_water: self
+                .binding
+                .recovered_high_water()
+                .map_err(|_| Stage7bRecoveryError::SealInvalid)?,
+        }))
     }
 
     pub(crate) fn generated_market_restart_material(
@@ -4630,6 +4749,19 @@ impl Stage7bRecoveryReadyOwner {
                     ),
                 )));
             }
+            if binding.transition_kind()
+                == strategy_runtime_core::Stage8bP1eScheduleTransitionKindV1::CancelStep
+                && binding
+                    .cancel_publication_seal()
+                    .map(|(generation, _)| generation)
+                    != Some(record.prior_covering_seal_generation())
+            {
+                return Ok(Stage7bRestartOutcome::Blocked(Box::new(
+                    Stage7bRecoveryBlocked::after_consumed_storage(
+                        Stage7bRecoveryBlockReason::CheckpointMismatch,
+                    ),
+                )));
+            }
             let ready = Stage7bRecoveryReadyOwner {
                 recovered,
                 writer_lease,
@@ -4845,6 +4977,16 @@ impl Stage7bRecoveryReadyOwner {
         if candidate.transition_kind()
             == strategy_runtime_core::Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation
             && candidate.initial_publication_seal()
+                != Some((
+                    self.committed_seal.seal_generation(),
+                    self.committed_seal.seal_commitment_sha256(),
+                ))
+        {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        if candidate.transition_kind()
+            == strategy_runtime_core::Stage8bP1eScheduleTransitionKindV1::CancelStep
+            && candidate.cancel_publication_seal()
                 != Some((
                     self.committed_seal.seal_generation(),
                     self.committed_seal.seal_commitment_sha256(),
@@ -5953,6 +6095,16 @@ fn restart_stage8b_p1e_schedule_journal_ahead(
                 generation != committed_pre_binding_seal.seal_generation()
                     || commitment != committed_pre_binding_seal.seal_commitment_sha256()
             })
+    {
+        return Err(Stage7bRecoveryError::SealInvalid);
+    }
+    if binding.transition_kind()
+        == strategy_runtime_core::Stage8bP1eScheduleTransitionKindV1::CancelStep
+        && binding.cancel_publication_seal()
+            != Some((
+                committed_pre_binding_seal.seal_generation(),
+                committed_pre_binding_seal.seal_commitment_sha256(),
+            ))
     {
         return Err(Stage7bRecoveryError::SealInvalid);
     }

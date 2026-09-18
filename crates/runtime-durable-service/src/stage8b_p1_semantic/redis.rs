@@ -2119,7 +2119,7 @@ impl Stage8bP1RedisCancelContinuationPending {
     }
 
     #[cfg(test)]
-    fn stage8b_p1d3_test_restart_snapshot(&self) -> (u64, u64, usize) {
+    pub(crate) fn stage8b_p1d3_test_restart_snapshot(&self) -> (u64, u64, usize) {
         self.durable.stage8b_p1d3_test_restart_snapshot()
     }
 
@@ -2154,7 +2154,7 @@ impl Stage8bP1RedisLimitTruthCommitted {
     }
 
     #[cfg(test)]
-    fn stage8b_p1d3_test_restart_snapshot(&self) -> (u64, u64, usize) {
+    pub(crate) fn stage8b_p1d3_test_restart_snapshot(&self) -> (u64, u64, usize) {
         self.durable.stage8b_p1d3_test_restart_snapshot()
     }
 
@@ -3247,6 +3247,25 @@ pub enum Stage8bP1eRecoveredGeneratedMarketScheduleOutcomeV1 {
     },
 }
 
+/// Restart continuation for a published CANCEL whose exact command marker,
+/// source PEL and signed schedule are already covered by V4.
+pub enum Stage8bP1eRecoveredCancelScheduleOutcomeV1 {
+    Stopped(crate::Stage8bP1eScheduleStopReceiptV1),
+    CancelCommitted {
+        outcome: Box<Stage8bP1RedisCancelCommitOutcome>,
+        high_water: strategy_runtime_core::Stage8bP1eScheduleHighWaterV1,
+    },
+}
+
+/// Source-free restart continuation for an authenticated Day-expiry V4.
+pub enum Stage8bP1eRecoveredDayExpiryScheduleOutcomeV1 {
+    Stopped(crate::Stage8bP1eScheduleStopReceiptV1),
+    Ready {
+        owner: Box<Stage8bP1RedisSemanticCompositionOwner>,
+        high_water: strategy_runtime_core::Stage8bP1eScheduleHighWaterV1,
+    },
+}
+
 fn stage8b_p1e_m10_identity_from_validated(
     source: &Stage8bP1ValidatedCanonicalM10,
 ) -> strategy_runtime_core::Stage8bP1eM10IdentityV1 {
@@ -3766,6 +3785,20 @@ pub(crate) async fn resume_stage8b_p1e_cancel_with_signed_schedule_timeout(
     if cancel.order_id != active_broker_order_id || active_predecessor != predecessor {
         return Err(Stage8bP1RedisSemanticError::P1d1DecisionBindingConflict);
     }
+    let strategy_request_id = published
+        .evidence
+        .strategy_request_id
+        .ok_or(Stage8bP1RedisSemanticError::CommandPublicationConflict)?
+        .to_string();
+    let canonical_command_sha256 = published
+        .evidence
+        .canonical_command_sha256
+        .clone()
+        .ok_or(Stage8bP1RedisSemanticError::CommandPublicationConflict)?;
+    let publication_seal = (
+        published.receipt.covering_seal_generation,
+        published.receipt.covering_seal_commitment_sha256.clone(),
+    );
     let Stage8bP1RedisCommandPublished {
         stage7,
         evidence,
@@ -3782,6 +3815,9 @@ pub(crate) async fn resume_stage8b_p1e_cancel_with_signed_schedule_timeout(
         latch,
         &predecessor,
         &candidate,
+        strategy_request_id,
+        canonical_command_sha256,
+        publication_seal,
         active_broker_order_id.as_str(),
         working_book_transition_sha256,
         bound_at_utc,
@@ -4046,6 +4082,155 @@ pub async fn resume_stage8b_p1e_committed_generated_market_with_redis(
             high_water: material.high_water,
         },
     )
+}
+
+/// Resumes an authenticated CANCEL V4 without rereading the signed schedule
+/// or republishing the command. The exact source delivery and publication
+/// marker are revalidated before the retained successor can drive the
+/// target-first cancel state machine.
+pub async fn resume_stage8b_p1e_committed_cancel_with_redis(
+    committed: Box<crate::Stage8bP1eScheduleBindingCommittedOwner>,
+    mut transport: Stage8bP1RedisSemanticCompositionTransport,
+    latch: &Stage8bP1eShutdownLatchV1,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eRecoveredCancelScheduleOutcomeV1, Stage8bP1RedisSemanticError> {
+    let material = committed
+        .cancel_restart_material()?
+        .ok_or(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch)?;
+    let permit = match crate::resume_stage8b_p1e_committed_schedule_binding(*committed, latch) {
+        crate::Stage8bP1eScheduleBindingDecisionV1::StoppedAfterBinding { owner, receipt } => {
+            drop(owner);
+            drop(transport);
+            return Ok(Stage8bP1eRecoveredCancelScheduleOutcomeV1::Stopped(receipt));
+        }
+        crate::Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
+        crate::Stage8bP1eScheduleBindingDecisionV1::StoppedBeforeBinding { .. } => {
+            unreachable!("committed schedule binding cannot stop before binding")
+        }
+    };
+    let (stage7, authority) = match crate::continue_stage8b_p1e_schedule_step(permit, latch)? {
+        crate::Stage8bP1eScheduleAuthorityDecisionV1::RetainForRestart { owner, receipt } => {
+            drop(owner);
+            drop(transport);
+            return Ok(Stage8bP1eRecoveredCancelScheduleOutcomeV1::Stopped(receipt));
+        }
+        crate::Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } => {
+            (*owner, authority)
+        }
+    };
+    let pending_m10 = transport
+        .backend
+        .reclaim_exact_binding(
+            &material.predecessor_m10.redis_id,
+            &material.predecessor_m10.semantic_id_sha256,
+            &material.predecessor_m10.payload_sha256,
+        )
+        .await?;
+    transport
+        .backend
+        .revalidate_exact_command_publication(
+            &material.evidence,
+            &material.command,
+            &pending_m10,
+            material.publication_seal_generation,
+            &material.publication_seal_commitment_sha256,
+        )
+        .await?;
+    let successor = transport
+        .backend
+        .exact_first_successor_m10(
+            pending_m10.redis_id(),
+            &material.operational_identity_sha256,
+        )
+        .await?;
+    if stage8b_p1e_m10_identity_from_validated(&successor) != material.candidate_m10 {
+        return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
+    }
+    #[cfg(test)]
+    p1d4_observe_p1d3_schedule();
+    #[cfg(test)]
+    p1d4_observe_p1d3_provider();
+    let outcome = match stage7.commit_stage8b_p1d3_cancel(
+        successor.into_p1d3_limit_evidence()?,
+        authority,
+        commitment_key,
+    )? {
+        Stage8bP1d3CancelCommitOutcome::AckCommitted(durable) => {
+            Stage8bP1RedisCancelCommitOutcome::AckCommitted(Stage8bP1RedisLimitAckCommitted {
+                durable: *durable,
+                transport,
+                pending_m10,
+            })
+        }
+        Stage8bP1d3CancelCommitOutcome::TruthCommitted(durable) => {
+            Stage8bP1RedisCancelCommitOutcome::TruthCommitted(Stage8bP1RedisLimitTruthCommitted {
+                durable: *durable,
+                transport,
+                pending_m10,
+            })
+        }
+        Stage8bP1d3CancelCommitOutcome::CancelContinuationPending(durable) => {
+            Stage8bP1RedisCancelCommitOutcome::CancelContinuationPending(
+                Stage8bP1RedisCancelContinuationPending {
+                    durable: *durable,
+                    transport,
+                    pending_m10,
+                },
+            )
+        }
+    };
+    Ok(
+        Stage8bP1eRecoveredCancelScheduleOutcomeV1::CancelCommitted {
+            outcome: Box::new(outcome),
+            high_water: material.high_water,
+        },
+    )
+}
+
+/// Resumes a source-free Day-expiry V4. The caller must prove the M10 PEL is
+/// empty before entering this boundary; this function consumes only durable
+/// schedule authority and cannot read or acknowledge an M10 source.
+pub fn resume_stage8b_p1e_committed_day_expiry(
+    committed: Box<crate::Stage8bP1eScheduleBindingCommittedOwner>,
+    transport: Stage8bP1RedisSemanticCompositionTransport,
+    latch: &Stage8bP1eShutdownLatchV1,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eRecoveredDayExpiryScheduleOutcomeV1, Stage8bP1RedisSemanticError> {
+    let material = committed
+        .day_expiry_restart_material()?
+        .ok_or(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch)?;
+    let permit = match crate::resume_stage8b_p1e_committed_schedule_binding(*committed, latch) {
+        crate::Stage8bP1eScheduleBindingDecisionV1::StoppedAfterBinding { owner, receipt } => {
+            drop(owner);
+            drop(transport);
+            return Ok(Stage8bP1eRecoveredDayExpiryScheduleOutcomeV1::Stopped(
+                receipt,
+            ));
+        }
+        crate::Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
+        crate::Stage8bP1eScheduleBindingDecisionV1::StoppedBeforeBinding { .. } => {
+            unreachable!("committed schedule binding cannot stop before binding")
+        }
+    };
+    let (stage7, authority) = match crate::continue_stage8b_p1e_day_expiry_schedule(permit, latch)?
+    {
+        crate::Stage8bP1eScheduleAuthorityDecisionV1::RetainForRestart { owner, receipt } => {
+            drop(owner);
+            drop(transport);
+            return Ok(Stage8bP1eRecoveredDayExpiryScheduleOutcomeV1::Stopped(
+                receipt,
+            ));
+        }
+        crate::Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } => {
+            (*owner, authority)
+        }
+    };
+    let owner = Stage8bP1RedisSemanticCompositionOwner { stage7, transport }
+        .expire_working_limit(authority, commitment_key)?;
+    Ok(Stage8bP1eRecoveredDayExpiryScheduleOutcomeV1::Ready {
+        owner: Box::new(owner),
+        high_water: material.high_water,
+    })
 }
 
 /// Binds one already verified signed snapshot to the exact acquired Working
@@ -6721,7 +6906,7 @@ pub(crate) mod tests {
 
     macro_rules! p1e_test_commit_helper {
         ($helper:ident, $acquire:ident, $resume:ident, $owner:ty, $output:ty, $expected:expr) => {
-            async fn $helper(
+            pub(crate) async fn $helper(
                 owner: $owner,
                 transport: Stage8bP1RedisSemanticCompositionTransport,
                 key: &Stage5gLifecycleCommitmentKey,
@@ -8929,6 +9114,104 @@ pub(crate) mod tests {
     }
 
     #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    pub(crate) async fn p1e_test_commit_cancel_v4_only(
+        mut published: Stage8bP1RedisCommandPublished,
+        snapshot: crate::Stage8bP1eVerifiedScheduleSnapshotV1,
+        bound_at_utc: DateTime<Utc>,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> crate::Stage8bP1eScheduleBindingCommitReceipt {
+        assert_eq!(
+            published.p1e_schedule_route(),
+            Stage8bP1ePublishedScheduleRouteV1::Cancel
+        );
+        let operational_identity_sha256 = published
+            .stage7
+            .stage8b_p1_operational_identity_sha256()
+            .to_string();
+        let predecessor = published
+            .pending_m10
+            .parse_exact(&operational_identity_sha256)
+            .unwrap();
+        let candidate = published
+            .transport
+            .backend
+            .exact_first_successor_m10(
+                published.pending_m10.redis_id(),
+                &operational_identity_sha256,
+            )
+            .await
+            .unwrap();
+        let (active_order, transition_sha256, active_predecessor) = published
+            .stage7
+            .stage8b_p1e_working_binding_parts()
+            .unwrap();
+        let predecessor = stage8b_p1e_m10_identity_from_validated(&predecessor);
+        let candidate = stage8b_p1e_m10_identity_from_validated(&candidate);
+        assert_eq!(active_predecessor, predecessor);
+        let committed = crate::bind_stage8b_p1e_cancel_schedule(
+            published.stage7,
+            snapshot,
+            &Stage8bP1eShutdownLatchV1::new(),
+            &predecessor,
+            &candidate,
+            published.evidence.strategy_request_id.unwrap().to_string(),
+            published.evidence.canonical_command_sha256.clone().unwrap(),
+            (
+                published.receipt.covering_seal_generation,
+                published.receipt.covering_seal_commitment_sha256.clone(),
+            ),
+            active_order.as_str(),
+            transition_sha256,
+            bound_at_utc,
+            commitment_key,
+        )
+        .unwrap();
+        let crate::Stage8bP1eScheduleBindingCommitV1::Committed(owner) = committed else {
+            panic!("clear test latch must commit CANCEL V4")
+        };
+        let receipt = owner.receipt().clone();
+        drop(owner);
+        drop(published.transport);
+        drop(published.pending_m10);
+        receipt
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    pub(crate) fn p1e_test_commit_day_expiry_v4_only(
+        owner: Stage8bP1RedisSemanticCompositionOwner,
+        snapshot: crate::Stage8bP1eVerifiedScheduleSnapshotV1,
+        bound_at_utc: DateTime<Utc>,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> crate::Stage8bP1eScheduleBindingCommitReceipt {
+        let (active_order, transition_sha256, predecessor, last_evaluated) = owner
+            .stage7
+            .stage8b_p1e_day_expiry_binding_parts()
+            .unwrap()
+            .unwrap();
+        let Stage8bP1RedisSemanticCompositionOwner { stage7, transport } = owner;
+        let committed = crate::bind_stage8b_p1e_day_expiry_schedule(
+            stage7,
+            snapshot,
+            &Stage8bP1eShutdownLatchV1::new(),
+            &predecessor,
+            &last_evaluated,
+            bound_at_utc,
+            active_order.as_str(),
+            transition_sha256,
+            bound_at_utc,
+            commitment_key,
+        )
+        .unwrap();
+        let crate::Stage8bP1eScheduleBindingCommitV1::Committed(owner) = committed else {
+            panic!("clear test latch must commit Day-expiry V4")
+        };
+        let receipt = owner.receipt().clone();
+        drop(owner);
+        drop(transport);
+        receipt
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
     pub(crate) async fn p1e_test_commit_generated_market_v4_only(
         mut published: Stage8bP1RedisCommandPublished,
         snapshot: crate::Stage8bP1eVerifiedScheduleSnapshotV1,
@@ -10478,6 +10761,32 @@ pub(crate) mod tests {
     ) {
         let (key, fresh, identity, published) =
             prepare_p1d4_cancel_source(redis_url, parent, P1d4CancelTargetState::Working).await;
+        assert_eq!(
+            published.p1e_schedule_route(),
+            Stage8bP1ePublishedScheduleRouteV1::Cancel
+        );
+        (
+            published,
+            key,
+            fresh,
+            identity,
+            P1D3_CANCEL_CANDIDATE_CLOSE_MS,
+        )
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    pub(crate) async fn p1e_test_target_first_cancel_published(
+        redis_url: &str,
+        parent: &Path,
+    ) -> (
+        Stage8bP1RedisCommandPublished,
+        Stage5gLifecycleCommitmentKey,
+        strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        String,
+        i64,
+    ) {
+        let (key, fresh, identity, published) =
+            prepare_p1d3_working_target_first_cancel_source(redis_url, parent).await;
         assert_eq!(
             published.p1e_schedule_route(),
             Stage8bP1ePublishedScheduleRouteV1::Cancel

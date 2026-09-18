@@ -1974,8 +1974,58 @@ impl Stage6dDurableRuntimeRecovered {
                     expected_stage5_checkpoint_sha256,
                     is_recovery,
                 ),
+            crate::Stage8bP1eScheduleTransitionKindV1::CancelStep => {
+                let Stage6dStage5RuntimeAuthority::Restart(restart) = &self.stage5_runtime else {
+                    return Ok(false);
+                };
+                let Some(replacement) = restart.stage8b_p1d3_replacement() else {
+                    return Ok(false);
+                };
+                if replacement.authenticated_stage6_checkpoint_sha256()
+                    != expected_stage5_checkpoint_sha256
+                    || !replacement.matches_stage8b_p1e_schedule_candidate(candidate)?
+                {
+                    return Ok(false);
+                }
+                let Some((evidence, command)) = self.stage8b_p1_prepublication_material() else {
+                    return Ok(false);
+                };
+                let BrokerCommand::CancelOrder(cancel) = &command else {
+                    return Ok(false);
+                };
+                let Some(request_id) = evidence.strategy_request_id else {
+                    return Ok(false);
+                };
+                let command_sha256 = sha256_hex(
+                    &serde_json::to_vec(&command)
+                        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?,
+                );
+                let binding = candidate.request_or_order_binding();
+                let exact = cancel.request_id == request_id
+                    && evidence.canonical_command_sha256.as_deref()
+                        == Some(command_sha256.as_str())
+                    && binding.strategy_request_id.as_deref()
+                        == Some(request_id.to_string().as_str())
+                    && binding.canonical_command_sha256.as_deref() == Some(command_sha256.as_str())
+                    && binding.active_broker_order_id.as_deref() == Some(cancel.order_id.as_str())
+                    && evidence.m10_redis_id == candidate.predecessor_m10().redis_id
+                    && evidence.m10_semantic_id_sha256
+                        == candidate.predecessor_m10().semantic_id_sha256
+                    && evidence.m10_payload_sha256 == candidate.predecessor_m10().payload_sha256;
+                if !exact || is_recovery {
+                    return Ok(exact);
+                }
+                Ok(matches!(
+                    self.journal.versioned_records().last(),
+                    Some(Stage6JournalRecordVersioned::V1(record))
+                        if record.event_kind() == Stage6JournalEventKind::RequestAccepted
+                            && record
+                                .durable_request_identity()
+                                .strategy_request_id()
+                                == request_id
+                ))
+            }
             crate::Stage8bP1eScheduleTransitionKindV1::WorkingLimitEvaluation
-            | crate::Stage8bP1eScheduleTransitionKindV1::CancelStep
             | crate::Stage8bP1eScheduleTransitionKindV1::DayExpiry => {
                 let Stage6dStage5RuntimeAuthority::Restart(restart) = &self.stage5_runtime else {
                     return Ok(false);
@@ -2291,6 +2341,14 @@ impl Stage6dDurableRuntimeRecovered {
             == crate::Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation
             && candidate
                 .initial_publication_seal()
+                .map(|(generation, _)| generation)
+                != Some(prior_covering_seal_generation)
+        {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        if candidate.transition_kind() == crate::Stage8bP1eScheduleTransitionKindV1::CancelStep
+            && candidate
+                .cancel_publication_seal()
                 .map(|(generation, _)| generation)
                 != Some(prior_covering_seal_generation)
         {
@@ -2755,9 +2813,11 @@ impl Stage6dDurableRuntimeRecovered {
             .stage8b_p1e_working_binding_parts()
     }
 
-    /// Returns the exact authenticated M10 pair needed to bind a Day-expiry
-    /// transition. The pair is taken from the latest checkpoint-covered V4,
-    /// not reconstructed from wall-clock time or from the current bar ID.
+    /// Returns the exact authenticated M10 pair needed to bind or resume a
+    /// Day-expiry transition. Before binding, the pair comes from the latest
+    /// checkpoint-covered Initial/Working V4. After a covered restart, the
+    /// exact committed Day-expiry V4 is itself the latest authenticated
+    /// source. No value is reconstructed from wall-clock time or a bar ID.
     #[doc(hidden)]
     pub fn stage8b_p1e_day_expiry_binding_parts(
         &self,
@@ -2789,6 +2849,7 @@ impl Stage6dDurableRuntimeRecovered {
             record.transition_kind(),
             crate::Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation
                 | crate::Stage8bP1eScheduleTransitionKindV1::WorkingLimitEvaluation
+                | crate::Stage8bP1eScheduleTransitionKindV1::DayExpiry
         ) || record.candidate_or_last_eligible_m10() != last_evaluated
         {
             return Ok(None);
@@ -10611,7 +10672,13 @@ fn stage8b_p1e_dispatch_follows_exact_schedule_binding_records(
                     .is_some_and(|value| Stage6Sha256Digest::parse(value.to_string()).is_ok())
         }
         crate::Stage8bP1eScheduleTransitionKindV1::CancelStep => {
+            let request_id = identity.strategy_request_id().to_string();
             identity.action() == Stage6DurableActionKind::Cancel
+                && binding.strategy_request_id.as_deref() == Some(request_id.as_str())
+                && binding
+                    .canonical_command_sha256
+                    .as_deref()
+                    .is_some_and(|value| Stage6Sha256Digest::parse(value.to_string()).is_ok())
                 && identity.target_broker_order_id().is_some_and(|order_id| {
                     binding.active_broker_order_id.as_deref() == Some(order_id.as_str())
                 })

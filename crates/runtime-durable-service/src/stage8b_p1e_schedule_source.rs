@@ -719,6 +719,9 @@ pub fn commit_stage8b_p1e_cancel_schedule(
     latch: &Stage8bP1eShutdownLatchV1,
     predecessor: &Stage8bP1eM10IdentityV1,
     candidate: &Stage8bP1eM10IdentityV1,
+    strategy_request_id: impl Into<String>,
+    canonical_command_sha256: impl Into<String>,
+    publication_seal: (u64, impl Into<String>),
     active_broker_order_id: impl Into<String>,
     working_book_transition_sha256: impl Into<String>,
     bound_at_utc: DateTime<Utc>,
@@ -731,6 +734,9 @@ pub fn commit_stage8b_p1e_cancel_schedule(
             latch,
             predecessor,
             candidate,
+            strategy_request_id,
+            canonical_command_sha256,
+            publication_seal,
             active_broker_order_id,
             working_book_transition_sha256,
             bound_at_utc,
@@ -747,6 +753,9 @@ pub fn bind_stage8b_p1e_cancel_schedule(
     latch: &Stage8bP1eShutdownLatchV1,
     predecessor: &Stage8bP1eM10IdentityV1,
     candidate: &Stage8bP1eM10IdentityV1,
+    strategy_request_id: impl Into<String>,
+    canonical_command_sha256: impl Into<String>,
+    publication_seal: (u64, impl Into<String>),
     active_broker_order_id: impl Into<String>,
     working_book_transition_sha256: impl Into<String>,
     bound_at_utc: DateTime<Utc>,
@@ -759,6 +768,9 @@ pub fn bind_stage8b_p1e_cancel_schedule(
     let binding = snapshot.accepted.prepare_cancel_binding(
         predecessor,
         candidate,
+        strategy_request_id,
+        canonical_command_sha256,
+        publication_seal,
         active_broker_order_id,
         working_book_transition_sha256,
         snapshot.redis_stream_id,
@@ -2366,7 +2378,7 @@ pub(crate) mod tests {
 
         let (mut setup, owner, _) = p1e_test_working_limit_fixture();
         let operational_identity = owner.stage8b_p1_operational_identity_sha256().to_string();
-        let (target_order, _, _) = owner
+        let (target_order, _, cancel_predecessor) = owner
             .stage8b_p1e_working_binding_parts()
             .expect("cancel fixture requires one authenticated Working LIMIT");
         let source_attribution = owner.stage8b_p1d3_test_working_book_attribution().unwrap();
@@ -2378,20 +2390,12 @@ pub(crate) mod tests {
             format!("{attribution_prefix}|r=CANCEL"),
         )
         .unwrap();
-        let cancel_decision_close_ms = P1E_TEST_LATER_CANDIDATE_CLOSE_MS;
-        let cancel_source_bytes = p1e_test_canonical_m10(
-            operational_identity.clone(),
-            cancel_decision_close_ms,
-            2_220,
-        );
-        let cancel_source =
-            crate::parse_stage8b_p1_canonical_m10(&cancel_source_bytes, &operational_identity)
-                .unwrap();
+        let cancel_decision_close_ms = cancel_predecessor.close_ts_utc_ms;
         let binding = Stage5gP1SemanticBindingInput {
             operational_identity_sha256: operational_identity.clone(),
-            m10_redis_id: cancel_source.redis_id().to_string(),
-            m10_semantic_id_sha256: cancel_source.semantic_id_sha256().to_string(),
-            m10_payload_sha256: cancel_source.payload_sha256().to_string(),
+            m10_redis_id: cancel_predecessor.redis_id.clone(),
+            m10_semantic_id_sha256: cancel_predecessor.semantic_id_sha256.clone(),
+            m10_payload_sha256: cancel_predecessor.payload_sha256.clone(),
         };
         let cancel_request_id = StrategyRequestId::from(uuid::Uuid::from_u128(
             0xca11_ce10_0000_4000_8000_0000_0000_0001,
@@ -2415,7 +2419,16 @@ pub(crate) mod tests {
                 &setup.commitment_key,
             )
             .unwrap();
-        let (owner, _, _) = prepublication.into_p1c_parts();
+        let (owner, evidence, _) = prepublication.into_p1c_parts();
+        let strategy_request_id = evidence.strategy_request_id.unwrap().to_string();
+        let canonical_command_sha256 = evidence.canonical_command_sha256.unwrap();
+        let publication_seal = {
+            let seal = owner.committed_seal().unwrap();
+            (
+                seal.seal_generation(),
+                seal.seal_commitment_sha256().to_string(),
+            )
+        };
         let (active_order, transition_sha256, predecessor) = owner
             .stage8b_p1e_working_binding_parts()
             .expect("cancel semantic commit must preserve the exact Working LIMIT");
@@ -2442,6 +2455,9 @@ pub(crate) mod tests {
             &Stage8bP1eShutdownLatchV1::new(),
             &predecessor,
             &candidate,
+            strategy_request_id,
+            canonical_command_sha256,
+            publication_seal,
             active_order.as_str(),
             transition_sha256,
             boundary,

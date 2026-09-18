@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-09-17.
+Status date: 2026-09-18.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -12,20 +12,16 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 ## Active Stage 8B-P1-e I1 slice
 
-Cancel signed-schedule composition `cc1f02c` is independently SOURCE ACCEPTED.
-Day-expiry checkpoint `9e6217a` was held on P1-DEX01 because its separate
-process entry could verify Closed evidence with an empty external progression
-context despite an existing durable Open V4. The current local correction
-makes authenticated durable high-water admission mandatory, retains that
-high-water in the private route, rechecks it before Redis read and makes the
-low-level snapshot bridge crate-private. The positive history is now Open
-`1/1` to later Closed `2/2`; conflict, same-revision hash change, rollback and
-external-context mismatch fail before V4/seal/effect. Missing schedule retains
-the exact typed owner and restored high-water even when Redis history no longer
-contains the prior Open row.
+Cancel signed-schedule composition `cc1f02c` and the Day-expiry P1-DEX01
+correction `a667938` are independently SOURCE ACCEPTED. The current source
+candidate adds committed Cancel/Day-expiry restart recovery. Cancel revalidates
+the exact command marker, publication seal, source M10 and retained first
+successor, preserves the target-first PEL through durable truth and permits
+only XACK-last. Day-expiry restores from the exact authenticated V4 without an
+M10 claim, schedule reread, command publication or source acknowledgement.
 
-This is not full I1 closure. Next are committed Cancel/Day-expiry restart,
-production retention of deferred/exhausted owners, and the process
+This is not full I1 closure. Production retention/wakeup wiring for these
+committed owners is the next separate source slice, followed by the process
 signal/panic/SIGKILL matrix. Redis DB0/VPS activation, FINAM write/send, broker
 dispatch, runtime-live and real orders remain closed.
 

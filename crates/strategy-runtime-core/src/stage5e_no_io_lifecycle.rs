@@ -7921,6 +7921,21 @@ pub mod p1e_schedule_source {
             ))
         }
 
+        pub fn cancel_publication_seal(&self) -> Option<(u64, &str)> {
+            if self.candidate.transition_kind != Stage8bP1eScheduleTransitionKindV1::CancelStep {
+                return None;
+            }
+            Some((
+                self.candidate
+                    .request_or_order_binding
+                    .publication_seal_generation?,
+                self.candidate
+                    .request_or_order_binding
+                    .publication_seal_commitment_sha256
+                    .as_deref()?,
+            ))
+        }
+
         pub fn recovered_high_water(
             &self,
         ) -> Result<Stage8bP1eScheduleHighWaterV1, Stage8bP1eScheduleSourceError> {
@@ -8171,10 +8186,14 @@ pub mod p1e_schedule_source {
             )
         }
 
+        #[allow(clippy::too_many_arguments)]
         pub fn prepare_cancel_binding(
             &self,
             predecessor: &Stage8bP1eM10IdentityV1,
             candidate: &Stage8bP1eM10IdentityV1,
+            strategy_request_id: impl Into<String>,
+            canonical_command_sha256: impl Into<String>,
+            publication_seal: (u64, impl Into<String>),
             active_broker_order_id: impl Into<String>,
             working_book_transition_sha256: impl Into<String>,
             redis_stream_id: impl Into<String>,
@@ -8186,12 +8205,12 @@ pub mod p1e_schedule_source {
                 predecessor,
                 candidate,
                 Stage8bP1eRequestOrOrderBindingV1 {
-                    strategy_request_id: None,
-                    canonical_command_sha256: None,
+                    strategy_request_id: Some(strategy_request_id.into()),
+                    canonical_command_sha256: Some(canonical_command_sha256.into()),
                     active_broker_order_id: Some(active_broker_order_id.into()),
                     working_book_transition_sha256: Some(working_book_transition_sha256.into()),
-                    publication_seal_generation: None,
-                    publication_seal_commitment_sha256: None,
+                    publication_seal_generation: Some(publication_seal.0),
+                    publication_seal_commitment_sha256: Some(publication_seal.1.into()),
                 },
                 redis_stream_id.into(),
                 Stage8bP1ePreparedScheduleRouteV1::ScheduleStep {
@@ -8438,6 +8457,18 @@ pub mod p1e_schedule_source {
 
         pub fn generated_market_publication_seal(&self) -> Option<(u64, &str)> {
             if self.transition_kind != Stage8bP1eScheduleTransitionKindV1::MarketExecution {
+                return None;
+            }
+            Some((
+                self.request_or_order_binding.publication_seal_generation?,
+                self.request_or_order_binding
+                    .publication_seal_commitment_sha256
+                    .as_deref()?,
+            ))
+        }
+
+        pub fn cancel_publication_seal(&self) -> Option<(u64, &str)> {
+            if self.transition_kind != Stage8bP1eScheduleTransitionKindV1::CancelStep {
                 return None;
             }
             Some((
@@ -8983,6 +9014,23 @@ pub mod p1e_schedule_source {
             Stage8bP1eScheduleTransitionKindV1::CancelStep => accepted.prepare_cancel_binding(
                 &predecessor,
                 &candidate_m10,
+                binding
+                    .strategy_request_id
+                    .clone()
+                    .ok_or(Stage8bP1eScheduleSourceError::TransitionMismatch)?,
+                binding
+                    .canonical_command_sha256
+                    .clone()
+                    .ok_or(Stage8bP1eScheduleSourceError::TransitionMismatch)?,
+                (
+                    binding
+                        .publication_seal_generation
+                        .ok_or(Stage8bP1eScheduleSourceError::TransitionMismatch)?,
+                    binding
+                        .publication_seal_commitment_sha256
+                        .clone()
+                        .ok_or(Stage8bP1eScheduleSourceError::TransitionMismatch)?,
+                ),
                 binding
                     .active_broker_order_id
                     .clone()
@@ -9744,8 +9792,32 @@ pub mod p1e_schedule_source {
                         .as_deref()
                         .is_some_and(valid_sha256)
             }
+            Stage8bP1eScheduleTransitionKindV1::CancelStep => {
+                binding
+                    .strategy_request_id
+                    .as_deref()
+                    .is_some_and(|value| !value.is_empty() && value.len() <= 256)
+                    && binding
+                        .canonical_command_sha256
+                        .as_deref()
+                        .is_some_and(valid_sha256)
+                    && binding
+                        .active_broker_order_id
+                        .as_deref()
+                        .is_some_and(|value| !value.is_empty() && value.len() <= 256)
+                    && binding
+                        .working_book_transition_sha256
+                        .as_deref()
+                        .is_some_and(valid_sha256)
+                    && binding
+                        .publication_seal_generation
+                        .is_some_and(|value| value > 0)
+                    && binding
+                        .publication_seal_commitment_sha256
+                        .as_deref()
+                        .is_some_and(valid_sha256)
+            }
             Stage8bP1eScheduleTransitionKindV1::WorkingLimitEvaluation
-            | Stage8bP1eScheduleTransitionKindV1::CancelStep
             | Stage8bP1eScheduleTransitionKindV1::DayExpiry => {
                 binding.strategy_request_id.is_none()
                     && binding.canonical_command_sha256.is_none()
@@ -10562,6 +10634,9 @@ pub mod p1e_schedule_source {
                 .prepare_cancel_binding(
                     &predecessor,
                     &last,
+                    "request-cancel-1",
+                    "d".repeat(64),
+                    (7, "e".repeat(64)),
                     "broker-order-1",
                     "f".repeat(64),
                     "1789000000001-0",
