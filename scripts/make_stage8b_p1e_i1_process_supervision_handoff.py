@@ -83,7 +83,7 @@ def main() -> None:
     evidence = {
         "schema_version": 1,
         "stage": safety.STAGE,
-        "status": "SOURCE_REVIEW_CANDIDATE",
+        "status": "SOURCE_CORRECTION_REVIEW_CANDIDATE",
         "source_ref": source_ref,
         "source_parent": source_parent,
         "source_tree": source_tree,
@@ -93,12 +93,36 @@ def main() -> None:
         "commands": records,
         "production_process_composition": True,
         "process_matrix": {
-            "case_count": 5,
+            "case_count": 9,
             "idle_sigterm": True,
             "idle_sigkill_restart": True,
             "owner_panic_exit_70": True,
             "committed_cancel_handoff": True,
             "cancel_truth_before_xack_sigkill_restart": True,
+            "production_pre_admission_sigterm_exit_66": True,
+            "production_post_admission_sigterm_exit_0": True,
+            "production_redis_attach_sigint_exit_0": True,
+            "production_s06_sigterm_exit_0": True,
+        },
+        "ordinary_run_admission": {
+            "post_seal_frontiers_rejected_without_mutation": True,
+            "missing_corrupt_foreign_authority_rejected_without_mutation": True,
+            "adopted_v5_root_accepted": True,
+            "authority_temp_files_rejected": True,
+            "current_restart_package_provenance_bound": True,
+        },
+        "terminal_exit_mapping": {
+            "authenticated_before_deadline": 0,
+            "authenticated_at_or_after_deadline": 72,
+            "signal_task_failure": 73,
+            "owner_panic_precedence": 70,
+            "restart_required": 67,
+        },
+        "known_predecessor_blocker": {
+            "accepted_v5_lifecycle": "TimerReady",
+            "required_p1_semantic_lifecycle": "P1SemanticReady",
+            "real_m10_cancel_v4_witness_complete": False,
+            "synthetic_witness_used": False,
         },
         "closed_surfaces": {
             "operational_redis_db0_db15": False,
@@ -109,7 +133,7 @@ def main() -> None:
             "runtime_live": False,
             "real_orders": False,
         },
-        "next_slice": "fixed-path installation, telemetry and aggregate I1 closure",
+        "next_slice": "reviewed V5 lifecycle alignment and real M10/Cancel/V4 witness",
     }
     evidence_raw = (json.dumps(evidence, indent=2, sort_keys=True) + "\n").encode()
     marker = (

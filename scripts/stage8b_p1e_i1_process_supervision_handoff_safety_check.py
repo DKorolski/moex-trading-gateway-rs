@@ -115,8 +115,41 @@ def check(path: str) -> dict[str, object]:
         require(evidence["source_parent"] == PARENT, "evidence parent mismatch")
         require(evidence["source_tree"] == marker["source_tree"], "evidence tree mismatch")
         require(evidence["manifest_sha256"] == sha256(files[MANIFEST]), "manifest digest mismatch")
+        require(
+            evidence["status"] == "SOURCE_CORRECTION_REVIEW_CANDIDATE",
+            "evidence status mismatch",
+        )
         require(evidence["production_process_composition"] is True, "process composition not declared")
-        require(evidence["process_matrix"]["case_count"] == 5, "process case count mismatch")
+        require(evidence["process_matrix"]["case_count"] == 9, "process case count mismatch")
+        require(
+            all(value is True for key, value in evidence["process_matrix"].items() if key != "case_count"),
+            "process matrix case not proven",
+        )
+        require(
+            all(evidence["ordinary_run_admission"].values()),
+            "ordinary-run admission evidence incomplete",
+        )
+        require(
+            evidence["terminal_exit_mapping"]
+            == {
+                "authenticated_before_deadline": 0,
+                "authenticated_at_or_after_deadline": 72,
+                "signal_task_failure": 73,
+                "owner_panic_precedence": 70,
+                "restart_required": 67,
+            },
+            "terminal exit mapping drift",
+        )
+        require(
+            evidence["known_predecessor_blocker"]
+            == {
+                "accepted_v5_lifecycle": "TimerReady",
+                "required_p1_semantic_lifecycle": "P1SemanticReady",
+                "real_m10_cancel_v4_witness_complete": False,
+                "synthetic_witness_used": False,
+            },
+            "predecessor blocker disclosure drift",
+        )
         require(all(value is False for value in evidence["closed_surfaces"].values()), "closed surface opened")
         require(set(evidence["commands"]) == set(LOGS), "command inventory mismatch")
         for name, log_path in LOGS.items():
@@ -134,6 +167,13 @@ def check(path: str) -> dict[str, object]:
             b"PASS stage8b-p1e-i1-process-supervision-gate" in files[LOGS["source_gate"]],
             "source gate marker missing",
         )
+        for token in (
+            b"production_run_signals_cover_admission_attach_and_s06_without_effects",
+            b"process_wrapper_preserves_coordinator_boundary_exit_classes",
+            b"ordinary_run_admission_rejects_post_seal_frontiers_without_mutation",
+            b"stage8b-p1e-i1-process-supervision-negative-harness 52/52",
+        ):
+            require(token in files[LOGS["source_gate"]], f"correction gate witness missing: {token!r}")
         require(b"5 passed; 0 failed" in files[LOGS["runtime_process"]], "five process cases not retained")
         for name in (
             "runtime_lib",
