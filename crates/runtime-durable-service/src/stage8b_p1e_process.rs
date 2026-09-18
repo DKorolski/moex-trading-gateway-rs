@@ -23,6 +23,7 @@ use strategy_runtime_core::Stage5gLifecycleCommitmentKey;
 use crate::stage8b_p1_semantic::{
     resume_stage8b_p1e_cancel_with_signed_schedule_timeout,
     resume_stage8b_p1e_command_published_with_signed_schedule_timeout,
+    resume_stage8b_p1e_day_expiry_with_signed_schedule,
     resume_stage8b_p1e_generated_market_with_signed_schedule_timeout,
     resume_stage8b_p1e_initial_limit_with_signed_schedule_timeout,
 };
@@ -54,7 +55,7 @@ use crate::{
     resume_stage8b_p1d4_prepublication_with_redis, resume_stage8b_p1d4_truth_with_redis,
     resume_stage8b_p1e_committed_generated_market_with_redis,
     resume_stage8b_p1e_committed_initial_limit_with_redis,
-    resume_stage8b_p1e_day_expiry_with_signed_schedule, resume_stage8b_p1e_ready_source_with_redis,
+    resume_stage8b_p1e_ready_source_with_redis,
     resume_stage8b_p1e_ready_working_limit_with_signed_schedule,
     route_stage8b_p1e_post_acquisition_v1, validate_stage8b_p1e_supervisor_config_v1,
     Stage7bRestartOutcome, Stage8bP1RedisCancelCommitOutcome,
@@ -740,16 +741,34 @@ impl Stage8bP1eReadyPollingV1 {
     }
 
     /// Reclassifies an externally due day timer into the signed-schedule
-    /// acquisition path. This conversion grants no expiry authority: only a
-    /// fresh verified Closed schedule can advance the retained Ready owner.
-    pub fn into_day_expiry_schedule(self) -> Stage8bP1eScheduleDeferredRecoveryV1 {
-        Stage8bP1eScheduleDeferredRecoveryV1 {
+    /// acquisition path after binding the caller's progression context to the
+    /// authenticated schedule high-water in the retained Ready owner. This
+    /// conversion grants no expiry authority: only a fresh verified Closed
+    /// schedule that advances that exact durable history can proceed.
+    pub fn into_day_expiry_schedule(
+        self,
+        context: &mut strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
+    ) -> Result<Stage8bP1eScheduleDeferredRecoveryV1, Stage8bP1eStartupErrorV1> {
+        self.restore_durable_schedule_high_water(context)?;
+        self.into_day_expiry_schedule_with_bound_high_water(context)
+    }
+
+    fn into_day_expiry_schedule_with_bound_high_water(
+        self,
+        context: &strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
+    ) -> Result<Stage8bP1eScheduleDeferredRecoveryV1, Stage8bP1eStartupErrorV1> {
+        let durable_high_water = context
+            .high_water
+            .clone()
+            .ok_or(Stage8bP1RedisSemanticError::P1eScheduleHighWaterConflict)?;
+        Ok(Stage8bP1eScheduleDeferredRecoveryV1 {
             kind: Stage8bP1eScheduleDeferredKindV1::ReadyDayExpiry,
-            _route: Box::new(Stage8bP1eScheduleDeferredRouteV1::ReadyDayExpiry(
-                self.owner,
-            )),
+            _route: Box::new(Stage8bP1eScheduleDeferredRouteV1::ReadyDayExpiry {
+                owner: self.owner,
+                durable_high_water,
+            }),
             control: self.control,
-        }
+        })
     }
 
     /// Restores schedule progression only through the sealed Ready owner. An
@@ -793,6 +812,27 @@ impl Stage8bP1eReadyPollingV1 {
                 key_valid_until,
             )?;
         apply_recovered_schedule_high_water(context, durable)
+    }
+
+    #[cfg(any(test, feature = "stage8a4-i3-test-fixtures"))]
+    #[allow(
+        dead_code,
+        reason = "fixture trust is exercised only by feature-gated process tests"
+    )]
+    fn test_into_day_expiry_schedule_with_key(
+        self,
+        context: &mut strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
+        public_key_hex: &str,
+        key_valid_from: DateTime<Utc>,
+        key_valid_until: DateTime<Utc>,
+    ) -> Result<Stage8bP1eScheduleDeferredRecoveryV1, Stage8bP1eStartupErrorV1> {
+        self.test_restore_durable_schedule_high_water_with_key(
+            context,
+            public_key_hex,
+            key_valid_from,
+            key_valid_until,
+        )?;
+        self.into_day_expiry_schedule_with_bound_high_water(context)
     }
 }
 
@@ -947,7 +987,10 @@ pub enum Stage8bP1eScheduleDeferredKindV1 {
 enum Stage8bP1eScheduleDeferredRouteV1 {
     CommandPublished(Box<Stage8bP1RedisCommandPublished>),
     RoutedContinuation(Box<Stage8bP1eRoutedContinuationV1>),
-    ReadyDayExpiry(Box<Stage8bP1RedisSemanticCompositionOwner>),
+    ReadyDayExpiry {
+        owner: Box<Stage8bP1RedisSemanticCompositionOwner>,
+        durable_high_water: strategy_runtime_core::Stage8bP1eScheduleHighWaterV1,
+    },
 }
 
 pub struct Stage8bP1eScheduleDeferredRecoveryV1 {
@@ -1132,7 +1175,7 @@ fn supported_schedule_route(
         }
         (
             Stage8bP1eScheduleDeferredKindV1::ReadyDayExpiry,
-            Stage8bP1eScheduleDeferredRouteV1::ReadyDayExpiry(_),
+            Stage8bP1eScheduleDeferredRouteV1::ReadyDayExpiry { .. },
         ) => Some(Stage8bP1eSupportedScheduleRouteV1::ReadyDayExpiry),
         _ => None,
     }
@@ -1850,11 +1893,18 @@ async fn advance_stage8b_p1e_day_expiry_schedule_with_timeout_v1(
     if deferred.kind != Stage8bP1eScheduleDeferredKindV1::ReadyDayExpiry
         || !matches!(
             deferred._route.as_ref(),
-            Stage8bP1eScheduleDeferredRouteV1::ReadyDayExpiry(_)
+            Stage8bP1eScheduleDeferredRouteV1::ReadyDayExpiry { .. }
         )
     {
         return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch.into());
     }
+    let Stage8bP1eScheduleDeferredRouteV1::ReadyDayExpiry {
+        durable_high_water, ..
+    } = deferred._route.as_ref()
+    else {
+        return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch.into());
+    };
+    apply_recovered_schedule_high_water(context, Some(durable_high_water.clone()))?;
     let read = match reader
         .read_newest_guarded_with_timeout(context, latch, operation_timeout)
         .await
@@ -1870,7 +1920,11 @@ async fn advance_stage8b_p1e_day_expiry_schedule_with_timeout_v1(
         _route: route,
         control,
     } = deferred;
-    let Stage8bP1eScheduleDeferredRouteV1::ReadyDayExpiry(owner) = *route else {
+    let Stage8bP1eScheduleDeferredRouteV1::ReadyDayExpiry {
+        owner,
+        durable_high_water,
+    } = *route
+    else {
         return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch.into());
     };
     match read {
@@ -1886,7 +1940,10 @@ async fn advance_stage8b_p1e_day_expiry_schedule_with_timeout_v1(
             Stage8bP1eDayExpiryScheduleAdvanceOutcomeV1::AwaitingSchedule(
                 Stage8bP1eScheduleDeferredRecoveryV1 {
                     kind,
-                    _route: Box::new(Stage8bP1eScheduleDeferredRouteV1::ReadyDayExpiry(owner)),
+                    _route: Box::new(Stage8bP1eScheduleDeferredRouteV1::ReadyDayExpiry {
+                        owner,
+                        durable_high_water,
+                    }),
                     control,
                 },
             ),
@@ -3876,6 +3933,7 @@ fn read_boot_id(path: &Path) -> Result<[u8; 16], Stage8bP1eProcessErrorV1> {
 mod tests {
     use super::*;
     use std::{
+        collections::BTreeMap,
         ffi::CString,
         io::Write,
         net::TcpListener,
@@ -3950,6 +4008,133 @@ mod tests {
         builder.mode(0o700);
         builder.create(&path).unwrap();
         fs::canonicalize(path).unwrap()
+    }
+
+    fn durable_file_snapshot(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+        fn visit(root: &Path, current: &Path, files: &mut BTreeMap<PathBuf, Vec<u8>>) {
+            for entry in fs::read_dir(current).unwrap() {
+                let entry = entry.unwrap();
+                let path = entry.path();
+                let file_type = entry.file_type().unwrap();
+                if file_type.is_dir() {
+                    visit(root, &path, files);
+                } else if file_type.is_file() {
+                    files.insert(
+                        path.strip_prefix(root).unwrap().to_path_buf(),
+                        fs::read(path).unwrap(),
+                    );
+                }
+            }
+        }
+
+        let mut files = BTreeMap::new();
+        visit(root, root, &mut files);
+        files
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    async fn assert_day_expiry_progression_rejected(
+        label: &str,
+        prior_publication_sequence: u64,
+        prior_semantic_revision: u64,
+        publication_sequence: u64,
+        semantic_revision: u64,
+        expected: strategy_runtime_core::Stage8bP1eScheduleSourceError,
+    ) {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory(label);
+        let (owner, key, fresh, identity, boundary_ms) =
+            crate::stage8b_p1_semantic::p1e_test_day_expiry_ready_with_prior(
+                &redis.url,
+                &parent,
+                prior_publication_sequence,
+                prior_semantic_revision,
+            )
+            .await;
+        let boundary = DateTime::<Utc>::from_timestamp_millis(boundary_ms).unwrap();
+        let mut fixture =
+            crate::stage8b_p1e_schedule_source::tests::p1e_test_closed_schedule_envelope(
+                identity,
+                fresh.stage5c_config_fingerprint(),
+                crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+                boundary,
+            );
+        fixture.bytes =
+            crate::stage8b_p1e_schedule_source::tests::p1e_test_revised_schedule_envelope(
+                &fixture.bytes,
+                publication_sequence,
+                semantic_revision,
+                boundary,
+            );
+        let control =
+            crate::stage8b_p1_supervisor::stage8b_p1e_test_redis_control_v1(&redis.url).await;
+        let mut context = fixture.context.clone();
+        let deferred = Stage8bP1eReadyPollingV1 {
+            owner: Box::new(owner),
+            control,
+        }
+        .test_into_day_expiry_schedule_with_key(
+            &mut context,
+            &fixture.public_key_hex,
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .unwrap();
+        let prior_high_water = context
+            .high_water
+            .clone()
+            .expect("Day-expiry admission must restore the durable Open high-water");
+        let durable_before = durable_file_snapshot(&parent);
+
+        let mut connection =
+            redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let _: String = redis::cmd("XADD")
+            .arg(strategy_runtime_core::STAGE8B_P1E_SCHEDULE_STREAM)
+            .arg("*")
+            .arg("payload")
+            .arg(&fixture.bytes)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let mut reader = crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
+            &redis.url,
+            fixture.public_key_hex,
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .await
+        .unwrap();
+        let result = advance_stage8b_p1e_supported_schedule_with_policy_v1(
+            deferred,
+            &mut reader,
+            &mut context,
+            &Stage8bP1eShutdownLatchV1::new(),
+            &key,
+            Stage8bP1eScheduleAcquisitionPolicyV1 {
+                attempts: 1,
+                total_deadline: StdDuration::from_millis(100),
+                redis_operation_timeout: StdDuration::from_millis(20),
+                initial_backoff: StdDuration::from_millis(1),
+                maximum_backoff: StdDuration::from_millis(2),
+            },
+        )
+        .await;
+        let actual = match result {
+            Err(Stage8bP1eStartupErrorV1::Schedule(
+                crate::Stage8bP1eScheduleReadError::Source(error),
+            )) => error,
+            _ => panic!("invalid Day-expiry progression must fail in the schedule reader"),
+        };
+        assert_eq!(actual, expected, "unexpected rejection class for {label}");
+        assert_eq!(context.high_water.as_ref(), Some(&prior_high_water));
+        assert_eq!(
+            durable_file_snapshot(&parent),
+            durable_before,
+            "rejected schedule must not change the Working V4 frontier or seal"
+        );
+        fs::remove_dir_all(parent).unwrap();
     }
 
     fn bootstrap_config(
@@ -5359,18 +5544,119 @@ mod tests {
 
     #[cfg(feature = "stage8a4-i3-test-fixtures")]
     #[tokio::test]
+    async fn day_expiry_rejects_conflict_same_revision_and_rollbacks_before_effect() {
+        use strategy_runtime_core::Stage8bP1eScheduleSourceError::{ProgressionConflict, Rollback};
+
+        assert_day_expiry_progression_rejected(
+            "signed-schedule-day-expiry-conflicting-one-one",
+            1,
+            1,
+            1,
+            1,
+            ProgressionConflict,
+        )
+        .await;
+        assert_day_expiry_progression_rejected(
+            "signed-schedule-day-expiry-same-revision-new-hash",
+            1,
+            1,
+            2,
+            1,
+            ProgressionConflict,
+        )
+        .await;
+        assert_day_expiry_progression_rejected(
+            "signed-schedule-day-expiry-sequence-rollback",
+            2,
+            2,
+            1,
+            2,
+            Rollback,
+        )
+        .await;
+        assert_day_expiry_progression_rejected(
+            "signed-schedule-day-expiry-revision-rollback",
+            2,
+            2,
+            3,
+            1,
+            Rollback,
+        )
+        .await;
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[tokio::test]
+    async fn day_expiry_admission_rejects_conflicting_external_high_water() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("signed-schedule-day-expiry-context-conflict");
+        let (owner, _key, fresh, identity, boundary_ms) =
+            crate::stage8b_p1_semantic::p1e_test_day_expiry_ready(&redis.url, &parent).await;
+        let boundary = DateTime::<Utc>::from_timestamp_millis(boundary_ms).unwrap();
+        let fixture = crate::stage8b_p1e_schedule_source::tests::p1e_test_closed_schedule_envelope(
+            identity.clone(),
+            fresh.stage5c_config_fingerprint(),
+            crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+            boundary,
+        );
+        let conflicting =
+            crate::stage8b_p1e_schedule_source::tests::p1e_test_open_schedule_snapshot(
+                identity,
+                fresh.stage5c_config_fingerprint(),
+                crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+                format!("{boundary_ms}-conflict"),
+                boundary,
+            )
+            .high_water()
+            .clone();
+        let mut context = fixture.context;
+        context.high_water = Some(conflicting.clone());
+        let durable_before = durable_file_snapshot(&parent);
+        let control =
+            crate::stage8b_p1_supervisor::stage8b_p1e_test_redis_control_v1(&redis.url).await;
+        let result = Stage8bP1eReadyPollingV1 {
+            owner: Box::new(owner),
+            control,
+        }
+        .test_into_day_expiry_schedule_with_key(
+            &mut context,
+            &fixture.public_key_hex,
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        );
+        assert!(matches!(
+            result,
+            Err(Stage8bP1eStartupErrorV1::Source(
+                Stage8bP1RedisSemanticError::P1eScheduleHighWaterConflict
+            ))
+        ));
+        assert_eq!(context.high_water.as_ref(), Some(&conflicting));
+        assert_eq!(durable_file_snapshot(&parent), durable_before);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[tokio::test]
     async fn signed_day_expiry_commits_terminal_book_without_source_or_xack() {
         let redis = RedisServer::start().await;
         let parent = temp_directory("signed-schedule-day-expiry-success");
         let (owner, key, fresh, identity, boundary_ms) =
             crate::stage8b_p1_semantic::p1e_test_day_expiry_ready(&redis.url, &parent).await;
         let boundary = DateTime::<Utc>::from_timestamp_millis(boundary_ms).unwrap();
-        let fixture = crate::stage8b_p1e_schedule_source::tests::p1e_test_closed_schedule_envelope(
-            identity,
-            fresh.stage5c_config_fingerprint(),
-            crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
-            boundary,
-        );
+        let mut fixture =
+            crate::stage8b_p1e_schedule_source::tests::p1e_test_closed_schedule_envelope(
+                identity,
+                fresh.stage5c_config_fingerprint(),
+                crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+                boundary,
+            );
+        fixture.bytes =
+            crate::stage8b_p1e_schedule_source::tests::p1e_test_revised_schedule_envelope(
+                &fixture.bytes,
+                2,
+                2,
+                boundary,
+            );
         let mut connection =
             redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
                 .await
@@ -5387,6 +5673,35 @@ mod tests {
             0,
             "Day expiry must begin source-free"
         );
+        let schedule_rows_before: usize = redis::cmd("XLEN")
+            .arg(strategy_runtime_core::STAGE8B_P1E_SCHEDULE_STREAM)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(
+            schedule_rows_before, 0,
+            "retention may remove prior schedule rows without erasing durable progression"
+        );
+        let control =
+            crate::stage8b_p1_supervisor::stage8b_p1e_test_redis_control_v1(&redis.url).await;
+        let mut context = fixture.context.clone();
+        let deferred = Stage8bP1eReadyPollingV1 {
+            owner: Box::new(owner),
+            control,
+        }
+        .test_into_day_expiry_schedule_with_key(
+            &mut context,
+            &fixture.public_key_hex,
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .unwrap();
+        let prior_high_water = context
+            .high_water
+            .clone()
+            .expect("Day-expiry admission must restore durable Open high-water");
+        assert_eq!(prior_high_water.publication_sequence(), 1);
+        assert_eq!(prior_high_water.semantic_revision(), 1);
         let _: String = redis::cmd("XADD")
             .arg(strategy_runtime_core::STAGE8B_P1E_SCHEDULE_STREAM)
             .arg("*")
@@ -5395,18 +5710,10 @@ mod tests {
             .query_async(&mut connection)
             .await
             .unwrap();
-        let control =
-            crate::stage8b_p1_supervisor::stage8b_p1e_test_redis_control_v1(&redis.url).await;
-        let deferred = Stage8bP1eReadyPollingV1 {
-            owner: Box::new(owner),
-            control,
-        }
-        .into_day_expiry_schedule();
         assert_eq!(
             deferred.kind(),
             Stage8bP1eScheduleDeferredKindV1::ReadyDayExpiry
         );
-        let mut context = fixture.context;
         let mut reader = crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
             &redis.url,
             fixture.public_key_hex,
@@ -5430,7 +5737,12 @@ mod tests {
             panic!("fresh Closed schedule must commit exact terminal Day expiry")
         };
         assert_eq!(reader.test_read_attempts(), 1);
-        assert!(context.high_water.is_some());
+        let committed_high_water = context
+            .high_water
+            .as_ref()
+            .expect("valid Closed progression must advance high-water");
+        assert_eq!(committed_high_water.publication_sequence(), 2);
+        assert_eq!(committed_high_water.semantic_revision(), 2);
         assert!(
             !ready.owner.requires_later_limit_evaluation(),
             "Day expiry must leave a terminal working-book projection"
@@ -5454,20 +5766,38 @@ mod tests {
         let (owner, key, fresh, identity, boundary_ms) =
             crate::stage8b_p1_semantic::p1e_test_day_expiry_ready(&redis.url, &parent).await;
         let boundary = DateTime::<Utc>::from_timestamp_millis(boundary_ms).unwrap();
-        let fixture = crate::stage8b_p1e_schedule_source::tests::p1e_test_closed_schedule_envelope(
-            identity,
-            fresh.stage5c_config_fingerprint(),
-            crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
-            boundary,
-        );
+        let mut fixture =
+            crate::stage8b_p1e_schedule_source::tests::p1e_test_closed_schedule_envelope(
+                identity,
+                fresh.stage5c_config_fingerprint(),
+                crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+                boundary,
+            );
+        fixture.bytes =
+            crate::stage8b_p1e_schedule_source::tests::p1e_test_revised_schedule_envelope(
+                &fixture.bytes,
+                2,
+                2,
+                boundary,
+            );
         let control =
             crate::stage8b_p1_supervisor::stage8b_p1e_test_redis_control_v1(&redis.url).await;
+        let mut context = fixture.context.clone();
         let deferred = Stage8bP1eReadyPollingV1 {
             owner: Box::new(owner),
             control,
         }
-        .into_day_expiry_schedule();
-        let mut context = fixture.context.clone();
+        .test_into_day_expiry_schedule_with_key(
+            &mut context,
+            &fixture.public_key_hex,
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .unwrap();
+        let prior_high_water = context
+            .high_water
+            .clone()
+            .expect("missing schedule must still start from durable high-water");
         let mut reader = crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
             &redis.url,
             fixture.public_key_hex,
@@ -5501,7 +5831,7 @@ mod tests {
             deferred.kind(),
             Stage8bP1eScheduleDeferredKindV1::ReadyDayExpiry
         );
-        assert!(context.high_water.is_none());
+        assert_eq!(context.high_water.as_ref(), Some(&prior_high_water));
         assert_eq!(reader.test_read_attempts(), 1);
 
         let mut connection =
@@ -5530,7 +5860,11 @@ mod tests {
         else {
             panic!("retained owner must continue after exact Closed schedule arrives")
         };
-        assert!(context.high_water.is_some());
+        assert_eq!(
+            context.high_water.as_ref().unwrap().publication_sequence(),
+            2
+        );
+        assert_eq!(context.high_water.as_ref().unwrap().semantic_revision(), 2);
         assert!(
             !ready.owner.requires_later_limit_evaluation(),
             "retried Day expiry must become terminal exactly once"
@@ -5555,12 +5889,20 @@ mod tests {
         let (owner, key, fresh, identity, boundary_ms) =
             crate::stage8b_p1_semantic::p1e_test_day_expiry_ready(&redis.url, &parent).await;
         let boundary = DateTime::<Utc>::from_timestamp_millis(boundary_ms).unwrap();
-        let fixture = crate::stage8b_p1e_schedule_source::tests::p1e_test_open_schedule_envelope(
-            identity,
-            fresh.stage5c_config_fingerprint(),
-            crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
-            boundary,
-        );
+        let mut fixture =
+            crate::stage8b_p1e_schedule_source::tests::p1e_test_open_schedule_envelope(
+                identity,
+                fresh.stage5c_config_fingerprint(),
+                crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+                boundary,
+            );
+        fixture.bytes =
+            crate::stage8b_p1e_schedule_source::tests::p1e_test_revised_schedule_envelope(
+                &fixture.bytes,
+                2,
+                2,
+                boundary,
+            );
         let mut connection =
             redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
                 .await
@@ -5575,12 +5917,19 @@ mod tests {
             .unwrap();
         let control =
             crate::stage8b_p1_supervisor::stage8b_p1e_test_redis_control_v1(&redis.url).await;
+        let mut context = fixture.context.clone();
         let deferred = Stage8bP1eReadyPollingV1 {
             owner: Box::new(owner),
             control,
         }
-        .into_day_expiry_schedule();
-        let mut context = fixture.context;
+        .test_into_day_expiry_schedule_with_key(
+            &mut context,
+            &fixture.public_key_hex,
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .unwrap();
+        let prior_high_water = context.high_water.clone().unwrap();
         let mut reader = crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
             &redis.url,
             fixture.public_key_hex,
@@ -5614,7 +5963,7 @@ mod tests {
                 )
             ))
         ));
-        assert!(context.high_water.is_none());
+        assert_eq!(context.high_water.as_ref(), Some(&prior_high_water));
         let namespace = crate::stage8b_p1_redis_namespace();
         let pending: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
             .arg(&namespace.canonical_m10_stream)

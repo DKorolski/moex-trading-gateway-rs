@@ -13,11 +13,16 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 ## Active Stage 8B-P1-e I1 slice
 
 Cancel signed-schedule composition `cc1f02c` is independently SOURCE ACCEPTED.
-The current local candidate adds source-free Day-expiry composition from the
-exact quiescent Ready owner: fresh signed Closed schedule, checkpoint-covered
-predecessor/last-eligible M10 pair, durable V4 before effect, terminal book and
-direct return to Ready without M10 XACK. Missing schedule retains the exact
-typed owner and does not advance schedule high-water.
+Day-expiry checkpoint `9e6217a` was held on P1-DEX01 because its separate
+process entry could verify Closed evidence with an empty external progression
+context despite an existing durable Open V4. The current local correction
+makes authenticated durable high-water admission mandatory, retains that
+high-water in the private route, rechecks it before Redis read and makes the
+low-level snapshot bridge crate-private. The positive history is now Open
+`1/1` to later Closed `2/2`; conflict, same-revision hash change, rollback and
+external-context mismatch fail before V4/seal/effect. Missing schedule retains
+the exact typed owner and restored high-water even when Redis history no longer
+contains the prior Open row.
 
 This is not full I1 closure. Next are committed Cancel/Day-expiry restart,
 production retention of deferred/exhausted owners, and the process

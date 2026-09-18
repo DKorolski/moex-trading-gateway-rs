@@ -228,13 +228,16 @@ P1-d3 race outcomes and source XACK-last is independently SOURCE ACCEPTED at
 `cc1f02c`; its boundary and retained recovery-evidence requirements are
 documented in `stage8b-p1e-i1-cancel-signed-schedule-composition.md`.
 
-The current local source slice composes source-free Day expiry from the exact
-Ready owner. It binds a fresh signed Closed schedule to the
-checkpoint-covered predecessor/last-eligible M10 pair, commits durable V4
-before the inherited terminal effect, and returns directly to Ready without
-acquiring or XACKing an M10 source. Its boundary is documented in
-`stage8b-p1e-i1-day-expiry-signed-schedule-composition.md`; committed
-Cancel/Day-expiry restart remains the next slice.
+The held `9e6217a` Day-expiry source checkpoint exposed P1-DEX01: its separate
+entry could start schedule verification with empty external high-water despite
+an authenticated durable Open V4. The local correction makes recovery and
+exact matching mandatory at admission, carries the recovered high-water in the
+private deferred route, rechecks it before Redis read, and removes the public
+low-level signed-snapshot bridge. The positive history is Open `1/1` to later
+Closed `2/2`; conflict and rollback cases fail before V4/seal/effect, including
+when Redis retention removed the prior row. The corrected boundary is
+documented in `stage8b-p1e-i1-day-expiry-signed-schedule-composition.md`;
+committed Cancel/Day-expiry restart remains the next slice.
 
 Redis DB0/DB15 activation, VPS installation, FINAM POST/DELETE/send, broker
 dispatch, runtime-live, and real orders remain closed.

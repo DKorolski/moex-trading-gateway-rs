@@ -369,7 +369,6 @@ pub use stage8b_p1_semantic::{
     resume_stage8b_p1e_command_published_with_signed_schedule,
     resume_stage8b_p1e_committed_generated_market_with_redis,
     resume_stage8b_p1e_committed_initial_limit_with_redis,
-    resume_stage8b_p1e_day_expiry_with_signed_schedule,
     resume_stage8b_p1e_generated_market_with_signed_schedule,
     resume_stage8b_p1e_initial_limit_with_signed_schedule,
     resume_stage8b_p1e_ready_source_with_redis,

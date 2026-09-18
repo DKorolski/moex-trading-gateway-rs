@@ -56,7 +56,9 @@ pub(crate) use redis::tests::p1e_test_generated_market_published;
 pub(crate) use redis::tests::p1e_test_generated_market_prepublication_without_successor;
 
 #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
-pub(crate) use redis::tests::p1e_test_day_expiry_ready;
+pub(crate) use redis::tests::{p1e_test_day_expiry_ready, p1e_test_day_expiry_ready_with_prior};
+
+pub(crate) use redis::resume_stage8b_p1e_day_expiry_with_signed_schedule;
 
 #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
 pub(crate) use redis::tests::p1e_test_commit_initial_limit_v4_only;
@@ -97,7 +99,6 @@ pub use redis::{
     resume_stage8b_p1e_command_published_with_signed_schedule,
     resume_stage8b_p1e_committed_generated_market_with_redis,
     resume_stage8b_p1e_committed_initial_limit_with_redis,
-    resume_stage8b_p1e_day_expiry_with_signed_schedule,
     resume_stage8b_p1e_generated_market_with_signed_schedule,
     resume_stage8b_p1e_initial_limit_with_signed_schedule,
     resume_stage8b_p1e_ready_source_with_redis,

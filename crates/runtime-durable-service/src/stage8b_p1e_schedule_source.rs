@@ -1739,17 +1739,66 @@ pub(crate) mod tests {
         redis_stream_id: String,
         now: DateTime<Utc>,
     ) -> Stage8bP1eVerifiedScheduleSnapshotV1 {
-        let (accepted, _, _, _) = signed_schedule_source(
+        p1e_test_open_schedule_snapshot_with_progression(
             operational_identity_sha256,
             runtime_config_fingerprint_sha256,
             instrument_map_fingerprint_sha256,
+            redis_stream_id,
             now,
+            now,
+            1,
+            1,
+        )
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn p1e_test_open_schedule_snapshot_with_progression(
+        operational_identity_sha256: String,
+        runtime_config_fingerprint_sha256: String,
+        instrument_map_fingerprint_sha256: String,
+        redis_stream_id: String,
+        published_at: DateTime<Utc>,
+        trusted_now: DateTime<Utc>,
+        publication_sequence: u64,
+        semantic_revision: u64,
+    ) -> Stage8bP1eVerifiedScheduleSnapshotV1 {
+        use strategy_runtime_core::stage8b_p1e_test_verify_schedule_envelope_with_key;
+
+        let (base, public_key_hex, key_valid_from, key_valid_until) = signed_schedule_source(
+            operational_identity_sha256.clone(),
+            runtime_config_fingerprint_sha256.clone(),
+            instrument_map_fingerprint_sha256.clone(),
+            published_at,
             Utc.with_ymd_and_hms(2026, 8, 3, 18, 0, 0)
                 .single()
                 .unwrap()
                 .timestamp_millis(),
             false,
         );
+        let exact = revised_schedule_envelope(
+            base.exact_envelope_bytes(),
+            publication_sequence,
+            semantic_revision,
+            published_at,
+            0,
+        );
+        let accepted = stage8b_p1e_test_verify_schedule_envelope_with_key(
+            &exact,
+            &Stage8bP1eScheduleVerificationContextV1 {
+                expected_instrument_map_fingerprint_sha256: instrument_map_fingerprint_sha256,
+                expected_operational_identity_sha256: operational_identity_sha256,
+                expected_registry_identity_sha256: "2".repeat(64),
+                expected_registry_version: "imoexf-v1".to_string(),
+                expected_runtime_config_fingerprint_sha256: runtime_config_fingerprint_sha256,
+                high_water: None,
+                trusted_now,
+            },
+            &public_key_hex,
+            key_valid_from,
+            key_valid_until,
+        )
+        .unwrap();
         Stage8bP1eVerifiedScheduleSnapshotV1 {
             redis_stream_id,
             accepted,

@@ -4134,7 +4134,7 @@ pub async fn resume_stage8b_p1e_ready_working_limit_with_signed_schedule(
 /// inherited Day-expiry transition. The predecessor/last-eligible pair comes
 /// only from authenticated durable V4 evidence; no wall-clock or Redis source
 /// identity is synthesized at this boundary.
-pub fn resume_stage8b_p1e_day_expiry_with_signed_schedule(
+pub(crate) fn resume_stage8b_p1e_day_expiry_with_signed_schedule(
     owner: Stage8bP1RedisSemanticCompositionOwner,
     snapshot: crate::Stage8bP1eVerifiedScheduleSnapshotV1,
     latch: &Stage8bP1eShutdownLatchV1,
@@ -9111,6 +9111,22 @@ pub(crate) mod tests {
         String,
         i64,
     ) {
+        p1e_test_day_expiry_ready_with_prior(redis_url, parent, 1, 1).await
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    pub(crate) async fn p1e_test_day_expiry_ready_with_prior(
+        redis_url: &str,
+        parent: &Path,
+        publication_sequence: u64,
+        semantic_revision: u64,
+    ) -> (
+        Stage8bP1RedisSemanticCompositionOwner,
+        Stage5gLifecycleCommitmentKey,
+        strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        String,
+        i64,
+    ) {
         let (key, fresh, identity, mut owner) =
             prepare_p1d4_later_working_owner(redis_url, parent, false, false, None).await;
         let boundary_ms = P1D3_CANCEL_CANDIDATE_CLOSE_MS + 600_000;
@@ -9131,13 +9147,17 @@ pub(crate) mod tests {
         };
         let permit = p1e_clear_permit(acquired);
         let bound_at = Utc.timestamp_millis_opt(boundary_ms).single().unwrap();
-        let snapshot = crate::stage8b_p1e_schedule_source::tests::p1e_test_open_schedule_snapshot(
-            identity.clone(),
-            fresh.stage5c_config_fingerprint(),
-            crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
-            format!("{boundary_ms}-1"),
-            bound_at,
-        );
+        let prior_published_at = bound_at - chrono::Duration::milliseconds(1);
+        let snapshot = crate::stage8b_p1e_schedule_source::tests::p1e_test_open_schedule_snapshot_with_progression(
+                identity.clone(),
+                fresh.stage5c_config_fingerprint(),
+                crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+                format!("{boundary_ms}-1"),
+                prior_published_at,
+                bound_at,
+                publication_sequence,
+                semantic_revision,
+            );
         let Stage8bP1eSignedWorkingScheduleOutcomeV1::Semantic(
             Stage8bP1RedisSemanticOutcome::Ready { owner, .. },
         ) = resume_stage8b_p1e_ready_working_limit_with_signed_schedule(
