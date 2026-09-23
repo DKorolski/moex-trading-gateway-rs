@@ -1940,19 +1940,30 @@ impl Stage6dDurableRuntimeRecovered {
                 if !decision.matches_stage8b_p1e_market_candidate(candidate) {
                     return Ok(false);
                 }
-                if candidate.generated_market_publication_seal().is_some() {
-                    let Some(crate::Stage8bP1d4GeneratedMarketPackageState::Prepublication {
-                        reservation,
-                    }) = self.stage8b_p1d4_generated_market_package_state()?
-                    else {
-                        return Ok(false);
-                    };
-                    return Ok(reservation.strategy_request_id().to_string()
-                        == decision_request_id
-                        && reservation.canonical_command_sha256()
-                            == decision.canonical_command_sha256()
-                        && reservation.source_m10_redis_id()
-                            == candidate.predecessor_m10().redis_id);
+                if candidate.market_publication_seal().is_some() {
+                    match self.stage8b_p1d4_generated_market_package_state()? {
+                        Some(crate::Stage8bP1d4GeneratedMarketPackageState::Prepublication {
+                            reservation,
+                        }) => {
+                            return Ok(reservation.strategy_request_id().to_string()
+                                == decision_request_id
+                                && reservation.canonical_command_sha256()
+                                    == decision.canonical_command_sha256()
+                                && reservation.source_m10_redis_id()
+                                    == candidate.predecessor_m10().redis_id);
+                        }
+                        Some(_) => return Ok(false),
+                        // Plain Market has no P1-d4 reservation, but its
+                        // ordinary XADD publication seal is retained in V4 so
+                        // restart can authenticate the existing marker. The
+                        // candidate has already matched the exact durable
+                        // command decision above, and the Stage 7 commit
+                        // boundary separately requires this pair to equal the
+                        // currently authenticated recovery seal. Requiring a
+                        // RequestAccepted journal tail here would incorrectly
+                        // reject the already-published plain-Market frontier.
+                        None => return Ok(true),
+                    }
                 }
                 if is_recovery {
                     return Ok(true);
@@ -2356,7 +2367,7 @@ impl Stage6dDurableRuntimeRecovered {
         }
         if candidate.transition_kind() == crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution
             && candidate
-                .generated_market_publication_seal()
+                .market_publication_seal()
                 .is_some_and(|(generation, _)| generation != prior_covering_seal_generation)
         {
             return Err(Stage6dLiveCoreError::DurableOrderingViolation);

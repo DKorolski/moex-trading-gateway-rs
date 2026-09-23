@@ -157,6 +157,21 @@ def check(path: str) -> dict[str, object]:
             },
             "corrected predecessor lifecycle disclosure drift",
         )
+        require(
+            evidence["signed_market_authority"]
+            == {
+                "fixture_signed_envelope": True,
+                "production_schedule_reader": True,
+                "fresh_schedule_read_total": 1,
+                "v4_restart_before_effect": True,
+                "exact_publication_marker_revalidated": True,
+                "committed_recovery_schedule_read_total": 0,
+                "post_truth_already_acknowledged": True,
+                "initial_adoption_marker_receipt_immutable": True,
+                "legacy_v4_none_authority_used": False,
+            },
+            "signed Market authority evidence drift",
+        )
         require(all(value is False for value in evidence["closed_surfaces"].values()), "closed surface opened")
         require(set(evidence["commands"]) == set(LOGS), "command inventory mismatch")
         for name, log_path in LOGS.items():
@@ -181,7 +196,7 @@ def check(path: str) -> dict[str, object]:
             b"production_v5_bootstrap_runs_continuous_market_lifecycle_and_readmits_exactly",
             b"process_wrapper_preserves_coordinator_boundary_exit_classes",
             b"ordinary_run_admission_rejects_post_seal_frontiers_without_mutation",
-            b"stage8b-p1e-i1-process-supervision-negative-harness 65/65",
+            b"stage8b-p1e-i1-process-supervision-negative-harness 77/77",
             b"stage8b-p1e-i1-transaction-v5-negative-harness 27/27",
         ):
             require(token in files[LOGS["source_gate"]], f"correction gate witness missing: {token!r}")

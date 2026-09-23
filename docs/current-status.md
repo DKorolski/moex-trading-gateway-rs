@@ -1880,6 +1880,31 @@ existing transaction/restart contracts. Operational Redis DB0/DB15, VPS
 activation, FINAM POST/DELETE, broker dispatch, runtime-live and real orders
 remain closed pending independent acceptance.
 
+## Stage 8B-P1-e I1 process signed-authority correction (2026-09-23)
+
+Review of `e7ae487` closed P1-PS02 and narrowed the remaining process finding
+to P1-PS05: the continuous V5 Market witness still used a fixture authority
+with no V4 proof. The active correction preserves the same V5 durable root and
+Redis namespace but routes the real callback and published Market command
+through a fixture-signed envelope, the production schedule reader and an exact
+V4 binding before any provider effect.
+
+The new pre-effect restart reconstructs only
+`P1eScheduleBindingCommitted`. Its continuation reclaims the exact source PEL,
+revalidates the immutable command marker and first successor, passes latches E
+and F, then commits paper ACK/truth and XACK-last. Fresh execution records one
+schedule read; committed recovery records zero. The post-truth restart reaches
+the exact P1-d2 truth frontier and resolves as `AlreadyAcknowledged` without a
+second callback, publication, provider effect, schedule read or XACK. Initial
+adoption marker/receipt bytes remain unchanged.
+
+The process source checker and mutation harness pin the signed read, V4
+commit/restart, marker revalidation and no-legacy-authority properties. P1-PS02
+and the accepted Cancel ingress evidence are not reopened. Operational Redis,
+VPS activation, paper-provider activation, FINAM POST/DELETE/send, broker
+dispatch, runtime-live and real orders remain closed pending independent source
+acceptance and later aggregate I1 review.
+
 The immutable packaging run also exposed a pre-existing wall-clock cliff in
 two inherited Stage 5D source-owned restart tests: their test-only persisted
 timestamp became older than the current riskgate session after 2026-09-21.

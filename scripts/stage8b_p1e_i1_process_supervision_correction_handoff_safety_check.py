@@ -10,7 +10,7 @@ import zipfile
 import stage8b_p1e_i1_process_supervision_handoff_safety_check as base
 
 
-PARENT = "95f733d866b5a81488bf1efaffc38eb2e2f0b2bc"
+PARENT = "e7ae487f9897be297bd9fabcee9ffad302e6dd3e"
 BRANCH = base.BRANCH
 STAGE = base.STAGE
 MARKER = base.MARKER

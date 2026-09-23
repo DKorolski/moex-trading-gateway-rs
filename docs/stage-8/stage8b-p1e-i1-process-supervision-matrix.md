@@ -1,8 +1,9 @@
 # Stage 8B-P1-e I1 process supervision matrix
 
-Status: correction review candidate for the two executable-evidence findings
-P1-PS02 and P1-PS05 reported against review target
-`95f733d866b5a81488bf1efaffc38eb2e2f0b2bc`.
+Status: second correction review candidate for the remaining signed-authority
+part of P1-PS05 reported against review target
+`e7ae487f9897be297bd9fabcee9ffad302e6dd3e`. P1-PS02 is closed by that
+review and is retained unchanged.
 
 ## Scope
 
@@ -115,13 +116,25 @@ version 2 and its derived owner/receipt digests bind that exact shape.
 
 The positive production-path regression starts from a freshly adopted V5 root,
 passes ordinary-run admission and continuously executes a decision M10 plus its
-successor through the real Hybrid callback, Market command publication, paper
-provider, replacement truth and source XACK. It performs no Redis reset and no
-test intent injection. Direct counters prove one callback, publication attempt,
-successful publication, provider effect and XACK. Durable journal counters and
-the cumulative two-M10/one-command Redis inventory are captured before and
-after restart; re-admission plus the exact already-acknowledged frontier path
-perform no second callback, provider invocation, publication or XACK.
+successor through the real Hybrid callback and Market command publication. It
+then appends a fixture-signed envelope to the isolated schedule stream, reads it
+through the production schedule reader, commits and rereads the exact V4
+predecessor/successor/request/command/publication-seal binding, and crashes at
+that pre-effect frontier. Authenticated restart returns
+`P1eScheduleBindingCommitted`; the retained V4 authority reclaims the exact PEL
+entry, revalidates the immutable command marker and successor, passes latches E
+and F, and only then reaches the paper provider, replacement truth and source
+XACK-last. It performs no Redis reset, no test intent injection and no legacy
+`v4_proof: None` schedule-authority construction.
+
+Direct counters prove one callback, one publication attempt/success, one signed
+schedule read, one claim, one provider effect and one XACK. The committed-V4
+continuation performs zero additional schedule reads. Durable journal counters,
+the immutable initial marker/receipt and the cumulative two-M10/one-command
+Redis inventory are captured before and after restart. Post-truth/XACK restart
+returns the exact P1-d2 truth frontier; its `AlreadyAcknowledged` continuation
+performs no second callback, provider invocation, publication, schedule read or
+XACK.
 
 A fresh flat paper V5 does not autonomously create a working LIMIT and therefore
 cannot legitimately emit Cancel in this witness. Cancel enters the process by

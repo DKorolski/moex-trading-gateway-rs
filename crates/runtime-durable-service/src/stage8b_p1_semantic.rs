@@ -53,7 +53,8 @@ pub(crate) use redis::tests::p1e_test_initial_limit_published;
 #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
 pub(crate) use redis::tests::{
     p1e_test_cancel_published, p1e_test_cancel_published_without_successor,
-    p1e_test_target_first_cancel_published, p1e_test_v5_plain_market_resolved_from_owner,
+    p1e_test_commit_plain_market_v4_only, p1e_test_target_first_cancel_published,
+    p1e_test_v5_plain_market_published_from_owner,
 };
 
 #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
@@ -113,6 +114,7 @@ pub use redis::{
     resume_stage8b_p1e_committed_cancel_with_redis, resume_stage8b_p1e_committed_day_expiry,
     resume_stage8b_p1e_committed_generated_market_with_redis,
     resume_stage8b_p1e_committed_initial_limit_with_redis,
+    resume_stage8b_p1e_committed_market_with_redis,
     resume_stage8b_p1e_generated_market_with_signed_schedule,
     resume_stage8b_p1e_initial_limit_with_signed_schedule,
     resume_stage8b_p1e_ready_source_with_redis,
@@ -136,11 +138,11 @@ pub use redis::{
     Stage8bP1eReadyPendingAcquisitionOutcomeV1, Stage8bP1eReadySourceRouteV1,
     Stage8bP1eRecoveredCancelScheduleOutcomeV1, Stage8bP1eRecoveredDayExpiryScheduleOutcomeV1,
     Stage8bP1eRecoveredGeneratedMarketScheduleOutcomeV1,
-    Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1, Stage8bP1eRetainedSourceReceiptV1,
-    Stage8bP1eRoutedContinuationV1, Stage8bP1eRoutedPostAcquisitionDecisionV1,
-    Stage8bP1eShutdownCauseV1, Stage8bP1eShutdownIntentV1, Stage8bP1eShutdownLatchV1,
-    Stage8bP1eSignedCancelScheduleOutcomeV1, Stage8bP1eSignedDayExpiryScheduleOutcomeV1,
-    Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1,
+    Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1, Stage8bP1eRecoveredMarketScheduleOutcomeV1,
+    Stage8bP1eRetainedSourceReceiptV1, Stage8bP1eRoutedContinuationV1,
+    Stage8bP1eRoutedPostAcquisitionDecisionV1, Stage8bP1eShutdownCauseV1,
+    Stage8bP1eShutdownIntentV1, Stage8bP1eShutdownLatchV1, Stage8bP1eSignedCancelScheduleOutcomeV1,
+    Stage8bP1eSignedDayExpiryScheduleOutcomeV1, Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1,
     Stage8bP1eSignedInitialLimitScheduleOutcomeV1, Stage8bP1eSignedMarketScheduleOutcomeV1,
     Stage8bP1eSignedWorkingScheduleOutcomeV1,
 };

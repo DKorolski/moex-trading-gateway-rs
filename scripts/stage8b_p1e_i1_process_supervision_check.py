@@ -261,7 +261,7 @@ def validate_content(content: dict[str, str]) -> None:
         "std::future::pending::<",
         "Some(72)",
         "p1e_i1_begin_direct_effect_audit",
-        "p1e_test_v5_plain_market_resolved_from_owner",
+        "p1e_test_v5_plain_market_published_from_owner",
         '"the fresh V5 Market command must publish exactly once"',
         "Stage8bP1RedisZeroIntentAckDisposition::AlreadyAcknowledged",
     ):
@@ -274,26 +274,117 @@ def validate_content(content: dict[str, str]) -> None:
     require("p1e_test_v5_cancel_published_from_owner" not in process,
             "process witness still claims an injected Cancel chain")
 
-    continuous = section(
+    continuous_helper = section(
         semantic,
-        "pub(crate) async fn p1e_test_v5_plain_market_resolved_from_owner(",
+        "pub(crate) async fn p1e_test_v5_plain_market_published_from_owner(",
         "#[cfg(feature = \"stage8a4-i3-test-fixtures\")]\n    pub(crate) async fn p1e_test_cancel_published(",
     )
     for token in (
         "one_intent_pending_from_owner(",
         "publish_canonical_m10(&successor",
         "publish_exact_command()",
+    ):
+        require(token in continuous_helper, f"continuous V5 helper missing: {token}")
+    for forbidden in (
+        "FLUSHALL",
+        "stage8b_p1d3_test_inject_one_intent",
+        "p1d2_test_schedule_authority",
+        "stage8b_p1d1_test_schedule_authority",
         "execute_next_canonical_market(",
         "commit_truth(&key)",
         "acknowledge_source()",
     ):
-        require(token in continuous, f"continuous V5 witness missing: {token}")
-    for forbidden in ("FLUSHALL", "stage8b_p1d3_test_inject_one_intent"):
-        require(forbidden not in continuous, f"continuous V5 witness contains fixture seam: {forbidden}")
+        require(
+            forbidden not in continuous_helper,
+            f"continuous V5 helper contains authority/effect fixture seam: {forbidden}",
+        )
+    continuous_test = section(
+        process,
+        "async fn production_v5_bootstrap_runs_continuous_market_lifecycle_and_readmits_exactly()",
+        "async fn os_process_sigkill_then_restart_preserves_single_ready_owner()",
+    )
+    require_order(
+        continuous_test,
+        (
+            "p1e_test_v5_plain_market_published_from_owner(",
+            "p1e_test_open_schedule_envelope_for_last_eligible(",
+            ".arg(strategy_runtime_core::STAGE8B_P1E_SCHEDULE_STREAM)",
+            "Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(",
+            ".read_newest_guarded(&fixture.context",
+            "Stage8bP1eNewestScheduleReadV1::Verified(snapshot)",
+            "p1e_test_commit_plain_market_v4_only(",
+            "Stage7bRestartOutcome::P1eScheduleBindingCommitted(committed)",
+            "Stage8bP1eRecoveredMarketScheduleOutcomeV1::FeedbackAckCommitted",
+            "resume_stage8b_p1e_committed_market_with_redis(",
+            ".commit_truth(&key)",
+            ".acknowledge_source()",
+            "effects.schedule_read_total, 1",
+            "Stage7bRestartOutcome::P1d2TruthCommitted(truth)",
+            "Stage8bP1RedisZeroIntentAckDisposition::AlreadyAcknowledged",
+            "restart_effects.schedule_read_total, 0",
+        ),
+        "continuous signed-schedule/V4 Market witness",
+    )
+    require(
+        continuous_test.count("binding_reader.test_read_attempts(),") == 2,
+        "fresh signed schedule must be read once and never reread after committed V4",
+    )
+    require(
+        continuous_test.count(
+            "stage8b_p1e_test_admit_ordinary_run_with_schedule_key_v1("
+        )
+        == 3,
+        "V4, post-truth and final frontiers must pass the same ordinary-run admission",
+    )
+    for token in (
+        "immutable_adoption_before",
+        '"committed V4 recovery must not reread signed schedule"',
+        '"continuous M10/Market advancement must not rewrite initial adoption authority"',
+        '"the fresh V5 Market command must publish exactly once"',
+    ):
+        require(token in continuous_test, f"continuous restart invariant missing: {token}")
+    for forbidden in (
+        "FLUSHALL",
+        "stage8b_p1d3_test_inject_one_intent",
+        "p1d2_test_schedule_authority",
+        "stage8b_p1d1_test_schedule_authority",
+    ):
+        require(
+            forbidden not in continuous_test,
+            f"continuous signed-schedule witness contains legacy seam: {forbidden}",
+        )
+    market_recovery = section(
+        semantic,
+        "pub async fn resume_stage8b_p1e_committed_market_with_redis(",
+        "pub async fn resume_stage8b_p1e_committed_generated_market_with_redis(",
+    )
+    require_order(
+        market_recovery,
+        (
+            "plain_market_restart_material()",
+            "resume_stage8b_p1e_committed_schedule_binding",
+            "continue_stage8b_p1e_market_schedule",
+            ".reclaim_exact_binding(",
+            ".revalidate_exact_command_publication(",
+            ".exact_first_successor_m10(",
+            "execute_next_canonical_market(authority, commitment_key)",
+        ),
+        "committed plain-Market V4 continuation",
+    )
+    for forbidden in (
+        "Stage8bP1eRedisScheduleReader",
+        "publish_exact_command",
+        "p1d2_test_schedule_authority",
+        "stage8b_p1d1_test_schedule_authority",
+    ):
+        require(
+            forbidden not in market_recovery,
+            f"committed Market continuation rereads or forges authority: {forbidden}",
+        )
     isolated = section(
         semantic,
         "/// Isolated integration fixture for already-authenticated P1-d3/P1-d4",
-        "#[cfg(feature = \"stage8a4-i3-test-fixtures\")]\n    pub(crate) async fn p1e_test_v5_plain_market_resolved_from_owner(",
+        "#[cfg(feature = \"stage8a4-i3-test-fixtures\")]\n    pub(crate) async fn p1e_test_v5_plain_market_published_from_owner(",
     )
     require(
         "test-only intent" in isolated

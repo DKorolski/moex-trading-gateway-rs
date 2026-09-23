@@ -106,7 +106,7 @@ def main() -> None:
             "production_inflight_redis_attach_sigterm_exit_0": True,
             "production_inflight_s06_sigint_exit_0": True,
             "common_supervisor_noncooperative_owner_grace_exit_72": True,
-            "production_v5_m10_market_restart_readmission": True,
+            "production_v5_signed_schedule_v4_market_restart_readmission": True,
             "unexpected_authenticated_stop_exit_70": True,
         },
         "ordinary_run_admission": {
@@ -118,6 +118,8 @@ def main() -> None:
             "advanced_v5_root_readmitted": True,
             "initial_marker_and_receipt_immutable": True,
             "restart_does_not_repeat_command_publication": True,
+            "committed_v4_root_readmitted": True,
+            "post_truth_root_readmitted": True,
         },
         "terminal_exit_mapping": {
             "authenticated_before_deadline": 0,
@@ -138,6 +140,17 @@ def main() -> None:
             "continuous_v5_witness_uses_intent_injection_or_redis_reset": False,
             "cancel_production_ingress": "authenticated durable restart outcome",
             "isolated_injected_cancel_fixture_counted_as_continuous": False,
+        },
+        "signed_market_authority": {
+            "fixture_signed_envelope": True,
+            "production_schedule_reader": True,
+            "fresh_schedule_read_total": 1,
+            "v4_restart_before_effect": True,
+            "exact_publication_marker_revalidated": True,
+            "committed_recovery_schedule_read_total": 0,
+            "post_truth_already_acknowledged": True,
+            "initial_adoption_marker_receipt_immutable": True,
+            "legacy_v4_none_authority_used": False,
         },
         "closed_surfaces": {
             "operational_redis_db0_db15": False,

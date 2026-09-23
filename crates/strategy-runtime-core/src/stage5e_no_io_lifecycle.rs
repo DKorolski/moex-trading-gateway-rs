@@ -7905,7 +7905,7 @@ pub mod p1e_schedule_source {
             ))
         }
 
-        pub fn generated_market_publication_seal(&self) -> Option<(u64, &str)> {
+        pub fn market_publication_seal(&self) -> Option<(u64, &str)> {
             if self.candidate.transition_kind != Stage8bP1eScheduleTransitionKindV1::MarketExecution
             {
                 return None;
@@ -7919,6 +7919,10 @@ pub mod p1e_schedule_source {
                     .publication_seal_commitment_sha256
                     .as_deref()?,
             ))
+        }
+
+        pub fn generated_market_publication_seal(&self) -> Option<(u64, &str)> {
+            self.market_publication_seal()
         }
 
         pub fn cancel_publication_seal(&self) -> Option<(u64, &str)> {
@@ -8092,7 +8096,7 @@ pub mod p1e_schedule_source {
             )
         }
 
-        pub fn prepare_generated_market_binding(
+        pub fn prepare_published_market_binding(
             &self,
             predecessor: &Stage8bP1eM10IdentityV1,
             candidate: &Stage8bP1eM10IdentityV1,
@@ -8118,6 +8122,25 @@ pub mod p1e_schedule_source {
                 },
                 redis_stream_id.into(),
                 Stage8bP1ePreparedScheduleRouteV1::Market(Box::new(projection)),
+            )
+        }
+
+        pub fn prepare_generated_market_binding(
+            &self,
+            predecessor: &Stage8bP1eM10IdentityV1,
+            candidate: &Stage8bP1eM10IdentityV1,
+            strategy_request_id: impl Into<String>,
+            canonical_command_sha256: impl Into<String>,
+            publication_seal: (u64, impl Into<String>),
+            redis_stream_id: impl Into<String>,
+        ) -> Result<Stage8bP1eScheduleBindingCandidateV1, Stage8bP1eScheduleSourceError> {
+            self.prepare_published_market_binding(
+                predecessor,
+                candidate,
+                strategy_request_id,
+                canonical_command_sha256,
+                publication_seal,
+                redis_stream_id,
             )
         }
 
@@ -8455,7 +8478,7 @@ pub mod p1e_schedule_source {
             ))
         }
 
-        pub fn generated_market_publication_seal(&self) -> Option<(u64, &str)> {
+        pub fn market_publication_seal(&self) -> Option<(u64, &str)> {
             if self.transition_kind != Stage8bP1eScheduleTransitionKindV1::MarketExecution {
                 return None;
             }
@@ -8465,6 +8488,10 @@ pub mod p1e_schedule_source {
                     .publication_seal_commitment_sha256
                     .as_deref()?,
             ))
+        }
+
+        pub fn generated_market_publication_seal(&self) -> Option<(u64, &str)> {
+            self.market_publication_seal()
         }
 
         pub fn cancel_publication_seal(&self) -> Option<(u64, &str)> {

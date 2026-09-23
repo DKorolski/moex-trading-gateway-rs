@@ -235,6 +235,16 @@ It also delays exact server-processed Redis replies without changing the
 production startup future and isolates the noncooperative exit-72 proof in the
 common supervisor.
 
+The continuous fresh-V5 Market witness now also preserves the production
+signed-schedule boundary. After the real callback and command XADD it reads one
+fixture-signed schedule through the production reader, commits the exact V4,
+restarts before effect, and continues only from the V4-retained authority.
+Recovery reclaims the exact PEL entry and revalidates the immutable publication
+marker and first successor before the provider. The same lineage then reaches
+S_ack, S_truth and XACK-last; a post-truth restart proves
+`AlreadyAcknowledged`. Neither recovery frontier rereads schedule input,
+replays callback/publication/provider effects nor recreates Redis.
+
 The checkpoint review finding `P2-CP01` is closed locally by opening the fixed
 config with `O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK` and exercising the exact
 regular-file-to-FIFO replacement window through the production loader.

@@ -59,7 +59,7 @@ use crate::{
     resume_stage8b_p1e_committed_cancel_with_redis, resume_stage8b_p1e_committed_day_expiry,
     resume_stage8b_p1e_committed_generated_market_with_redis,
     resume_stage8b_p1e_committed_initial_limit_with_redis,
-    resume_stage8b_p1e_ready_source_with_redis,
+    resume_stage8b_p1e_committed_market_with_redis, resume_stage8b_p1e_ready_source_with_redis,
     resume_stage8b_p1e_ready_working_limit_with_signed_schedule,
     route_stage8b_p1e_post_acquisition_v1, validate_stage8b_p1e_supervisor_config_v1,
     Stage7bRestartOutcome, Stage8bP1RedisCancelCommitOutcome,
@@ -77,10 +77,11 @@ use crate::{
     Stage8bP1eReadyFreshAcquisitionOutcomeV1, Stage8bP1eReadyPendingAcquisitionOutcomeV1,
     Stage8bP1eRecoveredCancelScheduleOutcomeV1, Stage8bP1eRecoveredDayExpiryScheduleOutcomeV1,
     Stage8bP1eRecoveredGeneratedMarketScheduleOutcomeV1,
-    Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1, Stage8bP1eRedisControlError,
-    Stage8bP1eRedisControlV1, Stage8bP1eRestartKindV1, Stage8bP1eRetainedSourceReceiptV1,
-    Stage8bP1eRoutedContinuationV1, Stage8bP1eRoutedPostAcquisitionDecisionV1,
-    Stage8bP1eShutdownIntentV1, Stage8bP1eShutdownLatchV1, Stage8bP1eSignedCancelScheduleOutcomeV1,
+    Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1, Stage8bP1eRecoveredMarketScheduleOutcomeV1,
+    Stage8bP1eRedisControlError, Stage8bP1eRedisControlV1, Stage8bP1eRestartKindV1,
+    Stage8bP1eRetainedSourceReceiptV1, Stage8bP1eRoutedContinuationV1,
+    Stage8bP1eRoutedPostAcquisitionDecisionV1, Stage8bP1eShutdownIntentV1,
+    Stage8bP1eShutdownLatchV1, Stage8bP1eSignedCancelScheduleOutcomeV1,
     Stage8bP1eSignedDayExpiryScheduleOutcomeV1, Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1,
     Stage8bP1eSignedInitialLimitScheduleOutcomeV1, Stage8bP1eSignedMarketScheduleOutcomeV1,
     Stage8bP1eSignedWorkingScheduleOutcomeV1, Stage8bP1eSupervisorConfigV1,
@@ -2597,7 +2598,63 @@ pub async fn run_stage8b_p1e_startup_owner_loop_v1(
                 transport,
                 mut control,
             } = pending;
-            if durable.is_generated_market() {
+            if durable.is_plain_market() {
+                match resume_stage8b_p1e_committed_market_with_redis(
+                    durable,
+                    transport,
+                    latch,
+                    commitment_key,
+                )
+                .await
+                {
+                    Ok(Stage8bP1eRecoveredMarketScheduleOutcomeV1::Stopped(receipt)) => {
+                        return Ok(Stage8bP1eOwnerLoopOutcomeV1::StoppedSchedule(
+                            Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                        ));
+                    }
+                    Ok(Stage8bP1eRecoveredMarketScheduleOutcomeV1::FeedbackAckCommitted {
+                        owner,
+                        high_water,
+                    }) => {
+                        apply_recovered_schedule_high_water(context, Some(high_water))?;
+                        match drain_stage8b_p1e_recovery_lifecycle_v1(
+                            Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(Box::new(
+                                Stage8bP1eRecoveryStepV1 {
+                                    route: Box::new(
+                                        Stage8bP1eRecoveryStepRouteV1::FeedbackAckCommitted(owner),
+                                    ),
+                                    control,
+                                },
+                            )),
+                            latch,
+                            commitment_key,
+                        )
+                        .await?
+                        {
+                            Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(ready) => {
+                                Stage8bP1eOwnerLoopEntryV1::Ready(ready)
+                            }
+                            Stage8bP1eScheduleFreeDrainOutcomeV1::RetainedForRestart(retained) => {
+                                return Ok(Stage8bP1eOwnerLoopOutcomeV1::RetainedRecovery(
+                                    retained,
+                                ));
+                            }
+                            Stage8bP1eScheduleFreeDrainOutcomeV1::PendingNotClaimable(pending) => {
+                                return Ok(Stage8bP1eOwnerLoopOutcomeV1::PendingNotClaimable(
+                                    pending,
+                                ));
+                            }
+                            Stage8bP1eScheduleFreeDrainOutcomeV1::Blocked(blocked) => {
+                                return Ok(Stage8bP1eOwnerLoopOutcomeV1::Blocked(blocked));
+                            }
+                            Stage8bP1eScheduleFreeDrainOutcomeV1::ScheduleDeferred(deferred) => {
+                                Stage8bP1eOwnerLoopEntryV1::ScheduleDeferred(deferred)
+                            }
+                        }
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            } else if durable.is_generated_market() {
                 match resume_stage8b_p1e_committed_generated_market_with_redis(
                     durable,
                     transport,
@@ -5673,13 +5730,14 @@ mod tests {
 
         crate::stage8b_p1_semantic::p1e_i1_begin_direct_effect_audit();
         let (
-            resolved,
+            published,
             key,
             fresh_runtime,
             identity_after_m10,
             decision_redis_id,
             successor_redis_id,
-        ) = crate::stage8b_p1_semantic::p1e_test_v5_plain_market_resolved_from_owner(
+            successor_close_ts_utc_ms,
+        ) = crate::stage8b_p1_semantic::p1e_test_v5_plain_market_published_from_owner(
             &redis.url,
             *owner,
             key,
@@ -5687,26 +5745,125 @@ mod tests {
             identity.clone(),
         )
         .await;
-        let effects = crate::stage8b_p1_semantic::p1e_i1_take_direct_effect_audit();
         assert_eq!(identity_after_m10, identity);
+        let trusted_now =
+            DateTime::<Utc>::from_timestamp_millis(successor_close_ts_utc_ms).unwrap();
+        let fixture = crate::stage8b_p1e_schedule_source::tests::p1e_test_open_schedule_envelope_for_last_eligible(
+            identity.clone(),
+            fresh_runtime.stage5c_config_fingerprint(),
+            crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+            trusted_now,
+            successor_close_ts_utc_ms,
+        );
+        let mut connection =
+            redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let _: String = redis::cmd("XADD")
+            .arg(strategy_runtime_core::STAGE8B_P1E_SCHEDULE_STREAM)
+            .arg("*")
+            .arg("payload")
+            .arg(&fixture.bytes)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let mut binding_reader =
+            crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
+                &redis.url,
+                fixture.public_key_hex.clone(),
+                fixture.key_valid_from,
+                fixture.key_valid_until,
+            )
+            .await
+            .unwrap();
+        let snapshot = match binding_reader
+            .read_newest_guarded(&fixture.context, &Stage8bP1eShutdownLatchV1::new())
+            .await
+            .unwrap()
+        {
+            crate::Stage8bP1eGuardedScheduleReadV1::Read(
+                crate::Stage8bP1eNewestScheduleReadV1::Verified(snapshot),
+            ) => snapshot,
+            _ => panic!("fresh V5 Market must read one fixture-signed schedule"),
+        };
+        let expected_high_water = snapshot.high_water().clone();
+        let v4_receipt = crate::stage8b_p1_semantic::p1e_test_commit_plain_market_v4_only(
+            published,
+            *snapshot,
+            trusted_now,
+            &key,
+        )
+        .await;
+        assert_eq!(binding_reader.test_read_attempts(), 1);
+
+        let v4_restart = crate::stage8b_p1e_first_boot_transaction::stage8b_p1e_test_admit_ordinary_run_with_schedule_key_v1(
+                crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                    parent.clone(),
+                    fresh_runtime.stage5c_config_fingerprint(),
+                ))
+                .unwrap(),
+                &key,
+                fresh_runtime.clone(),
+                fixture.public_key_hex.clone(),
+                fixture.key_valid_from,
+                fixture.key_valid_until,
+            )
+            .unwrap();
+        let Stage7bRestartOutcome::P1eScheduleBindingCommitted(committed) = v4_restart else {
+            panic!("fresh V5 signed Market must restart at the exact V4 frontier")
+        };
+        assert_eq!(committed.receipt(), &v4_receipt);
+        let mut reclaim = crate::Stage8bP1RedisConfig::paper_default_auto();
+        reclaim.claim_idle_ms = 1;
+        let transport = crate::attach_stage8b_p1_redis(&redis.url, reclaim)
+            .await
+            .unwrap();
+        let crate::Stage8bP1eRecoveredMarketScheduleOutcomeV1::FeedbackAckCommitted {
+            owner: ack,
+            high_water,
+        } = crate::resume_stage8b_p1e_committed_market_with_redis(
+            committed,
+            transport,
+            &Stage8bP1eShutdownLatchV1::new(),
+            &key,
+        )
+        .await
+        .unwrap()
+        else {
+            panic!("clear latches E/F must continue the exact plain-Market V4")
+        };
+        assert_eq!(high_water, expected_high_water);
+        assert_eq!(
+            binding_reader.test_read_attempts(),
+            1,
+            "committed V4 recovery must not reread signed schedule"
+        );
+        let resolved = ack
+            .commit_truth(&key)
+            .unwrap()
+            .acknowledge_source()
+            .await
+            .unwrap();
+        assert_eq!(
+            resolved.disposition(),
+            Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending
+        );
+        let effects = crate::stage8b_p1_semantic::p1e_i1_take_direct_effect_audit();
         assert_eq!(effects.provider_total, 1);
         assert_eq!(effects.callback_total, 1);
         assert_eq!(effects.publication_attempt_total, 1);
         assert_eq!(effects.publication_total, 1);
-        assert_eq!(effects.claim_total, 0);
+        assert_eq!(effects.claim_total, 1);
         assert_eq!(effects.xack_attempt_total, 1);
         assert_eq!(effects.xack_total, 1);
-        assert_eq!(effects.schedule_read_total, 0);
+        assert_eq!(effects.schedule_read_total, 1);
+        let resolved = resolved.into_ready_owner();
         let resolved_snapshot = resolved.stage8b_p1e_test_checkpoint_snapshot();
         assert!(resolved_snapshot.0 > 0);
         assert!(resolved_snapshot.1 > before.journal_lifecycle_sequences.len() as u64);
         assert_eq!(resolved_snapshot.2, None);
         drop(resolved);
 
-        let mut connection =
-            redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
-                .await
-                .unwrap();
         assert_eq!(
             (
                 fs::read(&marker_path).unwrap(),
@@ -5748,16 +5905,19 @@ mod tests {
             "the fresh V5 Market command must publish exactly once"
         );
         let redis_before_restart = redis_database_snapshot(&redis.url).await;
-        let second_admission = crate::admit_stage8b_p1e_ordinary_run_v1(
-            crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
-                parent.clone(),
-                runtime_fingerprint.clone(),
-            ))
-            .unwrap(),
-            &key,
-            fresh_runtime.clone(),
-        )
-        .expect("advanced V5 root must preserve immutable ordinary-run provenance");
+        let second_admission = crate::stage8b_p1e_first_boot_transaction::stage8b_p1e_test_admit_ordinary_run_with_schedule_key_v1(
+                crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                    parent.clone(),
+                    fresh_runtime.stage5c_config_fingerprint(),
+                ))
+                .unwrap(),
+                &key,
+                fresh_runtime.clone(),
+                fixture.public_key_hex.clone(),
+                fixture.key_valid_from,
+                fixture.key_valid_until,
+            )
+            .expect("advanced V5/V4 root must preserve immutable ordinary-run provenance");
         let after = second_admission
             .stage8b_p1d4_test_runtime_audit()
             .expect("resolved Market restart must expose authenticated counters");
@@ -5806,16 +5966,19 @@ mod tests {
         assert_eq!(restart_effects.xack_total, 0);
         assert_eq!(restart_effects.schedule_read_total, 0);
         drop(frontier_resolved.into_ready_owner());
-        let final_admission = crate::admit_stage8b_p1e_ordinary_run_v1(
-            crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
-                parent.clone(),
-                runtime_fingerprint,
-            ))
-            .unwrap(),
-            &key,
-            fresh_runtime,
-        )
-        .expect("continuous-frontier resolution must preserve exact ordinary-run admission");
+        let final_admission = crate::stage8b_p1e_first_boot_transaction::stage8b_p1e_test_admit_ordinary_run_with_schedule_key_v1(
+                crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                    parent.clone(),
+                    fresh_runtime.stage5c_config_fingerprint(),
+                ))
+                .unwrap(),
+                &key,
+                fresh_runtime,
+                fixture.public_key_hex,
+                fixture.key_valid_from,
+                fixture.key_valid_until,
+            )
+            .expect("continuous-frontier resolution must preserve exact ordinary-run admission");
         assert!(matches!(
             &final_admission,
             Stage7bRestartOutcome::P1d2TruthCommitted(_)

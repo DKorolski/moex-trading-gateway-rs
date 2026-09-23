@@ -3368,6 +3368,18 @@ pub enum Stage8bP1eRecoveredGeneratedMarketScheduleOutcomeV1 {
     },
 }
 
+/// Restart continuation for a plain Market whose command publication and
+/// signed schedule are already covered by the exact V4. The continuation
+/// reclaims the retained source and revalidates the immutable Redis command;
+/// it cannot reread schedule input or republish the command.
+pub enum Stage8bP1eRecoveredMarketScheduleOutcomeV1 {
+    Stopped(crate::Stage8bP1eScheduleStopReceiptV1),
+    FeedbackAckCommitted {
+        owner: Box<Stage8bP1RedisFeedbackAckCommitted>,
+        high_water: strategy_runtime_core::Stage8bP1eScheduleHighWaterV1,
+    },
+}
+
 /// Restart continuation for a published CANCEL whose exact command marker,
 /// source PEL and signed schedule are already covered by V4.
 pub enum Stage8bP1eRecoveredCancelScheduleOutcomeV1 {
@@ -3464,6 +3476,10 @@ pub(crate) async fn resume_stage8b_p1e_command_published_with_signed_schedule_ti
         .canonical_command_sha256
         .clone()
         .ok_or(Stage8bP1RedisSemanticError::P1d1DecisionBindingConflict)?;
+    let publication_seal = (
+        published.receipt.covering_seal_generation,
+        published.receipt.covering_seal_commitment_sha256.clone(),
+    );
     let Stage8bP1RedisCommandPublished {
         stage7,
         evidence,
@@ -3482,6 +3498,7 @@ pub(crate) async fn resume_stage8b_p1e_command_published_with_signed_schedule_ti
         &candidate,
         strategy_request_id.to_string(),
         canonical_command_sha256,
+        publication_seal,
         bound_at_utc,
         commitment_key,
     )? {
@@ -4072,6 +4089,128 @@ pub async fn resume_stage8b_p1e_committed_initial_limit_with_redis(
                 transport,
                 pending_m10,
             }),
+            high_water: material.high_water,
+        },
+    )
+}
+
+/// Resumes an authenticated plain-Market V4 without a second signed-schedule
+/// read or command publication. The V4-carried publication seal, exact source
+/// identity, successor and Redis marker are cross-validated before latch F
+/// can issue the one-use provider authority.
+pub async fn resume_stage8b_p1e_committed_market_with_redis(
+    committed: Box<crate::Stage8bP1eScheduleBindingCommittedOwner>,
+    mut transport: Stage8bP1RedisSemanticCompositionTransport,
+    latch: &Stage8bP1eShutdownLatchV1,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eRecoveredMarketScheduleOutcomeV1, Stage8bP1RedisSemanticError> {
+    let material = committed
+        .plain_market_restart_material()?
+        .ok_or(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch)?;
+    let permit = match crate::resume_stage8b_p1e_committed_schedule_binding(*committed, latch) {
+        crate::Stage8bP1eScheduleBindingDecisionV1::StoppedAfterBinding { owner, receipt } => {
+            drop(owner);
+            drop(transport);
+            return Ok(Stage8bP1eRecoveredMarketScheduleOutcomeV1::Stopped(receipt));
+        }
+        crate::Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
+        crate::Stage8bP1eScheduleBindingDecisionV1::StoppedBeforeBinding { .. } => {
+            unreachable!("committed schedule binding cannot stop before binding")
+        }
+    };
+    let (stage7, authority) = match crate::continue_stage8b_p1e_market_schedule(permit, latch)? {
+        crate::Stage8bP1eScheduleAuthorityDecisionV1::RetainForRestart { owner, receipt } => {
+            drop(owner);
+            drop(transport);
+            return Ok(Stage8bP1eRecoveredMarketScheduleOutcomeV1::Stopped(receipt));
+        }
+        crate::Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } => {
+            (*owner, authority)
+        }
+    };
+    let pending_m10 = transport
+        .backend
+        .reclaim_exact_binding(
+            &material.predecessor_m10.redis_id,
+            &material.predecessor_m10.semantic_id_sha256,
+            &material.predecessor_m10.payload_sha256,
+        )
+        .await?;
+    let command_entry_id = transport
+        .backend
+        .revalidate_exact_command_publication(
+            &material.evidence,
+            &material.command,
+            &pending_m10,
+            material.publication_seal_generation,
+            &material.publication_seal_commitment_sha256,
+        )
+        .await?;
+    let successor = transport
+        .backend
+        .exact_first_successor_m10(
+            pending_m10.redis_id(),
+            &material.operational_identity_sha256,
+        )
+        .await?;
+    if stage8b_p1e_m10_identity_from_validated(&successor) != material.candidate_m10 {
+        return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
+    }
+    let envelope = Envelope {
+        schema_version: SCHEMA_VERSION,
+        ts_utc: command_created_at(&material.command),
+        source: COMMAND_ENVELOPE_SOURCE.to_string(),
+        msg_type: MessageType::Command,
+        payload: material.command.clone(),
+    };
+    let canonical_envelope_sha256 = sha256_hex(
+        &serde_json::to_vec(&envelope)
+            .map_err(|_| Stage8bP1RedisSemanticError::CommandPublicationConflict)?,
+    );
+    let receipt = Stage8bP1RedisCommandPublicationReceipt {
+        schema_version: 1,
+        source_m10_redis_id: material.evidence.m10_redis_id.clone(),
+        semantic_batch_id_sha256: material.evidence.semantic_batch_id_sha256.clone(),
+        strategy_request_id: material
+            .evidence
+            .strategy_request_id
+            .ok_or(Stage8bP1RedisSemanticError::CommandPublicationConflict)?,
+        canonical_command_sha256: material
+            .evidence
+            .canonical_command_sha256
+            .clone()
+            .ok_or(Stage8bP1RedisSemanticError::CommandPublicationConflict)?,
+        canonical_envelope_sha256,
+        command_entry_id,
+        covering_seal_generation: material.publication_seal_generation,
+        covering_seal_commitment_sha256: material.publication_seal_commitment_sha256.clone(),
+        publication_reservation_sha256: None,
+        publication_binding_sha256: None,
+        disposition: Stage8bP1RedisCommandPublicationDisposition::IdempotentExisting,
+        m10_acknowledged: false,
+        paper_provider_invoked: false,
+        finam_transport_attached: false,
+        broker_network_dispatch_attached: false,
+        runtime_live: false,
+        real_orders: false,
+    };
+    let published = Stage8bP1RedisCommandPublished {
+        stage7,
+        evidence: material.evidence,
+        command: material.command,
+        transport,
+        pending_m10,
+        receipt,
+        p1d4_reservation: None,
+        p1d4_binding: None,
+    };
+    Ok(
+        Stage8bP1eRecoveredMarketScheduleOutcomeV1::FeedbackAckCommitted {
+            owner: Box::new(
+                published
+                    .execute_next_canonical_market(authority, commitment_key)
+                    .await?,
+            ),
             high_water: material.high_water,
         },
     )
@@ -6340,7 +6479,7 @@ impl Stage8bP1RedisBackend {
         delivery: &Stage8bP1PendingM10Delivery,
         publication_seal_generation: u64,
         publication_seal_commitment_sha256: &str,
-    ) -> Result<(), Stage8bP1RedisSemanticError> {
+    ) -> Result<String, Stage8bP1RedisSemanticError> {
         let request_id = evidence
             .strategy_request_id
             .ok_or(Stage8bP1RedisSemanticError::CommandPublicationConflict)?;
@@ -6401,7 +6540,7 @@ impl Stage8bP1RedisBackend {
             [classification, command_entry_id]
                 if classification == "existing" && !command_entry_id.is_empty() =>
             {
-                Ok(())
+                Ok(command_entry_id.clone())
             }
             _ => Err(Stage8bP1RedisSemanticError::InvalidRedisReply),
         }
@@ -9321,6 +9460,64 @@ pub(crate) mod tests {
     }
 
     #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    pub(crate) async fn p1e_test_commit_plain_market_v4_only(
+        mut published: Stage8bP1RedisCommandPublished,
+        snapshot: crate::Stage8bP1eVerifiedScheduleSnapshotV1,
+        bound_at_utc: DateTime<Utc>,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> crate::Stage8bP1eScheduleBindingCommitReceipt {
+        assert_eq!(
+            published.p1e_schedule_route(),
+            Stage8bP1ePublishedScheduleRouteV1::PlainMarket
+        );
+        let operational_identity_sha256 = published
+            .stage7
+            .stage8b_p1_operational_identity_sha256()
+            .to_string();
+        let predecessor = published
+            .pending_m10
+            .parse_exact(&operational_identity_sha256)
+            .unwrap();
+        let candidate = published
+            .transport
+            .backend
+            .exact_first_successor_m10(
+                published.pending_m10.redis_id(),
+                &operational_identity_sha256,
+            )
+            .await
+            .unwrap();
+        let request_id = published.evidence.strategy_request_id.unwrap();
+        let command_sha256 = published.evidence.canonical_command_sha256.clone().unwrap();
+        let predecessor = stage8b_p1e_m10_identity_from_validated(&predecessor);
+        let candidate = stage8b_p1e_m10_identity_from_validated(&candidate);
+        let committed = crate::bind_stage8b_p1e_market_schedule(
+            published.stage7,
+            snapshot,
+            &Stage8bP1eShutdownLatchV1::new(),
+            &predecessor,
+            &candidate,
+            request_id.to_string(),
+            command_sha256,
+            (
+                published.receipt.covering_seal_generation,
+                published.receipt.covering_seal_commitment_sha256.clone(),
+            ),
+            bound_at_utc,
+            commitment_key,
+        )
+        .unwrap();
+        let crate::Stage8bP1eScheduleBindingCommitV1::Committed(owner) = committed else {
+            panic!("clear test latch must commit plain-Market V4")
+        };
+        let receipt = owner.receipt().clone();
+        drop(owner);
+        drop(published.transport);
+        drop(published.pending_m10);
+        receipt
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
     pub(crate) async fn p1e_test_commit_cancel_v4_only(
         mut published: Stage8bP1RedisCommandPublished,
         snapshot: crate::Stage8bP1eVerifiedScheduleSnapshotV1,
@@ -11082,19 +11279,20 @@ pub(crate) mod tests {
     }
 
     #[cfg(feature = "stage8a4-i3-test-fixtures")]
-    pub(crate) async fn p1e_test_v5_plain_market_resolved_from_owner(
+    pub(crate) async fn p1e_test_v5_plain_market_published_from_owner(
         redis_url: &str,
         owner: Stage7bRecoveryReadyOwner,
         key: Stage5gLifecycleCommitmentKey,
         fresh: strategy_runtime_core::HybridIntradayRuntimeStrategy,
         identity: String,
     ) -> (
-        Box<Stage8bP1RedisSemanticCompositionOwner>,
+        Stage8bP1RedisCommandPublished,
         Stage5gLifecycleCommitmentKey,
         strategy_runtime_core::HybridIntradayRuntimeStrategy,
         String,
         String,
         String,
+        i64,
     ) {
         let (mut pending, key, fresh, identity) = one_intent_pending_from_owner(
             redis_url, owner, key, fresh, identity, false, 11_400_000,
@@ -11122,32 +11320,14 @@ pub(crate) mod tests {
             published.p1e_schedule_route(),
             Stage8bP1ePublishedScheduleRouteV1::PlainMarket
         );
-        let resolved = published
-            .execute_next_canonical_market(
-                p1d2_test_schedule_authority_for(
-                    decision_close_ts_utc_ms,
-                    successor_close_ts_utc_ms,
-                ),
-                &key,
-            )
-            .await
-            .unwrap()
-            .commit_truth(&key)
-            .unwrap()
-            .acknowledge_source()
-            .await
-            .unwrap();
-        assert_eq!(
-            resolved.disposition(),
-            Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending
-        );
         (
-            resolved.into_ready_owner(),
+            published,
             key,
             fresh,
             identity,
             decision_redis_id,
             successor_redis_id,
+            successor_close_ts_utc_ms,
         )
     }
 

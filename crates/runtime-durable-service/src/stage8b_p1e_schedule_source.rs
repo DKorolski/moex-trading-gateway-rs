@@ -521,6 +521,7 @@ pub fn commit_stage8b_p1e_market_schedule(
     candidate: &Stage8bP1eM10IdentityV1,
     strategy_request_id: impl Into<String>,
     canonical_command_sha256: impl Into<String>,
+    publication_seal: (u64, impl Into<String>),
     bound_at_utc: DateTime<Utc>,
     commitment_key: &Stage5gLifecycleCommitmentKey,
 ) -> Result<Stage8bP1eScheduleBindingDecisionV1, Stage8bP1eScheduleReadError> {
@@ -533,6 +534,7 @@ pub fn commit_stage8b_p1e_market_schedule(
             candidate,
             strategy_request_id,
             canonical_command_sha256,
+            publication_seal,
             bound_at_utc,
             commitment_key,
         )?,
@@ -549,6 +551,7 @@ pub fn bind_stage8b_p1e_market_schedule(
     candidate: &Stage8bP1eM10IdentityV1,
     strategy_request_id: impl Into<String>,
     canonical_command_sha256: impl Into<String>,
+    publication_seal: (u64, impl Into<String>),
     bound_at_utc: DateTime<Utc>,
     commitment_key: &Stage5gLifecycleCommitmentKey,
 ) -> Result<Stage8bP1eScheduleBindingCommitV1, Stage8bP1eScheduleReadError> {
@@ -556,11 +559,17 @@ pub fn bind_stage8b_p1e_market_schedule(
         Ok(owner) => owner,
         Err(commit) => return Ok(commit),
     };
-    let binding = snapshot.accepted.prepare_market_binding(
+    // A published plain-Market command has the same immutable publication
+    // predecessor requirement as every other restartable command route. Keep
+    // that exact seal pair in V4 so a post-binding restart can revalidate the
+    // Redis marker without rereading the signed schedule or trusting Redis to
+    // supply its own authority.
+    let binding = snapshot.accepted.prepare_published_market_binding(
         predecessor,
         candidate,
         strategy_request_id,
         canonical_command_sha256,
+        publication_seal,
         snapshot.redis_stream_id,
     )?;
     commit_binding_only(owner, binding, bound_at_utc, commitment_key)
@@ -568,7 +577,8 @@ pub fn bind_stage8b_p1e_market_schedule(
 
 /// Binds an already published generated-Market command to the exact signed
 /// schedule while retaining the independently committed P1-d4 publication
-/// seal in V4. The ordinary Market binding remains byte-for-byte unchanged.
+/// seal in V4. Plain Market uses the same generic published-Market seal fields
+/// but remains distinguished by the absence of a P1-d4 package.
 #[allow(clippy::too_many_arguments)]
 pub fn bind_stage8b_p1e_generated_market_schedule(
     owner: Stage7bRecoveryReadyOwner,
@@ -2791,6 +2801,14 @@ pub(crate) mod tests {
         };
         let decision = owner.stage8b_p1d1_command_decision_binding().unwrap();
         let (request_id, command_sha256) = decision.stage8b_p1e_test_candidate_parts();
+        let publication_seal = (
+            owner.committed_seal().unwrap().seal_generation(),
+            owner
+                .committed_seal()
+                .unwrap()
+                .seal_commitment_sha256()
+                .to_string(),
+        );
         let committed = match bind_stage8b_p1e_market_schedule(
             owner,
             Stage8bP1eVerifiedScheduleSnapshotV1 {
@@ -2802,6 +2820,7 @@ pub(crate) mod tests {
             &candidate_identity,
             request_id,
             command_sha256,
+            publication_seal,
             DateTime::parse_from_rfc3339("2026-08-03T12:30:00.000000Z")
                 .unwrap()
                 .with_timezone(&Utc),
