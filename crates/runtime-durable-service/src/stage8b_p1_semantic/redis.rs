@@ -1243,6 +1243,11 @@ impl Stage8bP1RedisSemanticCompositionOwner {
         self.stage7.stage8b_p1d3_requires_later_limit_evaluation()
     }
 
+    #[cfg(test)]
+    pub(crate) fn stage8b_p1e_test_checkpoint_snapshot(&self) -> (u64, u64, Option<usize>) {
+        self.stage7.stage8b_p1e_test_checkpoint_snapshot()
+    }
+
     pub(crate) fn recover_stage8b_p1e_latest_schedule_high_water(
         &self,
         expected_runtime_config_fingerprint_sha256: &str,
@@ -1909,6 +1914,8 @@ impl Stage8bP1RedisCommandPublished {
         crate::recovery::stage8b_p1_test_crash_barrier(
             "p1d4-market-after-dispatch-before-provider-outcome",
         );
+        #[cfg(test)]
+        p1e_i1_observe_direct_effect(|observed| observed.provider_total += 1);
         let outcome = provider.execute();
         crate::recovery::stage8b_p1d4_test_crash_frontier("GM04");
         self.commit_market_feedback_ack(outcome, commitment_key)
@@ -11027,7 +11034,12 @@ pub(crate) mod tests {
     }
 
     #[cfg(feature = "stage8a4-i3-test-fixtures")]
-    pub(crate) async fn p1e_test_v5_cancel_published_from_owner(
+    /// Isolated integration fixture for already-authenticated P1-d3/P1-d4
+    /// Cancel continuation tests. It deliberately uses the test-only intent
+    /// construction seam and recreates its Redis namespace; it is not a
+    /// continuous fresh-V5 production-path witness.
+    #[allow(dead_code)]
+    pub(crate) async fn p1e_test_isolated_injected_cancel_published_from_owner(
         redis_url: &str,
         owner: Stage7bRecoveryReadyOwner,
         key: Stage5gLifecycleCommitmentKey,
@@ -11066,6 +11078,76 @@ pub(crate) mod tests {
             fresh,
             identity,
             cancel_candidate_close_ts_utc_ms,
+        )
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    pub(crate) async fn p1e_test_v5_plain_market_resolved_from_owner(
+        redis_url: &str,
+        owner: Stage7bRecoveryReadyOwner,
+        key: Stage5gLifecycleCommitmentKey,
+        fresh: strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        identity: String,
+    ) -> (
+        Box<Stage8bP1RedisSemanticCompositionOwner>,
+        Stage5gLifecycleCommitmentKey,
+        strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        String,
+        String,
+        String,
+    ) {
+        let (mut pending, key, fresh, identity) = one_intent_pending_from_owner(
+            redis_url, owner, key, fresh, identity, false, 11_400_000,
+        )
+        .await;
+        let decision_redis_id = pending.pending_m10.redis_id().to_string();
+        let decision_close_ts_utc_ms = pending
+            .pending_m10
+            .parse_exact(&identity)
+            .expect("fresh V5 decision M10 must remain canonical")
+            .close_ts_utc_ms();
+        let successor_close_ts_utc_ms = decision_close_ts_utc_ms + 600_000;
+        let successor = canonical_m10(identity.clone(), successor_close_ts_utc_ms, 2_175);
+        let successor_redis_id = parse_stage8b_p1_canonical_m10(&successor, &identity)
+            .unwrap()
+            .redis_id()
+            .to_string();
+        pending
+            .transport
+            .publish_canonical_m10(&successor, &identity)
+            .await
+            .unwrap();
+        let published = pending.publish_exact_command().await.unwrap();
+        assert_eq!(
+            published.p1e_schedule_route(),
+            Stage8bP1ePublishedScheduleRouteV1::PlainMarket
+        );
+        let resolved = published
+            .execute_next_canonical_market(
+                p1d2_test_schedule_authority_for(
+                    decision_close_ts_utc_ms,
+                    successor_close_ts_utc_ms,
+                ),
+                &key,
+            )
+            .await
+            .unwrap()
+            .commit_truth(&key)
+            .unwrap()
+            .acknowledge_source()
+            .await
+            .unwrap();
+        assert_eq!(
+            resolved.disposition(),
+            Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending
+        );
+        (
+            resolved.into_ready_owner(),
+            key,
+            fresh,
+            identity,
+            decision_redis_id,
+            successor_redis_id,
         )
     }
 

@@ -2238,6 +2238,10 @@ pub fn admit_stage8b_p1e_ordinary_run_v1(
 }
 
 #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+#[allow(
+    dead_code,
+    reason = "retained isolated signed-schedule admission fixture"
+)]
 pub(crate) fn stage8b_p1e_test_admit_ordinary_run_with_schedule_key_v1(
     config: Stage8bP1ValidatedBootstrapConfig,
     commitment_key: &Stage5gLifecycleCommitmentKey,

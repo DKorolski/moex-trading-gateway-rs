@@ -8305,8 +8305,11 @@ mod tests {
             .expect("operational source private extension exports");
         let mut envelope = flat_persisted_fixture();
         envelope.snapshot_id = snapshot_id.to_string();
+        // Source-owned operational fixtures may stamp the current riskgate
+        // session. Keep the persisted boundary at the accepted chronology
+        // ceiling so this restart matrix cannot expire with wall-clock time.
         envelope.persisted_at_ts_utc =
-            DateTime::<Utc>::from_timestamp(1_790_000_000, 0).expect("operational persisted ts");
+            DateTime::<Utc>::from_timestamp(4_102_444_800, 0).expect("operational persisted ts");
         envelope.binding.created_at_ts_utc = envelope.persisted_at_ts_utc;
         envelope.binding.strategy_id = "stage5d-final-r3-operational-state-r1".to_string();
         envelope.strategy_state.strategy_state_json = source_state_json;

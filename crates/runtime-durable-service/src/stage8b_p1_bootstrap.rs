@@ -531,6 +531,10 @@ pub fn restart_stage8b_p1(
 }
 
 #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+#[allow(
+    dead_code,
+    reason = "retained isolated signed-schedule restart fixture"
+)]
 pub(crate) fn stage8b_p1e_test_restart_with_schedule_key(
     config: Stage8bP1ValidatedBootstrapConfig,
     commitment_key: &Stage5gLifecycleCommitmentKey,

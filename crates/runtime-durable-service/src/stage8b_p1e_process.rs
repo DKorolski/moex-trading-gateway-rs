@@ -19,9 +19,6 @@ use std::{
     time::Duration as StdDuration,
 };
 
-#[cfg(test)]
-use std::task::Poll;
-
 use chrono::{DateTime, Utc};
 use strategy_runtime_core::Stage5gLifecycleCommitmentKey;
 
@@ -4205,7 +4202,6 @@ async fn wait_for_stage8b_p1e_shutdown_v1(latch: &Stage8bP1eShutdownLatchV1) {
     }
 }
 
-#[cfg(not(test))]
 async fn await_stage8b_p1e_startup_operation_v1<F>(
     _phase: &str,
     future: F,
@@ -4217,62 +4213,6 @@ where
     tokio::pin!(future);
     tokio::select! {
         output = &mut future => Stage8bP1eStartupAwaitV1::Completed(output),
-        () = wait_for_stage8b_p1e_shutdown_v1(latch) => {
-            Stage8bP1eStartupAwaitV1::ShutdownRequested
-        }
-    }
-}
-
-#[cfg(test)]
-async fn await_stage8b_p1e_startup_operation_v1<F>(
-    phase: &str,
-    future: F,
-    latch: &Stage8bP1eShutdownLatchV1,
-) -> Stage8bP1eStartupAwaitV1<F::Output>
-where
-    F: Future,
-{
-    const PHASE_ENV: &str = "STAGE8B_P1E_PROCESS_PRODUCTION_PHASE";
-    const READY_ENV: &str = "STAGE8B_P1E_PROCESS_FIXTURE_READY";
-    const MODE_ENV: &str = "STAGE8B_P1E_PROCESS_INFLIGHT_MODE";
-
-    if std::env::var(PHASE_ENV).as_deref() != Ok(phase) {
-        tokio::pin!(future);
-        return tokio::select! {
-            output = &mut future => Stage8bP1eStartupAwaitV1::Completed(output),
-            () = wait_for_stage8b_p1e_shutdown_v1(latch) => {
-                Stage8bP1eStartupAwaitV1::ShutdownRequested
-            }
-        };
-    }
-
-    let ready = std::path::PathBuf::from(
-        std::env::var_os(READY_ENV).expect("production process fixture ready path"),
-    );
-    let stubborn = std::env::var(MODE_ENV).as_deref() == Ok("stubborn");
-    let mut future = Box::pin(future);
-    let mut observed_pending = false;
-    let observed = std::future::poll_fn(move |context| {
-        if observed_pending {
-            return Poll::Pending;
-        }
-        match future.as_mut().poll(context) {
-            Poll::Pending => {
-                fs::write(&ready, format!("{phase}:request-pending").as_bytes())
-                    .expect("in-flight production request marker");
-                observed_pending = true;
-                Poll::Pending
-            }
-            Poll::Ready(output) => Poll::Ready(output),
-        }
-    });
-    tokio::pin!(observed);
-
-    if stubborn {
-        return Stage8bP1eStartupAwaitV1::Completed(observed.await);
-    }
-    tokio::select! {
-        output = &mut observed => Stage8bP1eStartupAwaitV1::Completed(output),
         () = wait_for_stage8b_p1e_shutdown_v1(latch) => {
             Stage8bP1eStartupAwaitV1::ShutdownRequested
         }
@@ -4704,12 +4644,17 @@ mod tests {
     use std::{
         collections::BTreeMap,
         ffi::CString,
-        io::Write,
-        net::TcpListener,
+        io::{self, Write},
+        net::{Shutdown, TcpListener, TcpStream},
         os::unix::fs::DirBuilderExt,
         os::unix::process::ExitStatusExt,
         path::PathBuf,
         process::{Child, Command, Stdio},
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Condvar, Mutex,
+        },
+        thread::JoinHandle,
         time::{Duration as StdDuration, Instant},
     };
 
@@ -4769,10 +4714,288 @@ mod tests {
     const PROCESS_FIXTURE_READY: &str = "STAGE8B_P1E_PROCESS_FIXTURE_READY";
     const PROCESS_FIXTURE_TRUSTED_NOW_MS: &str = "STAGE8B_P1E_PROCESS_FIXTURE_TRUSTED_NOW_MS";
     const PROCESS_PRODUCTION_PHASE: &str = "STAGE8B_P1E_PROCESS_PRODUCTION_PHASE";
-    const PROCESS_INFLIGHT_MODE: &str = "STAGE8B_P1E_PROCESS_INFLIGHT_MODE";
     const PROCESS_FIXTURE_MANIFEST_SHA256: &str = "STAGE8B_P1E_PROCESS_FIXTURE_MANIFEST_SHA256";
     const PROCESS_FIXTURE_CREDENTIALS: &str = "STAGE8B_P1E_PROCESS_FIXTURE_CREDENTIALS";
     const PROCESS_FIXTURE_BOOT_ID: [u8; 16] = [0x42; 16];
+
+    #[derive(Clone)]
+    enum RedisResponseDelayTarget {
+        AttachManifestGet,
+        S06Pending { stream: String, group: String },
+    }
+
+    impl RedisResponseDelayTarget {
+        fn matches(&self, args: &[Vec<u8>]) -> bool {
+            match self {
+                Self::AttachManifestGet => {
+                    args.len() == 2
+                        && args[0].eq_ignore_ascii_case(b"GET")
+                        && args[1] == crate::STAGE8B_P1E_DEPLOYMENT_MANIFEST_KEY.as_bytes()
+                }
+                Self::S06Pending { stream, group } => {
+                    args.len() == 3
+                        && args[0].eq_ignore_ascii_case(b"XPENDING")
+                        && args[1] == stream.as_bytes()
+                        && args[2] == group.as_bytes()
+                }
+            }
+        }
+
+        fn marker(&self) -> String {
+            match self {
+                Self::AttachManifestGet => format!(
+                    "redis-response-received-and-withheld:GET:{}",
+                    crate::STAGE8B_P1E_DEPLOYMENT_MANIFEST_KEY
+                ),
+                Self::S06Pending { stream, group } => {
+                    format!("redis-response-received-and-withheld:XPENDING:{stream}:{group}")
+                }
+            }
+        }
+    }
+
+    /// A byte-transparent RESP proxy used only by the process witness. The
+    /// selected reply is read completely from the real Redis server before
+    /// the marker is written, then withheld until the test releases it. The
+    /// production child therefore runs its unmodified startup select while a
+    /// concrete server-processed request is in flight.
+    struct RedisResponseDelayProxy {
+        url: String,
+        address: std::net::SocketAddr,
+        released: Arc<(Mutex<bool>, Condvar)>,
+        stop: Arc<AtomicBool>,
+        listener: Option<JoinHandle<()>>,
+    }
+
+    impl RedisResponseDelayProxy {
+        fn start(upstream_url: &str, marker: PathBuf, target: RedisResponseDelayTarget) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let address = listener.local_addr().unwrap();
+            let upstream = redis_url_socket_address(upstream_url);
+            let released = Arc::new((Mutex::new(false), Condvar::new()));
+            let stop = Arc::new(AtomicBool::new(false));
+            let claimed = Arc::new(AtomicBool::new(false));
+            let listener_released = Arc::clone(&released);
+            let listener_stop = Arc::clone(&stop);
+            let listener_thread = std::thread::spawn(move || {
+                let mut handlers = Vec::new();
+                while !listener_stop.load(Ordering::SeqCst) {
+                    match listener.accept() {
+                        Ok((client, _)) => {
+                            if listener_stop.load(Ordering::SeqCst) {
+                                let _ = client.shutdown(Shutdown::Both);
+                                break;
+                            }
+                            client.set_nonblocking(false).unwrap();
+                            let handler_target = target.clone();
+                            let handler_marker = marker.clone();
+                            let handler_released = Arc::clone(&listener_released);
+                            let handler_claimed = Arc::clone(&claimed);
+                            handlers.push(std::thread::spawn(move || {
+                                relay_redis_connection(
+                                    client,
+                                    upstream,
+                                    handler_marker,
+                                    handler_target,
+                                    handler_released,
+                                    handler_claimed,
+                                );
+                            }));
+                        }
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(StdDuration::from_millis(2));
+                        }
+                        Err(_) => break,
+                    }
+                }
+                for handler in handlers {
+                    let _ = handler.join();
+                }
+            });
+            Self {
+                url: format!("redis://{address}/"),
+                address,
+                released,
+                stop,
+                listener: Some(listener_thread),
+            }
+        }
+
+        fn url(&self) -> &str {
+            &self.url
+        }
+
+        fn release(&self) {
+            let (released, condition) = &*self.released;
+            *released.lock().unwrap() = true;
+            condition.notify_all();
+        }
+    }
+
+    impl Drop for RedisResponseDelayProxy {
+        fn drop(&mut self) {
+            self.release();
+            self.stop.store(true, Ordering::SeqCst);
+            let _ = TcpStream::connect(self.address);
+            if let Some(listener) = self.listener.take() {
+                let _ = listener.join();
+            }
+        }
+    }
+
+    fn redis_url_socket_address(redis_url: &str) -> std::net::SocketAddr {
+        redis_url
+            .strip_prefix("redis://")
+            .and_then(|value| value.split('/').next())
+            .expect("test Redis URL authority")
+            .parse()
+            .expect("test Redis socket address")
+    }
+
+    fn relay_redis_connection(
+        mut client: TcpStream,
+        upstream: std::net::SocketAddr,
+        marker: PathBuf,
+        target: RedisResponseDelayTarget,
+        released: Arc<(Mutex<bool>, Condvar)>,
+        claimed: Arc<AtomicBool>,
+    ) {
+        let Ok(mut server) = TcpStream::connect(upstream) else {
+            eprintln!("RESP proxy failed to connect upstream {upstream}");
+            return;
+        };
+        loop {
+            let request = match read_resp_frame(&mut client) {
+                Ok(Some(frame)) => frame,
+                Ok(None) => break,
+                Err(error) => {
+                    eprintln!("RESP proxy client read failed: {error}");
+                    break;
+                }
+            };
+            let is_target = resp_command_args(&request).is_some_and(|args| target.matches(&args))
+                && claimed
+                    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                    .is_ok();
+            if server.write_all(&request).is_err() {
+                eprintln!("RESP proxy upstream write failed");
+                break;
+            }
+            let response = match read_resp_frame(&mut server) {
+                Ok(Some(frame)) => frame,
+                Ok(None) => break,
+                Err(error) => {
+                    eprintln!("RESP proxy upstream read failed: {error}");
+                    break;
+                }
+            };
+            if is_target {
+                fs::write(&marker, target.marker()).expect("transport-level Redis marker");
+                let (released_lock, condition) = &*released;
+                let mut can_release = released_lock.lock().unwrap();
+                while !*can_release {
+                    can_release = condition.wait(can_release).unwrap();
+                }
+            }
+            if client.write_all(&response).is_err() {
+                eprintln!("RESP proxy client write failed");
+                break;
+            }
+        }
+        let _ = client.shutdown(Shutdown::Both);
+        let _ = server.shutdown(Shutdown::Both);
+    }
+
+    fn resp_command_args(frame: &[u8]) -> Option<Vec<Vec<u8>>> {
+        let redis::Value::Array(values) = redis::parse_redis_value(frame).ok()? else {
+            return None;
+        };
+        values
+            .into_iter()
+            .map(|value| match value {
+                redis::Value::BulkString(bytes) => Some(bytes),
+                redis::Value::SimpleString(value) => Some(value.into_bytes()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn read_resp_frame(stream: &mut TcpStream) -> io::Result<Option<Vec<u8>>> {
+        let mut prefix = [0_u8; 1];
+        match stream.read_exact(&mut prefix) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
+            Err(error) => return Err(error),
+        }
+        let mut frame = vec![prefix[0]];
+        match prefix[0] {
+            b'+' | b'-' | b':' | b',' | b'#' | b'(' | b'_' => {
+                read_resp_line(stream, &mut frame)?;
+            }
+            b'$' | b'!' | b'=' => {
+                let length = read_resp_line(stream, &mut frame)?;
+                let length: i64 = std::str::from_utf8(&length)
+                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "RESP length"))?
+                    .parse()
+                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "RESP length"))?;
+                if length >= 0 {
+                    let mut body = vec![0_u8; usize::try_from(length).unwrap() + 2];
+                    stream.read_exact(&mut body)?;
+                    frame.extend_from_slice(&body);
+                }
+            }
+            b'*' | b'~' | b'>' => {
+                let count = read_resp_count(stream, &mut frame)?;
+                read_resp_children(stream, &mut frame, count)?;
+            }
+            b'%' | b'|' => {
+                let count = read_resp_count(stream, &mut frame)?;
+                read_resp_children(stream, &mut frame, count.saturating_mul(2))?;
+            }
+            _ => return Err(io::Error::new(io::ErrorKind::InvalidData, "RESP prefix")),
+        }
+        Ok(Some(frame))
+    }
+
+    fn read_resp_line(stream: &mut TcpStream, frame: &mut Vec<u8>) -> io::Result<Vec<u8>> {
+        let mut line = Vec::new();
+        loop {
+            let mut byte = [0_u8; 1];
+            stream.read_exact(&mut byte)?;
+            frame.push(byte[0]);
+            if byte[0] == b'\n' {
+                if line.last() != Some(&b'\r') {
+                    return Err(io::Error::new(io::ErrorKind::InvalidData, "RESP line"));
+                }
+                line.pop();
+                return Ok(line);
+            }
+            line.push(byte[0]);
+        }
+    }
+
+    fn read_resp_count(stream: &mut TcpStream, frame: &mut Vec<u8>) -> io::Result<usize> {
+        let count = read_resp_line(stream, frame)?;
+        let count: i64 = std::str::from_utf8(&count)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "RESP count"))?
+            .parse()
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "RESP count"))?;
+        Ok(usize::try_from(count.max(0)).unwrap())
+    }
+
+    fn read_resp_children(
+        stream: &mut TcpStream,
+        frame: &mut Vec<u8>,
+        count: usize,
+    ) -> io::Result<()> {
+        for _ in 0..count {
+            let child = read_resp_frame(stream)?
+                .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "RESP child"))?;
+            frame.extend_from_slice(&child);
+        }
+        Ok(())
+    }
 
     async fn seed_idle_process_fixture(redis_url: &str, parent: &Path) -> String {
         let (source, export_input, key, fresh) =
@@ -4878,7 +5101,6 @@ mod tests {
         ready: &Path,
         credentials: &Path,
         phase: &str,
-        inflight_mode: Option<&str>,
         manifest_sha256: &str,
     ) -> Child {
         let mut command = Command::new(std::env::current_exe().unwrap());
@@ -4896,9 +5118,6 @@ mod tests {
             .env("CREDENTIALS_DIRECTORY", credentials)
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        if let Some(mode) = inflight_mode {
-            command.env(PROCESS_INFLIGHT_MODE, mode);
-        }
         command.spawn().unwrap()
     }
 
@@ -5211,7 +5430,6 @@ mod tests {
                 &ready,
                 &credentials,
                 phase,
-                None,
                 &manifest_sha256,
             );
             wait_for_process_fixture(&mut child, &ready);
@@ -5259,35 +5477,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn production_run_signals_cover_real_inflight_attach_and_s06_grace_boundaries() {
-        for (label, phase, mode, signal, expected_exit) in [
+    async fn production_run_cancels_server_processed_redis_attach_and_s06_requests() {
+        for (label, target, signal) in [
             (
-                "attach-cooperative-sigterm",
-                "inflight-redis-attach",
-                "cooperative",
+                "attach-server-processed-sigterm",
+                RedisResponseDelayTarget::AttachManifestGet,
                 libc::SIGTERM,
-                0,
             ),
             (
-                "s06-cooperative-sigint",
-                "inflight-s06-acquisition",
-                "cooperative",
+                "s06-server-processed-sigint",
+                RedisResponseDelayTarget::S06Pending {
+                    stream: crate::stage8b_p1_redis_namespace().canonical_m10_stream,
+                    group: crate::stage8b_p1_redis_namespace().m10_consumer_group,
+                },
                 libc::SIGINT,
-                0,
-            ),
-            (
-                "attach-stubborn-sigint",
-                "inflight-redis-attach",
-                "stubborn",
-                libc::SIGINT,
-                72,
-            ),
-            (
-                "s06-stubborn-sigterm",
-                "inflight-s06-acquisition",
-                "stubborn",
-                libc::SIGTERM,
-                72,
             ),
         ] {
             let redis = RedisServer::start().await;
@@ -5304,44 +5507,31 @@ mod tests {
                 .await;
             let durable_before = durable_file_snapshot(&parent);
             let redis_before = redis_database_snapshot(&redis.url).await;
-            let ready = control.join("production-inflight-ready");
+            let ready = control.join("server-processed-response-withheld");
+            let proxy = RedisResponseDelayProxy::start(&redis.url, ready.clone(), target.clone());
             let mut child = spawn_production_startup_fixture_child(
-                &redis.url,
+                proxy.url(),
                 &parent,
                 &ready,
                 &credentials,
-                phase,
-                Some(mode),
+                "transport-response-delay",
                 &manifest_sha256,
             );
             wait_for_process_fixture(&mut child, &ready);
-            assert_eq!(
-                fs::read_to_string(&ready).unwrap(),
-                format!("{phase}:request-pending")
-            );
+            assert_eq!(fs::read_to_string(&ready).unwrap(), target.marker());
             let signal_started = Instant::now();
             assert_eq!(
                 unsafe { libc::kill(child.id().try_into().unwrap(), signal) },
                 0
             );
             let status = wait_for_process_exit(&mut child);
-            assert_eq!(
-                status.code(),
-                Some(expected_exit),
-                "phase {phase} mode {mode}"
+            assert_eq!(status.code(), Some(0), "transport witness {label}");
+            assert_eq!(status.signal(), None, "transport witness {label}");
+            assert!(
+                signal_started.elapsed() < StdDuration::from_secs(5),
+                "transport witness {label} did not stop within grace"
             );
-            assert_eq!(status.signal(), None, "phase {phase} mode {mode}");
-            if mode == "cooperative" {
-                assert!(
-                    signal_started.elapsed() < StdDuration::from_secs(5),
-                    "cooperative {phase} did not stop within grace"
-                );
-            } else {
-                assert!(
-                    signal_started.elapsed() >= StdDuration::from_secs(5),
-                    "stubborn {phase} did not exercise grace expiry"
-                );
-            }
+            proxy.release();
             assert_eq!(durable_file_snapshot(&parent), durable_before);
             assert_eq!(redis_database_snapshot(&redis.url).await, redis_before);
 
@@ -5357,7 +5547,7 @@ mod tests {
                 .query_async(&mut connection)
                 .await
                 .unwrap();
-            assert_eq!(pending.count(), 0, "phase {phase} mode {mode}");
+            assert_eq!(pending.count(), 0, "transport witness {label}");
 
             let (fresh, _) = crate::Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
             let key = Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x8b; 32]).unwrap();
@@ -5373,17 +5563,66 @@ mod tests {
             .expect("in-flight shutdown must release the only durable owner");
             assert!(matches!(admitted, Stage7bRestartOutcome::Ready(_)));
             drop(admitted);
+            drop(proxy);
             fs::remove_dir_all(parent).unwrap();
             fs::remove_dir_all(control).unwrap();
             fs::remove_dir_all(credentials).unwrap();
         }
     }
 
+    #[tokio::test]
+    #[ignore]
+    async fn stage8b_p1e_noncooperative_owner_process_fixture_child() {
+        let ready = PathBuf::from(std::env::var_os(PROCESS_FIXTURE_READY).unwrap());
+        let terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+        let interrupt =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()).unwrap();
+        let coordinator = Stage8bP1eCoordinatorV1::new();
+        let owner = tokio::spawn(std::future::pending::<
+            Result<Stage8bP1eOwnerTaskBoundaryV1, Stage8bP1eProcessErrorV1>,
+        >());
+        fs::write(ready, b"noncooperative-owner-live").unwrap();
+        let result =
+            supervise_stage8b_p1e_owner_task_v1(owner, coordinator, 150, terminate, interrupt)
+                .await;
+        let error = result.expect_err("noncooperative owner must exhaust its shutdown grace");
+        std::process::exit(error.exit_code().into());
+    }
+
+    #[tokio::test]
+    async fn common_supervisor_maps_noncooperative_owner_grace_expiry_to_72() {
+        let control = temp_directory("noncooperative-owner-grace-expiry-control");
+        let ready = control.join("child-ready");
+        let mut child = spawn_process_fixture_child(
+            "stage8b_p1e_process::tests::stage8b_p1e_noncooperative_owner_process_fixture_child",
+            "redis://127.0.0.1:1/",
+            &control,
+            &ready,
+        );
+        wait_for_process_fixture(&mut child, &ready);
+        assert_eq!(
+            fs::read_to_string(&ready).unwrap(),
+            "noncooperative-owner-live"
+        );
+        let signal_started = Instant::now();
+        assert_eq!(
+            unsafe { libc::kill(child.id().try_into().unwrap(), libc::SIGTERM) },
+            0
+        );
+        let status = wait_for_process_exit(&mut child);
+        assert_eq!(status.code(), Some(72));
+        assert_eq!(status.signal(), None);
+        assert!(signal_started.elapsed() >= StdDuration::from_millis(150));
+        assert!(signal_started.elapsed() < StdDuration::from_secs(5));
+        fs::remove_dir_all(control).unwrap();
+    }
+
     #[cfg(feature = "stage8a4-i3-test-fixtures")]
     #[tokio::test]
-    async fn production_v5_bootstrap_advances_through_m10_cancel_v4_and_readmits_exactly() {
+    async fn production_v5_bootstrap_runs_continuous_market_lifecycle_and_readmits_exactly() {
         let redis = RedisServer::start().await;
-        let parent = temp_directory("production-v5-m10-cancel-v4-readmission");
+        let parent = temp_directory("production-v5-m10-market-readmission");
         let (fresh_runtime, runtime_fingerprint) =
             crate::Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
         let identity = strategy_runtime_core::stage6d_operational_identity_sha256(
@@ -5425,86 +5664,80 @@ mod tests {
             fresh_runtime.clone(),
         )
         .expect("new V5 bootstrap must pass ordinary-run admission");
+        let before = first_admission
+            .stage8b_p1d4_test_runtime_audit()
+            .expect("fresh V5 Ready owner must expose authenticated counters");
         let Stage7bRestartOutcome::Ready(owner) = first_admission else {
             panic!("initial V5 admission must return the exact Ready owner")
         };
 
-        let (published, key, fresh_runtime, identity_after_m10, trusted_now_ms) =
-            crate::stage8b_p1_semantic::p1e_test_v5_cancel_published_from_owner(
-                &redis.url,
-                *owner,
-                key,
-                fresh_runtime,
-                identity.clone(),
-            )
-            .await;
-        assert_eq!(identity_after_m10, identity);
-        let trusted_now = DateTime::<Utc>::from_timestamp_millis(trusted_now_ms).unwrap();
-        let last_eligible_m10_close_ts_utc_ms = trusted_now
-            .date_naive()
-            .and_hms_opt(18, 0, 0)
-            .unwrap()
-            .and_utc()
-            .timestamp_millis();
-        let fixture = crate::stage8b_p1e_schedule_source::tests::p1e_test_open_schedule_envelope_for_last_eligible(
+        crate::stage8b_p1_semantic::p1e_i1_begin_direct_effect_audit();
+        let (
+            resolved,
+            key,
+            fresh_runtime,
+            identity_after_m10,
+            decision_redis_id,
+            successor_redis_id,
+        ) = crate::stage8b_p1_semantic::p1e_test_v5_plain_market_resolved_from_owner(
+            &redis.url,
+            *owner,
+            key,
+            fresh_runtime,
             identity.clone(),
-            fresh_runtime.stage5c_config_fingerprint(),
-            crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
-            trusted_now,
-            last_eligible_m10_close_ts_utc_ms,
-        );
-        let fixture_restart_trust = (
-            fixture.public_key_hex.clone(),
-            fixture.key_valid_from,
-            fixture.key_valid_until,
-        );
+        )
+        .await;
+        let effects = crate::stage8b_p1_semantic::p1e_i1_take_direct_effect_audit();
+        assert_eq!(identity_after_m10, identity);
+        assert_eq!(effects.provider_total, 1);
+        assert_eq!(effects.callback_total, 1);
+        assert_eq!(effects.publication_attempt_total, 1);
+        assert_eq!(effects.publication_total, 1);
+        assert_eq!(effects.claim_total, 0);
+        assert_eq!(effects.xack_attempt_total, 1);
+        assert_eq!(effects.xack_total, 1);
+        assert_eq!(effects.schedule_read_total, 0);
+        let resolved_snapshot = resolved.stage8b_p1e_test_checkpoint_snapshot();
+        assert!(resolved_snapshot.0 > 0);
+        assert!(resolved_snapshot.1 > before.journal_lifecycle_sequences.len() as u64);
+        assert_eq!(resolved_snapshot.2, None);
+        drop(resolved);
+
         let mut connection =
             redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
                 .await
                 .unwrap();
-        let _: String = redis::cmd("XADD")
-            .arg(strategy_runtime_core::STAGE8B_P1E_SCHEDULE_STREAM)
-            .arg("*")
-            .arg("payload")
-            .arg(&fixture.bytes)
-            .query_async(&mut connection)
-            .await
-            .unwrap();
-        let mut reader = crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
-            &redis.url,
-            fixture.public_key_hex,
-            fixture.key_valid_from,
-            fixture.key_valid_until,
-        )
-        .await
-        .unwrap();
-        let snapshot = match reader
-            .read_newest_guarded(&fixture.context, &Stage8bP1eShutdownLatchV1::new())
-            .await
-            .unwrap()
-        {
-            crate::Stage8bP1eGuardedScheduleReadV1::Read(
-                crate::Stage8bP1eNewestScheduleReadV1::Verified(snapshot),
-            ) => snapshot,
-            _ => panic!("V5 Cancel path requires one verified Open schedule"),
-        };
-        crate::stage8b_p1_semantic::p1e_test_commit_cancel_v4_only(
-            published,
-            *snapshot,
-            trusted_now,
-            &key,
-        )
-        .await;
         assert_eq!(
             (
                 fs::read(&marker_path).unwrap(),
                 fs::read(&receipt_path).unwrap()
             ),
             immutable_adoption_before,
-            "M10/Cancel/V4 advancement must not rewrite initial adoption authority"
+            "continuous M10/Market advancement must not rewrite initial adoption authority"
         );
 
         let namespace = crate::stage8b_p1_redis_namespace();
+        let retained_m10: usize = redis::cmd("XLEN")
+            .arg(&namespace.canonical_m10_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(retained_m10, 2, "decision and successor M10 must coexist");
+        let retained_ids: redis::streams::StreamRangeReply = redis::cmd("XRANGE")
+            .arg(&namespace.canonical_m10_stream)
+            .arg("-")
+            .arg("+")
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(
+            retained_ids
+                .ids
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![decision_redis_id.as_str(), successor_redis_id.as_str()]
+        );
         let commands_before_restart: usize = redis::cmd("XLEN")
             .arg(&namespace.canonical_command_stream)
             .query_async(&mut connection)
@@ -5512,9 +5745,68 @@ mod tests {
             .unwrap();
         assert_eq!(
             commands_before_restart, 1,
-            "Cancel must publish exactly once"
+            "the fresh V5 Market command must publish exactly once"
         );
-        let second_admission = crate::stage8b_p1e_first_boot_transaction::stage8b_p1e_test_admit_ordinary_run_with_schedule_key_v1(
+        let redis_before_restart = redis_database_snapshot(&redis.url).await;
+        let second_admission = crate::admit_stage8b_p1e_ordinary_run_v1(
+            crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.clone(),
+                runtime_fingerprint.clone(),
+            ))
+            .unwrap(),
+            &key,
+            fresh_runtime.clone(),
+        )
+        .expect("advanced V5 root must preserve immutable ordinary-run provenance");
+        let after = second_admission
+            .stage8b_p1d4_test_runtime_audit()
+            .expect("resolved Market restart must expose authenticated counters");
+        assert_eq!(after.callback_count, 0);
+        assert_eq!(after.dispatch_v1_total, before.dispatch_v1_total + 1);
+        assert_eq!(after.order_v1_total, before.order_v1_total + 1);
+        assert_eq!(after.trade_v1_total, before.trade_v1_total + 1);
+        assert_eq!(
+            after.request_finalized_v1_total,
+            before.request_finalized_v1_total + 1
+        );
+        let Stage7bRestartOutcome::P1d2TruthCommitted(truth) = second_admission else {
+            panic!("post-XACK restart must retain exact P1-d2 truth for frontier proof")
+        };
+        let transport = crate::attach_stage8b_p1_redis(
+            &redis.url,
+            crate::Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
+        let acquired = acquire_stage8b_p1d2_truth_with_redis(*truth, transport)
+            .await
+            .unwrap();
+        let permit = match crate::decide_stage8b_p1e_post_acquisition_latch(
+            acquired,
+            &Stage8bP1eShutdownLatchV1::new(),
+        ) {
+            crate::Stage8bP1ePostAcquisitionDecisionV1::Continue(permit) => permit,
+            crate::Stage8bP1ePostAcquisitionDecisionV1::RetainForRestart(_) => {
+                panic!("clear latch must continue exact P1-d2 truth frontier proof")
+            }
+        };
+        crate::stage8b_p1_semantic::p1e_i1_begin_direct_effect_audit();
+        let frontier_resolved = resume_stage8b_p1d2_truth_with_redis(permit).await.unwrap();
+        assert_eq!(
+            frontier_resolved.disposition(),
+            crate::Stage8bP1RedisZeroIntentAckDisposition::AlreadyAcknowledged
+        );
+        let restart_effects = crate::stage8b_p1_semantic::p1e_i1_take_direct_effect_audit();
+        assert_eq!(restart_effects.provider_total, 0);
+        assert_eq!(restart_effects.callback_total, 0);
+        assert_eq!(restart_effects.publication_attempt_total, 0);
+        assert_eq!(restart_effects.publication_total, 0);
+        assert_eq!(restart_effects.claim_total, 0);
+        assert_eq!(restart_effects.xack_attempt_total, 0);
+        assert_eq!(restart_effects.xack_total, 0);
+        assert_eq!(restart_effects.schedule_read_total, 0);
+        drop(frontier_resolved.into_ready_owner());
+        let final_admission = crate::admit_stage8b_p1e_ordinary_run_v1(
             crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
                 parent.clone(),
                 runtime_fingerprint,
@@ -5522,14 +5814,11 @@ mod tests {
             .unwrap(),
             &key,
             fresh_runtime,
-            fixture_restart_trust.0,
-            fixture_restart_trust.1,
-            fixture_restart_trust.2,
         )
-        .expect("advanced V5 root must preserve immutable ordinary-run provenance");
+        .expect("continuous-frontier resolution must preserve exact ordinary-run admission");
         assert!(matches!(
-            second_admission,
-            Stage7bRestartOutcome::P1eScheduleBindingCommitted(_)
+            &final_admission,
+            Stage7bRestartOutcome::P1d2TruthCommitted(_)
         ));
         let commands_after_restart: usize = redis::cmd("XLEN")
             .arg(&namespace.canonical_command_stream)
@@ -5537,6 +5826,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(commands_after_restart, commands_before_restart);
+        assert_eq!(
+            redis_database_snapshot(&redis.url).await,
+            redis_before_restart
+        );
         let pending: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
             .arg(&namespace.canonical_m10_stream)
             .arg(&namespace.m10_consumer_group)
@@ -5545,10 +5838,10 @@ mod tests {
             .unwrap();
         assert_eq!(
             pending.count(),
-            1,
-            "V4-bound Cancel source must remain pending"
+            0,
+            "resolved Market source must remain XACKed"
         );
-        drop(second_admission);
+        drop(final_admission);
         fs::remove_dir_all(parent).unwrap();
     }
 

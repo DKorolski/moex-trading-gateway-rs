@@ -120,7 +120,7 @@ def check(path: str) -> dict[str, object]:
             "evidence status mismatch",
         )
         require(evidence["production_process_composition"] is True, "process composition not declared")
-        require(evidence["process_matrix"]["case_count"] == 15, "process case count mismatch")
+        require(evidence["process_matrix"]["case_count"] == 14, "process case count mismatch")
         require(
             all(value is True for key, value in evidence["process_matrix"].items() if key != "case_count"),
             "process matrix case not proven",
@@ -150,8 +150,10 @@ def check(path: str) -> dict[str, object]:
                 "adoption_predicate_version": 2,
                 "legacy_predicate_v1_timer_ready_rejected": True,
                 "legacy_automatic_migration": False,
-                "real_m10_cancel_v4_witness_complete": True,
-                "synthetic_witness_used": False,
+                "continuous_v5_market_witness_complete": True,
+                "continuous_v5_witness_uses_intent_injection_or_redis_reset": False,
+                "cancel_production_ingress": "authenticated durable restart outcome",
+                "isolated_injected_cancel_fixture_counted_as_continuous": False,
             },
             "corrected predecessor lifecycle disclosure drift",
         )
@@ -174,8 +176,9 @@ def check(path: str) -> dict[str, object]:
         )
         for token in (
             b"production_run_signals_cover_admission_attach_and_s06_without_effects",
-            b"production_run_signals_cover_real_inflight_attach_and_s06_grace_boundaries",
-            b"production_v5_bootstrap_advances_through_m10_cancel_v4_and_readmits_exactly",
+            b"production_run_cancels_server_processed_redis_attach_and_s06_requests",
+            b"common_supervisor_maps_noncooperative_owner_grace_expiry_to_72",
+            b"production_v5_bootstrap_runs_continuous_market_lifecycle_and_readmits_exactly",
             b"process_wrapper_preserves_coordinator_boundary_exit_classes",
             b"ordinary_run_admission_rejects_post_seal_frontiers_without_mutation",
             b"stage8b-p1e-i1-process-supervision-negative-harness 65/65",

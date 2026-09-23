@@ -93,7 +93,7 @@ def main() -> None:
         "commands": records,
         "production_process_composition": True,
         "process_matrix": {
-            "case_count": 15,
+            "case_count": 14,
             "idle_sigterm": True,
             "idle_sigkill_restart": True,
             "owner_panic_exit_70": True,
@@ -105,9 +105,8 @@ def main() -> None:
             "production_before_s06_sigterm_exit_0": True,
             "production_inflight_redis_attach_sigterm_exit_0": True,
             "production_inflight_s06_sigint_exit_0": True,
-            "production_inflight_redis_attach_sigint_grace_exit_72": True,
-            "production_inflight_s06_sigterm_grace_exit_72": True,
-            "production_v5_m10_cancel_v4_restart_readmission": True,
+            "common_supervisor_noncooperative_owner_grace_exit_72": True,
+            "production_v5_m10_market_restart_readmission": True,
             "unexpected_authenticated_stop_exit_70": True,
         },
         "ordinary_run_admission": {
@@ -135,8 +134,10 @@ def main() -> None:
             "adoption_predicate_version": 2,
             "legacy_predicate_v1_timer_ready_rejected": True,
             "legacy_automatic_migration": False,
-            "real_m10_cancel_v4_witness_complete": True,
-            "synthetic_witness_used": False,
+            "continuous_v5_market_witness_complete": True,
+            "continuous_v5_witness_uses_intent_injection_or_redis_reset": False,
+            "cancel_production_ingress": "authenticated durable restart outcome",
+            "isolated_injected_cancel_fixture_counted_as_continuous": False,
         },
         "closed_surfaces": {
             "operational_redis_db0_db15": False,
@@ -147,7 +148,7 @@ def main() -> None:
             "runtime_live": False,
             "real_orders": False,
         },
-        "next_slice": "review, then fixed-path installation/systemd and telemetry composition",
+        "next_slice": "independent process-supervision acceptance, then separate aggregate I1 closure",
     }
     evidence_raw = (json.dumps(evidence, indent=2, sort_keys=True) + "\n").encode()
     marker = (

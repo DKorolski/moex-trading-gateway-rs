@@ -1848,3 +1848,40 @@ I1 slices after independent acceptance of this correction. Production `run`
 wiring and process signal/panic/SIGKILL evidence are also separate later
 boundaries. Operational Redis DB0/DB15, VPS activation, FINAM POST/DELETE,
 broker dispatch, runtime-live and real orders remain closed.
+
+## Stage 8B-P1-e I1 process supervision review correction (2026-09-23)
+
+Independent review placed process checkpoint `95f733d` on HOLD for two narrow
+evidence defects. The implementation path itself remains unchanged; this
+candidate repairs the OS-process witnesses without opening any operational
+surface.
+
+The Redis in-flight witness now runs the single production startup future
+through a byte-transparent RESP proxy. The proxy records only a response that
+the isolated Redis server has already processed, then withholds that exact
+`GET` or `XPENDING` reply while SIGTERM/SIGINT exercises the real production
+`tokio::select!`. Durable bytes, Redis DUMP/PTTL state, the empty PEL and
+ordinary re-admission are compared after exit 0. The exit-72 contract is proven
+separately with a genuinely noncooperative owner under the common supervisor;
+it is no longer presented as a Redis transport result.
+
+The V5 positive witness no longer injects an intent or resets Redis. Fresh
+flat paper V5 continuously executes decision/successor M10, the Hybrid
+callback, Market publication, paper outcome, replacement truth and XACK-last.
+Direct effect counters plus durable journal and Redis inventories prove no
+repeat across restart and exact already-acknowledged continuation. Cancel is
+documented and tested through its actual process ingress: an authenticated
+durable restart outcome. The synthetic LIMIT/Cancel helper remains only as an
+explicit isolated fixture.
+
+The correction gate retains command logs for the inherited process matrix,
+the two repaired witnesses, source/negative checks, strict clippy and the
+existing transaction/restart contracts. Operational Redis DB0/DB15, VPS
+activation, FINAM POST/DELETE, broker dispatch, runtime-live and real orders
+remain closed pending independent acceptance.
+
+The immutable packaging run also exposed a pre-existing wall-clock cliff in
+two inherited Stage 5D source-owned restart tests: their test-only persisted
+timestamp became older than the current riskgate session after 2026-09-21.
+Their fixture now uses the already accepted chronology ceiling. This changes
+no production path and keeps the full-core regression run deterministic.

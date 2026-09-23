@@ -1,8 +1,8 @@
 # Stage 8B-P1-e I1 process supervision matrix
 
-Status: correction review candidate closing P1-PS01, P1-PS02, P2-PS03,
-P1-V5LC01 and P2-PS04 reported through review target
-`0507639cd422b4a53e11ec60cafe82a49b5c1357`.
+Status: correction review candidate for the two executable-evidence findings
+P1-PS02 and P1-PS05 reported against review target
+`95f733d866b5a81488bf1efaffc38eb2e2f0b2bc`.
 
 ## Scope
 
@@ -58,14 +58,16 @@ surface is contacted.
    cannot impersonate an authenticated stop. SIGTERM after exact V5 admission,
    SIGINT before Redis attach and SIGTERM before S06 acquisition observe one
    already-running grace deadline and exit 0 at the authenticated boundary.
-   Separate in-flight controls first poll the actual attach or S06 future to
-   `Pending`, record `request-pending`, and only then deliver SIGTERM/SIGINT.
-   Cooperative futures stop inside grace with exit 0; deliberately stubborn
-   in-flight futures force the same supervisor deadline to expire with exact
-   exit 72. Every case compares durable file bytes and a full isolated Redis
-   DUMP/PTTL snapshot before and after, verifies PEL remains empty, then proves
-   exact restart admission without a second owner. There is no callback,
-   publication or XACK.
+   Separate in-flight controls place a byte-transparent RESP proxy in front of
+   the same isolated Redis. The proxy writes its marker only after Redis has
+   processed and returned the exact deployment-manifest `GET` or exact
+   canonical-M10/group `XPENDING`; it then withholds that server-processed Redis response.
+   SIGTERM/SIGINT therefore cancels the unmodified production
+   startup select while a concrete reply is in flight. Both cases stop inside
+   grace with exit 0, compare durable bytes and a full Redis DUMP/PTTL snapshot,
+   verify an empty PEL and prove ordinary re-admission with one owner. Exit 72
+   is tested separately by a genuinely noncooperative owner task passed to the
+   same supervisor; it is not represented as a network-in-flight outcome.
 
 1. Idle SIGTERM: after signal handlers and the sole owner are live, SIGTERM
    latches shutdown, the bounded Redis wait returns a retained Ready owner,
@@ -112,11 +114,23 @@ no semantic commit, no pending request and an empty journal. Adoption predicate
 version 2 and its derived owner/receipt digests bind that exact shape.
 
 The positive production-path regression starts from a freshly adopted V5 root,
-passes ordinary-run admission, executes canonical M10 through the real Hybrid
-callback and command publication, commits Cancel/V4, restarts durably and
-passes the same ordinary admission contract again. It proves the initial
-marker/receipt bytes are unchanged, the command count remains exactly one and
-the V4-bound source remains pending for its authorized continuation.
+passes ordinary-run admission and continuously executes a decision M10 plus its
+successor through the real Hybrid callback, Market command publication, paper
+provider, replacement truth and source XACK. It performs no Redis reset and no
+test intent injection. Direct counters prove one callback, publication attempt,
+successful publication, provider effect and XACK. Durable journal counters and
+the cumulative two-M10/one-command Redis inventory are captured before and
+after restart; re-admission plus the exact already-acknowledged frontier path
+perform no second callback, provider invocation, publication or XACK.
+
+A fresh flat paper V5 does not autonomously create a working LIMIT and therefore
+cannot legitimately emit Cancel in this witness. Cancel enters the process by
+its intended production ingress: an authenticated durable restart outcome with
+the exact retained Redis source and signed schedule authority. The committed
+Cancel and truth-before-XACK process cases above exercise that ingress. The
+legacy helper that constructs a LIMIT/Cancel package through test-only intent
+seams and recreates Redis is retained only as an explicitly named isolated
+integration fixture; it is not cited as continuous V5 evidence.
 
 Existing predicate-v1 `TimerReady` V5 artifacts are not reinterpreted,
 rewritten or deleted. They fail exact receipt/adoption validation; any future

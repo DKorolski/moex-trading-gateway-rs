@@ -13,10 +13,13 @@ RUST_MIN_STACK=33554432 \
   stage8b_p1e_process::tests::production_run_signals_cover_admission_attach_and_s06_without_effects -- --test-threads=1
 RUST_MIN_STACK=33554432 \
   cargo test -p runtime-durable-service --all-features --lib \
-  stage8b_p1e_process::tests::production_run_signals_cover_real_inflight_attach_and_s06_grace_boundaries -- --test-threads=1
+  stage8b_p1e_process::tests::production_run_cancels_server_processed_redis_attach_and_s06_requests -- --test-threads=1
 RUST_MIN_STACK=33554432 \
   cargo test -p runtime-durable-service --all-features --lib \
-  stage8b_p1e_process::tests::production_v5_bootstrap_advances_through_m10_cancel_v4_and_readmits_exactly -- --test-threads=1
+  stage8b_p1e_process::tests::common_supervisor_maps_noncooperative_owner_grace_expiry_to_72 -- --test-threads=1
+RUST_MIN_STACK=33554432 \
+  cargo test -p runtime-durable-service --all-features --lib \
+  stage8b_p1e_process::tests::production_v5_bootstrap_runs_continuous_market_lifecycle_and_readmits_exactly -- --test-threads=1
 RUST_MIN_STACK=33554432 \
   cargo test -p runtime-durable-service --all-features --lib \
   stage8b_p1e_process::tests::process_wrapper_ -- --test-threads=1

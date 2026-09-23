@@ -21,6 +21,7 @@ def require(condition: bool, message: str) -> None:
 def load_content(root: pathlib.Path = ROOT) -> dict[str, str]:
     paths = {
         "process": "crates/runtime-durable-service/src/stage8b_p1e_process.rs",
+        "semantic": "crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs",
         "supervisor": "crates/runtime-durable-service/src/stage8b_p1_supervisor.rs",
         "first_boot": "crates/runtime-durable-service/src/stage8b_p1e_first_boot_source.rs",
         "transaction": "crates/runtime-durable-service/src/stage8b_p1e_first_boot_transaction.rs",
@@ -49,6 +50,7 @@ def section(text: str, start: str, end: str) -> str:
 
 def validate_content(content: dict[str, str]) -> None:
     process = content["process"]
+    semantic = content["semantic"]
     supervisor = content["supervisor"]
     first_boot = content["first_boot"]
     transaction = content["transaction"]
@@ -93,6 +95,11 @@ def validate_content(content: dict[str, str]) -> None:
         "fn map_redis_attach_error(",
     )
     finish = section(process, "fn finish_owner_task_at(", "fn terminal_process_result(")
+    startup_await = section(
+        process,
+        "async fn await_stage8b_p1e_startup_operation_v1<F>(",
+        "#[cfg(not(test))]\nasync fn stage8b_p1e_process_startup_test_barrier_v1(",
+    )
     require_order(
         run,
         (
@@ -143,6 +150,18 @@ def validate_content(content: dict[str, str]) -> None:
         supervision.count("Stage8bP1eSupervisorEventV1::GraceExpired") == 2,
         "both signal-failure and external-signal grace paths must remain explicit",
     )
+    require(
+        process.count("async fn await_stage8b_p1e_startup_operation_v1<F>(") == 1,
+        "startup operation must have one production/test implementation",
+    )
+    for token in (
+        "tokio::pin!(future)",
+        "output = &mut future",
+        "wait_for_stage8b_p1e_shutdown_v1(latch)",
+    ):
+        require(token in startup_await, f"startup select invariant missing: {token}")
+    for forbidden in ("std::env", "Poll::Pending", "request-pending", "stubborn"):
+        require(forbidden not in startup_await, f"startup select contains test fork: {forbidden}")
     for token in (
         "Stage8bP1eSupervisorEventV1::OwnerPanicked",
         "Stage8bP1eSupervisorEventV1::AuthenticatedBoundaryReached",
@@ -224,30 +243,62 @@ def validate_content(content: dict[str, str]) -> None:
         "production_run_signals_cover_admission_attach_and_s06_without_effects",
         "process_wrapper_preserves_coordinator_boundary_exit_classes",
         "process_wrapper_keeps_owner_panic_fatal_precedence",
-        "production_run_signals_cover_real_inflight_attach_and_s06_grace_boundaries",
-        "production_v5_bootstrap_advances_through_m10_cancel_v4_and_readmits_exactly",
+        "production_run_cancels_server_processed_redis_attach_and_s06_requests",
+        "common_supervisor_maps_noncooperative_owner_grace_expiry_to_72",
+        "production_v5_bootstrap_runs_continuous_market_lifecycle_and_readmits_exactly",
     ):
         require(test in process, f"process matrix test missing: {test}")
 
     for token in (
         "Stage8bP1eStartupAwaitV1",
         "await_stage8b_p1e_startup_operation_v1",
-        'format!("{phase}:request-pending")',
-        'std::env::var(MODE_ENV).as_deref() == Ok("stubborn")',
-        '"attach-cooperative-sigterm"',
-        '"s06-cooperative-sigint"',
-        '"attach-stubborn-sigint"',
-        '"s06-stubborn-sigterm"',
-        '"V4-bound Cancel source must remain pending"',
+        "RedisResponseDelayProxy",
+        "RedisResponseDelayTarget::AttachManifestGet",
+        "RedisResponseDelayTarget::S06Pending",
+        '"redis-response-received-and-withheld:GET:{}"',
+        '"redis-response-received-and-withheld:XPENDING:{stream}:{group}"',
+        '"noncooperative-owner-live"',
+        "std::future::pending::<",
+        "Some(72)",
+        "p1e_i1_begin_direct_effect_audit",
+        "p1e_test_v5_plain_market_resolved_from_owner",
+        '"the fresh V5 Market command must publish exactly once"',
+        "Stage8bP1RedisZeroIntentAckDisposition::AlreadyAcknowledged",
     ):
         require(token in process, f"in-flight/V5 process evidence missing: {token}")
     require(
         process.count("match await_stage8b_p1e_startup_operation_v1(") == 2,
         "both Redis attach and S06 acquisition must use the shutdown-aware in-flight wrapper",
     )
+    require("PROCESS_INFLIGHT_MODE" not in process, "test-only in-flight mode remains")
+    require("p1e_test_v5_cancel_published_from_owner" not in process,
+            "process witness still claims an injected Cancel chain")
+
+    continuous = section(
+        semantic,
+        "pub(crate) async fn p1e_test_v5_plain_market_resolved_from_owner(",
+        "#[cfg(feature = \"stage8a4-i3-test-fixtures\")]\n    pub(crate) async fn p1e_test_cancel_published(",
+    )
+    for token in (
+        "one_intent_pending_from_owner(",
+        "publish_canonical_m10(&successor",
+        "publish_exact_command()",
+        "execute_next_canonical_market(",
+        "commit_truth(&key)",
+        "acknowledge_source()",
+    ):
+        require(token in continuous, f"continuous V5 witness missing: {token}")
+    for forbidden in ("FLUSHALL", "stage8b_p1d3_test_inject_one_intent"):
+        require(forbidden not in continuous, f"continuous V5 witness contains fixture seam: {forbidden}")
+    isolated = section(
+        semantic,
+        "/// Isolated integration fixture for already-authenticated P1-d3/P1-d4",
+        "#[cfg(feature = \"stage8a4-i3-test-fixtures\")]\n    pub(crate) async fn p1e_test_v5_plain_market_resolved_from_owner(",
+    )
     require(
-        process.count('format!("{phase}:request-pending")') == 2,
-        "the in-flight helper and process assertion must agree on the request-pending marker",
+        "test-only intent" in isolated
+        and "continuous fresh-V5 production-path witness" in isolated,
+        "isolated injected Cancel helper overstates its evidence",
     )
 
     require(
@@ -284,7 +335,9 @@ def validate_content(content: dict[str, str]) -> None:
         "before admission exits 66",
         "Corrected V5 predecessor lifecycle",
         "Existing predicate-v1 `TimerReady` V5 artifacts",
-        "request-pending",
+        "server-processed Redis response",
+        "fresh flat paper V5",
+        "authenticated durable restart outcome",
     ):
         require(token in document, f"process documentation missing: {token}")
     require("composed `run`" in checkpoint, "checkpoint does not identify composed run")

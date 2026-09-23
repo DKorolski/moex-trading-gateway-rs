@@ -10,10 +10,14 @@ boundary and does not authorize installation or activation.
 - corrected V5 fresh and historical bootstrap export through
   `P1BootstrapReady`, authenticated as the zero-effect `P1SemanticReady`
   lifecycle under adoption predicate version 2;
-- an end-to-end production-path witness from V5 adoption through ordinary
-  admission, canonical M10 callback/command, Cancel/V4, durable restart and
-  repeated admission without rewriting initial provenance or repeating the
-  command;
+- a continuous production-path witness from V5 adoption through ordinary
+  admission, canonical decision/successor M10, Hybrid callback, Market command,
+  paper outcome, replacement truth, XACK and repeated admission without
+  rewriting initial provenance or repeating callback/publication/provider/XACK;
+- an explicit evidence boundary for Cancel: fresh flat paper V5 produces Market,
+  while Cancel enters this process only as an authenticated durable restart
+  outcome; injected LIMIT/Cancel construction is retained solely as an isolated
+  integration fixture and is not counted as an end-to-end witness;
 - exact fixed-path argv parsing for `validate-config`, `bootstrap`,
   `bootstrap-recover`, and composed `run`;
 - protected root-owned supervisor-config loading and canonical Linux boot-id
@@ -227,6 +231,9 @@ The separately authorized OS-process matrix is implemented in
 `stage8b-p1e-i1-process-supervision-matrix.md`. It covers idle SIGTERM,
 idle SIGKILL/restart, panic exit class, committed-Cancel owner handoff and a
 kernel SIGKILL after replacement Cancel truth but before source XACK.
+It also delays exact server-processed Redis replies without changing the
+production startup future and isolates the noncooperative exit-72 proof in the
+common supervisor.
 
 The checkpoint review finding `P2-CP01` is closed locally by opening the fixed
 config with `O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK` and exercising the exact
