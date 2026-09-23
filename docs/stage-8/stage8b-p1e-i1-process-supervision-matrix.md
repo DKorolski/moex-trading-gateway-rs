@@ -1,9 +1,9 @@
 # Stage 8B-P1-e I1 process supervision matrix
 
-Status: second correction review candidate for the remaining signed-authority
-part of P1-PS05 reported against review target
-`e7ae487f9897be297bd9fabcee9ffad302e6dd3e`. P1-PS02 is closed by that
-review and is retained unchanged.
+Status: independently SOURCE ACCEPTED at
+`1086b8d95e10514532d1c25c57956eca943b732c`. P1-PS02 and P1-PS05 are
+closed. This remains a source acceptance, not aggregate I1 acceptance or an
+operational activation authorization.
 
 ## Scope
 
@@ -119,8 +119,9 @@ passes ordinary-run admission and continuously executes a decision M10 plus its
 successor through the real Hybrid callback and Market command publication. It
 then appends a fixture-signed envelope to the isolated schedule stream, reads it
 through the production schedule reader, commits and rereads the exact V4
-predecessor/successor/request/command/publication-seal binding, and crashes at
-that pre-effect frontier. Authenticated restart returns
+predecessor/successor/request/command/publication-seal binding, and performs a
+controlled owner drop/restart at that durable V4 pre-effect frontier.
+Authenticated restart returns
 `P1eScheduleBindingCommitted`; the retained V4 authority reclaims the exact PEL
 entry, revalidates the immutable command marker and successor, passes latches E
 and F, and only then reaches the paper provider, replacement truth and source
@@ -135,6 +136,12 @@ Redis inventory are captured before and after restart. Post-truth/XACK restart
 returns the exact P1-d2 truth frontier; its `AlreadyAcknowledged` continuation
 performs no second callback, provider invocation, publication, schedule read or
 XACK.
+
+The continuous witness covers exactly four restart/readmission observations:
+initial adoption, committed V4 before the provider effect, post-truth/XACK, and
+repeat admission after `AlreadyAcknowledged`. It is not an OS-SIGKILL witness
+for plain-Market V4 and does not claim to rerun every crash frontier in the
+project.
 
 A fresh flat paper V5 does not autonomously create a working LIMIT and therefore
 cannot legitimately emit Cancel in this witness. Cancel enters the process by

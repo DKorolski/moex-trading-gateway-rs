@@ -1910,3 +1910,27 @@ two inherited Stage 5D source-owned restart tests: their test-only persisted
 timestamp became older than the current riskgate session after 2026-09-21.
 Their fixture now uses the already accepted chronology ceiling. This changes
 no production path and keeps the full-core regression run deterministic.
+
+## Stage 8B-P1-e I1 aggregate closure readiness package (2026-09-23)
+
+Process supervision source at
+`1086b8d95e10514532d1c25c57956eca943b732c` is independently SOURCE
+ACCEPTED; P1-PS02 and P1-PS05 are closed. The continuous V5 Market witness is
+now described precisely as a controlled restart at the durable V4 pre-effect
+frontier. Its four observations are initial adoption, committed V4 before
+effect, post-truth/XACK and repeat admission after `AlreadyAcknowledged`; it is
+not an OS-SIGKILL witness for plain-Market V4 or a claim about every project
+crash frontier.
+
+The aggregate readiness package reconciles fourteen accepted I0/I1 milestones
+and their independent-review hashes. I1 remains open. Telemetry DTOs,
+readiness classification and Redis `NOMKSTREAM` write primitives exist, but
+production telemetry composition is not wired. A P1-e-specific fixed-path
+install transaction, systemd unit/material and target-Linux installation
+evidence also do not yet exist.
+
+The proposed remaining order is: telemetry composition source, fixed-path
+installation/systemd material, then one immutable aggregate I1 acceptance
+package. Operational Redis DB0/DB15, VPS installation/service start,
+paper-provider activation, FINAM POST/DELETE/send, broker dispatch,
+runtime-live, real orders and P1-f remain closed.

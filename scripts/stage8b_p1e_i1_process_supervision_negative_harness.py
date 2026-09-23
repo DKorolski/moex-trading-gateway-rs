@@ -93,7 +93,7 @@ def main() -> None:
         ("truth-restart", "process", "SIGKILL after durable truth and before XACK must recover exact truth authority", "SIGKILL may recover any restart authority"),
         ("binary-status", "binary", 'Stage8bP1eProcessSuccessV1::RunStopped => "run-stopped"', 'Stage8bP1eProcessSuccessV1::RunStopped => "ok"'),
         ("closed-finam", "document", "FINAM POST/DELETE/send", "FINAM send open"),
-        ("aggregate-boundary", "document", "not aggregate I1 acceptance", "aggregate I1 accepted"),
+        ("aggregate-boundary", "document", "not aggregate I1 acceptance or an", "aggregate I1 accepted or an"),
         ("document-v5-admission", "document", "authenticated V5 ordinary-run admission", "ordinary restart only"),
         ("document-pre-admission-exit", "document", "before admission exits 66", "before admission exits 0"),
         ("document-v5-correction", "document", "Corrected V5 predecessor lifecycle", "Unresolved V5 predecessor lifecycle"),

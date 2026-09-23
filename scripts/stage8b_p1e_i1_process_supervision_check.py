@@ -421,7 +421,7 @@ def validate_content(content: dict[str, str]) -> None:
         "after replacement Cancel truth and before source XACK",
         "Authenticated restart returns exact `P1d3TruthCommitted`",
         "FINAM POST/DELETE/send",
-        "not aggregate I1 acceptance",
+        "not aggregate I1 acceptance or an",
         "authenticated V5 ordinary-run admission",
         "before admission exits 66",
         "Corrected V5 predecessor lifecycle",
