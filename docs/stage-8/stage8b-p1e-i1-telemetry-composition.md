@@ -162,12 +162,14 @@ The acceptance matrix is
 
 Evidence is intentionally split into three levels. Read-only getters and JSON
 serialization prove that authenticated diagnostic facts are available and
-representable. Retained component tests prove that typed boundaries preserve
-those facts after owner consumption. Production-composition tests additionally
-run the shared telemetry-aware lifecycle drain and the real bounded publisher
-task, and compare Redis payloads with ACK, truth, XACK/Ready and blocked
-boundaries without calling reporter transition methods from the test. Only the
-third level supports the production-wiring claim.
+representable. Retained and blocked-inventory component tests prove typed
+boundary preservation, classification, redaction and serialization; those
+tests drive the reporter explicitly and are not owner-loop witnesses.
+Production-composition evidence is narrower: it runs the shared
+telemetry-aware lifecycle drain and the real bounded publisher task, and
+compares Redis payloads for ACK, truth and XACK/Ready without calling reporter
+transition methods from the test. Only that latter evidence supports the
+shared-drain production-wiring claim.
 
 ## Next boundary
 

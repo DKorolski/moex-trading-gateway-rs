@@ -376,3 +376,18 @@ independent R10 acceptance may open the existing three-file I0 source seam.
 Supervisor implementation, P1-f, installation, operational Redis DB0/VPS,
 FINAM send, broker dispatch, runtime-live and real orders remain later
 separately reviewed gates.
+
+## Stage 8B-P1-e I1 closure sequence (2026-09-24)
+
+Telemetry source is independently accepted at `b6f6d5b`. The remaining I1
+order is fixed and narrow:
+
+1. fixed-path installation/systemd material with target-Linux static,
+   clean-install, idempotence and rollback evidence;
+2. independent source/material acceptance of that exact immutable package;
+3. one aggregate I1 gate over accepted telemetry, process, Redis integration,
+   installation and inherited regression evidence.
+
+Operational install/start, Redis DB15/DB0 activation, VPS deployment,
+paper-provider execution, FINAM send, broker dispatch, runtime-live and real
+orders remain downstream and require separate authority.

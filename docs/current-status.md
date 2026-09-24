@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-09-18.
+Status date: 2026-09-24.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -11,6 +11,16 @@ an accepted macro-stage into smaller patch gates, but it does not renumber or
 replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 ## Active Stage 8B-P1-e I1 slice
+
+Telemetry correction `b6f6d5b6ea924db8c97512bc2bcecb8a5ed760ac`
+is independently SOURCE ACCEPTED. P1-TEL01, P1-TEL02 and P2-TEL03 are
+closed. The active source/material candidate is now the fixed-path,
+non-activating P1-e installation boundary: exact `run`, `bootstrap` and
+`bootstrap-recover@` systemd units, persistent service identity, tmpfiles
+custody, a fail-closed install/rollback transaction and isolated target-Linux
+verification. It does not provision operator config, first-boot source or the
+lifecycle credential, reload the service manager, enable/start a unit, contact
+Redis/FINAM or activate a VPS.
 
 Cancel signed-schedule composition `cc1f02c`, Day-expiry P1-DEX01 correction
 `a667938`, committed Cancel/Day-expiry restart source `efe56a9` and committed
@@ -1948,11 +1958,11 @@ Isolated Redis evidence covers all five phases, periodic publication,
 missing-stream no-create, backpressure, redaction and closed live flags. A real
 child production process reaches `PaperReady`, receives SIGTERM, publishes
 `Draining` and `Stopped`, exits zero, preserves durable bytes and leaves the
-M10 PEL empty. This is a source review candidate, not acceptance: I1 remains
-open. Fixed-path installation/systemd material is the next slice only after
-independent telemetry source acceptance. Operational Redis, VPS activation,
-paper-provider activation, FINAM send, broker dispatch, runtime-live, real
-orders and P1-f remain closed.
+M10 PEL empty. At that immutable commit this was a source review candidate, not acceptance.
+The subsequent correction was accepted at `b6f6d5b`; the
+historical candidate paragraph is retained for lineage. Operational Redis,
+VPS activation, paper-provider activation, FINAM send, broker dispatch,
+runtime-live, real orders and P1-f remain closed.
 
 ## Stage 8B-P1-e I1 telemetry correction candidate (2026-09-24)
 
@@ -1988,8 +1998,36 @@ canonical request ID rather than a semantic-batch hash.
 
 Getter/serialization evidence, retained component evidence and production
 composition evidence are tracked separately; only the last supports claims
-about published ACK/truth/XACK payloads.
-This remains a source correction review candidate, not acceptance. Fixed-path
-installation/systemd material, operational Redis, VPS activation,
-paper-provider activation, FINAM send, broker dispatch, runtime-live, real
-orders and P1-f remain closed until independent correction acceptance.
+about published ACK/truth/XACK payloads. At `a38d8c6` this remained a source correction review candidate, not acceptance; the correction was subsequently
+accepted at `b6f6d5b`. Fixed-path installation/systemd material is therefore
+the active candidate below. Operational Redis, VPS activation, paper-provider
+activation, FINAM send, broker dispatch, runtime-live, real orders and P1-f
+remain closed.
+
+## Stage 8B-P1-e I1 fixed-path installation candidate (2026-09-24)
+
+The accepted deployment-identity V2 is now materialized under
+`deploy/stage8b-p1e/`. The ordinary unit invokes only fixed-path `run`, permits
+only Unix plus IPv4/IPv6 loopback, pins Redis egress to loopback addresses and
+retains the accepted 600-second restart window and 100-second stop boundary.
+The bootstrap and recovery units are AF_UNIX-only private-network oneshots.
+All three use the same persistent `moex-p1-paper` identity, fixed systemd
+credential and exact read-only/config plus writable-state custody.
+
+The installer accepts only an explicit root and binary, installs public package
+material transactionally, runs sysusers/tmpfiles and static systemd
+verification, and records that no activation occurred. Operator config,
+first-boot source and lifecycle credential are deliberately not installer
+inputs. Exact reinstall is idempotent. Rollback refuses both operator material
+and any durable-state evidence, removes no secret/state and leaves persistent
+identity/directories intact. The static gate and 35-case source/evidence
+mutation harness are green. The isolated Ubuntu 24.04/systemd 255 rehearsal
+installed a release supervisor built from the accepted `b6f6d5b` source and is
+also green for clean
+install, parser verification, exact reinstall, both fail-closed rollback cases
+and clean public-package rollback. It ran under a separate network namespace,
+loaded/started no unit and contacted neither Redis nor FINAM.
+
+This slice does not close aggregate I1. Operational installation, service
+start, Redis DB15/DB0, VPS activation, paper-provider activation, FINAM send,
+broker dispatch, runtime-live, real orders and P1-f remain closed.
