@@ -388,6 +388,11 @@ order is fixed and narrow:
 3. one aggregate I1 gate over accepted telemetry, process, Redis integration,
    installation and inherited regression evidence.
 
+The first installation candidate `37b9d06` is held until its narrow
+inventory/custody/quarantine/reproducibility correction receives independent
+SOURCE/MATERIAL ACCEPT. That correction is part of step 1 and does not open or
+replace the aggregate gate in step 3.
+
 Operational install/start, Redis DB15/DB0 activation, VPS deployment,
 paper-provider execution, FINAM send, broker dispatch, runtime-live and real
 orders remain downstream and require separate authority.

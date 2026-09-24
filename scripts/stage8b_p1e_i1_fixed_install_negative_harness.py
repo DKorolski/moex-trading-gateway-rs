@@ -21,6 +21,8 @@ FILES = (
     "deploy/stage8b-p1e/moex-finam-p1-paper.tmpfiles",
     "docs/stage-8/stage8b-p1e-deployment-identity-v2.json",
     "scripts/stage8b_p1e_i1_fixed_install.py",
+    "scripts/stage8b_p1e_i1_fixed_install_behavioral_harness.py",
+    "scripts/stage8b_p1e_i1_fixed_install_linux_runner.sh",
     "docs/stage-8/stage8b-p1e-i1-fixed-path-installation.md",
     "docs/stage-8/stage8b-p1e-i1-fixed-path-installation-acceptance-matrix.csv",
     "docs/stage-8/stage8b-p1e-i1-telemetry-composition.md",
@@ -51,6 +53,15 @@ MUTATIONS = (
     ("installer-redis", FILES[6], "import shutil", "import shutil\nimport redis"),
     ("installer-operator-guard", FILES[6], "operator material exists; rollback refused", "operator material ignored"),
     ("installer-durable-guard", FILES[6], "durable state exists; rollback refused", "durable state ignored"),
+    ("installer-fixed-inventory", FILES[6], "set(expected) != set(MANAGED_FILE_MODES)", "not isinstance(expected, dict)"),
+    ("installer-secure-parent", FILES[6], "protected directory custody drift", "directory custody ignored"),
+    ("installer-nonroot-identity", FILES[6], "uid <= 0 or gid <= 0", "uid < 0 or gid < 0"),
+    ("installer-quarantine-guard", FILES[6], "durable quarantine history exists; rollback refused", "durable quarantine ignored"),
+    ("installer-fixed-unlink", FILES[6], "sorted(MANAGED_FILE_MODES, reverse=True)", "sorted(manifest['managed_payload_sha256'], reverse=True)"),
+    ("installer-source-nofollow", FILES[6], 'hasattr(os, "O_NOFOLLOW")', 'hasattr(os, "O_NONBLOCK")'),
+    ("behavioral-extra-path", FILES[7], '"manifest-extra-path"', '"manifest-arbitrary-path"'),
+    ("behavioral-unchanged", FILES[7], 'def expect_rollback_refusal(label: str) -> None:\n    before = snapshot()', 'def expect_rollback_refusal(label: str) -> None:\n    before = {}'),
+    ("runner-final-gate", FILES[8], '--evidence-dir "$evidence_dir"', '--root "$repo_root"'),
 )
 EVIDENCE_MUTATIONS = (
     ("evidence-network", "target-linux-evidence.json", '"network_mode":"none"', '"network_mode":"host"'),
@@ -63,6 +74,10 @@ EVIDENCE_MUTATIONS = (
     ("evidence-target-gate", "static-and-systemd-check.txt", "target_linux=true", "target_linux=false"),
     ("evidence-rollback", "rollback-durable-state.stderr", "durable state exists; rollback refused", "durable state ignored"),
     ("evidence-build-hash", "accepted-binary-build-result.json", '"binary_sha256":"' + "2" * 64 + '"', '"binary_sha256":"' + "3" * 64 + '"'),
+    ("evidence-quarantine", "target-linux-evidence.json", '"nonempty_quarantine_rollback_refusal":"PASS"', '"nonempty_quarantine_rollback_refusal":"FAIL"'),
+    ("evidence-behavior-count", "behavioral-filesystem-matrix.json", '"case_count":14', '"case_count":13'),
+    ("evidence-runner-network", "linux-runner-invocation.txt", "network_mode=none", "network_mode=host"),
+    ("evidence-runner-log", "linux-runner.log", "PASS 14/14", "PASS 13/14"),
 )
 
 
@@ -105,6 +120,10 @@ def write_evidence_fixture(directory: Path) -> None:
         "installed_binary_kind": "accepted-release",
         "operator_material_rollback_refusal": "PASS",
         "durable_state_rollback_refusal": "PASS",
+        "nonempty_quarantine_rollback_refusal": "PASS",
+        "empty_quarantine_positive_control": "PASS",
+        "behavioral_filesystem_matrix": "PASS",
+        "behavioral_filesystem_case_count": 14,
         "clean_public_package_rollback": "PASS",
         "unit_start_attempts": 0,
         "daemon_reload_attempts": 0,
@@ -137,6 +156,10 @@ def write_evidence_fixture(directory: Path) -> None:
         "profile": "release",
         "source_ref": "b6f6d5b6ea924db8c97512bc2bcecb8a5ed760ac",
         "source_tree": "5e29d320d9083a877f43a3148fff86766bd0f99e",
+        "source_archive_sha256": "4" * 64,
+        "rust_image": "rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922",
+        "package": "runtime-durable-service",
+        "binary": "stage8b-p1-paper-supervisor",
     }
     (directory / "accepted-binary-build-result.json").write_text(
         json.dumps(build, sort_keys=True, separators=(",", ":")) + "\n",
@@ -153,7 +176,34 @@ def write_evidence_fixture(directory: Path) -> None:
         encoding="utf-8",
     )
     (directory / "source-archive-check.txt").write_text(
-        "/tmp/moex-trading-project-b6f6d5b.tar.gz: OK\n",
+        "source_ref=b6f6d5b6ea924db8c97512bc2bcecb8a5ed760ac\n"
+        "source_tree=5e29d320d9083a877f43a3148fff86766bd0f99e\n"
+        f"archive_sha256={'4' * 64}\nverification=PASS\n",
+        encoding="utf-8",
+    )
+    behavioral = {
+        "schema_version": 1,
+        "domain": "moex.stage8b.p1e.fixed-install.behavioral-matrix.v1",
+        "case_count": 14,
+        "all_passed": True,
+        "cases": [{"case": f"case-{index}", "result": "PASS"} for index in range(14)],
+    }
+    (directory / "behavioral-filesystem-matrix.json").write_text(
+        json.dumps(behavioral, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    (directory / "behavioral-filesystem-matrix.log").write_text(
+        "stage8b-p1e-i1-fixed-install-behavioral-harness: PASS 14/14\n",
+        encoding="utf-8",
+    )
+    (directory / "linux-runner-invocation.txt").write_text(
+        "invocation=runner\nworking_directory=/work\nnetwork_mode=none\n",
+        encoding="utf-8",
+    )
+    (directory / "linux-runner.log").write_text(
+        "Finished `release` profile [optimized] target(s) in 1s\n"
+        "stage8b-p1e-i1-fixed-install-behavioral-harness: PASS 14/14\n"
+        "stage8b-p1e-i1-fixed-install-linux-rehearsal: PASS\n",
         encoding="utf-8",
     )
 

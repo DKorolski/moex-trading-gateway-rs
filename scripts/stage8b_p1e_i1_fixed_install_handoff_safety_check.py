@@ -14,29 +14,28 @@ import stage8b_p1e_i1_fixed_install_check as fixed_check
 import stage8b_p1e_i1a_handoff_safety_check as common
 
 
-PARENT = "b6f6d5b6ea924db8c97512bc2bcecb8a5ed760ac"
+PARENT = "37b9d065ce0e4763c84b1b8aa847e50f8814ca96"
+ACCEPTED_BINARY_REF = "b6f6d5b6ea924db8c97512bc2bcecb8a5ed760ac"
 BRANCH = "stage8b-paper-shadow-resumption"
-STAGE = "Stage 8B-P1-e I1 fixed-path installation material"
+STAGE = "Stage 8B-P1-e I1 fixed-path installation source/material correction"
 MARKER = "handoff-commit.txt"
 MANIFEST = "handoff-evidence/source-tree-manifest.json"
 COMMIT_RAW = "handoff-evidence/source-commit.raw"
-EVIDENCE = "handoff-evidence/stage8b-p1e-i1-fixed-install-evidence.json"
-REVIEW = "handoff-evidence/reviews/FINAM_I1_TELEMETRY_SOURCE_ACCEPT_b6f6d5b_2026-09-24.md"
-REVIEW_SHA256 = "9157abb28e34df6afb16551a60cdf94a42f5b9c53172b99ba974ab576e037bd8"
+EVIDENCE = "handoff-evidence/stage8b-p1e-i1-fixed-install-correction-evidence.json"
+REVIEW = "handoff-evidence/reviews/FINAM_I1_FIXED_INSTALL_REVIEW_37b9d06_2026-09-24.md"
+REVIEW_SHA256 = "8064f1be9f8f9a61cb4b7005daa906c60c7c951ac4b4d04507f3b7e10de944ba"
 REPORT_PREFIX = "handoff-evidence/fixed-install-linux/"
 REPORT_FILES = {
     "accepted-binary-build-result.json",
     "accepted-binary-build.log",
     "accepted-binary-source.txt",
     "accepted-binary.sha256",
-    "cargo-fmt.log",
-    "inherited-process-check.log",
-    "inherited-process-negative.log",
-    "inherited-telemetry-check.log",
-    "inherited-telemetry-negative.log",
+    "behavioral-filesystem-matrix.json",
+    "behavioral-filesystem-matrix.log",
     "install-first.json",
     "install-idempotent.json",
-    "negative-harness.log",
+    "linux-runner-invocation.txt",
+    "linux-runner.log",
     "rollback-durable-state.stderr",
     "rollback-durable-state.stdout",
     "rollback-operator-material.stderr",
@@ -44,7 +43,6 @@ REPORT_FILES = {
     "rollback.json",
     "source-and-evidence-gate.log",
     "source-archive-check.txt",
-    "source-material-gate.log",
     "static-and-systemd-check.txt",
     "status-installed.json",
     "status-rolled-back.json",
@@ -59,18 +57,13 @@ LOGS = {
     "process_negative": "handoff-evidence/gates/stage8b-p1e-i1-process-negative.log",
 }
 ALLOWED_CHANGES = {
-    "deploy/stage8b-p1e/moex-finam-p1-paper-bootstrap-recover@.service",
-    "deploy/stage8b-p1e/moex-finam-p1-paper-bootstrap.service",
-    "deploy/stage8b-p1e/moex-finam-p1-paper.service",
-    "deploy/stage8b-p1e/moex-finam-p1-paper.sysusers",
-    "deploy/stage8b-p1e/moex-finam-p1-paper.tmpfiles",
     "docs/current-status.md",
     "docs/roadmap.md",
     "docs/stage-8/stage8b-p1e-i1-fixed-path-installation-acceptance-matrix.csv",
     "docs/stage-8/stage8b-p1e-i1-fixed-path-installation.md",
-    "docs/stage-8/stage8b-p1e-i1-telemetry-composition.md",
     "scripts/make_stage8b_p1e_i1_fixed_install_handoff.py",
     "scripts/stage8b_p1e_i1_fixed_install.py",
+    "scripts/stage8b_p1e_i1_fixed_install_behavioral_harness.py",
     "scripts/stage8b_p1e_i1_fixed_install_check.py",
     "scripts/stage8b_p1e_i1_fixed_install_handoff_safety_check.py",
     "scripts/stage8b_p1e_i1_fixed_install_linux_rehearsal.sh",
@@ -166,7 +159,7 @@ def check(path: str) -> dict[str, object]:
         require(common.build_tree_oid(entries, payloads) == marker["source_tree"], "tree reconstruction mismatch")
 
         evidence = json.loads(files[EVIDENCE])
-        require(evidence["status"] == "SOURCE_AND_TARGET_EVIDENCE_REVIEW_CANDIDATE_I1_NOT_CLOSED", "status drift")
+        require(evidence["status"] == "SOURCE_MATERIAL_CORRECTION_REVIEW_CANDIDATE_I1_NOT_CLOSED", "status drift")
         require(evidence["source_ref"] == marker["source_ref"], "evidence source mismatch")
         require(evidence["source_parent"] == PARENT, "evidence parent mismatch")
         require(evidence["source_tree"] == marker["source_tree"], "evidence tree mismatch")
@@ -174,6 +167,7 @@ def check(path: str) -> dict[str, object]:
         require(set(evidence["changed_paths"]) == ALLOWED_CHANGES, "changed-path evidence drift")
         require(evidence["i1_closed"] is False, "I1 self-closed")
         require(evidence["operational_activation_authorized"] is False, "activation opened")
+        require(evidence["accepted_release_binary_source_ref"] == ACCEPTED_BINARY_REF, "accepted binary ref drift")
         require(all(value is False for value in evidence["closed_surfaces"].values()), "closed surface opened")
         require(sha256(files[REVIEW]) == REVIEW_SHA256, "predecessor review digest mismatch")
         require(set(evidence["commands"]) == set(LOGS), "command inventory drift")

@@ -42,6 +42,11 @@ python3 "$repo_root/scripts/stage8b_p1e_i1_fixed_install.py" \
 manifest_hash_after="$(sha256sum "$manifest" | awk '{print $1}')"
 [[ "$manifest_hash_before" = "$manifest_hash_after" ]]
 
+python3 "$repo_root/scripts/stage8b_p1e_i1_fixed_install_behavioral_harness.py" \
+  "$repo_root" "$target_root" "$accepted_binary" \
+  "$evidence_dir/behavioral-filesystem-matrix.json" \
+  | tee "$evidence_dir/behavioral-filesystem-matrix.log"
+
 install -m 0640 /dev/null "$target_root/etc/moex-finam-p1-paper/supervisor.json"
 if python3 "$repo_root/scripts/stage8b_p1e_i1_fixed_install.py" \
   rollback --root "$target_root" \
@@ -106,6 +111,10 @@ evidence = {
     "installed_binary_kind": "accepted-release",
     "operator_material_rollback_refusal": "PASS",
     "durable_state_rollback_refusal": "PASS",
+    "nonempty_quarantine_rollback_refusal": "PASS",
+    "empty_quarantine_positive_control": "PASS",
+    "behavioral_filesystem_matrix": "PASS",
+    "behavioral_filesystem_case_count": 14,
     "clean_public_package_rollback": "PASS",
     "unit_start_attempts": 0,
     "daemon_reload_attempts": 0,

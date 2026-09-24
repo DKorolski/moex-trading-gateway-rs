@@ -25,3 +25,11 @@ I1INS-023,negative,All 35 targeted source material and evidence mutations are re
 I1INS-024,wording,Telemetry blocked and retained evidence is labeled component evidence,REQUIRED
 I1INS-025,closed,Operational Redis VPS FINAM broker dispatch runtime-live real orders and P1-f remain closed,REQUIRED
 I1INS-026,closure,Aggregate I1 remains a separate later acceptance gate,REQUIRED
+I1INS-027,manifest,Manifest schema and managed inventory are exact canonical and fixed,REQUIRED
+I1INS-028,custody,Root ancestors manifest and managed files have exact protected custody,REQUIRED
+I1INS-029,identity,Existing service identity is one unique nonroot user and exact primary group,REQUIRED
+I1INS-030,binary,Source binary is nofollow single-link and copied from a stable descriptor,REQUIRED
+I1INS-031,rollback,Quarantine must be an exact empty directory before rollback,REQUIRED
+I1INS-032,behavioral,Real CLI filesystem matrix proves refusal makes no watched mutation,REQUIRED
+I1INS-033,reproducibility,Clean runner creates archive build target and invocation evidence automatically,REQUIRED
+I1INS-034,reproducibility,Runner cannot print final PASS before mandatory source plus evidence gate,REQUIRED

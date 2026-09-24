@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "reports/handoff"
 REPORTS = ROOT / "reports/stage8b-p1e-i1-fixed-install"
 REVIEW_SOURCE = Path(
-    "/Users/denisq/Downloads/FINAM_I1_TELEMETRY_SOURCE_ACCEPT_b6f6d5b_2026-09-24.md"
+    "/Users/denisq/Downloads/FINAM_I1_FIXED_INSTALL_REVIEW_37b9d06_2026-09-24.md"
 )
 
 
@@ -155,7 +155,7 @@ def main() -> None:
     evidence = {
         "schema_version": 1,
         "stage": safety.STAGE,
-        "status": "SOURCE_AND_TARGET_EVIDENCE_REVIEW_CANDIDATE_I1_NOT_CLOSED",
+        "status": "SOURCE_MATERIAL_CORRECTION_REVIEW_CANDIDATE_I1_NOT_CLOSED",
         "source_ref": source_ref,
         "source_parent": source_parent,
         "source_tree": source_tree,
@@ -168,7 +168,7 @@ def main() -> None:
         "target_linux": "ubuntu-24.04",
         "target_systemd_version": 255,
         "network_mode": "none",
-        "accepted_release_binary_source_ref": safety.PARENT,
+        "accepted_release_binary_source_ref": safety.ACCEPTED_BINARY_REF,
         "non_activating_install": True,
         "operational_activation_authorized": False,
         "i1_closed": False,

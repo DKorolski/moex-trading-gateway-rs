@@ -13,6 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DEPLOY = Path("deploy/stage8b-p1e")
 IDENTITY = Path("docs/stage-8/stage8b-p1e-deployment-identity-v2.json")
 INSTALLER = Path("scripts/stage8b_p1e_i1_fixed_install.py")
+BEHAVIORAL = Path("scripts/stage8b_p1e_i1_fixed_install_behavioral_harness.py")
+RUNNER = Path("scripts/stage8b_p1e_i1_fixed_install_linux_runner.sh")
 DESIGN = Path("docs/stage-8/stage8b-p1e-i1-fixed-path-installation.md")
 MATRIX = Path("docs/stage-8/stage8b-p1e-i1-fixed-path-installation-acceptance-matrix.csv")
 MAIN = "moex-finam-p1-paper.service"
@@ -174,7 +176,48 @@ def check(root: Path) -> None:
     ):
         require(fixed_path in installer, f"installer fixed path absent: {fixed_path}")
     require("verify_persistent_directories(root)" in installer, "directory custody verification absent")
-    require("target_stat.st_nlink != 1" in installer, "managed-file hardlink guard absent")
+    require("metadata.st_nlink != 1" in installer, "managed-file hardlink guard absent")
+    for token in (
+        "set(expected) != set(MANAGED_FILE_MODES)",
+        "set(value) != MANIFEST_KEYS",
+        "verify_secure_directory_chain(root, path.parent)",
+        "protected directory custody drift",
+        "service identity must be non-root with its exact primary group",
+        "uid <= 0 or gid <= 0 or primary_gid != gid",
+        "durable quarantine history exists; rollback refused",
+        "for relative in sorted(MANAGED_FILE_MODES, reverse=True)",
+        "args.binary)",
+        'if hasattr(os, "O_NOFOLLOW"):',
+    ):
+        require(token in installer, f"installer hardening invariant absent: {token}")
+    behavioral = (root / BEHAVIORAL).read_text(encoding="utf-8")
+    for token in (
+        "manifest-extra-path",
+        "manifest-missing-path",
+        "binary-parent-writable",
+        "managed-file-owner-drift",
+        "managed-ancestor-symlink",
+        "source-binary-hardlink",
+        "conflicting-root-service-identity",
+        "quarantine-nonempty",
+        "quarantine-symlink",
+        "require_unchanged",
+        "def expect_rollback_refusal(label: str) -> None:\n    before = snapshot()",
+    ):
+        require(token in behavioral, f"behavioral filesystem case absent: {token}")
+    require(behavioral.count("require_unchanged(before") == 5, "behavioral no-mutation assertions drift")
+    runner = (root / RUNNER).read_text(encoding="utf-8")
+    for token in (
+        "git archive --format=tar.gz",
+        "accepted-binary-build-result.json",
+        "accepted-binary-source.txt",
+        "source-archive-check.txt",
+        "linux-runner.log",
+        'stat -c %h "$accepted_binary_path"',
+        'sha256sum "$accepted_binary_path"',
+        "--evidence-dir \"$evidence_dir\"",
+    ):
+        require(token in runner, f"self-contained runner invariant absent: {token}")
 
     design = (root / DESIGN).read_text(encoding="utf-8")
     require("blocked-inventory component tests" in (root / "docs/stage-8/stage8b-p1e-i1-telemetry-composition.md").read_text(encoding="utf-8"), "telemetry evidence wording drift")
@@ -182,7 +225,7 @@ def check(root: Path) -> None:
     require("does not accept, create or overwrite" in design, "operator-material boundary drift")
     require("Aggregate I1 and operational\nactivation are not authorized" in design, "aggregate closure wording drift")
     matrix = (root / MATRIX).read_text(encoding="utf-8").splitlines()
-    require(len(matrix) == 27 and matrix[0] == "id,area,requirement,status", "acceptance matrix shape drift")
+    require(len(matrix) == 35 and matrix[0] == "id,area,requirement,status", "acceptance matrix shape drift")
     require(all(row.endswith(",REQUIRED") for row in matrix[1:]), "acceptance matrix status drift")
 
 
@@ -201,6 +244,9 @@ def check_evidence(directory: Path) -> None:
         "idempotent_reinstall",
         "operator_material_rollback_refusal",
         "durable_state_rollback_refusal",
+        "nonempty_quarantine_rollback_refusal",
+        "empty_quarantine_positive_control",
+        "behavioral_filesystem_matrix",
         "clean_public_package_rollback",
     ):
         require(evidence[key] == "PASS", f"target evidence failed: {key}")
@@ -219,16 +265,44 @@ def check_evidence(directory: Path) -> None:
     require(len(str(evidence["installed_binary_sha256"])) == 64, "installed binary evidence hash drift")
     require(evidence["installed_binary_source_ref"] == "b6f6d5b6ea924db8c97512bc2bcecb8a5ed760ac", "installed binary source drift")
     require(evidence["installed_binary_kind"] == "accepted-release", "installed binary kind drift")
+    require(evidence["behavioral_filesystem_case_count"] == 14, "behavioral case count drift")
     build = load("accepted-binary-build-result.json")
     require(build["build_exit_code"] == 0 and build["locked"] is True, "accepted binary build result drift")
     require(build["profile"] == "release", "accepted binary build profile drift")
     require(build["source_ref"] == evidence["installed_binary_source_ref"], "build/install source ref mismatch")
     require(build["source_tree"] == "5e29d320d9083a877f43a3148fff86766bd0f99e", "accepted source tree drift")
     require(build["binary_sha256"] == evidence["installed_binary_sha256"], "build/install binary hash mismatch")
+    require(build["package"] == "runtime-durable-service", "build package drift")
+    require(build["binary"] == "stage8b-p1-paper-supervisor", "build binary drift")
+    require(build["rust_image"] == "rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922", "build image drift")
+    require(len(build["source_archive_sha256"]) == 64, "source archive hash drift")
     require((directory / "accepted-binary.sha256").read_text(encoding="utf-8").split()[0] == build["binary_sha256"], "binary sha256 sidecar drift")
     require((directory / "accepted-binary-source.txt").read_text(encoding="utf-8").splitlines() == [build["source_ref"], build["source_tree"]], "accepted source sidecar drift")
     require("Finished `release` profile [optimized]" in (directory / "accepted-binary-build.log").read_text(encoding="utf-8"), "accepted binary build log incomplete")
-    require("/tmp/moex-trading-project-b6f6d5b.tar.gz: OK" in (directory / "source-archive-check.txt").read_text(encoding="utf-8"), "accepted source archive evidence drift")
+    archive_fields = dict(
+        line.split("=", 1)
+        for line in (directory / "source-archive-check.txt").read_text(encoding="utf-8").splitlines()
+    )
+    require(archive_fields == {
+        "source_ref": build["source_ref"],
+        "source_tree": build["source_tree"],
+        "archive_sha256": build["source_archive_sha256"],
+        "verification": "PASS",
+    }, "accepted source archive evidence drift")
+    behavioral = load("behavioral-filesystem-matrix.json")
+    require(behavioral["domain"] == "moex.stage8b.p1e.fixed-install.behavioral-matrix.v1", "behavioral domain drift")
+    require(behavioral["all_passed"] is True and behavioral["case_count"] == 14, "behavioral matrix result drift")
+    require(len(behavioral["cases"]) == 14 and all(case["result"] == "PASS" for case in behavioral["cases"]), "behavioral matrix cases drift")
+    require("PASS 14/14" in (directory / "behavioral-filesystem-matrix.log").read_text(encoding="utf-8"), "behavioral matrix log drift")
+    invocation = (directory / "linux-runner-invocation.txt").read_text(encoding="utf-8")
+    require("network_mode=none" in invocation, "runner invocation network drift")
+    runner_log = (directory / "linux-runner.log").read_text(encoding="utf-8")
+    for token in (
+        "Finished `release` profile [optimized]",
+        "stage8b-p1e-i1-fixed-install-behavioral-harness: PASS 14/14",
+        "stage8b-p1e-i1-fixed-install-linux-rehearsal: PASS",
+    ):
+        require(token in runner_log, f"runner log incomplete: {token}")
 
     require(load("install-first.json")["result"] == "INSTALLED_OR_ALREADY_EXACT", "clean install evidence drift")
     require(load("install-idempotent.json")["result"] == "INSTALLED_OR_ALREADY_EXACT", "idempotent install evidence drift")

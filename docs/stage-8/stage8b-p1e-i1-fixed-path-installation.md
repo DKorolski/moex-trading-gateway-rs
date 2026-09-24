@@ -3,6 +3,11 @@
 Status: source/material review candidate. Aggregate I1 and operational
 activation are not authorized.
 
+The first immutable candidate `37b9d06` received SOURCE/MATERIAL HOLD for
+P1-INS01, P1-INS02, P2-INS03 and P2-INS04. This correction keeps the accepted
+units and Rust lifecycle unchanged and closes only those installer/evidence
+findings.
+
 Accepted predecessor: telemetry source correction
 `b6f6d5b6ea924db8c97512bc2bcecb8a5ed760ac` (SOURCE ACCEPT).
 
@@ -69,6 +74,29 @@ durable-state evidence exists. It removes only public package files and the
 installed binary. The persistent service identity and directories remain, and
 no config, credential or durable state is deleted.
 
+The manifest is data, never deletion authority. Its schema, canonical bytes,
+fixed keys, exact six-file inventory, digests, root ownership, mode, link count
+and protected ancestor chain are checked before status or rollback can regard
+the installation as exact. Rollback performs a second complete preflight and
+unlinks only the compile-time fixed inventory through verified directory file
+descriptors. Extra, missing, aliased or noncanonical manifest paths are
+rejected before the first mutation.
+
+The target root and all existing protected ancestors are real root-owned
+directories without group/world write access. Managed files and the manifest
+must retain exact type, ownership, mode and single-link custody. An existing
+service identity is accepted only as one unique non-root user/group pair with
+the exact primary group and nologin contract; an absent pair may be created by
+the fixed sysusers file, while a partial or root-equivalent pair fails before
+tmpfiles mutation. The input binary is checked before canonicalization, opened
+with no-follow semantics, required to be single-link and copied from a stable
+descriptor with source/destination digest equality.
+
+The state directory may contain only the exact quarantine directory, and that
+directory must have exact custody and be empty. Nonempty quarantine history,
+a symlink, wrong type or an unreadable/drifted state boundary refuses rollback
+without changing package, manifest or retained state.
+
 ## Verification
 
 The source gate cross-checks all fixed paths and commands against
@@ -83,7 +111,21 @@ namespace (the reproducible local runner uses a container with
 exact reinstall, operator-material rollback refusal, durable-state rollback
 refusal and clean public-package rollback. It never starts a unit. Evidence is written under
 `reports/stage8b-p1e-i1-fixed-install/` and is included only in the immutable
-handoff, not in production paths.
+handoff, not in production paths. A 14-case behavioral filesystem matrix uses
+the real root CLI to cover manifest extra/missing paths, custody/mode/owner
+drift, writable and symlink ancestors, source symlink/hardlink, conflicting
+UID/GID 0 identity, and nonempty/symlink/wrong-type quarantine. Every negative
+case snapshots the watched package/state surface and proves that refusal makes
+no change; an exact restored baseline and empty-quarantine rollback are the
+positive controls.
+
+The checked-in runner archives the exact accepted source ref, records archive
+SHA-256 and tree identity, builds the release binary from that archive with a
+pinned Rust image, writes build result from the actual exit code and digest,
+runs the complete isolated rehearsal, and finishes by running the mandatory
+source-plus-evidence checker. Its invocation and full output log are retained.
+Missing artifacts or any failed build/rehearsal/gate command prevent the final
+PASS marker.
 
 The retained target evidence installs the real release supervisor built from
 accepted telemetry/process source `b6f6d5b`, verifies its SHA-256 before and

@@ -2031,3 +2031,11 @@ loaded/started no unit and contacted neither Redis nor FINAM.
 This slice does not close aggregate I1. Operational installation, service
 start, Redis DB15/DB0, VPS activation, paper-provider activation, FINAM send,
 broker dispatch, runtime-live, real orders and P1-f remain closed.
+
+Independent review placed `37b9d06` on SOURCE/MATERIAL HOLD with P1-INS01,
+P1-INS02, P2-INS03 and P2-INS04. The active correction is limited to fixed
+manifest/deletion authority, protected path and service-account custody,
+empty-quarantine rollback semantics, a real CLI filesystem matrix and a
+self-contained evidence runner. Accepted units and Rust telemetry/process
+semantics are unchanged. Aggregate I1 and every operational/live surface stay
+closed pending a new immutable source/material acceptance.
