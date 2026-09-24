@@ -140,9 +140,10 @@ pub use redis::{
     Stage8bP1eRecoveredGeneratedMarketScheduleOutcomeV1,
     Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1, Stage8bP1eRecoveredMarketScheduleOutcomeV1,
     Stage8bP1eRetainedSourceReceiptV1, Stage8bP1eRoutedContinuationV1,
-    Stage8bP1eRoutedPostAcquisitionDecisionV1, Stage8bP1eShutdownCauseV1,
-    Stage8bP1eShutdownIntentV1, Stage8bP1eShutdownLatchV1, Stage8bP1eSignedCancelScheduleOutcomeV1,
-    Stage8bP1eSignedDayExpiryScheduleOutcomeV1, Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1,
+    Stage8bP1eRoutedPostAcquisitionDecisionV1, Stage8bP1eScheduleStoppedV1,
+    Stage8bP1eShutdownCauseV1, Stage8bP1eShutdownIntentV1, Stage8bP1eShutdownLatchV1,
+    Stage8bP1eSignedCancelScheduleOutcomeV1, Stage8bP1eSignedDayExpiryScheduleOutcomeV1,
+    Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1,
     Stage8bP1eSignedInitialLimitScheduleOutcomeV1, Stage8bP1eSignedMarketScheduleOutcomeV1,
     Stage8bP1eSignedWorkingScheduleOutcomeV1,
 };

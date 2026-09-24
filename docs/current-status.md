@@ -1956,9 +1956,13 @@ orders and P1-f remain closed.
 
 ## Stage 8B-P1-e I1 telemetry correction candidate (2026-09-24)
 
-The correction above `22ad2d546ba358e8c42d28ce0c3d8bb3a275535a`
-addresses independent-review findings P1-TEL01, P1-TEL02 and P2-TEL03 without
-opening installation or operational surfaces. The common supervisor now wakes
+The correction series above `22ad2d546ba358e8c42d28ce0c3d8bb3a275535a`
+is anchored to the accepted aggregate-readiness baseline
+`896ad1b2f85ea47a59212001eb713befaea26832`. Independent review closed
+P1-TEL01 and P1-TEL02 at the partial correction
+`a38d8c6c539a47f3f0e82965d40960d239114815`; this narrow follow-up addresses
+only the remaining P2-TEL03 without opening installation or operational
+surfaces. The common supervisor now wakes
 on a telemetry-retained shutdown intent without an OS signal, actively observes
 early telemetry-task completion, preserves one first-wins deadline through
 owner drain and final publication, and maps telemetry completion before that
@@ -1972,10 +1976,19 @@ witness showing Draining heartbeats before the response is released and no
 later PaperReady. A separate witness proves freshness expiry while the
 telemetry writer remains live.
 
-Read-only diagnostic bridges now obtain semantic/ACK timestamps and exact seal
-generation/commitment from the authenticated runtime/recovery owner. Retained
-and terminal paths reread actual PEL; signed Market ACK/truth/XACK and typed
-blocked-recovery tests compare published payloads with those durable facts.
+Read-only diagnostic bridges obtain semantic/ACK timestamps and exact seal
+generation/commitment from the authenticated runtime/recovery owner. Typed
+stopped/retained/committed boundaries capture the final diagnostic snapshot
+before consuming their owner. The production lifecycle drain emits ACK and
+truth observations, exact Ready emits the post-XACK observation, and terminal
+paths reread actual PEL. The bounded production publisher test compares Redis
+payloads against those real hooks without manually driving reporter
+transitions. Blocked recovery emits one contract-domain-redacted hash per
+canonical request ID rather than a semantic-batch hash.
+
+Getter/serialization evidence, retained component evidence and production
+composition evidence are tracked separately; only the last supports claims
+about published ACK/truth/XACK payloads.
 This remains a source correction review candidate, not acceptance. Fixed-path
 installation/systemd material, operational Redis, VPS activation,
 paper-provider activation, FINAM send, broker dispatch, runtime-live, real

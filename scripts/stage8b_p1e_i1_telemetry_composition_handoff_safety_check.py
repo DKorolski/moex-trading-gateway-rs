@@ -14,15 +14,15 @@ import stage8b_p1e_i1_telemetry_composition_check as telemetry_check
 import stage8b_p1e_i1a_handoff_safety_check as common
 
 
-PARENT = "22ad2d546ba358e8c42d28ce0c3d8bb3a275535a"
+PARENT = "a38d8c6c539a47f3f0e82965d40960d239114815"
 BRANCH = "stage8b-paper-shadow-resumption"
 STAGE = "Stage 8B-P1-e I1 production telemetry composition correction"
 MARKER = "handoff-commit.txt"
 MANIFEST = "handoff-evidence/source-tree-manifest.json"
 COMMIT_RAW = "handoff-evidence/source-commit.raw"
 EVIDENCE = "handoff-evidence/stage8b-p1e-i1-telemetry-composition-evidence.json"
-REVIEW = "handoff-evidence/reviews/FINAM_I1_TELEMETRY_REVIEW_22ad2d5_2026-09-24.md"
-REVIEW_SHA256 = "90f2646a2b10e640f01cca7a53f657aa9dc94d0df150c6ad839f2124aca886fd"
+REVIEW = "handoff-evidence/reviews/FINAM_I1_TELEMETRY_CORRECTION_REVIEW_a38d8c6_2026-09-24.md"
+REVIEW_SHA256 = "2a0f15e7d6920062cda7838664e017e6ccc67118587c5b5d6c960f577b0a1c9e"
 LOGS = {
     "source_gate": "handoff-evidence/stage8b-p1e-i1-telemetry-source-gate.log",
     "runtime_process": "handoff-evidence/stage8b-p1e-i1-telemetry-process-tests.log",
@@ -134,8 +134,8 @@ def check(path: str) -> dict[str, object]:
             require(commands[name]["log_sha256"] == sha256(files[log_path]), f"log digest drift: {name}")
             require(b"exit_code=0" in files[log_path], f"successful exit marker missing: {name}")
         for token in (
-            b"stage8b-p1e-i1-telemetry-composition-check: PASS rows=29 closed_surfaces=9 findings=3",
-            b"stage8b-p1e-i1-telemetry-composition-negative-harness 72/72",
+            b"stage8b-p1e-i1-telemetry-composition-check: PASS rows=29 closed_surfaces=9 targeted_findings=3",
+            b"stage8b-p1e-i1-telemetry-composition-negative-harness 79/79",
             b"stage8b-p1e-i1-process-supervision-negative-harness 77/77",
             b"PASS stage8b-p1e-i1-telemetry-composition-gate",
         ):

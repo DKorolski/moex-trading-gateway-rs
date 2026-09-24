@@ -175,11 +175,13 @@ def validate_content(content: dict[str, str]) -> None:
     for token in (
         "Stage8bP1eOwnerLoopOutcomeV1::CommittedCancelResolved(resolved)",
         "resolved.into_ready_polling()",
+        "Stage8bP1eOwnerLoopOutcomeV1::CommittedCancelRestartRequired(mut boundary)",
+        "Stage8bP1eOwnerLoopOutcomeV1::CommittedDayExpiryResolved(mut boundary)",
         "Stage8bP1eOwnerTaskBoundaryV1::RestartRequired",
     ):
         require(token in owner, f"owner handoff invariant missing: {token}")
     require(
-        owner.count("Stage8bP1eOwnerTaskBoundaryV1::RestartRequired") == 2,
+        owner.count("Stage8bP1eOwnerTaskBoundaryV1::RestartRequired") == 4,
         "restart-required owner route inventory drift",
     )
 

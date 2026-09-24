@@ -462,12 +462,17 @@ impl Stage8bP1eStartupLatchDecisionV1 {
 
 pub struct Stage8bP1eRetainedStartupV1 {
     receipt: Stage8bP1eRetainedSourceReceiptV1,
+    telemetry_snapshot: Option<Box<crate::recovery::Stage8bP1eTelemetryDurableSnapshotV1>>,
     _control: Stage8bP1eRedisControlV1,
 }
 
 impl Stage8bP1eRetainedStartupV1 {
     pub fn receipt(&self) -> &Stage8bP1eRetainedSourceReceiptV1 {
         &self.receipt
+    }
+
+    fn telemetry_snapshot(&self) -> Option<&crate::recovery::Stage8bP1eTelemetryDurableSnapshotV1> {
+        self.telemetry_snapshot.as_deref()
     }
 
     fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
@@ -965,12 +970,17 @@ pub enum Stage8bP1eReadyPollOutcomeV1 {
 /// process must reconstruct it from durable state after restart.
 pub struct Stage8bP1eStoppedReadyPollingV1 {
     shutdown_intent: Stage8bP1eShutdownIntentV1,
+    telemetry_snapshot: Box<crate::recovery::Stage8bP1eTelemetryDurableSnapshotV1>,
     control: Stage8bP1eRedisControlV1,
 }
 
 impl Stage8bP1eStoppedReadyPollingV1 {
     pub fn shutdown_intent(&self) -> &Stage8bP1eShutdownIntentV1 {
         &self.shutdown_intent
+    }
+
+    fn telemetry_snapshot(&self) -> &crate::recovery::Stage8bP1eTelemetryDurableSnapshotV1 {
+        &self.telemetry_snapshot
     }
 
     pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
@@ -994,10 +1004,12 @@ pub async fn poll_stage8b_p1e_ready_once_v1(
         return Err(Stage8bP1eStartupErrorV1::ReadyBoundaryInvariant);
     }
     if let Some(shutdown_intent) = latch.intent().cloned() {
+        let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
         drop(owner);
         return Ok(Stage8bP1eReadyPollOutcomeV1::Stopped(
             Stage8bP1eStoppedReadyPollingV1 {
                 shutdown_intent,
+                telemetry_snapshot: Box::new(telemetry_snapshot),
                 control,
             },
         ));
@@ -1005,10 +1017,12 @@ pub async fn poll_stage8b_p1e_ready_once_v1(
     match poll_stage8b_p1e_ready_fresh_with_redis(*owner).await? {
         Stage8bP1eReadyFreshAcquisitionOutcomeV1::EmptyFreshPoll(owner) => {
             if let Some(shutdown_intent) = latch.intent().cloned() {
+                let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
                 drop(owner);
                 Ok(Stage8bP1eReadyPollOutcomeV1::Stopped(
                     Stage8bP1eStoppedReadyPollingV1 {
                         shutdown_intent,
+                        telemetry_snapshot: Box::new(telemetry_snapshot),
                         control,
                     },
                 ))
@@ -1022,22 +1036,25 @@ pub async fn poll_stage8b_p1e_ready_once_v1(
                 ))
             }
         }
-        Stage8bP1eReadyFreshAcquisitionOutcomeV1::Acquired(acquired) => Ok(
-            match route_stage8b_p1e_post_acquisition_v1(acquired, latch) {
-                Stage8bP1eRoutedPostAcquisitionDecisionV1::RetainForRestart(receipt) => {
-                    Stage8bP1eReadyPollOutcomeV1::RetainedSource(Stage8bP1eRetainedStartupV1 {
-                        receipt,
-                        _control: control,
-                    })
-                }
-                Stage8bP1eRoutedPostAcquisitionDecisionV1::Continue(route) => {
-                    Stage8bP1eReadyPollOutcomeV1::ContinueSource(Stage8bP1eContinuingStartupV1 {
-                        route,
-                        control,
-                    })
-                }
-            },
-        ),
+        Stage8bP1eReadyFreshAcquisitionOutcomeV1::Acquired(acquired) => {
+            let telemetry_snapshot = acquired.stage8b_p1e_telemetry_snapshot_v1()?.map(Box::new);
+            Ok(
+                match route_stage8b_p1e_post_acquisition_v1(acquired, latch) {
+                    Stage8bP1eRoutedPostAcquisitionDecisionV1::RetainForRestart(receipt) => {
+                        Stage8bP1eReadyPollOutcomeV1::RetainedSource(Stage8bP1eRetainedStartupV1 {
+                            receipt,
+                            telemetry_snapshot,
+                            _control: control,
+                        })
+                    }
+                    Stage8bP1eRoutedPostAcquisitionDecisionV1::Continue(route) => {
+                        Stage8bP1eReadyPollOutcomeV1::ContinueSource(
+                            Stage8bP1eContinuingStartupV1 { route, control },
+                        )
+                    }
+                },
+            )
+        }
     }
 }
 
@@ -1060,6 +1077,7 @@ impl Stage8bP1eRecoveredPendingNotClaimableV1 {
 pub struct Stage8bP1eRecoveredBlockedV1 {
     semantic_batch_id_sha256: String,
     intent_count: usize,
+    request_hashes: Vec<String>,
     control: Stage8bP1eRedisControlV1,
 }
 
@@ -1070,6 +1088,10 @@ impl Stage8bP1eRecoveredBlockedV1 {
 
     pub const fn intent_count(&self) -> usize {
         self.intent_count
+    }
+
+    pub fn request_hashes(&self) -> &[String] {
+        &self.request_hashes
     }
 
     pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
@@ -1119,12 +1141,17 @@ impl Stage8bP1eScheduleDeferredRecoveryV1 {
 
 pub struct Stage8bP1eScheduleStoppedRecoveryV1 {
     receipt: crate::Stage8bP1eScheduleStopReceiptV1,
+    telemetry_snapshot: Box<crate::recovery::Stage8bP1eTelemetryDurableSnapshotV1>,
     control: Stage8bP1eRedisControlV1,
 }
 
 impl Stage8bP1eScheduleStoppedRecoveryV1 {
     pub fn receipt(&self) -> &crate::Stage8bP1eScheduleStopReceiptV1 {
         &self.receipt
+    }
+
+    fn telemetry_snapshot(&self) -> &crate::recovery::Stage8bP1eTelemetryDurableSnapshotV1 {
+        &self.telemetry_snapshot
     }
 
     pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
@@ -1354,9 +1381,14 @@ async fn advance_stage8b_p1e_cancel_schedule_with_timeout_v1(
     };
     match read {
         crate::Stage8bP1eGuardedScheduleReadV1::Stopped(receipt) => {
+            let telemetry_snapshot = published.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(published);
             Ok(Stage8bP1eCancelScheduleAdvanceOutcomeV1::Stopped(
-                Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                Stage8bP1eScheduleStoppedRecoveryV1 {
+                    receipt,
+                    telemetry_snapshot: Box::new(telemetry_snapshot),
+                    control,
+                },
             ))
         }
         crate::Stage8bP1eGuardedScheduleReadV1::Read(
@@ -1385,8 +1417,13 @@ async fn advance_stage8b_p1e_cancel_schedule_with_timeout_v1(
             .await?
             {
                 Stage8bP1eSignedCancelScheduleOutcomeV1::Stopped(receipt) => {
+                    let (receipt, telemetry_snapshot) = receipt.into_parts();
                     Ok(Stage8bP1eCancelScheduleAdvanceOutcomeV1::Stopped(
-                        Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                        Stage8bP1eScheduleStoppedRecoveryV1 {
+                            receipt,
+                            telemetry_snapshot: Box::new(telemetry_snapshot),
+                            control,
+                        },
                     ))
                 }
                 Stage8bP1eSignedCancelScheduleOutcomeV1::AwaitingSuccessor(published) => {
@@ -1492,9 +1529,14 @@ async fn advance_stage8b_p1e_initial_limit_schedule_with_timeout_v1(
     };
     match read {
         crate::Stage8bP1eGuardedScheduleReadV1::Stopped(receipt) => {
+            let telemetry_snapshot = published.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(published);
             Ok(Stage8bP1eInitialLimitScheduleAdvanceOutcomeV1::Stopped(
-                Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                Stage8bP1eScheduleStoppedRecoveryV1 {
+                    receipt,
+                    telemetry_snapshot: Box::new(telemetry_snapshot),
+                    control,
+                },
             ))
         }
         crate::Stage8bP1eGuardedScheduleReadV1::Read(
@@ -1525,8 +1567,13 @@ async fn advance_stage8b_p1e_initial_limit_schedule_with_timeout_v1(
             .await?
             {
                 Stage8bP1eSignedInitialLimitScheduleOutcomeV1::Stopped(receipt) => {
+                    let (receipt, telemetry_snapshot) = receipt.into_parts();
                     Ok(Stage8bP1eInitialLimitScheduleAdvanceOutcomeV1::Stopped(
-                        Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                        Stage8bP1eScheduleStoppedRecoveryV1 {
+                            receipt,
+                            telemetry_snapshot: Box::new(telemetry_snapshot),
+                            control,
+                        },
                     ))
                 }
                 Stage8bP1eSignedInitialLimitScheduleOutcomeV1::AwaitingSuccessor(published) => Ok(
@@ -1637,9 +1684,14 @@ async fn advance_stage8b_p1e_market_schedule_with_timeout_v1(
 
     match read {
         crate::Stage8bP1eGuardedScheduleReadV1::Stopped(receipt) => {
+            let telemetry_snapshot = published.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(published);
             Ok(Stage8bP1eMarketScheduleAdvanceOutcomeV1::Stopped(
-                Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                Stage8bP1eScheduleStoppedRecoveryV1 {
+                    receipt,
+                    telemetry_snapshot: Box::new(telemetry_snapshot),
+                    control,
+                },
             ))
         }
         crate::Stage8bP1eGuardedScheduleReadV1::Read(
@@ -1668,8 +1720,13 @@ async fn advance_stage8b_p1e_market_schedule_with_timeout_v1(
             .await?
             {
                 Stage8bP1eSignedMarketScheduleOutcomeV1::Stopped(receipt) => {
+                    let (receipt, telemetry_snapshot) = receipt.into_parts();
                     Ok(Stage8bP1eMarketScheduleAdvanceOutcomeV1::Stopped(
-                        Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                        Stage8bP1eScheduleStoppedRecoveryV1 {
+                            receipt,
+                            telemetry_snapshot: Box::new(telemetry_snapshot),
+                            control,
+                        },
                     ))
                 }
                 Stage8bP1eSignedMarketScheduleOutcomeV1::AwaitingSuccessor(published) => {
@@ -1766,9 +1823,14 @@ async fn advance_stage8b_p1e_generated_market_schedule_with_timeout_v1(
     };
     match read {
         crate::Stage8bP1eGuardedScheduleReadV1::Stopped(receipt) => {
+            let telemetry_snapshot = published.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(published);
             Ok(Stage8bP1eGeneratedMarketScheduleAdvanceOutcomeV1::Stopped(
-                Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                Stage8bP1eScheduleStoppedRecoveryV1 {
+                    receipt,
+                    telemetry_snapshot: Box::new(telemetry_snapshot),
+                    control,
+                },
             ))
         }
         crate::Stage8bP1eGuardedScheduleReadV1::Read(
@@ -1799,8 +1861,13 @@ async fn advance_stage8b_p1e_generated_market_schedule_with_timeout_v1(
             .await?
             {
                 Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1::Stopped(receipt) => {
+                    let (receipt, telemetry_snapshot) = receipt.into_parts();
                     Ok(Stage8bP1eGeneratedMarketScheduleAdvanceOutcomeV1::Stopped(
-                        Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                        Stage8bP1eScheduleStoppedRecoveryV1 {
+                            receipt,
+                            telemetry_snapshot: Box::new(telemetry_snapshot),
+                            control,
+                        },
                     ))
                 }
                 Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1::AwaitingSuccessor(published) => {
@@ -1917,9 +1984,17 @@ async fn advance_stage8b_p1e_ready_working_schedule_with_timeout_v1(
 
     match read {
         crate::Stage8bP1eGuardedScheduleReadV1::Stopped(receipt) => {
+            let telemetry_snapshot = permit.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(permit);
             Ok(Stage8bP1eWorkingScheduleAdvanceOutcomeV1::Stopped(
-                Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                Stage8bP1eScheduleStoppedRecoveryV1 {
+                    receipt,
+                    telemetry_snapshot: Box::new(
+                        telemetry_snapshot
+                            .ok_or(Stage8bP1RedisSemanticError::ExactSourceConflict)?,
+                    ),
+                    control,
+                },
             ))
         }
         crate::Stage8bP1eGuardedScheduleReadV1::Read(
@@ -1947,8 +2022,13 @@ async fn advance_stage8b_p1e_ready_working_schedule_with_timeout_v1(
             .await?
             {
                 Stage8bP1eSignedWorkingScheduleOutcomeV1::Stopped(receipt) => {
+                    let (receipt, telemetry_snapshot) = receipt.into_parts();
                     Ok(Stage8bP1eWorkingScheduleAdvanceOutcomeV1::Stopped(
-                        Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                        Stage8bP1eScheduleStoppedRecoveryV1 {
+                            receipt,
+                            telemetry_snapshot: Box::new(telemetry_snapshot),
+                            control,
+                        },
                     ))
                 }
                 Stage8bP1eSignedWorkingScheduleOutcomeV1::Semantic(outcome) => {
@@ -2037,9 +2117,14 @@ async fn advance_stage8b_p1e_day_expiry_schedule_with_timeout_v1(
     };
     match read {
         crate::Stage8bP1eGuardedScheduleReadV1::Stopped(receipt) => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             Ok(Stage8bP1eDayExpiryScheduleAdvanceOutcomeV1::Stopped(
-                Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                Stage8bP1eScheduleStoppedRecoveryV1 {
+                    receipt,
+                    telemetry_snapshot: Box::new(telemetry_snapshot),
+                    control,
+                },
             ))
         }
         crate::Stage8bP1eGuardedScheduleReadV1::Read(
@@ -2068,8 +2153,13 @@ async fn advance_stage8b_p1e_day_expiry_schedule_with_timeout_v1(
                 commitment_key,
             )? {
                 Stage8bP1eSignedDayExpiryScheduleOutcomeV1::Stopped(receipt) => {
+                    let (receipt, telemetry_snapshot) = receipt.into_parts();
                     Ok(Stage8bP1eDayExpiryScheduleAdvanceOutcomeV1::Stopped(
-                        Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                        Stage8bP1eScheduleStoppedRecoveryV1 {
+                            receipt,
+                            telemetry_snapshot: Box::new(telemetry_snapshot),
+                            control,
+                        },
                     ))
                 }
                 Stage8bP1eSignedDayExpiryScheduleOutcomeV1::Ready(owner) => {
@@ -2108,6 +2198,7 @@ pub async fn advance_stage8b_p1e_supported_schedule_once_v1(
         bound_at_utc,
         commitment_key,
         StdDuration::from_millis(crate::STAGE8B_P1E_REDIS_OPERATION_TIMEOUT_MS),
+        None,
     )
     .await
 }
@@ -2121,6 +2212,7 @@ async fn advance_stage8b_p1e_supported_schedule_once_with_timeout_v1(
     bound_at_utc: DateTime<Utc>,
     commitment_key: &Stage5gLifecycleCommitmentKey,
     operation_timeout: StdDuration,
+    telemetry: Option<&Stage8bP1eTelemetryReporterV1>,
 ) -> Result<Stage8bP1eSupportedScheduleCycleOutcomeV1, Stage8bP1eStartupErrorV1> {
     let route = match supported_schedule_route(&deferred) {
         Some(route) => route,
@@ -2275,7 +2367,14 @@ async fn advance_stage8b_p1e_supported_schedule_once_with_timeout_v1(
         }
     };
     Ok(
-        match drain_stage8b_p1e_recovery_lifecycle_v1(lifecycle, latch, commitment_key).await? {
+        match drain_stage8b_p1e_recovery_lifecycle_with_telemetry_v1(
+            lifecycle,
+            latch,
+            commitment_key,
+            telemetry,
+        )
+        .await?
+        {
             Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(ready) => {
                 Stage8bP1eSupportedScheduleCycleOutcomeV1::Ready(ready)
             }
@@ -2320,12 +2419,33 @@ pub async fn advance_stage8b_p1e_supported_schedule_bounded_v1(
 }
 
 async fn advance_stage8b_p1e_supported_schedule_with_policy_v1(
+    deferred: Stage8bP1eScheduleDeferredRecoveryV1,
+    reader: &mut crate::Stage8bP1eRedisScheduleReader,
+    context: &mut strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    policy: Stage8bP1eScheduleAcquisitionPolicyV1,
+) -> Result<Stage8bP1eBoundedScheduleCycleOutcomeV1, Stage8bP1eStartupErrorV1> {
+    advance_stage8b_p1e_supported_schedule_with_policy_and_telemetry_v1(
+        deferred,
+        reader,
+        context,
+        latch,
+        commitment_key,
+        policy,
+        None,
+    )
+    .await
+}
+
+async fn advance_stage8b_p1e_supported_schedule_with_policy_and_telemetry_v1(
     mut deferred: Stage8bP1eScheduleDeferredRecoveryV1,
     reader: &mut crate::Stage8bP1eRedisScheduleReader,
     context: &mut strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
     latch: &Stage8bP1eShutdownLatchV1,
     commitment_key: &Stage5gLifecycleCommitmentKey,
     policy: Stage8bP1eScheduleAcquisitionPolicyV1,
+    telemetry: Option<&Stage8bP1eTelemetryReporterV1>,
 ) -> Result<Stage8bP1eBoundedScheduleCycleOutcomeV1, Stage8bP1eStartupErrorV1> {
     if !policy.is_valid() {
         return Err(Stage8bP1RedisSemanticError::P1eScheduleRetryPolicyInvalid.into());
@@ -2370,6 +2490,7 @@ async fn advance_stage8b_p1e_supported_schedule_with_policy_v1(
             bound_at_utc,
             commitment_key,
             operation_timeout,
+            telemetry,
         )
         .await?
         {
@@ -2520,6 +2641,13 @@ pub struct Stage8bP1eCommittedDayExpiryResolvedV1 {
 }
 
 impl Stage8bP1eCommittedDayExpiryResolvedV1 {
+    fn telemetry_snapshot(
+        &self,
+    ) -> Result<crate::recovery::Stage8bP1eTelemetryDurableSnapshotV1, Stage8bP1RedisSemanticError>
+    {
+        self._owner.stage8b_p1e_telemetry_snapshot_v1()
+    }
+
     pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
         &mut self.control
     }
@@ -2532,12 +2660,17 @@ impl Stage8bP1eCommittedDayExpiryResolvedV1 {
 /// CANCEL settlement. This prevents both same-owner cached-seal reuse and a
 /// fall-through to fresh signed-schedule admission.
 pub struct Stage8bP1eCommittedCancelRestartRequiredV1 {
+    telemetry_snapshot: Box<crate::recovery::Stage8bP1eTelemetryDurableSnapshotV1>,
     control: Stage8bP1eRedisControlV1,
 }
 
 impl Stage8bP1eCommittedCancelRestartRequiredV1 {
     pub const fn kind(&self) -> Stage8bP1eRestartKindV1 {
         Stage8bP1eRestartKindV1::P1d3CancelContinuationPending
+    }
+
+    fn telemetry_snapshot(&self) -> &crate::recovery::Stage8bP1eTelemetryDurableSnapshotV1 {
+        &self.telemetry_snapshot
     }
 
     pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
@@ -2625,10 +2758,17 @@ async fn run_stage8b_p1e_startup_owner_loop_with_telemetry_v1(
             return Ok(Stage8bP1eOwnerLoopOutcomeV1::RetainedSource(retained));
         }
         Stage8bP1eStartupLatchDecisionV1::ContinueSource(continuing) => {
-            match drain_stage8b_p1e_schedule_free_recovery_v1(continuing, latch, commitment_key)
-                .await?
+            match drain_stage8b_p1e_schedule_free_recovery_with_telemetry_v1(
+                continuing,
+                latch,
+                commitment_key,
+                telemetry,
+            )
+            .await?
             {
-                Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(ready) => {
+                Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(mut ready) => {
+                    update_stage8b_p1e_ready_telemetry_v1(&mut ready, commitment_key, telemetry)
+                        .await?;
                     if ready.is_committed_cancel_resolution() {
                         restore_stage8b_p1e_owner_loop_high_water_v1(&ready, reader, context)?;
                         return Ok(Stage8bP1eOwnerLoopOutcomeV1::CommittedCancelResolved(
@@ -2686,8 +2826,13 @@ async fn run_stage8b_p1e_startup_owner_loop_with_telemetry_v1(
                 .await
                 {
                     Ok(Stage8bP1eRecoveredMarketScheduleOutcomeV1::Stopped(receipt)) => {
+                        let (receipt, telemetry_snapshot) = receipt.into_parts();
                         return Ok(Stage8bP1eOwnerLoopOutcomeV1::StoppedSchedule(
-                            Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                            Stage8bP1eScheduleStoppedRecoveryV1 {
+                                receipt,
+                                telemetry_snapshot: Box::new(telemetry_snapshot),
+                                control,
+                            },
                         ));
                     }
                     Ok(Stage8bP1eRecoveredMarketScheduleOutcomeV1::FeedbackAckCommitted {
@@ -2695,7 +2840,7 @@ async fn run_stage8b_p1e_startup_owner_loop_with_telemetry_v1(
                         high_water,
                     }) => {
                         apply_recovered_schedule_high_water(context, Some(high_water))?;
-                        match drain_stage8b_p1e_recovery_lifecycle_v1(
+                        match drain_stage8b_p1e_recovery_lifecycle_with_telemetry_v1(
                             Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(Box::new(
                                 Stage8bP1eRecoveryStepV1 {
                                     route: Box::new(
@@ -2706,10 +2851,17 @@ async fn run_stage8b_p1e_startup_owner_loop_with_telemetry_v1(
                             )),
                             latch,
                             commitment_key,
+                            telemetry,
                         )
                         .await?
                         {
-                            Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(ready) => {
+                            Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(mut ready) => {
+                                update_stage8b_p1e_ready_telemetry_v1(
+                                    &mut ready,
+                                    commitment_key,
+                                    telemetry,
+                                )
+                                .await?;
                                 Stage8bP1eOwnerLoopEntryV1::Ready(ready)
                             }
                             Stage8bP1eScheduleFreeDrainOutcomeV1::RetainedForRestart(retained) => {
@@ -2744,8 +2896,13 @@ async fn run_stage8b_p1e_startup_owner_loop_with_telemetry_v1(
                     Ok(Stage8bP1eRecoveredGeneratedMarketScheduleOutcomeV1::Stopped(
                         receipt,
                     )) => {
+                        let (receipt, telemetry_snapshot) = receipt.into_parts();
                         return Ok(Stage8bP1eOwnerLoopOutcomeV1::StoppedSchedule(
-                            Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                            Stage8bP1eScheduleStoppedRecoveryV1 {
+                                receipt,
+                                telemetry_snapshot: Box::new(telemetry_snapshot),
+                                control,
+                            },
                         ));
                     }
                     Ok(
@@ -2755,7 +2912,7 @@ async fn run_stage8b_p1e_startup_owner_loop_with_telemetry_v1(
                         },
                     ) => {
                         apply_recovered_schedule_high_water(context, Some(high_water))?;
-                        match drain_stage8b_p1e_recovery_lifecycle_v1(
+                        match drain_stage8b_p1e_recovery_lifecycle_with_telemetry_v1(
                             Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(Box::new(
                                 Stage8bP1eRecoveryStepV1 {
                                     route: Box::new(
@@ -2768,10 +2925,17 @@ async fn run_stage8b_p1e_startup_owner_loop_with_telemetry_v1(
                             )),
                             latch,
                             commitment_key,
+                            telemetry,
                         )
                         .await?
                         {
-                            Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(ready) => {
+                            Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(mut ready) => {
+                                update_stage8b_p1e_ready_telemetry_v1(
+                                    &mut ready,
+                                    commitment_key,
+                                    telemetry,
+                                )
+                                .await?;
                                 Stage8bP1eOwnerLoopEntryV1::Ready(ready)
                             }
                             Stage8bP1eScheduleFreeDrainOutcomeV1::RetainedForRestart(retained) => {
@@ -2802,8 +2966,13 @@ async fn run_stage8b_p1e_startup_owner_loop_with_telemetry_v1(
                 .await
                 {
                     Ok(Stage8bP1eRecoveredCancelScheduleOutcomeV1::Stopped(receipt)) => {
+                        let (receipt, telemetry_snapshot) = receipt.into_parts();
                         return Ok(Stage8bP1eOwnerLoopOutcomeV1::StoppedSchedule(
-                            Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                            Stage8bP1eScheduleStoppedRecoveryV1 {
+                                receipt,
+                                telemetry_snapshot: Box::new(telemetry_snapshot),
+                                control,
+                            },
                         ));
                     }
                     Ok(Stage8bP1eRecoveredCancelScheduleOutcomeV1::CancelCommitted {
@@ -2820,15 +2989,20 @@ async fn run_stage8b_p1e_startup_owner_loop_with_telemetry_v1(
                             }
                             Stage8bP1RedisCancelCommitOutcome::CancelContinuationPending(owner) => {
                                 debug_assert!(!owner.m10_xack_allowed());
+                                let telemetry_snapshot =
+                                    owner.stage8b_p1e_telemetry_snapshot_v1()?;
                                 drop(owner);
                                 return Ok(
                                     Stage8bP1eOwnerLoopOutcomeV1::CommittedCancelRestartRequired(
-                                        Stage8bP1eCommittedCancelRestartRequiredV1 { control },
+                                        Stage8bP1eCommittedCancelRestartRequiredV1 {
+                                            telemetry_snapshot: Box::new(telemetry_snapshot),
+                                            control,
+                                        },
                                     ),
                                 );
                             }
                         };
-                        match drain_stage8b_p1e_recovery_lifecycle_v1(
+                        match drain_stage8b_p1e_recovery_lifecycle_with_telemetry_v1(
                             Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(Box::new(
                                 Stage8bP1eRecoveryStepV1 {
                                     route: Box::new(route),
@@ -2837,13 +3011,20 @@ async fn run_stage8b_p1e_startup_owner_loop_with_telemetry_v1(
                             )),
                             latch,
                             commitment_key,
+                            telemetry,
                         )
                         .await?
                         {
-                            Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(ready) => {
+                            Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(mut ready) => {
                                 if !ready.is_committed_cancel_resolution() {
                                     return Err(Stage8bP1eStartupErrorV1::ReadyBoundaryInvariant);
                                 }
+                                update_stage8b_p1e_ready_telemetry_v1(
+                                    &mut ready,
+                                    commitment_key,
+                                    telemetry,
+                                )
+                                .await?;
                                 return Ok(Stage8bP1eOwnerLoopOutcomeV1::CommittedCancelResolved(
                                     ready.into_committed_cancel_resolved()?,
                                 ));
@@ -2883,8 +3064,13 @@ async fn run_stage8b_p1e_startup_owner_loop_with_telemetry_v1(
                     commitment_key,
                 ) {
                     Ok(Stage8bP1eRecoveredDayExpiryScheduleOutcomeV1::Stopped(receipt)) => {
+                        let (receipt, telemetry_snapshot) = receipt.into_parts();
                         return Ok(Stage8bP1eOwnerLoopOutcomeV1::StoppedSchedule(
-                            Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                            Stage8bP1eScheduleStoppedRecoveryV1 {
+                                receipt,
+                                telemetry_snapshot: Box::new(telemetry_snapshot),
+                                control,
+                            },
                         ));
                     }
                     Ok(Stage8bP1eRecoveredDayExpiryScheduleOutcomeV1::Ready {
@@ -2919,8 +3105,13 @@ async fn run_stage8b_p1e_startup_owner_loop_with_telemetry_v1(
                 .await
                 {
                     Ok(Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1::Stopped(receipt)) => {
+                        let (receipt, telemetry_snapshot) = receipt.into_parts();
                         return Ok(Stage8bP1eOwnerLoopOutcomeV1::StoppedSchedule(
-                            Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                            Stage8bP1eScheduleStoppedRecoveryV1 {
+                                receipt,
+                                telemetry_snapshot: Box::new(telemetry_snapshot),
+                                control,
+                            },
                         ));
                     }
                     Ok(Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1::LimitAckCommitted {
@@ -2928,7 +3119,7 @@ async fn run_stage8b_p1e_startup_owner_loop_with_telemetry_v1(
                         high_water,
                     }) => {
                         apply_recovered_schedule_high_water(context, Some(high_water))?;
-                        match drain_stage8b_p1e_recovery_lifecycle_v1(
+                        match drain_stage8b_p1e_recovery_lifecycle_with_telemetry_v1(
                             Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(Box::new(
                                 Stage8bP1eRecoveryStepV1 {
                                     route: Box::new(
@@ -2939,10 +3130,17 @@ async fn run_stage8b_p1e_startup_owner_loop_with_telemetry_v1(
                             )),
                             latch,
                             commitment_key,
+                            telemetry,
                         )
                         .await?
                         {
-                            Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(ready) => {
+                            Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(mut ready) => {
+                                update_stage8b_p1e_ready_telemetry_v1(
+                                    &mut ready,
+                                    commitment_key,
+                                    telemetry,
+                                )
+                                .await?;
                                 Stage8bP1eOwnerLoopEntryV1::Ready(ready)
                             }
                             Stage8bP1eScheduleFreeDrainOutcomeV1::RetainedForRestart(retained) => {
@@ -3081,16 +3279,20 @@ async fn run_stage8b_p1e_owner_loop_from_entry_v1(
             // therefore cannot leave freshness checks pinned to process-start
             // time, and a later wall-clock adjustment cannot move time back.
             context.trusted_now = clock.trusted_now()?;
-            match advance_stage8b_p1e_supported_schedule_bounded_v1(
+            match advance_stage8b_p1e_supported_schedule_with_policy_and_telemetry_v1(
                 deferred,
                 reader,
                 context,
                 latch,
                 commitment_key,
+                Stage8bP1eScheduleAcquisitionPolicyV1::production(),
+                telemetry,
             )
             .await?
             {
-                Stage8bP1eBoundedScheduleCycleOutcomeV1::Ready(next) => {
+                Stage8bP1eBoundedScheduleCycleOutcomeV1::Ready(mut next) => {
+                    update_stage8b_p1e_ready_telemetry_v1(&mut next, commitment_key, telemetry)
+                        .await?;
                     entry = Stage8bP1eOwnerLoopEntryV1::Ready(next);
                     break;
                 }
@@ -3157,17 +3359,7 @@ async fn run_stage8b_p1e_schedule_free_owner_loop_with_telemetry_v1(
         }
         match poll_stage8b_p1e_ready_once_v1(ready, latch).await? {
             Stage8bP1eReadyPollOutcomeV1::Empty(mut next) => {
-                if let Some(telemetry) = telemetry {
-                    let pel_count = next.redis_control_mut().pel_count().await? as u64;
-                    let durable_ready = next
-                        .owner
-                        .stage8b_p1e_validate_telemetry_readiness_v1(commitment_key);
-                    telemetry.update_ready(stage8b_p1e_durable_telemetry_observation_v1(
-                        &next.owner,
-                        durable_ready,
-                        pel_count,
-                    )?);
-                }
+                update_stage8b_p1e_ready_telemetry_v1(&mut next, commitment_key, telemetry).await?;
                 ready = next;
             }
             Stage8bP1eReadyPollOutcomeV1::Stopped(stopped) => {
@@ -3190,21 +3382,17 @@ async fn run_stage8b_p1e_schedule_free_owner_loop_with_telemetry_v1(
                 if let Some(telemetry) = telemetry {
                     telemetry.update_lifecycle_pending(1);
                 }
-                match drain_stage8b_p1e_schedule_free_recovery_v1(continuing, latch, commitment_key)
-                    .await?
+                match drain_stage8b_p1e_schedule_free_recovery_with_telemetry_v1(
+                    continuing,
+                    latch,
+                    commitment_key,
+                    telemetry,
+                )
+                .await?
                 {
                     Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(mut next) => {
-                        if let Some(telemetry) = telemetry {
-                            let pel_count = next.redis_control_mut().pel_count().await? as u64;
-                            let durable_ready = next
-                                .owner
-                                .stage8b_p1e_validate_telemetry_readiness_v1(commitment_key);
-                            telemetry.update_ready(stage8b_p1e_durable_telemetry_observation_v1(
-                                &next.owner,
-                                durable_ready,
-                                pel_count,
-                            )?);
-                        }
+                        update_stage8b_p1e_ready_telemetry_v1(&mut next, commitment_key, telemetry)
+                            .await?;
                         ready = next;
                     }
                     Stage8bP1eScheduleFreeDrainOutcomeV1::RetainedForRestart(retained) => {
@@ -3229,6 +3417,25 @@ async fn run_stage8b_p1e_schedule_free_owner_loop_with_telemetry_v1(
             }
         }
     }
+}
+
+async fn update_stage8b_p1e_ready_telemetry_v1(
+    ready: &mut Stage8bP1eReadyPollingV1,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    telemetry: Option<&Stage8bP1eTelemetryReporterV1>,
+) -> Result<(), Stage8bP1eStartupErrorV1> {
+    if let Some(telemetry) = telemetry {
+        let pel_count = ready.redis_control_mut().pel_count().await? as u64;
+        let durable_ready = ready
+            .owner
+            .stage8b_p1e_validate_telemetry_readiness_v1(commitment_key);
+        telemetry.update_ready(stage8b_p1e_durable_telemetry_observation_v1(
+            &ready.owner,
+            durable_ready,
+            pel_count,
+        )?);
+    }
+    Ok(())
 }
 
 fn stage8b_p1e_durable_telemetry_observation_v1(
@@ -3260,6 +3467,16 @@ pub async fn drain_stage8b_p1e_schedule_free_recovery_v1(
     latch: &Stage8bP1eShutdownLatchV1,
     commitment_key: &Stage5gLifecycleCommitmentKey,
 ) -> Result<Stage8bP1eScheduleFreeDrainOutcomeV1, Stage8bP1eStartupErrorV1> {
+    drain_stage8b_p1e_schedule_free_recovery_with_telemetry_v1(startup, latch, commitment_key, None)
+        .await
+}
+
+async fn drain_stage8b_p1e_schedule_free_recovery_with_telemetry_v1(
+    startup: Stage8bP1eContinuingStartupV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    telemetry: Option<&Stage8bP1eTelemetryReporterV1>,
+) -> Result<Stage8bP1eScheduleFreeDrainOutcomeV1, Stage8bP1eStartupErrorV1> {
     let step = continue_stage8b_p1e_recovery_once_v1(startup, commitment_key).await?;
     // `continue_stage8b_p1e_recovery_once_v1` above consumed row one, so the
     // shared lifecycle drain may consume at most seven additional rows.
@@ -3268,6 +3485,7 @@ pub async fn drain_stage8b_p1e_schedule_free_recovery_v1(
         latch,
         commitment_key,
         STAGE8B_P1E_SCHEDULE_FREE_RECOVERY_MAX_ROWS - 1,
+        telemetry,
     )
     .await
 }
@@ -3287,6 +3505,23 @@ pub async fn drain_stage8b_p1e_recovery_lifecycle_v1(
         latch,
         commitment_key,
         STAGE8B_P1E_SCHEDULE_FREE_RECOVERY_MAX_ROWS,
+        None,
+    )
+    .await
+}
+
+async fn drain_stage8b_p1e_recovery_lifecycle_with_telemetry_v1(
+    outcome: Stage8bP1eRecoveryAdvanceOutcomeV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    telemetry: Option<&Stage8bP1eTelemetryReporterV1>,
+) -> Result<Stage8bP1eScheduleFreeDrainOutcomeV1, Stage8bP1eStartupErrorV1> {
+    drain_stage8b_p1e_recovery_lifecycle_with_budget_v1(
+        outcome,
+        latch,
+        commitment_key,
+        STAGE8B_P1E_SCHEDULE_FREE_RECOVERY_MAX_ROWS,
+        telemetry,
     )
     .await
 }
@@ -3296,6 +3531,7 @@ async fn drain_stage8b_p1e_recovery_lifecycle_with_budget_v1(
     latch: &Stage8bP1eShutdownLatchV1,
     commitment_key: &Stage5gLifecycleCommitmentKey,
     max_additional_rows: usize,
+    telemetry: Option<&Stage8bP1eTelemetryReporterV1>,
 ) -> Result<Stage8bP1eScheduleFreeDrainOutcomeV1, Stage8bP1eStartupErrorV1> {
     for consumed_rows in 0..=max_additional_rows {
         outcome = match outcome {
@@ -3303,7 +3539,13 @@ async fn drain_stage8b_p1e_recovery_lifecycle_with_budget_v1(
                 if consumed_rows == max_additional_rows {
                     return Err(Stage8bP1eStartupErrorV1::RecoveryStepBudgetExceeded);
                 }
-                let permit = match try_recheck_stage8b_p1e_recovery_step_latch_v1(*step, latch)? {
+                let mut step = *step;
+                if let Some(telemetry) = telemetry {
+                    let snapshot = step.route.stage8b_p1e_telemetry_snapshot_v1()?;
+                    let pel_count = step.control.pel_count().await? as u64;
+                    telemetry.update_durable_lifecycle_pending(snapshot.as_ref(), pel_count);
+                }
+                let permit = match try_recheck_stage8b_p1e_recovery_step_latch_v1(step, latch)? {
                     Stage8bP1eRecoveryLatchDecisionV1::RetainForRestart(retained) => {
                         return Ok(Stage8bP1eScheduleFreeDrainOutcomeV1::RetainedForRestart(
                             retained,
@@ -3418,9 +3660,14 @@ fn classify_recovered_semantic_outcome(
         Stage8bP1RedisSemanticOutcome::MultiIntentBlocked {
             semantic_batch_id_sha256,
             intent_count,
+            request_ids,
         } => Stage8bP1eRecoveryAdvanceOutcomeV1::Blocked(Box::new(Stage8bP1eRecoveredBlockedV1 {
             semantic_batch_id_sha256,
             intent_count,
+            request_hashes: request_ids
+                .into_iter()
+                .map(|request_id| crate::stage8b_p1e_redact_request_id(&request_id.to_string()))
+                .collect(),
             control,
         })),
     }
@@ -3974,10 +4221,16 @@ pub fn latch_stage8b_p1e_startup_owner_v1(
             );
         }
     };
+    let telemetry_snapshot = acquired
+        .stage8b_p1e_telemetry_snapshot_v1()
+        .ok()
+        .flatten()
+        .map(Box::new);
     match route_stage8b_p1e_post_acquisition_v1(acquired, latch) {
         Stage8bP1eRoutedPostAcquisitionDecisionV1::RetainForRestart(receipt) => {
             Stage8bP1eStartupLatchDecisionV1::RetainedSource(Stage8bP1eRetainedStartupV1 {
                 receipt,
+                telemetry_snapshot,
                 _control: control,
             })
         }
@@ -4393,6 +4646,34 @@ impl Stage8bP1eTelemetryReporterV1 {
         });
     }
 
+    fn update_durable_lifecycle_pending(
+        &self,
+        snapshot: Option<&crate::recovery::Stage8bP1eTelemetryDurableSnapshotV1>,
+        pel_count: u64,
+    ) {
+        let now_utc_ms = Utc::now().timestamp_millis();
+        let shutdown_requested = self.latch.intent().is_some();
+        let fresh_until_utc_ms = now_utc_ms.saturating_add(self.source_poll_freshness_ms as i64);
+        self.update(|state| {
+            state.lifecycle = if shutdown_requested {
+                Stage8bP1eTelemetryLifecycleV1::Draining
+            } else {
+                Stage8bP1eTelemetryLifecycleV1::Degraded
+            };
+            state.source_poll_fresh = !shutdown_requested;
+            state.source_poll_observed_at_utc_ms = Some(now_utc_ms);
+            state.source_poll_fresh_until_utc_ms = Some(fresh_until_utc_ms);
+            state.pel_count = pel_count;
+            state.unresolved_lifecycle_count = 1;
+            if let Some(snapshot) = snapshot {
+                state.durable_seal_generation = snapshot.seal_generation;
+                state.durable_commitment_sha256 = snapshot.seal_commitment_sha256.clone();
+                state.last_semantic_bar_ts_utc = snapshot.last_semantic_bar_ts_utc.clone();
+                state.last_canonical_ack_ts_utc = snapshot.last_canonical_ack_ts_utc.clone();
+            }
+        });
+    }
+
     fn update_terminal_durable_snapshot(
         &self,
         snapshot: Option<&crate::recovery::Stage8bP1eTelemetryDurableSnapshotV1>,
@@ -4416,12 +4697,12 @@ impl Stage8bP1eTelemetryReporterV1 {
         });
     }
 
-    fn update_blocked(&self, request_count: usize, request_hash: String) {
+    fn update_blocked(&self, request_count: usize, request_hashes: Vec<String>) {
         self.update(|state| {
             state.lifecycle = Stage8bP1eTelemetryLifecycleV1::Degraded;
             state.durable_ready = false;
             state.blocked_request_count = request_count as u64;
-            state.blocked_request_hashes = vec![request_hash];
+            state.blocked_request_hashes = request_hashes;
             state.last_failure_class = Stage8bP1eFailureClassV1::RecoveryBlocked;
         });
     }
@@ -4810,21 +5091,28 @@ async fn run_stage8b_p1e_process_owner_with_telemetry_v1(
             Stage8bP1eOwnerLoopOutcomeV1::StoppedReady(mut stopped) => {
                 if let Some(telemetry) = telemetry {
                     let pel_count = stopped.redis_control_mut().pel_count().await? as u64;
-                    telemetry.update_terminal_durable_snapshot(None, pel_count);
+                    telemetry.update_terminal_durable_snapshot(
+                        Some(stopped.telemetry_snapshot()),
+                        pel_count,
+                    );
                 }
                 return Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop);
             }
             Stage8bP1eOwnerLoopOutcomeV1::StoppedSchedule(mut stopped) => {
                 if let Some(telemetry) = telemetry {
                     let pel_count = stopped.redis_control_mut().pel_count().await? as u64;
-                    telemetry.update_terminal_durable_snapshot(None, pel_count);
+                    telemetry.update_terminal_durable_snapshot(
+                        Some(stopped.telemetry_snapshot()),
+                        pel_count,
+                    );
                 }
                 return Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop);
             }
             Stage8bP1eOwnerLoopOutcomeV1::RetainedSource(mut retained) => {
                 if let Some(telemetry) = telemetry {
                     let pel_count = retained.redis_control_mut().pel_count().await? as u64;
-                    telemetry.update_terminal_durable_snapshot(None, pel_count);
+                    telemetry
+                        .update_terminal_durable_snapshot(retained.telemetry_snapshot(), pel_count);
                 }
                 return Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop);
             }
@@ -4836,9 +5124,25 @@ async fn run_stage8b_p1e_process_owner_with_telemetry_v1(
                 }
                 return Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop);
             }
-            Stage8bP1eOwnerLoopOutcomeV1::CommittedCancelRestartRequired(_)
-            | Stage8bP1eOwnerLoopOutcomeV1::CommittedDayExpiryResolved(_)
-            | Stage8bP1eOwnerLoopOutcomeV1::PendingNotClaimable(_)
+            Stage8bP1eOwnerLoopOutcomeV1::CommittedCancelRestartRequired(mut boundary) => {
+                if let Some(telemetry) = telemetry {
+                    let pel_count = boundary.redis_control_mut().pel_count().await? as u64;
+                    telemetry.update_terminal_durable_snapshot(
+                        Some(boundary.telemetry_snapshot()),
+                        pel_count,
+                    );
+                }
+                return Ok(Stage8bP1eOwnerTaskBoundaryV1::RestartRequired);
+            }
+            Stage8bP1eOwnerLoopOutcomeV1::CommittedDayExpiryResolved(mut boundary) => {
+                if let Some(telemetry) = telemetry {
+                    let snapshot = boundary.telemetry_snapshot()?;
+                    let pel_count = boundary.redis_control_mut().pel_count().await? as u64;
+                    telemetry.update_terminal_durable_snapshot(Some(&snapshot), pel_count);
+                }
+                return Ok(Stage8bP1eOwnerTaskBoundaryV1::RestartRequired);
+            }
+            Stage8bP1eOwnerLoopOutcomeV1::PendingNotClaimable(_)
             | Stage8bP1eOwnerLoopOutcomeV1::ScheduleExhausted(_)
             | Stage8bP1eOwnerLoopOutcomeV1::UnsupportedSchedule(_)
             | Stage8bP1eOwnerLoopOutcomeV1::StartupPendingNotClaimable(_)
@@ -4848,10 +5152,8 @@ async fn run_stage8b_p1e_process_owner_with_telemetry_v1(
             }
             Stage8bP1eOwnerLoopOutcomeV1::Blocked(blocked) => {
                 if let Some(telemetry) = telemetry {
-                    telemetry.update_blocked(
-                        blocked.intent_count(),
-                        blocked.semantic_batch_id_sha256().to_string(),
-                    );
+                    telemetry
+                        .update_blocked(blocked.intent_count(), blocked.request_hashes().to_vec());
                 }
                 return Ok(Stage8bP1eOwnerTaskBoundaryV1::RestartRequired);
             }
@@ -8991,6 +9293,7 @@ mod tests {
             Stage8bP1RedisSemanticOutcome::MultiIntentBlocked {
                 semantic_batch_id_sha256: "11".repeat(32),
                 intent_count: 2,
+                request_ids: Vec::new(),
             },
         ));
         assert!(matches!(
@@ -9120,12 +9423,13 @@ mod tests {
         )
         .await
         .unwrap();
+        let ready_owner =
+            Stage8bP1RedisSemanticCompositionOwner::new(first_boot.into_owner(), transport);
+        let expected_terminal_snapshot = ready_owner.stage8b_p1e_telemetry_snapshot_v1().unwrap();
         let startup = Stage8bP1eStartupOwnerV1 {
             kind: Stage8bP1eStartupOwnerKindV1::ReadyNoPending,
             route: Box::new(Stage8bP1eStartupOwnerRouteV1::ReadyPending(
-                Stage8bP1eReadyPendingAcquisitionOutcomeV1::NoPending(Box::new(
-                    Stage8bP1RedisSemanticCompositionOwner::new(first_boot.into_owner(), transport),
-                )),
+                Stage8bP1eReadyPendingAcquisitionOutcomeV1::NoPending(Box::new(ready_owner)),
             )),
             control: crate::stage8b_p1_supervisor::stage8b_p1e_test_redis_control_v1(&redis.url)
                 .await,
@@ -9155,6 +9459,7 @@ mod tests {
             panic!("concurrent shutdown must stop the retained Ready owner")
         };
         assert_eq!(stopped.shutdown_intent(), &intent);
+        assert_eq!(stopped.telemetry_snapshot(), &expected_terminal_snapshot);
         assert!(!latch.request(Stage8bP1eShutdownIntentV1::new(
             crate::Stage8bP1eShutdownCauseV1::TelemetryFailure,
             30_000,
@@ -12479,47 +12784,67 @@ mod tests {
         preprovision_telemetry_streams(&mut connection).await;
         let control =
             crate::stage8b_p1_supervisor::stage8b_p1e_test_redis_control_v1(&redis.url).await;
-        let mut publisher = control.telemetry_publisher();
+        let publisher = control.telemetry_publisher();
         let initial = production_telemetry_state();
         let latch = Arc::new(Stage8bP1eShutdownLatchV1::new());
-        let (sender, mut receiver) = tokio::sync::mpsc::channel(8);
+        let (sender, receiver) = tokio::sync::mpsc::channel(8);
         let reporter = Stage8bP1eTelemetryReporterV1 {
-            state: Arc::new(std::sync::Mutex::new(initial)),
+            state: Arc::new(std::sync::Mutex::new(initial.clone())),
             sender,
-            latch,
+            latch: Arc::clone(&latch),
             shutdown_grace_ms: 5_000,
             source_poll_freshness_ms: 3_000,
         };
+        let telemetry_task = tokio::spawn(run_stage8b_p1e_production_telemetry_v1(
+            publisher,
+            initial,
+            receiver,
+            Arc::clone(&latch),
+            60_000,
+            5_000,
+        ));
+        for _ in 0..100 {
+            if telemetry_payloads(&mut connection, &namespace.health_stream)
+                .await
+                .len()
+                == 1
+            {
+                break;
+            }
+            tokio::time::sleep(StdDuration::from_millis(10)).await;
+        }
+        assert_eq!(
+            telemetry_payloads(&mut connection, &namespace.health_stream)
+                .await
+                .len(),
+            1,
+            "production publisher must emit Starting before lifecycle observations",
+        );
 
         let ack_snapshot = ack.stage8b_p1e_telemetry_snapshot_v1().unwrap();
         assert!(ack_snapshot.last_semantic_bar_ts_utc.is_some());
         assert!(ack_snapshot.last_canonical_ack_ts_utc.is_some());
-        reporter.update_terminal_durable_snapshot(Some(&ack_snapshot), 1);
-        let ack_state = receiver.recv().await.unwrap();
-        publish_stage8b_p1e_production_snapshot_v1(&mut publisher, &ack_state)
+        let lifecycle =
+            Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(Box::new(Stage8bP1eRecoveryStepV1 {
+                route: Box::new(Stage8bP1eRecoveryStepRouteV1::FeedbackAckCommitted(ack)),
+                control,
+            }));
+        let Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(mut ready) =
+            drain_stage8b_p1e_recovery_lifecycle_with_telemetry_v1(
+                lifecycle,
+                reporter.latch.as_ref(),
+                &key,
+                Some(&reporter),
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("production lifecycle composition must reach exact Ready")
+        };
+        update_stage8b_p1e_ready_telemetry_v1(&mut ready, &key, Some(&reporter))
             .await
             .unwrap();
-
-        let truth = ack.commit_truth(&key).unwrap();
-        let truth_snapshot = truth.stage8b_p1e_telemetry_snapshot_v1().unwrap();
-        assert!(truth_snapshot.seal_generation > ack_snapshot.seal_generation);
-        assert_eq!(
-            truth_snapshot.last_semantic_bar_ts_utc,
-            ack_snapshot.last_semantic_bar_ts_utc
-        );
-        assert_eq!(
-            truth_snapshot.last_canonical_ack_ts_utc,
-            ack_snapshot.last_canonical_ack_ts_utc
-        );
-        reporter.update_terminal_durable_snapshot(Some(&truth_snapshot), 1);
-        let truth_state = receiver.recv().await.unwrap();
-        publish_stage8b_p1e_production_snapshot_v1(&mut publisher, &truth_state)
-            .await
-            .unwrap();
-
-        let resolved = truth.acknowledge_source().await.unwrap();
-        let ready_owner = resolved.into_ready_owner();
-        let ready_snapshot = ready_owner.stage8b_p1e_telemetry_snapshot_v1().unwrap();
+        let ready_snapshot = ready.owner.stage8b_p1e_telemetry_snapshot_v1().unwrap();
         let pending: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
             .arg(&namespace.canonical_m10_stream)
             .arg(&namespace.m10_consumer_group)
@@ -12527,37 +12852,57 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(pending.count(), 0, "S_truth must precede source XACK-last");
-        assert_eq!(ready_snapshot, truth_snapshot);
-        reporter.update_terminal_durable_snapshot(Some(&ready_snapshot), 0);
-        let ready_state = receiver.recv().await.unwrap();
-        publish_stage8b_p1e_production_snapshot_v1(&mut publisher, &ready_state)
-            .await
-            .unwrap();
-
-        let payloads = telemetry_payloads(&mut connection, &namespace.health_stream).await;
-        assert_eq!(payloads.len(), 3);
-        for (payload, expected, pel_count) in [
-            (&payloads[0], &ack_snapshot, 1),
-            (&payloads[1], &truth_snapshot, 1),
-            (&payloads[2], &ready_snapshot, 0),
-        ] {
-            let actual = &payload["payload"];
-            assert_eq!(actual["durable_seal_generation"], expected.seal_generation);
-            assert_eq!(
-                actual["durable_commitment_sha256"],
-                expected.seal_commitment_sha256
-            );
-            assert_eq!(actual["pel_count"], pel_count);
-            assert_eq!(
-                actual["last_semantic_bar_ts_utc"],
-                serde_json::to_value(&expected.last_semantic_bar_ts_utc).unwrap()
-            );
-            assert_eq!(
-                actual["last_canonical_ack_ts_utc"],
-                serde_json::to_value(&expected.last_canonical_ack_ts_utc).unwrap()
-            );
+        for _ in 0..100 {
+            if telemetry_payloads(&mut connection, &namespace.health_stream)
+                .await
+                .len()
+                >= 4
+            {
+                break;
+            }
+            tokio::time::sleep(StdDuration::from_millis(10)).await;
         }
-        drop(ready_owner);
+        telemetry_task.abort();
+        let _ = telemetry_task.await;
+        assert!(latch.intent().is_none());
+
+        let payloads = telemetry_payloads(&mut connection, &namespace.health_stream)
+            .await
+            .into_iter()
+            .skip(1)
+            .collect::<Vec<_>>();
+        assert_eq!(payloads.len(), 3);
+        let payloads = payloads
+            .iter()
+            .map(|payload| &payload["payload"])
+            .collect::<Vec<_>>();
+        assert_eq!(
+            payloads[0]["durable_seal_generation"],
+            ack_snapshot.seal_generation
+        );
+        assert!(
+            payloads[1]["durable_seal_generation"].as_u64().unwrap() > ack_snapshot.seal_generation
+        );
+        assert_eq!(
+            payloads[2]["durable_seal_generation"],
+            ready_snapshot.seal_generation
+        );
+        assert_eq!(payloads[0]["pel_count"], 1);
+        assert_eq!(payloads[1]["pel_count"], 1);
+        assert_eq!(payloads[2]["pel_count"], 0);
+        assert_eq!(
+            payloads[0]["last_semantic_bar_ts_utc"],
+            serde_json::to_value(&ack_snapshot.last_semantic_bar_ts_utc).unwrap()
+        );
+        assert_eq!(
+            payloads[0]["last_canonical_ack_ts_utc"],
+            serde_json::to_value(&ack_snapshot.last_canonical_ack_ts_utc).unwrap()
+        );
+        assert_eq!(
+            payloads[2]["durable_commitment_sha256"],
+            ready_snapshot.seal_commitment_sha256
+        );
+        drop(ready);
         fs::remove_dir_all(parent).unwrap();
     }
 
@@ -12626,11 +12971,23 @@ mod tests {
         preprovision_telemetry_streams(&mut connection).await;
         let control =
             crate::stage8b_p1_supervisor::stage8b_p1e_test_redis_control_v1(&redis.url).await;
-        let blocked_hash = "ab".repeat(32);
+        let request_ids = vec![
+            broker_core::StrategyRequestId::from(uuid::Uuid::from_u128(
+                0x1000_0000_0000_4000_8000_0000_0000_0001,
+            )),
+            broker_core::StrategyRequestId::from(uuid::Uuid::from_u128(
+                0x2000_0000_0000_4000_8000_0000_0000_0002,
+            )),
+        ];
+        let expected_hashes: Vec<_> = request_ids
+            .iter()
+            .map(|request_id| crate::stage8b_p1e_redact_request_id(&request_id.to_string()))
+            .collect();
         let blocked = match classify_recovered_semantic_outcome(
             Stage8bP1RedisSemanticOutcome::MultiIntentBlocked {
-                semantic_batch_id_sha256: blocked_hash.clone(),
+                semantic_batch_id_sha256: "ab".repeat(32),
                 intent_count: 2,
+                request_ids,
             },
             control,
         ) {
@@ -12647,10 +13004,7 @@ mod tests {
             shutdown_grace_ms: 5_000,
             source_poll_freshness_ms: 3_000,
         };
-        reporter.update_blocked(
-            blocked.intent_count(),
-            blocked.semantic_batch_id_sha256().to_string(),
-        );
+        reporter.update_blocked(blocked.intent_count(), blocked.request_hashes().to_vec());
         let state = receiver.recv().await.unwrap();
         let mut publisher = blocked.control.telemetry_publisher();
         publish_stage8b_p1e_production_snapshot_v1(&mut publisher, &state)
@@ -12665,7 +13019,7 @@ mod tests {
         assert_eq!(payloads[0]["payload"]["blocked_request_count"], 2);
         assert_eq!(
             payloads[0]["payload"]["blocked_request_hashes"],
-            serde_json::json!([blocked_hash])
+            serde_json::json!(expected_hashes)
         );
     }
 }

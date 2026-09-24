@@ -20,6 +20,7 @@ STATUS = "docs/current-status.md"
 PROCESS = "crates/runtime-durable-service/src/stage8b_p1e_process.rs"
 SUPERVISOR = "crates/runtime-durable-service/src/stage8b_p1_supervisor.rs"
 SEMANTIC = "crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs"
+SEMANTIC_MODULE = "crates/runtime-durable-service/src/stage8b_p1_semantic.rs"
 RECOVERY = "crates/runtime-durable-service/src/recovery.rs"
 LIB = "crates/runtime-durable-service/src/lib.rs"
 HYBRID_RUNTIME = "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs"
@@ -32,6 +33,7 @@ ALLOWED_CHANGES = {
     LIB,
     RECOVERY,
     SEMANTIC,
+    SEMANTIC_MODULE,
     SUPERVISOR,
     PROCESS,
     HYBRID_RUNTIME,
@@ -129,6 +131,13 @@ def validate_matrix(root: Path) -> None:
     require(rows and list(rows[0]) == ["id", "area", "requirement", "status"], "matrix header drift")
     require([row["id"] for row in rows] == [f"I1TEL-{index:03}" for index in range(1, 30)], "matrix inventory drift")
     require(all(row["status"] == "REQUIRED" for row in rows), "optional matrix row introduced")
+    require(
+        "Accepted baseline is 896ad1b" in rows[0]["requirement"]
+        and "direct reviewed parent 22ad2d5" in rows[0]["requirement"],
+        "lineage matrix does not distinguish accepted baseline and correction parent",
+    )
+    require("Production lifecycle hooks" in rows[27]["requirement"], "durable production hook row drift")
+    require("domain-redacted hash per canonical request ID" in rows[28]["requirement"], "blocked request inventory row drift")
 
 
 def validate_content(content: dict[str, str]) -> None:
@@ -143,6 +152,7 @@ def validate_content(content: dict[str, str]) -> None:
     clean_restart = content["clean_restart"]
     order_position = content["order_position"]
     live_core = content["live_core"]
+    production_process = process.split("#[cfg(test)]\nmod tests {", 1)[0]
 
     publisher_struct = section(
         supervisor,
@@ -233,6 +243,9 @@ def validate_content(content: dict[str, str]) -> None:
         "if *state == previous",
         "fn update_ready(",
         "fn update_lifecycle_pending(",
+        "fn update_durable_lifecycle_pending(",
+        "fn update_terminal_durable_snapshot(",
+        "fn update_blocked(",
         "fn update_draining(",
         "fn finish_stopped(",
         "fn finish_degraded(",
@@ -334,9 +347,106 @@ def validate_content(content: dict[str, str]) -> None:
         "Stage8bP1eShutdownCauseV1::ExternalSignal",
     ):
         require(token in process, f"owner/failure telemetry invariant missing: {token}")
-    require(process.count("telemetry.update_ready(") == 2, "ready transition inventory drift")
-    require(process.count("telemetry.update_lifecycle_pending(") == 4, "degraded transition inventory drift")
-    require(process.count("telemetry.update_draining()") == 2, "draining transition inventory drift")
+    require(
+        production_process.count("telemetry.update_ready(") == 1,
+        "ready transition must remain centralized in the production helper",
+    )
+    require(
+        production_process.count("telemetry.update_lifecycle_pending(") == 4,
+        "degraded transition inventory drift",
+    )
+    require(
+        production_process.count("telemetry.update_draining()") == 2,
+        "draining transition inventory drift",
+    )
+
+    ready_telemetry = section(
+        process,
+        "async fn update_stage8b_p1e_ready_telemetry_v1(",
+        "fn stage8b_p1e_durable_telemetry_observation_v1(",
+    )
+    require_order(
+        ready_telemetry,
+        (
+            "ready.redis_control_mut().pel_count().await?",
+            ".stage8b_p1e_validate_telemetry_readiness_v1(commitment_key)",
+            "telemetry.update_ready(stage8b_p1e_durable_telemetry_observation_v1(",
+            "&ready.owner",
+            "pel_count",
+        ),
+        "production Ready telemetry",
+    )
+    require(
+        production_process.count("update_stage8b_p1e_ready_telemetry_v1(") == 9,
+        "production Ready hook inventory drift",
+    )
+
+    lifecycle_drain = section(
+        process,
+        "async fn drain_stage8b_p1e_recovery_lifecycle_with_budget_v1(",
+        "fn classify_recovered_semantic_outcome(",
+    )
+    require_order(
+        lifecycle_drain,
+        (
+            "let snapshot = step.route.stage8b_p1e_telemetry_snapshot_v1()?",
+            "let pel_count = step.control.pel_count().await? as u64",
+            "telemetry.update_durable_lifecycle_pending(snapshot.as_ref(), pel_count)",
+            "try_recheck_stage8b_p1e_recovery_step_latch_v1(step, latch)?",
+            "advance_stage8b_p1e_recovery_once_v1(permit, commitment_key).await?",
+        ),
+        "production durable lifecycle telemetry",
+    )
+
+    startup_owner = section(
+        process,
+        "async fn run_stage8b_p1e_startup_owner_loop_with_telemetry_v1(",
+        "/// Retains the sole polling/lifecycle owner",
+    )
+    for token in (
+        "drain_stage8b_p1e_schedule_free_recovery_with_telemetry_v1(",
+        "drain_stage8b_p1e_recovery_lifecycle_with_telemetry_v1(",
+        "update_stage8b_p1e_ready_telemetry_v1(",
+    ):
+        require(token in startup_owner, f"startup lifecycle telemetry wiring missing: {token}")
+
+    terminal_dispatch = section(
+        process,
+        "async fn run_stage8b_p1e_process_owner_with_telemetry_v1(",
+        "async fn execute_run(",
+    )
+    for token in (
+        "Some(stopped.telemetry_snapshot())",
+        "retained.telemetry_snapshot()",
+        "Some(boundary.telemetry_snapshot())",
+        "let snapshot = boundary.telemetry_snapshot()?",
+        "blocked.request_hashes().to_vec()",
+    ):
+        require(token in terminal_dispatch, f"terminal telemetry snapshot wiring missing: {token}")
+    require(
+        terminal_dispatch.count("Some(stopped.telemetry_snapshot())") == 2,
+        "ready/schedule terminal snapshot inventory drift",
+    )
+    require(
+        terminal_dispatch.count("retained.telemetry_snapshot()") == 2,
+        "retained terminal snapshot inventory drift",
+    )
+
+    blocked_classification = section(
+        process,
+        "fn classify_recovered_semantic_outcome(",
+        "/// Advances one clear-latch S06R row.",
+    )
+    for token in (
+        "request_ids,",
+        "request_hashes: request_ids",
+        "crate::stage8b_p1e_redact_request_id(&request_id.to_string())",
+    ):
+        require(token in blocked_classification, f"blocked request inventory missing: {token}")
+    require(
+        "semantic_batch_id_sha256()" not in terminal_dispatch,
+        "semantic batch hash must not impersonate request hashes",
+    )
 
     for token in (
         "source_poll_observed_at_utc_ms: Option<i64>",
@@ -351,8 +461,8 @@ def validate_content(content: dict[str, str]) -> None:
     ):
         require(token in process, f"live readiness/freshness invariant missing: {token}")
     require(
-        process.count("let shutdown_requested = self.latch.intent().is_some()") == 2,
-        "ready/pending latch reconciliation inventory drift",
+        process.count("let shutdown_requested = self.latch.intent().is_some()") == 3,
+        "ready/pending/durable-pending latch reconciliation inventory drift",
     )
 
     telemetry_guard = section(
@@ -414,12 +524,27 @@ def validate_content(content: dict[str, str]) -> None:
     ):
         require(token in semantic, f"semantic telemetry bridge missing: {token}")
     require(
-        semantic.count("pub(crate) fn stage8b_p1e_telemetry_snapshot_v1") == 8,
+        semantic.count("pub(crate) fn stage8b_p1e_telemetry_snapshot_v1") == 10,
         "semantic durable-snapshot route inventory drift",
     )
     require(
         semantic.count("pub(crate) fn stage8b_p1e_telemetry_runtime_audit_v1") == 1,
         "semantic runtime-audit route inventory drift",
+    )
+    for token in (
+        "pub struct Stage8bP1eScheduleStoppedV1 {",
+        "telemetry_snapshot: Stage8bP1eTelemetryDurableSnapshotV1",
+        "pub(crate) fn into_parts(",
+        "(self.receipt, self.telemetry_snapshot)",
+    ):
+        require(token in semantic, f"typed stopped-schedule snapshot missing: {token}")
+    require(
+        semantic.count("Stopped(Stage8bP1eScheduleStoppedV1)") == 11,
+        "stopped-schedule typed outcome inventory drift",
+    )
+    require(
+        semantic.count("Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot)") == 28,
+        "stopped-schedule snapshot capture inventory drift",
     )
     require(
         "stage8b_p1e_last_semantic_bar_ts_utc" in hybrid_runtime,
@@ -460,6 +585,28 @@ def validate_content(content: dict[str, str]) -> None:
     ):
         require(test in process, f"telemetry executable evidence missing: {test}")
 
+    durable_chain_test = section(
+        process,
+        "async fn production_telemetry_payload_tracks_real_signed_market_ack_truth_and_xack()",
+        "async fn retained_signed_market_ack_exposes_exact_terminal_snapshot_and_pel()",
+    )
+    for token in (
+        "tokio::spawn(run_stage8b_p1e_production_telemetry_v1(",
+        "drain_stage8b_p1e_recovery_lifecycle_with_telemetry_v1(",
+        "update_stage8b_p1e_ready_telemetry_v1(",
+        'assert_eq!(payloads[0]["pel_count"], 1)',
+        'assert_eq!(payloads[1]["pel_count"], 1)',
+        'assert_eq!(payloads[2]["pel_count"], 0)',
+    ):
+        require(token in durable_chain_test, f"production durable-chain evidence missing: {token}")
+    for forbidden in (
+        "reporter.update_terminal_durable_snapshot(",
+        "reporter.update_durable_lifecycle_pending(",
+        "reporter.update_ready(",
+        "publish_stage8b_p1e_production_snapshot_v1(&mut publisher",
+    ):
+        require(forbidden not in durable_chain_test, f"test manually drives reporter: {forbidden}")
+
     for fragment in (
         "SOURCE CORRECTION REVIEW CANDIDATE — I1 NOT CLOSED",
         "write-only `Stage8bP1eTelemetryPublisherV1`",
@@ -471,6 +618,8 @@ def validate_content(content: dict[str, str]) -> None:
         "Source freshness is not inferred from heartbeat activity",
         "Durable diagnostic truth",
         "signed-V4",
+        "domain-redacted hash",
+        "Evidence is intentionally split into three levels",
     ):
         require(fragment in document, f"telemetry document fragment missing: {fragment}")
     for fragment in (
@@ -479,7 +628,8 @@ def validate_content(content: dict[str, str]) -> None:
         "Operational Redis, VPS activation",
         "I1 telemetry correction candidate",
         "source correction review candidate, not acceptance",
-        "P1-TEL01, P1-TEL02 and P2-TEL03",
+        "P1-TEL01 and P1-TEL02",
+        "remaining P2-TEL03",
     ):
         require(fragment in status, f"current status fragment missing: {fragment}")
 
@@ -502,7 +652,7 @@ def main() -> int:
     except (OSError, UnicodeDecodeError, CheckFailure) as error:
         print(f"stage8b-p1e-i1-telemetry-composition-check: FAIL {error}")
         return 1
-    print("stage8b-p1e-i1-telemetry-composition-check: PASS rows=29 closed_surfaces=9 findings=3")
+    print("stage8b-p1e-i1-telemetry-composition-check: PASS rows=29 closed_surfaces=9 targeted_findings=3")
     return 0
 
 

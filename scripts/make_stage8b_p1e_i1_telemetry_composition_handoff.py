@@ -15,7 +15,9 @@ import stage8b_p1e_i1_telemetry_composition_handoff_safety_check as safety
 
 ROOT = runner.ROOT
 OUTPUT = runner.OUTPUT
-REVIEW_SOURCE = Path("/Users/denisq/Downloads/FINAM_I1_TELEMETRY_REVIEW_22ad2d5_2026-09-24.md")
+REVIEW_SOURCE = Path(
+    "/Users/denisq/Downloads/FINAM_I1_TELEMETRY_CORRECTION_REVIEW_a38d8c6_2026-09-24.md"
+)
 
 
 def main() -> None:
@@ -139,6 +141,9 @@ def main() -> None:
             "ack_truth_xack_seal_and_pel_tracking": True,
             "retained_terminal_snapshot": True,
             "typed_blocked_inventory": True,
+            "blocked_inventory_uses_redacted_request_ids": True,
+            "terminal_snapshots_captured_before_owner_drop": True,
+            "production_lifecycle_hooks_drive_bounded_publisher": True,
             "production_child_sigterm_exit_zero": True,
             "durable_root_unchanged": True,
             "m10_pel_empty": True,

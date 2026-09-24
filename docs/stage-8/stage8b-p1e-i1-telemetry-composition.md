@@ -5,6 +5,11 @@ Status: **SOURCE CORRECTION REVIEW CANDIDATE — I1 NOT CLOSED**.
 Accepted predecessor: aggregate-readiness governance boundary
 `896ad1b2f85ea47a59212001eb713befaea26832`. The production process baseline
 within that boundary remains `1086b8d95e10514532d1c25c57956eca943b732c`.
+The reviewed correction series starts directly above
+`22ad2d546ba358e8c42d28ce0c3d8bb3a275535a`; the latest partial correction
+reviewed before this narrow P2 follow-up is
+`a38d8c6c539a47f3f0e82965d40960d239114815`. Neither HOLD commit replaces the
+accepted predecessor.
 
 This slice composes the already accepted telemetry DTOs, readiness classifier
 and Redis write primitive into the sole P1-e production owner. It does not add
@@ -101,12 +106,20 @@ failure.
 Telemetry obtains read-only diagnostic snapshots from the actual authenticated
 owner at Ready, ACK, truth, retained-recovery and terminal boundaries. The
 snapshot carries the current durable seal generation and commitment together
-with the runtime's last semantic-bar and canonical-ACK timestamps. PEL is read
-from Redis at retained and terminal boundaries; an ACK/truth/XACK lifecycle is
-therefore represented as PEL `1`, PEL `1`, then PEL `0` with the corresponding
-replacement seals. Typed blocked recovery publishes its actual request count
-and semantic-batch hash. None of these diagnostic bridges can claim, advance or
-XACK source work.
+with the runtime's last semantic-bar and canonical-ACK timestamps. Every
+consuming stop/restart boundary captures that snapshot before dropping its
+linear owner, including stopped Ready, stopped signed V4, retained source,
+committed Cancel and committed Day-expiry outcomes.
+
+The production lifecycle drain, not a test-only adapter, observes each durable
+ACK/truth replacement before advancing it. PEL is read from Redis at those
+observations and again at exact Ready/terminal boundaries; an ACK/truth/XACK
+lifecycle is therefore represented as PEL `1`, PEL `1`, then PEL `0` with the
+corresponding replacement seals. Typed blocked recovery publishes its actual
+request count and one domain-redacted hash for every canonical
+`StrategyRequestId`; a semantic-batch hash is not substituted for request
+inventory. None of these diagnostic bridges can claim, advance or XACK source
+work.
 
 ## Evidence
 
@@ -146,6 +159,15 @@ runtime setting.
 
 The acceptance matrix is
 `stage8b-p1e-i1-telemetry-composition-acceptance-matrix.csv`.
+
+Evidence is intentionally split into three levels. Read-only getters and JSON
+serialization prove that authenticated diagnostic facts are available and
+representable. Retained component tests prove that typed boundaries preserve
+those facts after owner consumption. Production-composition tests additionally
+run the shared telemetry-aware lifecycle drain and the real bounded publisher
+task, and compare Redis payloads with ACK, truth, XACK/Ready and blocked
+boundaries without calling reporter transition methods from the test. Only the
+third level supports the production-wiring claim.
 
 ## Next boundary
 

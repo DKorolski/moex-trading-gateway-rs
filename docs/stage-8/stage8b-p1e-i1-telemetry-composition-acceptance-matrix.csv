@@ -1,5 +1,5 @@
 id,area,requirement,status
-I1TEL-001,lineage,Accepted aggregate-readiness commit is the direct predecessor,REQUIRED
+I1TEL-001,lineage,Accepted baseline is 896ad1b and the correction series has direct reviewed parent 22ad2d5 with later HOLD corrections recorded separately,REQUIRED
 I1TEL-002,startup,Telemetry starts only after durable Redis S06 and reader attachment,REQUIRED
 I1TEL-003,identity,Initial snapshot binds real boot operational deployment runtime and durable-seal identity,REQUIRED
 I1TEL-004,capability,Telemetry receives a write-only capability without lifecycle or XACK authority,REQUIRED
@@ -26,5 +26,5 @@ I1TEL-024,exit,Telemetry failure before the retained deadline exits 71 while rea
 I1TEL-025,readiness,Every publication reconciles the current shutdown latch and queued Ready cannot restore PaperReady after shutdown,REQUIRED
 I1TEL-026,freshness,Source-poll freshness has an observed time and expiry and can degrade while telemetry Redis remains healthy,REQUIRED
 I1TEL-027,process,A real in-flight owner poll publishes Draining before release and never publishes a later PaperReady,REQUIRED
-I1TEL-028,durability,Actual semantic and ACK timestamps seal generation commitment and PEL follow authenticated ACK truth and XACK boundaries,REQUIRED
-I1TEL-029,recovery,Retained and blocked boundaries expose exact durable snapshot PEL and typed blocked inventory without lifecycle or XACK authority,REQUIRED
+I1TEL-028,durability,Production lifecycle hooks and bounded publisher expose actual semantic and ACK timestamps seal generation commitment and PEL at authenticated ACK truth and XACK boundaries,REQUIRED
+I1TEL-029,recovery,Retained and terminal boundaries preserve exact durable snapshot and PEL while blocked inventory contains one domain-redacted hash per canonical request ID without lifecycle or XACK authority,REQUIRED

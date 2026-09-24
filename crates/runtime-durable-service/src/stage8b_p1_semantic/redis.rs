@@ -1380,6 +1380,7 @@ impl Stage8bP1RedisSemanticCompositionOwner {
                 Ok(Stage8bP1RedisSemanticOutcome::MultiIntentBlocked {
                     semantic_batch_id_sha256: durable.semantic_batch_id_sha256().to_string(),
                     intent_count: durable.intent_count(),
+                    request_ids: durable.request_ids().to_vec(),
                 })
             }
         }
@@ -1542,6 +1543,7 @@ async fn complete_stage8b_p1d3_semantic(
             Ok(Stage8bP1RedisSemanticOutcome::MultiIntentBlocked {
                 semantic_batch_id_sha256: durable.semantic_batch_id_sha256().to_string(),
                 intent_count: durable.intent_count(),
+                request_ids: durable.request_ids().to_vec(),
             })
         }
     }
@@ -1561,6 +1563,7 @@ pub enum Stage8bP1RedisSemanticOutcome {
     MultiIntentBlocked {
         semantic_batch_id_sha256: String,
         intent_count: usize,
+        request_ids: Vec<StrategyRequestId>,
     },
 }
 
@@ -3138,6 +3141,12 @@ pub enum Stage8bP1eReadySourceRouteV1 {
 }
 
 impl Stage8bP1ePostAcquisitionOwnerV1 {
+    pub(crate) fn stage8b_p1e_telemetry_snapshot_v1(
+        &self,
+    ) -> Result<Option<Stage8bP1eTelemetryDurableSnapshotV1>, Stage8bP1RedisSemanticError> {
+        self.route.stage8b_p1e_telemetry_snapshot_v1()
+    }
+
     pub fn ready_source_route(&self) -> Option<Stage8bP1eReadySourceRouteV1> {
         match self.route.as_ref() {
             Stage8bP1ePostAcquisitionRouteV1::ReadySource { .. } => {
@@ -3194,6 +3203,14 @@ impl Stage8bP1ePostAcquisitionOwnerV1 {
 /// ```
 pub struct Stage8bP1eContinuationPermitV1 {
     route: Box<Stage8bP1ePostAcquisitionRouteV1>,
+}
+
+impl Stage8bP1eContinuationPermitV1 {
+    pub(crate) fn stage8b_p1e_telemetry_snapshot_v1(
+        &self,
+    ) -> Result<Option<Stage8bP1eTelemetryDurableSnapshotV1>, Stage8bP1RedisSemanticError> {
+        self.route.stage8b_p1e_telemetry_snapshot_v1()
+    }
 }
 
 /// Exhaustive diagnostic identity of the route selected after the mandatory
@@ -3502,8 +3519,38 @@ pub async fn resume_stage8b_p1e_ready_working_limit_source_with_redis(
 /// continuation. A stop result is diagnostic only: all lifecycle authority is
 /// consumed so the next process must reconstruct from the authenticated
 /// durable root while the exact source remains pending.
+pub struct Stage8bP1eScheduleStoppedV1 {
+    receipt: crate::Stage8bP1eScheduleStopReceiptV1,
+    telemetry_snapshot: Stage8bP1eTelemetryDurableSnapshotV1,
+}
+
+impl Stage8bP1eScheduleStoppedV1 {
+    fn new(
+        receipt: crate::Stage8bP1eScheduleStopReceiptV1,
+        telemetry_snapshot: Stage8bP1eTelemetryDurableSnapshotV1,
+    ) -> Self {
+        Self {
+            receipt,
+            telemetry_snapshot,
+        }
+    }
+
+    pub fn receipt(&self) -> &crate::Stage8bP1eScheduleStopReceiptV1 {
+        &self.receipt
+    }
+
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        crate::Stage8bP1eScheduleStopReceiptV1,
+        Stage8bP1eTelemetryDurableSnapshotV1,
+    ) {
+        (self.receipt, self.telemetry_snapshot)
+    }
+}
+
 pub enum Stage8bP1eSignedWorkingScheduleOutcomeV1 {
-    Stopped(crate::Stage8bP1eScheduleStopReceiptV1),
+    Stopped(Stage8bP1eScheduleStoppedV1),
     Semantic(Stage8bP1RedisSemanticOutcome),
 }
 
@@ -3512,7 +3559,7 @@ pub enum Stage8bP1eSignedWorkingScheduleOutcomeV1 {
 /// provider path can observe the canonical successor M10. A stop destroys
 /// all effect authority and leaves the originating source pending.
 pub enum Stage8bP1eSignedMarketScheduleOutcomeV1 {
-    Stopped(crate::Stage8bP1eScheduleStopReceiptV1),
+    Stopped(Stage8bP1eScheduleStoppedV1),
     AwaitingSuccessor(Box<Stage8bP1RedisCommandPublished>),
     FeedbackAckCommitted(Box<Stage8bP1RedisFeedbackAckCommitted>),
 }
@@ -3521,7 +3568,7 @@ pub enum Stage8bP1eSignedMarketScheduleOutcomeV1 {
 /// reservation-bearing publication remains exact through the V4 schedule
 /// binding and produces only the combined P1-d4 replacement S_ack.
 pub enum Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1 {
-    Stopped(crate::Stage8bP1eScheduleStopReceiptV1),
+    Stopped(Stage8bP1eScheduleStoppedV1),
     AwaitingSuccessor(Box<Stage8bP1RedisCommandPublished>),
     GeneratedMarketAckCommitted(Box<Stage8bP1RedisGeneratedMarketAckCommitted>),
 }
@@ -3530,7 +3577,7 @@ pub enum Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1 {
 /// continuation. The replacement S_ack remains the only next lifecycle
 /// authority; source XACK is not reachable from this result.
 pub enum Stage8bP1eSignedInitialLimitScheduleOutcomeV1 {
-    Stopped(crate::Stage8bP1eScheduleStopReceiptV1),
+    Stopped(Stage8bP1eScheduleStoppedV1),
     AwaitingSuccessor(Box<Stage8bP1RedisCommandPublished>),
     LimitAckCommitted(Box<Stage8bP1RedisLimitAckCommitted>),
 }
@@ -3539,7 +3586,7 @@ pub enum Stage8bP1eSignedInitialLimitScheduleOutcomeV1 {
 /// and first canonical successor. Each race result remains a distinct linear
 /// owner so replacement truth and source XACK cannot be skipped.
 pub enum Stage8bP1eSignedCancelScheduleOutcomeV1 {
-    Stopped(crate::Stage8bP1eScheduleStopReceiptV1),
+    Stopped(Stage8bP1eScheduleStoppedV1),
     AwaitingSuccessor(Box<Stage8bP1RedisCommandPublished>),
     CancelCommitted(Box<Stage8bP1RedisCancelCommitOutcome>),
 }
@@ -3548,7 +3595,7 @@ pub enum Stage8bP1eSignedCancelScheduleOutcomeV1 {
 /// Working order and evaluated last-eligible M10. Day expiry has no Redis M10
 /// source, so successful completion returns Ready directly and never XACKs.
 pub enum Stage8bP1eSignedDayExpiryScheduleOutcomeV1 {
-    Stopped(crate::Stage8bP1eScheduleStopReceiptV1),
+    Stopped(Stage8bP1eScheduleStoppedV1),
     Ready(Box<Stage8bP1RedisSemanticCompositionOwner>),
 }
 
@@ -3556,7 +3603,7 @@ pub enum Stage8bP1eSignedDayExpiryScheduleOutcomeV1 {
 /// command publication are already covered by V4. No schedule read or Hybrid
 /// callback is reachable from this boundary.
 pub enum Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1 {
-    Stopped(crate::Stage8bP1eScheduleStopReceiptV1),
+    Stopped(Stage8bP1eScheduleStoppedV1),
     LimitAckCommitted {
         owner: Box<Stage8bP1RedisLimitAckCommitted>,
         high_water: strategy_runtime_core::Stage8bP1eScheduleHighWaterV1,
@@ -3566,7 +3613,7 @@ pub enum Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1 {
 /// Restart continuation for a generated Market whose exact P1-d4
 /// publication and signed schedule are already covered by V4.
 pub enum Stage8bP1eRecoveredGeneratedMarketScheduleOutcomeV1 {
-    Stopped(crate::Stage8bP1eScheduleStopReceiptV1),
+    Stopped(Stage8bP1eScheduleStoppedV1),
     GeneratedMarketAckCommitted {
         owner: Box<Stage8bP1RedisGeneratedMarketAckCommitted>,
         high_water: strategy_runtime_core::Stage8bP1eScheduleHighWaterV1,
@@ -3578,7 +3625,7 @@ pub enum Stage8bP1eRecoveredGeneratedMarketScheduleOutcomeV1 {
 /// reclaims the retained source and revalidates the immutable Redis command;
 /// it cannot reread schedule input or republish the command.
 pub enum Stage8bP1eRecoveredMarketScheduleOutcomeV1 {
-    Stopped(crate::Stage8bP1eScheduleStopReceiptV1),
+    Stopped(Stage8bP1eScheduleStoppedV1),
     FeedbackAckCommitted {
         owner: Box<Stage8bP1RedisFeedbackAckCommitted>,
         high_water: strategy_runtime_core::Stage8bP1eScheduleHighWaterV1,
@@ -3588,7 +3635,7 @@ pub enum Stage8bP1eRecoveredMarketScheduleOutcomeV1 {
 /// Restart continuation for a published CANCEL whose exact command marker,
 /// source PEL and signed schedule are already covered by V4.
 pub enum Stage8bP1eRecoveredCancelScheduleOutcomeV1 {
-    Stopped(crate::Stage8bP1eScheduleStopReceiptV1),
+    Stopped(Stage8bP1eScheduleStoppedV1),
     CancelCommitted {
         outcome: Box<Stage8bP1RedisCancelCommitOutcome>,
         high_water: strategy_runtime_core::Stage8bP1eScheduleHighWaterV1,
@@ -3597,7 +3644,7 @@ pub enum Stage8bP1eRecoveredCancelScheduleOutcomeV1 {
 
 /// Source-free restart continuation for an authenticated Day-expiry V4.
 pub enum Stage8bP1eRecoveredDayExpiryScheduleOutcomeV1 {
-    Stopped(crate::Stage8bP1eScheduleStopReceiptV1),
+    Stopped(Stage8bP1eScheduleStoppedV1),
     Ready {
         owner: Box<Stage8bP1RedisSemanticCompositionOwner>,
         high_water: strategy_runtime_core::Stage8bP1eScheduleHighWaterV1,
@@ -3708,19 +3755,25 @@ pub(crate) async fn resume_stage8b_p1e_command_published_with_signed_schedule_ti
         commitment_key,
     )? {
         crate::Stage8bP1eScheduleBindingCommitV1::StoppedBeforeBinding { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
             drop(pending_m10);
-            return Ok(Stage8bP1eSignedMarketScheduleOutcomeV1::Stopped(receipt));
+            return Ok(Stage8bP1eSignedMarketScheduleOutcomeV1::Stopped(
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
+            ));
         }
         crate::Stage8bP1eScheduleBindingCommitV1::Committed(owner) => *owner,
     };
     let permit = match crate::resume_stage8b_p1e_committed_schedule_binding(committed, latch) {
         crate::Stage8bP1eScheduleBindingDecisionV1::StoppedAfterBinding { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
             drop(pending_m10);
-            return Ok(Stage8bP1eSignedMarketScheduleOutcomeV1::Stopped(receipt));
+            return Ok(Stage8bP1eSignedMarketScheduleOutcomeV1::Stopped(
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
+            ));
         }
         crate::Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
         crate::Stage8bP1eScheduleBindingDecisionV1::StoppedBeforeBinding { .. } => {
@@ -3729,10 +3782,13 @@ pub(crate) async fn resume_stage8b_p1e_command_published_with_signed_schedule_ti
     };
     let (stage7, authority) = match crate::continue_stage8b_p1e_market_schedule(permit, latch)? {
         crate::Stage8bP1eScheduleAuthorityDecisionV1::RetainForRestart { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
             drop(pending_m10);
-            return Ok(Stage8bP1eSignedMarketScheduleOutcomeV1::Stopped(receipt));
+            return Ok(Stage8bP1eSignedMarketScheduleOutcomeV1::Stopped(
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
+            ));
         }
         crate::Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } => {
             (*owner, authority)
@@ -3865,22 +3921,24 @@ pub(crate) async fn resume_stage8b_p1e_generated_market_with_signed_schedule_tim
         commitment_key,
     )? {
         crate::Stage8bP1eScheduleBindingCommitV1::StoppedBeforeBinding { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
             drop(pending_m10);
             return Ok(Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1::Stopped(
-                receipt,
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
             ));
         }
         crate::Stage8bP1eScheduleBindingCommitV1::Committed(owner) => *owner,
     };
     let permit = match crate::resume_stage8b_p1e_committed_schedule_binding(committed, latch) {
         crate::Stage8bP1eScheduleBindingDecisionV1::StoppedAfterBinding { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
             drop(pending_m10);
             return Ok(Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1::Stopped(
-                receipt,
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
             ));
         }
         crate::Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
@@ -3890,11 +3948,12 @@ pub(crate) async fn resume_stage8b_p1e_generated_market_with_signed_schedule_tim
     };
     let (stage7, authority) = match crate::continue_stage8b_p1e_market_schedule(permit, latch)? {
         crate::Stage8bP1eScheduleAuthorityDecisionV1::RetainForRestart { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
             drop(pending_m10);
             return Ok(Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1::Stopped(
-                receipt,
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
             ));
         }
         crate::Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } => {
@@ -4008,22 +4067,24 @@ pub(crate) async fn resume_stage8b_p1e_initial_limit_with_signed_schedule_timeou
         commitment_key,
     )? {
         crate::Stage8bP1eScheduleBindingCommitV1::StoppedBeforeBinding { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
             drop(pending_m10);
             return Ok(Stage8bP1eSignedInitialLimitScheduleOutcomeV1::Stopped(
-                receipt,
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
             ));
         }
         crate::Stage8bP1eScheduleBindingCommitV1::Committed(owner) => *owner,
     };
     let permit = match crate::resume_stage8b_p1e_committed_schedule_binding(committed, latch) {
         crate::Stage8bP1eScheduleBindingDecisionV1::StoppedAfterBinding { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
             drop(pending_m10);
             return Ok(Stage8bP1eSignedInitialLimitScheduleOutcomeV1::Stopped(
-                receipt,
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
             ));
         }
         crate::Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
@@ -4033,11 +4094,12 @@ pub(crate) async fn resume_stage8b_p1e_initial_limit_with_signed_schedule_timeou
     };
     let (stage7, authority) = match crate::continue_stage8b_p1e_schedule_step(permit, latch)? {
         crate::Stage8bP1eScheduleAuthorityDecisionV1::RetainForRestart { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
             drop(pending_m10);
             return Ok(Stage8bP1eSignedInitialLimitScheduleOutcomeV1::Stopped(
-                receipt,
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
             ));
         }
         crate::Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } => {
@@ -4167,19 +4229,25 @@ pub(crate) async fn resume_stage8b_p1e_cancel_with_signed_schedule_timeout(
         commitment_key,
     )? {
         crate::Stage8bP1eScheduleBindingCommitV1::StoppedBeforeBinding { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
             drop(pending_m10);
-            return Ok(Stage8bP1eSignedCancelScheduleOutcomeV1::Stopped(receipt));
+            return Ok(Stage8bP1eSignedCancelScheduleOutcomeV1::Stopped(
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
+            ));
         }
         crate::Stage8bP1eScheduleBindingCommitV1::Committed(owner) => *owner,
     };
     let permit = match crate::resume_stage8b_p1e_committed_schedule_binding(committed, latch) {
         crate::Stage8bP1eScheduleBindingDecisionV1::StoppedAfterBinding { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
             drop(pending_m10);
-            return Ok(Stage8bP1eSignedCancelScheduleOutcomeV1::Stopped(receipt));
+            return Ok(Stage8bP1eSignedCancelScheduleOutcomeV1::Stopped(
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
+            ));
         }
         crate::Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
         crate::Stage8bP1eScheduleBindingDecisionV1::StoppedBeforeBinding { .. } => {
@@ -4188,10 +4256,13 @@ pub(crate) async fn resume_stage8b_p1e_cancel_with_signed_schedule_timeout(
     };
     let (stage7, authority) = match crate::continue_stage8b_p1e_schedule_step(permit, latch)? {
         crate::Stage8bP1eScheduleAuthorityDecisionV1::RetainForRestart { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
             drop(pending_m10);
-            return Ok(Stage8bP1eSignedCancelScheduleOutcomeV1::Stopped(receipt));
+            return Ok(Stage8bP1eSignedCancelScheduleOutcomeV1::Stopped(
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
+            ));
         }
         crate::Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } => {
             (*owner, authority)
@@ -4231,10 +4302,11 @@ pub async fn resume_stage8b_p1e_committed_initial_limit_with_redis(
         .ok_or(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch)?;
     let permit = match crate::resume_stage8b_p1e_committed_schedule_binding(*committed, latch) {
         crate::Stage8bP1eScheduleBindingDecisionV1::StoppedAfterBinding { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
             return Ok(Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1::Stopped(
-                receipt,
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
             ));
         }
         crate::Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
@@ -4244,10 +4316,11 @@ pub async fn resume_stage8b_p1e_committed_initial_limit_with_redis(
     };
     let (stage7, authority) = match crate::continue_stage8b_p1e_schedule_step(permit, latch)? {
         crate::Stage8bP1eScheduleAuthorityDecisionV1::RetainForRestart { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
             return Ok(Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1::Stopped(
-                receipt,
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
             ));
         }
         crate::Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } => {
@@ -4314,9 +4387,12 @@ pub async fn resume_stage8b_p1e_committed_market_with_redis(
         .ok_or(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch)?;
     let permit = match crate::resume_stage8b_p1e_committed_schedule_binding(*committed, latch) {
         crate::Stage8bP1eScheduleBindingDecisionV1::StoppedAfterBinding { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
-            return Ok(Stage8bP1eRecoveredMarketScheduleOutcomeV1::Stopped(receipt));
+            return Ok(Stage8bP1eRecoveredMarketScheduleOutcomeV1::Stopped(
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
+            ));
         }
         crate::Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
         crate::Stage8bP1eScheduleBindingDecisionV1::StoppedBeforeBinding { .. } => {
@@ -4325,9 +4401,12 @@ pub async fn resume_stage8b_p1e_committed_market_with_redis(
     };
     let (stage7, authority) = match crate::continue_stage8b_p1e_market_schedule(permit, latch)? {
         crate::Stage8bP1eScheduleAuthorityDecisionV1::RetainForRestart { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
-            return Ok(Stage8bP1eRecoveredMarketScheduleOutcomeV1::Stopped(receipt));
+            return Ok(Stage8bP1eRecoveredMarketScheduleOutcomeV1::Stopped(
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
+            ));
         }
         crate::Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } => {
             (*owner, authority)
@@ -4437,9 +4516,14 @@ pub async fn resume_stage8b_p1e_committed_generated_market_with_redis(
         .ok_or(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch)?;
     let permit = match crate::resume_stage8b_p1e_committed_schedule_binding(*committed, latch) {
         crate::Stage8bP1eScheduleBindingDecisionV1::StoppedAfterBinding { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
-            return Ok(Stage8bP1eRecoveredGeneratedMarketScheduleOutcomeV1::Stopped(receipt));
+            return Ok(
+                Stage8bP1eRecoveredGeneratedMarketScheduleOutcomeV1::Stopped(
+                    Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
+                ),
+            );
         }
         crate::Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
         crate::Stage8bP1eScheduleBindingDecisionV1::StoppedBeforeBinding { .. } => {
@@ -4448,9 +4532,14 @@ pub async fn resume_stage8b_p1e_committed_generated_market_with_redis(
     };
     let (stage7, authority) = match crate::continue_stage8b_p1e_market_schedule(permit, latch)? {
         crate::Stage8bP1eScheduleAuthorityDecisionV1::RetainForRestart { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
-            return Ok(Stage8bP1eRecoveredGeneratedMarketScheduleOutcomeV1::Stopped(receipt));
+            return Ok(
+                Stage8bP1eRecoveredGeneratedMarketScheduleOutcomeV1::Stopped(
+                    Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
+                ),
+            );
         }
         crate::Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } => {
             (*owner, authority)
@@ -4564,9 +4653,12 @@ pub async fn resume_stage8b_p1e_committed_cancel_with_redis(
         .ok_or(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch)?;
     let permit = match crate::resume_stage8b_p1e_committed_schedule_binding(*committed, latch) {
         crate::Stage8bP1eScheduleBindingDecisionV1::StoppedAfterBinding { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
-            return Ok(Stage8bP1eRecoveredCancelScheduleOutcomeV1::Stopped(receipt));
+            return Ok(Stage8bP1eRecoveredCancelScheduleOutcomeV1::Stopped(
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
+            ));
         }
         crate::Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
         crate::Stage8bP1eScheduleBindingDecisionV1::StoppedBeforeBinding { .. } => {
@@ -4575,9 +4667,12 @@ pub async fn resume_stage8b_p1e_committed_cancel_with_redis(
     };
     let (stage7, authority) = match crate::continue_stage8b_p1e_schedule_step(permit, latch)? {
         crate::Stage8bP1eScheduleAuthorityDecisionV1::RetainForRestart { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
-            return Ok(Stage8bP1eRecoveredCancelScheduleOutcomeV1::Stopped(receipt));
+            return Ok(Stage8bP1eRecoveredCancelScheduleOutcomeV1::Stopped(
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
+            ));
         }
         crate::Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } => {
             (*owner, authority)
@@ -4666,10 +4761,11 @@ pub fn resume_stage8b_p1e_committed_day_expiry(
         .ok_or(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch)?;
     let permit = match crate::resume_stage8b_p1e_committed_schedule_binding(*committed, latch) {
         crate::Stage8bP1eScheduleBindingDecisionV1::StoppedAfterBinding { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
             return Ok(Stage8bP1eRecoveredDayExpiryScheduleOutcomeV1::Stopped(
-                receipt,
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
             ));
         }
         crate::Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
@@ -4680,10 +4776,11 @@ pub fn resume_stage8b_p1e_committed_day_expiry(
     let (stage7, authority) = match crate::continue_stage8b_p1e_day_expiry_schedule(permit, latch)?
     {
         crate::Stage8bP1eScheduleAuthorityDecisionV1::RetainForRestart { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
             return Ok(Stage8bP1eRecoveredDayExpiryScheduleOutcomeV1::Stopped(
-                receipt,
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
             ));
         }
         crate::Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } => {
@@ -4743,19 +4840,25 @@ pub async fn resume_stage8b_p1e_ready_working_limit_with_signed_schedule(
         commitment_key,
     )? {
         crate::Stage8bP1eScheduleBindingCommitV1::StoppedBeforeBinding { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
             drop(pending_m10);
-            return Ok(Stage8bP1eSignedWorkingScheduleOutcomeV1::Stopped(receipt));
+            return Ok(Stage8bP1eSignedWorkingScheduleOutcomeV1::Stopped(
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
+            ));
         }
         crate::Stage8bP1eScheduleBindingCommitV1::Committed(owner) => *owner,
     };
     let permit = match crate::resume_stage8b_p1e_committed_schedule_binding(committed, latch) {
         crate::Stage8bP1eScheduleBindingDecisionV1::StoppedAfterBinding { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
             drop(pending_m10);
-            return Ok(Stage8bP1eSignedWorkingScheduleOutcomeV1::Stopped(receipt));
+            return Ok(Stage8bP1eSignedWorkingScheduleOutcomeV1::Stopped(
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
+            ));
         }
         crate::Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
         crate::Stage8bP1eScheduleBindingDecisionV1::StoppedBeforeBinding { .. } => {
@@ -4764,10 +4867,13 @@ pub async fn resume_stage8b_p1e_ready_working_limit_with_signed_schedule(
     };
     let (stage7, authority) = match crate::continue_stage8b_p1e_schedule_step(permit, latch)? {
         crate::Stage8bP1eScheduleAuthorityDecisionV1::RetainForRestart { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
             drop(pending_m10);
-            return Ok(Stage8bP1eSignedWorkingScheduleOutcomeV1::Stopped(receipt));
+            return Ok(Stage8bP1eSignedWorkingScheduleOutcomeV1::Stopped(
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
+            ));
         }
         crate::Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } => {
             (*owner, authority)
@@ -4809,17 +4915,23 @@ pub(crate) fn resume_stage8b_p1e_day_expiry_with_signed_schedule(
         commitment_key,
     )? {
         crate::Stage8bP1eScheduleBindingCommitV1::StoppedBeforeBinding { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
-            return Ok(Stage8bP1eSignedDayExpiryScheduleOutcomeV1::Stopped(receipt));
+            return Ok(Stage8bP1eSignedDayExpiryScheduleOutcomeV1::Stopped(
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
+            ));
         }
         crate::Stage8bP1eScheduleBindingCommitV1::Committed(owner) => *owner,
     };
     let permit = match crate::resume_stage8b_p1e_committed_schedule_binding(committed, latch) {
         crate::Stage8bP1eScheduleBindingDecisionV1::StoppedAfterBinding { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
-            return Ok(Stage8bP1eSignedDayExpiryScheduleOutcomeV1::Stopped(receipt));
+            return Ok(Stage8bP1eSignedDayExpiryScheduleOutcomeV1::Stopped(
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
+            ));
         }
         crate::Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
         crate::Stage8bP1eScheduleBindingDecisionV1::StoppedBeforeBinding { .. } => {
@@ -4829,9 +4941,12 @@ pub(crate) fn resume_stage8b_p1e_day_expiry_with_signed_schedule(
     let (stage7, authority) = match crate::continue_stage8b_p1e_day_expiry_schedule(permit, latch)?
     {
         crate::Stage8bP1eScheduleAuthorityDecisionV1::RetainForRestart { owner, receipt } => {
+            let telemetry_snapshot = owner.stage8b_p1e_telemetry_snapshot_v1()?;
             drop(owner);
             drop(transport);
-            return Ok(Stage8bP1eSignedDayExpiryScheduleOutcomeV1::Stopped(receipt));
+            return Ok(Stage8bP1eSignedDayExpiryScheduleOutcomeV1::Stopped(
+                Stage8bP1eScheduleStoppedV1::new(receipt, telemetry_snapshot),
+            ));
         }
         crate::Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } => {
             (*owner, authority)
