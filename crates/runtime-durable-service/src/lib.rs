@@ -422,7 +422,7 @@ pub use stage8b_p1_supervisor::{
     Stage8bP1eRedisAttachPlanV1, Stage8bP1eRedisControlError, Stage8bP1eRedisControlV1,
     Stage8bP1eRestartKindV1, Stage8bP1eRunSettingsV1, Stage8bP1eShutdownPhaseV1,
     Stage8bP1eSupervisorConfigError, Stage8bP1eSupervisorConfigV1, Stage8bP1eSupervisorEventV1,
-    Stage8bP1eTelemetryEnvelopeV1, Stage8bP1eTerminalFailureV1,
+    Stage8bP1eTelemetryEnvelopeV1, Stage8bP1eTelemetryPublisherV1, Stage8bP1eTerminalFailureV1,
     Stage8bP1eValidatedSupervisorConfigV1, Stage8bP1eVerifiedRedisSessionV1,
     STAGE8B_P1E_DEPLOYMENT_MANIFEST_KEY, STAGE8B_P1E_FIRST_BOOT_SOURCE_PATH,
     STAGE8B_P1E_HEALTH_INTERVAL_MAX_MS, STAGE8B_P1E_HEALTH_INTERVAL_MIN_MS,

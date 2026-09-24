@@ -129,6 +129,7 @@ pub struct Stage8bP1eValidatedSupervisorConfigV1 {
     schedule_registry_identity_sha256: String,
     redis_config: Stage8bP1RedisConfig,
     namespace: Stage8bP1RedisNamespace,
+    boot_id: [u8; 16],
     health_interval_ms: u64,
     shutdown_grace_ms: u64,
 }
@@ -149,6 +150,7 @@ pub struct Stage8bP1eRedisAttachPlanV1 {
 
 /// Immutable non-secret timings retained by the process coordinator.
 pub struct Stage8bP1eRunSettingsV1 {
+    pub boot_id: [u8; 16],
     pub health_interval_ms: u64,
     pub shutdown_grace_ms: u64,
 }
@@ -239,6 +241,7 @@ impl Stage8bP1eValidatedSupervisorConfigV1 {
             consumer_generation: self.bootstrap.command_consumer_generation(),
         };
         let settings = Stage8bP1eRunSettingsV1 {
+            boot_id: self.boot_id,
             health_interval_ms: self.health_interval_ms,
             shutdown_grace_ms: self.shutdown_grace_ms,
         };
@@ -319,6 +322,15 @@ pub struct Stage8bP1eRedisControlV1 {
     namespace: Stage8bP1RedisNamespace,
 }
 
+/// Write-only telemetry capability derived from an already verified S05
+/// control plane. It deliberately exposes neither PEL inspection, consumer
+/// cleanup, source acquisition nor XACK/command-publication authority.
+pub struct Stage8bP1eTelemetryPublisherV1 {
+    connection: ConnectionManager,
+    health_stream: String,
+    readiness_stream: String,
+}
+
 /// Linear result of S05.  The lifecycle transport and diagnostic control
 /// connection are kept distinct so telemetry can never obtain an XACK or
 /// command-publication capability.
@@ -350,6 +362,14 @@ pub struct Stage8bP1eConsumerHygieneReportV1 {
 }
 
 impl Stage8bP1eRedisControlV1 {
+    pub fn telemetry_publisher(&self) -> Stage8bP1eTelemetryPublisherV1 {
+        Stage8bP1eTelemetryPublisherV1 {
+            connection: self.connection.clone(),
+            health_stream: self.namespace.health_stream.clone(),
+            readiness_stream: self.namespace.readiness_stream.clone(),
+        }
+    }
+
     pub async fn pel_count(&mut self) -> Result<usize, Stage8bP1eRedisControlError> {
         let reply: StreamPendingReply = redis_operation(
             redis::cmd("XPENDING")
@@ -465,23 +485,54 @@ impl Stage8bP1eRedisControlV1 {
         stream: &str,
         payload: Vec<u8>,
     ) -> Result<String, Stage8bP1eRedisControlError> {
-        let payload = std::str::from_utf8(&payload)
-            .map_err(|_| Stage8bP1eRedisControlError::TelemetryWriteFailed)?;
-        redis_operation(
-            redis::cmd("XADD")
-                .arg(stream)
-                .arg("NOMKSTREAM")
-                .arg("MAXLEN")
-                .arg("=")
-                .arg(STAGE8B_P1E_TELEMETRY_RETENTION)
-                .arg("*")
-                .arg("payload")
-                .arg(payload)
-                .query_async(&mut self.connection),
-        )
-        .await
-        .map_err(|_| Stage8bP1eRedisControlError::TelemetryWriteFailed)
+        publish_stage8b_p1e_telemetry_v1(&mut self.connection, stream, payload).await
     }
+}
+
+impl Stage8bP1eTelemetryPublisherV1 {
+    pub async fn publish_health(
+        &mut self,
+        envelope: &Stage8bP1eTelemetryEnvelopeV1<Stage8bP1eHealthPayloadV1>,
+    ) -> Result<String, Stage8bP1eRedisControlError> {
+        let payload = envelope
+            .canonical_bytes()
+            .map_err(|_| Stage8bP1eRedisControlError::TelemetryWriteFailed)?;
+        publish_stage8b_p1e_telemetry_v1(&mut self.connection, &self.health_stream, payload).await
+    }
+
+    pub async fn publish_readiness(
+        &mut self,
+        envelope: &Stage8bP1eTelemetryEnvelopeV1<Stage8bP1eReadinessPayloadV1>,
+    ) -> Result<String, Stage8bP1eRedisControlError> {
+        let payload = envelope
+            .canonical_bytes()
+            .map_err(|_| Stage8bP1eRedisControlError::TelemetryWriteFailed)?;
+        publish_stage8b_p1e_telemetry_v1(&mut self.connection, &self.readiness_stream, payload)
+            .await
+    }
+}
+
+async fn publish_stage8b_p1e_telemetry_v1(
+    connection: &mut ConnectionManager,
+    stream: &str,
+    payload: Vec<u8>,
+) -> Result<String, Stage8bP1eRedisControlError> {
+    let payload = std::str::from_utf8(&payload)
+        .map_err(|_| Stage8bP1eRedisControlError::TelemetryWriteFailed)?;
+    redis_operation(
+        redis::cmd("XADD")
+            .arg(stream)
+            .arg("NOMKSTREAM")
+            .arg("MAXLEN")
+            .arg("=")
+            .arg(STAGE8B_P1E_TELEMETRY_RETENTION)
+            .arg("*")
+            .arg("payload")
+            .arg(payload)
+            .query_async(connection),
+    )
+    .await
+    .map_err(|_| Stage8bP1eRedisControlError::TelemetryWriteFailed)
 }
 
 #[cfg(test)]
@@ -880,6 +931,7 @@ pub fn validate_stage8b_p1e_supervisor_config_v1(
         schedule_registry_identity_sha256: config.schedule_registry_identity_sha256,
         redis_config,
         namespace: stage8b_p1_redis_namespace(),
+        boot_id,
         health_interval_ms: config.health_interval_ms,
         shutdown_grace_ms: config.shutdown_grace_ms,
     })

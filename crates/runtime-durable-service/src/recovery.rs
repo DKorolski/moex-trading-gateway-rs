@@ -7367,6 +7367,56 @@ pub(crate) struct Stage8bP1d4RestartAuditV1 {
 }
 
 impl Stage7bRestartOutcome {
+    fn stage8b_p1e_current_seal(&self) -> Result<&Stage7bRecoverySealV1, Stage7bRecoveryError> {
+        match self {
+            Self::Ready(owner) => Ok(&owner.committed_seal),
+            Self::Stage8a4I3Pending(owner) => Ok(&owner.committed_s0),
+            Self::P1SemanticPrepublicationPending(owner) => Ok(&owner.committed_s0),
+            Self::P1SemanticPrepublicationReady(owner) => Ok(&owner.ready.committed_seal),
+            Self::P1SemanticZeroIntentAckPending(owner) => Ok(&owner.ready.committed_seal),
+            Self::P1d2PreAckPending(owner) => Ok(&owner.committed_pre_ack_seal),
+            Self::P1d2AckCommitted(owner) => Ok(&owner.ready.committed_seal),
+            Self::P1d2TruthCommitted(owner) => Ok(&owner.ready.committed_seal),
+            Self::P1d4GeneratedMarketPrepublicationPending(owner) => {
+                Ok(&owner.ready.committed_seal)
+            }
+            Self::P1d4GeneratedMarketDispatchPending(owner) => {
+                Ok(&owner.state.committed_pre_ack_seal)
+            }
+            Self::P1d4GeneratedMarketOrderPending(owner) => Ok(&owner.state.committed_pre_ack_seal),
+            Self::P1d4GeneratedMarketPreFinalizationPending(owner) => {
+                Ok(&owner.state.committed_pre_ack_seal)
+            }
+            Self::P1d4GeneratedMarketPreAckPending(owner) => {
+                Ok(&owner.state.committed_pre_ack_seal)
+            }
+            Self::P1d4GeneratedMarketAckCommitted(owner) => Ok(&owner.ready.committed_seal),
+            Self::P1d4GeneratedMarketTruthCommitted(owner) => Ok(&owner.ready.committed_seal),
+            Self::P1d3DispatchPending(owner) => Ok(&owner.committed_pre_dispatch_seal),
+            Self::P1d3PreAckPending(owner) => Ok(&owner.committed_pre_ack_seal),
+            Self::P1d3AckCommitted(owner) => Ok(&owner.ready.committed_seal),
+            Self::P1d3TruthCommitted(owner) => Ok(&owner.ready.committed_seal),
+            Self::P1d3CancelContinuationPending(owner) => match &owner.state {
+                Stage8bP1d3CancelContinuationState::TargetSealed(ready) => {
+                    Ok(&ready.committed_seal)
+                }
+            },
+            Self::P1d3SemanticPending(owner) => Ok(&owner.ready.committed_seal),
+            Self::P1eScheduleBindingCommitted(owner) => Ok(&owner.ready.committed_seal),
+            Self::Blocked(_) => Err(Stage7bRecoveryError::SealInvalid),
+        }
+    }
+
+    pub(crate) fn stage8b_p1e_telemetry_seal_v1(
+        &self,
+    ) -> Result<(u64, String), Stage7bRecoveryError> {
+        let seal = self.stage8b_p1e_current_seal()?;
+        Ok((
+            seal.seal_generation(),
+            seal.seal_commitment_sha256().to_string(),
+        ))
+    }
+
     /// Authenticates the exact restart package retained by this linear
     /// restart outcome and exposes only its broker-neutral V2 audit.  This is
     /// used by ordinary-run admission to bind an already-adopted first boot
@@ -7379,35 +7429,7 @@ impl Stage7bRestartOutcome {
         strategy_runtime_core::Stage8bP1eAuthenticatedRestartPackageV2Audit,
         Stage7bRecoveryError,
     > {
-        let seal = match self {
-            Self::Ready(owner) => &owner.committed_seal,
-            Self::Stage8a4I3Pending(owner) => &owner.committed_s0,
-            Self::P1SemanticPrepublicationPending(owner) => &owner.committed_s0,
-            Self::P1SemanticPrepublicationReady(owner) => &owner.ready.committed_seal,
-            Self::P1SemanticZeroIntentAckPending(owner) => &owner.ready.committed_seal,
-            Self::P1d2PreAckPending(owner) => &owner.committed_pre_ack_seal,
-            Self::P1d2AckCommitted(owner) => &owner.ready.committed_seal,
-            Self::P1d2TruthCommitted(owner) => &owner.ready.committed_seal,
-            Self::P1d4GeneratedMarketPrepublicationPending(owner) => &owner.ready.committed_seal,
-            Self::P1d4GeneratedMarketDispatchPending(owner) => &owner.state.committed_pre_ack_seal,
-            Self::P1d4GeneratedMarketOrderPending(owner) => &owner.state.committed_pre_ack_seal,
-            Self::P1d4GeneratedMarketPreFinalizationPending(owner) => {
-                &owner.state.committed_pre_ack_seal
-            }
-            Self::P1d4GeneratedMarketPreAckPending(owner) => &owner.state.committed_pre_ack_seal,
-            Self::P1d4GeneratedMarketAckCommitted(owner) => &owner.ready.committed_seal,
-            Self::P1d4GeneratedMarketTruthCommitted(owner) => &owner.ready.committed_seal,
-            Self::P1d3DispatchPending(owner) => &owner.committed_pre_dispatch_seal,
-            Self::P1d3PreAckPending(owner) => &owner.committed_pre_ack_seal,
-            Self::P1d3AckCommitted(owner) => &owner.ready.committed_seal,
-            Self::P1d3TruthCommitted(owner) => &owner.ready.committed_seal,
-            Self::P1d3CancelContinuationPending(owner) => match &owner.state {
-                Stage8bP1d3CancelContinuationState::TargetSealed(ready) => &ready.committed_seal,
-            },
-            Self::P1d3SemanticPending(owner) => &owner.ready.committed_seal,
-            Self::P1eScheduleBindingCommitted(owner) => &owner.ready.committed_seal,
-            Self::Blocked(_) => return Err(Stage7bRecoveryError::SealInvalid),
-        };
+        let seal = self.stage8b_p1e_current_seal()?;
         strategy_runtime_core::inspect_stage8b_p1e_authenticated_restart_package_v2(
             seal.stage6d_authenticated_restart_package(),
             commitment_key,

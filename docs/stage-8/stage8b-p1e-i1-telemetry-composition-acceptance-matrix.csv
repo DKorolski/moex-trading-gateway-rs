@@ -1,0 +1,21 @@
+id,area,requirement,status
+I1TEL-001,lineage,Accepted aggregate-readiness commit is the direct predecessor,REQUIRED
+I1TEL-002,startup,Telemetry starts only after durable Redis S06 and reader attachment,REQUIRED
+I1TEL-003,identity,Initial snapshot binds real boot operational deployment runtime and durable-seal identity,REQUIRED
+I1TEL-004,capability,Telemetry receives a write-only capability without lifecycle or XACK authority,REQUIRED
+I1TEL-005,owner,Exactly one lifecycle owner remains,REQUIRED
+I1TEL-006,transition,Starting PaperReady Degraded Draining and Stopped transitions are exact,REQUIRED
+I1TEL-007,readiness,PaperReady requires a fresh empty poll zero PEL and durable readiness validation,REQUIRED
+I1TEL-008,recovery,Unresolved lifecycle is Degraded and returns to ready only through exact recovery,REQUIRED
+I1TEL-009,periodic,Immediate transition and bounded periodic publication use skip-on-missed-tick semantics,REQUIRED
+I1TEL-010,backpressure,Bounded FIFO overflow requests first-wins telemetry shutdown,REQUIRED
+I1TEL-011,redis,Health and readiness use XADD NOMKSTREAM MAXLEN equals 4096,REQUIRED
+I1TEL-012,redis,Missing telemetry stream fails without implicit creation or repair,REQUIRED
+I1TEL-013,redaction,Raw secrets URLs paths account IDs payloads and error text are absent,REQUIRED
+I1TEL-014,safety,Paper-only is true and all live FINAM broker and real-order flags are false,REQUIRED
+I1TEL-015,exit,Primary telemetry failure exits 71 and grace expiry remains 72,REQUIRED
+I1TEL-016,precedence,External-signal and independent owner failures are not masked by final telemetry failure,REQUIRED
+I1TEL-017,process,Real child process publishes PaperReady Draining Stopped and exits zero on SIGTERM,REQUIRED
+I1TEL-018,durability,Telemetry process witness leaves durable root unchanged and source PEL empty,REQUIRED
+I1TEL-019,regression,Inherited process restart cancel day-expiry and XACK-last tests remain green,REQUIRED
+I1TEL-020,scope,Install systemd operational Redis VPS FINAM dispatch runtime-live real orders and P1-f remain closed,REQUIRED

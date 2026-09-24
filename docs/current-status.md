@@ -1934,3 +1934,22 @@ installation/systemd material, then one immutable aggregate I1 acceptance
 package. Operational Redis DB0/DB15, VPS installation/service start,
 paper-provider activation, FINAM POST/DELETE/send, broker dispatch,
 runtime-live, real orders and P1-f remain closed.
+
+## Stage 8B-P1-e I1 telemetry composition candidate (2026-09-24)
+
+The production process now composes the accepted health/readiness contract
+after authenticated durable admission, verify-only Redis attachment, S06
+acquisition and schedule-reader attachment. A restricted write-only publisher
+cannot read/claim/XACK source work or publish commands. The bounded telemetry
+task emits immediate, distinct-transition and periodic snapshots with exact
+`NOMKSTREAM MAXLEN = 4096`, first-wins fail-closed shutdown and exit class 71.
+
+Isolated Redis evidence covers all five phases, periodic publication,
+missing-stream no-create, backpressure, redaction and closed live flags. A real
+child production process reaches `PaperReady`, receives SIGTERM, publishes
+`Draining` and `Stopped`, exits zero, preserves durable bytes and leaves the
+M10 PEL empty. This is a source review candidate, not acceptance: I1 remains
+open. Fixed-path installation/systemd material is the next slice only after
+independent telemetry source acceptance. Operational Redis, VPS activation,
+paper-provider activation, FINAM send, broker dispatch, runtime-live, real
+orders and P1-f remain closed.

@@ -1238,6 +1238,23 @@ impl Stage8bP1RedisSemanticCompositionOwner {
         self.stage7.stage8b_p1_operational_identity_sha256()
     }
 
+    pub(crate) fn stage8b_p1e_telemetry_seal_v1(
+        &self,
+    ) -> Result<(u64, String), Stage8bP1RedisSemanticError> {
+        let seal = self.stage7.committed_seal()?;
+        Ok((
+            seal.seal_generation(),
+            seal.seal_commitment_sha256().to_string(),
+        ))
+    }
+
+    pub(crate) fn stage8b_p1e_validate_telemetry_readiness_v1(
+        &mut self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> bool {
+        self.stage7.validate_composite_readiness(commitment_key)
+    }
+
     #[cfg(test)]
     pub(crate) fn requires_later_limit_evaluation(&self) -> bool {
         self.stage7.stage8b_p1d3_requires_later_limit_evaluation()

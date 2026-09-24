@@ -72,22 +72,26 @@ use crate::{
     Stage8bP1RedisSemanticCompositionOwner, Stage8bP1RedisSemanticCompositionTransport,
     Stage8bP1RedisSemanticError, Stage8bP1RedisSemanticOutcome,
     Stage8bP1RedisZeroIntentAckDisposition, Stage8bP1RedisZeroIntentAckResolved,
-    Stage8bP1eAdoptionRecoveryActionV5, Stage8bP1eCoordinatorV1, Stage8bP1ePostAcquisitionOwnerV1,
+    Stage8bP1eAdoptionRecoveryActionV5, Stage8bP1eCoordinatorV1, Stage8bP1eFailureClassV1,
+    Stage8bP1eHealthPayloadV1, Stage8bP1eHealthStatusV1, Stage8bP1ePostAcquisitionOwnerV1,
     Stage8bP1ePreSealRecoveryActionV5, Stage8bP1ePublishedScheduleRouteV1,
-    Stage8bP1eReadyFreshAcquisitionOutcomeV1, Stage8bP1eReadyPendingAcquisitionOutcomeV1,
-    Stage8bP1eRecoveredCancelScheduleOutcomeV1, Stage8bP1eRecoveredDayExpiryScheduleOutcomeV1,
+    Stage8bP1eReadinessInputsV1, Stage8bP1eReadinessPayloadV1, Stage8bP1eReadinessPhaseV1,
+    Stage8bP1eReadinessReasonV1, Stage8bP1eReadyFreshAcquisitionOutcomeV1,
+    Stage8bP1eReadyPendingAcquisitionOutcomeV1, Stage8bP1eRecoveredCancelScheduleOutcomeV1,
+    Stage8bP1eRecoveredDayExpiryScheduleOutcomeV1,
     Stage8bP1eRecoveredGeneratedMarketScheduleOutcomeV1,
     Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1, Stage8bP1eRecoveredMarketScheduleOutcomeV1,
     Stage8bP1eRedisControlError, Stage8bP1eRedisControlV1, Stage8bP1eRestartKindV1,
     Stage8bP1eRetainedSourceReceiptV1, Stage8bP1eRoutedContinuationV1,
-    Stage8bP1eRoutedPostAcquisitionDecisionV1, Stage8bP1eShutdownIntentV1,
-    Stage8bP1eShutdownLatchV1, Stage8bP1eSignedCancelScheduleOutcomeV1,
-    Stage8bP1eSignedDayExpiryScheduleOutcomeV1, Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1,
+    Stage8bP1eRoutedPostAcquisitionDecisionV1, Stage8bP1eShutdownCauseV1,
+    Stage8bP1eShutdownIntentV1, Stage8bP1eShutdownLatchV1, Stage8bP1eShutdownPhaseV1,
+    Stage8bP1eSignedCancelScheduleOutcomeV1, Stage8bP1eSignedDayExpiryScheduleOutcomeV1,
+    Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1,
     Stage8bP1eSignedInitialLimitScheduleOutcomeV1, Stage8bP1eSignedMarketScheduleOutcomeV1,
     Stage8bP1eSignedWorkingScheduleOutcomeV1, Stage8bP1eSupervisorConfigV1,
-    Stage8bP1eSupervisorEventV1, Stage8bP1eValidatedSupervisorConfigV1,
-    Stage8bP1eVerifiedRedisSessionV1, STAGE8B_P1E_FIRST_BOOT_RECOVERY_CONFIRMATION,
-    STAGE8B_P1E_SUPERVISOR_CONFIG_PATH,
+    Stage8bP1eSupervisorEventV1, Stage8bP1eTelemetryPublisherV1,
+    Stage8bP1eValidatedSupervisorConfigV1, Stage8bP1eVerifiedRedisSessionV1,
+    STAGE8B_P1E_FIRST_BOOT_RECOVERY_CONFIRMATION, STAGE8B_P1E_SUPERVISOR_CONFIG_PATH,
 };
 
 use crate::stage8b_p1e_first_boot_transaction::next_stage8b_p1e_bootstrap_attempt_generation_v5;
@@ -2550,6 +2554,25 @@ pub async fn run_stage8b_p1e_startup_owner_loop_v1(
     latch: &Stage8bP1eShutdownLatchV1,
     commitment_key: &Stage5gLifecycleCommitmentKey,
 ) -> Result<Stage8bP1eOwnerLoopOutcomeV1, Stage8bP1eStartupErrorV1> {
+    Box::pin(run_stage8b_p1e_startup_owner_loop_with_telemetry_v1(
+        startup,
+        reader,
+        context,
+        latch,
+        commitment_key,
+        None,
+    ))
+    .await
+}
+
+async fn run_stage8b_p1e_startup_owner_loop_with_telemetry_v1(
+    startup: Stage8bP1eStartupOwnerV1,
+    reader: &mut crate::Stage8bP1eRedisScheduleReader,
+    context: &mut strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    telemetry: Option<&Stage8bP1eTelemetryReporterV1>,
+) -> Result<Stage8bP1eOwnerLoopOutcomeV1, Stage8bP1eStartupErrorV1> {
     let entry = match latch_stage8b_p1e_startup_owner_v1(startup, latch) {
         Stage8bP1eStartupLatchDecisionV1::RetainedSource(retained) => {
             return Ok(Stage8bP1eOwnerLoopOutcomeV1::RetainedSource(retained));
@@ -2890,7 +2913,15 @@ pub async fn run_stage8b_p1e_startup_owner_loop_v1(
             }
         }
     };
-    run_stage8b_p1e_owner_loop_from_entry_v1(entry, reader, context, latch, commitment_key).await
+    run_stage8b_p1e_owner_loop_from_entry_v1(
+        entry,
+        reader,
+        context,
+        latch,
+        commitment_key,
+        telemetry,
+    )
+    .await
 }
 
 /// Retains the sole polling/lifecycle owner across the completed schedule-free
@@ -2904,12 +2935,32 @@ pub async fn run_stage8b_p1e_owner_loop_v1(
     latch: &Stage8bP1eShutdownLatchV1,
     commitment_key: &Stage5gLifecycleCommitmentKey,
 ) -> Result<Stage8bP1eOwnerLoopOutcomeV1, Stage8bP1eStartupErrorV1> {
+    Box::pin(run_stage8b_p1e_owner_loop_with_telemetry_v1(
+        ready,
+        reader,
+        context,
+        latch,
+        commitment_key,
+        None,
+    ))
+    .await
+}
+
+async fn run_stage8b_p1e_owner_loop_with_telemetry_v1(
+    ready: Stage8bP1eReadyPollingV1,
+    reader: &mut crate::Stage8bP1eRedisScheduleReader,
+    context: &mut strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    telemetry: Option<&Stage8bP1eTelemetryReporterV1>,
+) -> Result<Stage8bP1eOwnerLoopOutcomeV1, Stage8bP1eStartupErrorV1> {
     run_stage8b_p1e_owner_loop_from_entry_v1(
         Stage8bP1eOwnerLoopEntryV1::Ready(ready),
         reader,
         context,
         latch,
         commitment_key,
+        telemetry,
     )
     .await
 }
@@ -2920,6 +2971,7 @@ async fn run_stage8b_p1e_owner_loop_from_entry_v1(
     context: &mut strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
     latch: &Stage8bP1eShutdownLatchV1,
     commitment_key: &Stage5gLifecycleCommitmentKey,
+    telemetry: Option<&Stage8bP1eTelemetryReporterV1>,
 ) -> Result<Stage8bP1eOwnerLoopOutcomeV1, Stage8bP1eStartupErrorV1> {
     if let Stage8bP1eOwnerLoopEntryV1::Ready(ready) = &entry {
         restore_stage8b_p1e_owner_loop_high_water_v1(ready, reader, context)?;
@@ -2928,8 +2980,13 @@ async fn run_stage8b_p1e_owner_loop_from_entry_v1(
     loop {
         let mut deferred = match entry {
             Stage8bP1eOwnerLoopEntryV1::Ready(ready) => {
-                match run_stage8b_p1e_schedule_free_owner_loop_v1(ready, latch, commitment_key)
-                    .await?
+                match run_stage8b_p1e_schedule_free_owner_loop_with_telemetry_v1(
+                    ready,
+                    latch,
+                    commitment_key,
+                    telemetry,
+                )
+                .await?
                 {
                     Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::StoppedReady(stopped) => {
                         return Ok(Stage8bP1eOwnerLoopOutcomeV1::StoppedReady(stopped));
@@ -2958,6 +3015,10 @@ async fn run_stage8b_p1e_owner_loop_from_entry_v1(
             }
             Stage8bP1eOwnerLoopEntryV1::ScheduleDeferred(deferred) => deferred,
         };
+        if let Some(telemetry) = telemetry {
+            let pel_count = deferred.redis_control_mut().pel_count().await? as u64;
+            telemetry.update_lifecycle_pending(pel_count);
+        }
 
         loop {
             // Refresh the trusted schedule clock from one UTC/monotonic anchor
@@ -3012,11 +3073,26 @@ async fn run_stage8b_p1e_owner_loop_from_entry_v1(
 /// shared first-wins latch can be requested concurrently by the signal or
 /// supervision task while Redis is inside its bounded wait.
 pub async fn run_stage8b_p1e_schedule_free_owner_loop_v1(
-    mut ready: Stage8bP1eReadyPollingV1,
+    ready: Stage8bP1eReadyPollingV1,
     latch: &Stage8bP1eShutdownLatchV1,
     commitment_key: &Stage5gLifecycleCommitmentKey,
 ) -> Result<Stage8bP1eScheduleFreeOwnerLoopOutcomeV1, Stage8bP1eStartupErrorV1> {
+    run_stage8b_p1e_schedule_free_owner_loop_with_telemetry_v1(ready, latch, commitment_key, None)
+        .await
+}
+
+async fn run_stage8b_p1e_schedule_free_owner_loop_with_telemetry_v1(
+    mut ready: Stage8bP1eReadyPollingV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    telemetry: Option<&Stage8bP1eTelemetryReporterV1>,
+) -> Result<Stage8bP1eScheduleFreeOwnerLoopOutcomeV1, Stage8bP1eStartupErrorV1> {
     loop {
+        if latch.intent().is_some() {
+            if let Some(telemetry) = telemetry {
+                telemetry.update_draining();
+            }
+        }
         if ready.is_committed_cancel_resolution() {
             return Ok(
                 Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::CommittedCancelResolved(
@@ -3025,22 +3101,63 @@ pub async fn run_stage8b_p1e_schedule_free_owner_loop_v1(
             );
         }
         match poll_stage8b_p1e_ready_once_v1(ready, latch).await? {
-            Stage8bP1eReadyPollOutcomeV1::Empty(next) => ready = next,
+            Stage8bP1eReadyPollOutcomeV1::Empty(mut next) => {
+                if let Some(telemetry) = telemetry {
+                    let pel_count = next.redis_control_mut().pel_count().await? as u64;
+                    let durable_ready = next
+                        .owner
+                        .stage8b_p1e_validate_telemetry_readiness_v1(commitment_key);
+                    let (seal_generation, seal_commitment_sha256) =
+                        next.owner.stage8b_p1e_telemetry_seal_v1()?;
+                    telemetry.update_ready(
+                        durable_ready,
+                        seal_generation,
+                        seal_commitment_sha256,
+                        pel_count,
+                    );
+                }
+                ready = next;
+            }
             Stage8bP1eReadyPollOutcomeV1::Stopped(stopped) => {
+                if let Some(telemetry) = telemetry {
+                    telemetry.update_draining();
+                }
                 return Ok(Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::StoppedReady(
                     stopped,
                 ));
             }
             Stage8bP1eReadyPollOutcomeV1::RetainedSource(retained) => {
+                if let Some(telemetry) = telemetry {
+                    telemetry.update_lifecycle_pending(1);
+                }
                 return Ok(Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::RetainedSource(
                     retained,
                 ));
             }
             Stage8bP1eReadyPollOutcomeV1::ContinueSource(continuing) => {
+                if let Some(telemetry) = telemetry {
+                    telemetry.update_lifecycle_pending(1);
+                }
                 match drain_stage8b_p1e_schedule_free_recovery_v1(continuing, latch, commitment_key)
                     .await?
                 {
-                    Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(next) => ready = next,
+                    Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(mut next) => {
+                        if let Some(telemetry) = telemetry {
+                            let pel_count = next.redis_control_mut().pel_count().await? as u64;
+                            let durable_ready = next
+                                .owner
+                                .stage8b_p1e_validate_telemetry_readiness_v1(commitment_key);
+                            let (seal_generation, seal_commitment_sha256) =
+                                next.owner.stage8b_p1e_telemetry_seal_v1()?;
+                            telemetry.update_ready(
+                                durable_ready,
+                                seal_generation,
+                                seal_commitment_sha256,
+                                pel_count,
+                            );
+                        }
+                        ready = next;
+                    }
                     Stage8bP1eScheduleFreeDrainOutcomeV1::RetainedForRestart(retained) => {
                         return Ok(Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::RetainedRecovery(
                             retained,
@@ -3924,6 +4041,8 @@ pub enum Stage8bP1eProcessErrorV1 {
     OwnerLoop,
     #[error("owner task panicked or returned without an authenticated owner boundary")]
     OwnerTaskFailed,
+    #[error("production telemetry task or write failed")]
+    TelemetryFailed,
     #[error("shutdown grace expired before an authenticated boundary")]
     ShutdownGraceExpired,
     #[error("process signal task failed")]
@@ -3946,6 +4065,7 @@ impl Stage8bP1eProcessErrorV1 {
             | Self::RedisDeployment => 66,
             Self::RedisAttach | Self::ScheduleReader | Self::OwnerLoop => 67,
             Self::OwnerTaskFailed => 70,
+            Self::TelemetryFailed => 71,
             Self::ShutdownGraceExpired => 72,
             Self::SignalTaskFailed => 73,
         }
@@ -4033,35 +4153,372 @@ enum Stage8bP1eOwnerTaskBoundaryV1 {
     RestartRequired,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stage8bP1eTelemetryLifecycleV1 {
+    Starting,
+    Running,
+    Degraded,
+    Draining,
+    Stopped,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Stage8bP1eProductionTelemetryStateV1 {
+    boot_id: [u8; 16],
+    operational_identity_sha256: String,
+    deployment_generation: u64,
+    runtime_config_fingerprint_sha256: String,
+    durable_seal_generation: u64,
+    durable_commitment_sha256: String,
+    consumer_name: String,
+    lifecycle: Stage8bP1eTelemetryLifecycleV1,
+    owner_live: bool,
+    durable_ready: bool,
+    source_poll_fresh: bool,
+    claim_scan_complete: bool,
+    settlement_healthy: bool,
+    pel_count: u64,
+    unresolved_lifecycle_count: u64,
+    blocked_request_count: u64,
+    blocked_request_hashes: Vec<String>,
+    last_semantic_bar_ts_utc: Option<String>,
+    last_canonical_ack_ts_utc: Option<String>,
+    last_failure_class: Stage8bP1eFailureClassV1,
+    terminal: bool,
+}
+
+#[derive(Clone)]
+struct Stage8bP1eTelemetryReporterV1 {
+    state: Arc<std::sync::Mutex<Stage8bP1eProductionTelemetryStateV1>>,
+    sender: tokio::sync::mpsc::Sender<Stage8bP1eProductionTelemetryStateV1>,
+    latch: Arc<Stage8bP1eShutdownLatchV1>,
+    shutdown_grace_ms: u64,
+}
+
+impl Stage8bP1eTelemetryReporterV1 {
+    fn update<F>(&self, update: F)
+    where
+        F: FnOnce(&mut Stage8bP1eProductionTelemetryStateV1),
+    {
+        let snapshot = {
+            let Ok(mut state) = self.state.lock() else {
+                self.request_telemetry_failure();
+                return;
+            };
+            let previous = state.clone();
+            update(&mut state);
+            if *state == previous {
+                return;
+            }
+            state.clone()
+        };
+        if self.sender.try_send(snapshot).is_err() {
+            self.request_telemetry_failure();
+        }
+    }
+
+    fn request_telemetry_failure(&self) {
+        let now = Utc::now().timestamp_millis();
+        self.latch.request(Stage8bP1eShutdownIntentV1::new(
+            Stage8bP1eShutdownCauseV1::TelemetryFailure,
+            now.saturating_add(self.shutdown_grace_ms as i64),
+            1,
+        ));
+    }
+
+    fn update_ready(
+        &self,
+        durable_ready: bool,
+        seal_generation: u64,
+        seal_commitment_sha256: String,
+        pel_count: u64,
+    ) {
+        self.update(|state| {
+            state.lifecycle = if durable_ready {
+                Stage8bP1eTelemetryLifecycleV1::Running
+            } else {
+                Stage8bP1eTelemetryLifecycleV1::Degraded
+            };
+            state.owner_live = true;
+            state.durable_ready = durable_ready;
+            state.source_poll_fresh = true;
+            state.settlement_healthy = true;
+            state.pel_count = pel_count;
+            state.unresolved_lifecycle_count = 0;
+            state.durable_seal_generation = seal_generation;
+            state.durable_commitment_sha256 = seal_commitment_sha256;
+            state.last_failure_class = if durable_ready {
+                Stage8bP1eFailureClassV1::None
+            } else {
+                Stage8bP1eFailureClassV1::DurableAuthenticationFailed
+            };
+        });
+    }
+
+    fn update_lifecycle_pending(&self, pel_count: u64) {
+        self.update(|state| {
+            state.lifecycle = Stage8bP1eTelemetryLifecycleV1::Degraded;
+            state.source_poll_fresh = true;
+            state.pel_count = pel_count;
+            state.unresolved_lifecycle_count = 1;
+        });
+    }
+
+    fn update_draining(&self) {
+        self.update(|state| {
+            state.lifecycle = Stage8bP1eTelemetryLifecycleV1::Draining;
+        });
+    }
+
+    fn finish_stopped(&self) {
+        self.update(|state| {
+            state.lifecycle = Stage8bP1eTelemetryLifecycleV1::Stopped;
+            state.owner_live = false;
+            state.source_poll_fresh = false;
+            state.terminal = true;
+        });
+    }
+
+    fn finish_degraded(&self, failure: Stage8bP1eFailureClassV1) {
+        self.update(|state| {
+            state.lifecycle = Stage8bP1eTelemetryLifecycleV1::Degraded;
+            state.owner_live = false;
+            state.last_failure_class = failure;
+            state.terminal = true;
+        });
+    }
+}
+
+impl Stage8bP1eProductionTelemetryStateV1 {
+    fn readiness(&self) -> (Stage8bP1eReadinessPhaseV1, Vec<Stage8bP1eReadinessReasonV1>) {
+        match self.lifecycle {
+            Stage8bP1eTelemetryLifecycleV1::Starting => (
+                Stage8bP1eReadinessPhaseV1::Starting,
+                vec![Stage8bP1eReadinessReasonV1::Startup],
+            ),
+            _ => crate::stage8b_p1e_readiness_v1(&Stage8bP1eReadinessInputsV1 {
+                owner_live: self.owner_live,
+                durable_ready: self.durable_ready,
+                redis_manifest_verified: true,
+                claim_scan_complete: self.claim_scan_complete,
+                source_poll_fresh: self.source_poll_fresh,
+                settlement_healthy: self.settlement_healthy,
+                pel_count: self.pel_count,
+                unresolved_lifecycle_count: self.unresolved_lifecycle_count,
+                blocked_request_count: self.blocked_request_count,
+                shutdown_phase: match self.lifecycle {
+                    Stage8bP1eTelemetryLifecycleV1::Draining => Stage8bP1eShutdownPhaseV1::Draining,
+                    Stage8bP1eTelemetryLifecycleV1::Stopped => Stage8bP1eShutdownPhaseV1::Stopped,
+                    _ => Stage8bP1eShutdownPhaseV1::Clear,
+                },
+                telemetry_healthy: true,
+                signal_task_healthy: true,
+                grace_expired: false,
+            }),
+        }
+    }
+
+    fn health_status(&self, phase: Stage8bP1eReadinessPhaseV1) -> Stage8bP1eHealthStatusV1 {
+        match phase {
+            Stage8bP1eReadinessPhaseV1::Starting => Stage8bP1eHealthStatusV1::Starting,
+            Stage8bP1eReadinessPhaseV1::PaperReady => Stage8bP1eHealthStatusV1::Healthy,
+            Stage8bP1eReadinessPhaseV1::Degraded => Stage8bP1eHealthStatusV1::Degraded,
+            Stage8bP1eReadinessPhaseV1::Draining => Stage8bP1eHealthStatusV1::Draining,
+            Stage8bP1eReadinessPhaseV1::Stopped => Stage8bP1eHealthStatusV1::Stopped,
+        }
+    }
+
+    fn shutdown_phase(&self) -> Stage8bP1eShutdownPhaseV1 {
+        match self.lifecycle {
+            Stage8bP1eTelemetryLifecycleV1::Draining => Stage8bP1eShutdownPhaseV1::Draining,
+            Stage8bP1eTelemetryLifecycleV1::Stopped => Stage8bP1eShutdownPhaseV1::Stopped,
+            _ => Stage8bP1eShutdownPhaseV1::Clear,
+        }
+    }
+}
+
+async fn publish_stage8b_p1e_production_snapshot_v1(
+    publisher: &mut Stage8bP1eTelemetryPublisherV1,
+    state: &Stage8bP1eProductionTelemetryStateV1,
+) -> Result<(), Stage8bP1eRedisControlError> {
+    let observed_at = Utc::now();
+    let (phase, reasons) = state.readiness();
+    let shutdown_phase = state.shutdown_phase();
+    let health = crate::stage8b_p1e_telemetry_envelope_v1(
+        "moex.stage8b.p1e.health.v1",
+        observed_at,
+        state.boot_id,
+        Stage8bP1eHealthPayloadV1 {
+            status: state.health_status(phase),
+            operational_identity_sha256: state.operational_identity_sha256.clone(),
+            deployment_generation: state.deployment_generation,
+            runtime_config_fingerprint_sha256: state.runtime_config_fingerprint_sha256.clone(),
+            durable_seal_generation: state.durable_seal_generation,
+            durable_commitment_sha256: state.durable_commitment_sha256.clone(),
+            consumer_name: state.consumer_name.clone(),
+            source_poll_fresh: state.source_poll_fresh,
+            claim_scan_complete: state.claim_scan_complete,
+            pel_count: state.pel_count,
+            blocked_request_count: state.blocked_request_count,
+            blocked_request_hashes: state.blocked_request_hashes.clone(),
+            last_semantic_bar_ts_utc: state.last_semantic_bar_ts_utc.clone(),
+            last_canonical_ack_ts_utc: state.last_canonical_ack_ts_utc.clone(),
+            shutdown_phase,
+            last_failure_class: state.last_failure_class,
+            paper_only: true,
+            finam_transport_attached: false,
+            broker_network_dispatch_attached: false,
+            runtime_live: false,
+            real_orders: false,
+        },
+    );
+    publisher.publish_health(&health).await?;
+    let readiness = crate::stage8b_p1e_telemetry_envelope_v1(
+        "moex.stage8b.p1e.readiness.v1",
+        observed_at,
+        state.boot_id,
+        Stage8bP1eReadinessPayloadV1 {
+            phase,
+            reasons,
+            operational_identity_sha256: state.operational_identity_sha256.clone(),
+            deployment_generation: state.deployment_generation,
+            runtime_config_fingerprint_sha256: state.runtime_config_fingerprint_sha256.clone(),
+            durable_seal_generation: state.durable_seal_generation,
+            consumer_name: state.consumer_name.clone(),
+            source_poll_fresh: state.source_poll_fresh,
+            claim_scan_complete: state.claim_scan_complete,
+            pel_count: state.pel_count,
+            unresolved_lifecycle_count: state.unresolved_lifecycle_count,
+            blocked_request_count: state.blocked_request_count,
+            shutdown_phase,
+            paper_only: true,
+            finam_transport_attached: false,
+            broker_network_dispatch_attached: false,
+            runtime_live: false,
+            real_orders: false,
+        },
+    );
+    publisher.publish_readiness(&readiness).await?;
+    Ok(())
+}
+
+async fn run_stage8b_p1e_production_telemetry_v1(
+    mut publisher: Stage8bP1eTelemetryPublisherV1,
+    mut state: Stage8bP1eProductionTelemetryStateV1,
+    mut receiver: tokio::sync::mpsc::Receiver<Stage8bP1eProductionTelemetryStateV1>,
+    latch: Arc<Stage8bP1eShutdownLatchV1>,
+    health_interval_ms: u64,
+    shutdown_grace_ms: u64,
+) -> Result<(), Stage8bP1eRedisControlError> {
+    let period = StdDuration::from_millis(health_interval_ms);
+    let mut interval = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        if let Err(error) = publish_stage8b_p1e_production_snapshot_v1(&mut publisher, &state).await
+        {
+            let now = Utc::now().timestamp_millis();
+            latch.request(Stage8bP1eShutdownIntentV1::new(
+                Stage8bP1eShutdownCauseV1::TelemetryFailure,
+                now.saturating_add(shutdown_grace_ms as i64),
+                1,
+            ));
+            return Err(error);
+        }
+        stage8b_p1e_telemetry_test_barrier_v1(&state, latch.as_ref()).await;
+        if state.terminal {
+            return Ok(());
+        }
+        tokio::select! {
+            changed = receiver.recv() => {
+                let Some(changed) = changed else {
+                    return Ok(());
+                };
+                state = changed;
+            }
+            _ = interval.tick() => {}
+        }
+    }
+}
+
+#[cfg(test)]
+async fn stage8b_p1e_telemetry_test_barrier_v1(
+    state: &Stage8bP1eProductionTelemetryStateV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+) {
+    const PHASE_ENV: &str = "STAGE8B_P1E_PROCESS_PRODUCTION_PHASE";
+    const READY_ENV: &str = "STAGE8B_P1E_PROCESS_FIXTURE_READY";
+    if std::env::var(PHASE_ENV).as_deref() != Ok("telemetry-paper-ready")
+        || state.lifecycle != Stage8bP1eTelemetryLifecycleV1::Running
+    {
+        return;
+    }
+    let ready = std::path::PathBuf::from(
+        std::env::var_os(READY_ENV).expect("production telemetry fixture ready path"),
+    );
+    fs::write(&ready, b"telemetry-paper-ready").expect("production telemetry fixture ready marker");
+    while latch.intent().is_none() {
+        tokio::time::sleep(StdDuration::from_millis(5)).await;
+    }
+}
+
+#[cfg(not(test))]
+async fn stage8b_p1e_telemetry_test_barrier_v1(
+    _state: &Stage8bP1eProductionTelemetryStateV1,
+    _latch: &Stage8bP1eShutdownLatchV1,
+) {
+}
+
 /// Runs the accepted linear owner until it reaches a process-observable
 /// authenticated boundary.  CANCEL completion is not a process exit: the
 /// exact retained owner is consumed back into ordinary polling in the same
 /// task.  Every other non-shutdown terminal is restart-only and can never be
 /// mistaken for a successful daemon exit.
+#[cfg(test)]
 async fn run_stage8b_p1e_process_owner_v1(
+    startup: Stage8bP1eStartupOwnerV1,
+    reader: crate::Stage8bP1eRedisScheduleReader,
+    context: strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
+    latch: Arc<Stage8bP1eShutdownLatchV1>,
+    commitment_key: Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eOwnerTaskBoundaryV1, Stage8bP1eStartupErrorV1> {
+    Box::pin(run_stage8b_p1e_process_owner_with_telemetry_v1(
+        startup,
+        reader,
+        context,
+        latch,
+        commitment_key,
+        None,
+    ))
+    .await
+}
+
+async fn run_stage8b_p1e_process_owner_with_telemetry_v1(
     startup: Stage8bP1eStartupOwnerV1,
     mut reader: crate::Stage8bP1eRedisScheduleReader,
     mut context: strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
     latch: Arc<Stage8bP1eShutdownLatchV1>,
     commitment_key: Stage5gLifecycleCommitmentKey,
+    telemetry: Option<&Stage8bP1eTelemetryReporterV1>,
 ) -> Result<Stage8bP1eOwnerTaskBoundaryV1, Stage8bP1eStartupErrorV1> {
-    let mut outcome = run_stage8b_p1e_startup_owner_loop_v1(
+    let mut outcome = run_stage8b_p1e_startup_owner_loop_with_telemetry_v1(
         startup,
         &mut reader,
         &mut context,
         latch.as_ref(),
         &commitment_key,
+        telemetry,
     )
     .await?;
     loop {
         outcome = match outcome {
             Stage8bP1eOwnerLoopOutcomeV1::CommittedCancelResolved(resolved) => {
-                run_stage8b_p1e_owner_loop_v1(
+                run_stage8b_p1e_owner_loop_with_telemetry_v1(
                     resolved.into_ready_polling(),
                     &mut reader,
                     &mut context,
                     latch.as_ref(),
                     &commitment_key,
+                    telemetry,
                 )
                 .await?
             }
@@ -4140,8 +4597,18 @@ async fn run_stage8b_p1e_production_owner_v1(
     };
     let commitment_key = load_stage8b_p1_commitment_key_from_systemd_credential()
         .map_err(|_| Stage8bP1eProcessErrorV1::Credential)?;
-    let (bootstrap, runtime, attach_plan, _settings) = supervisor.into_run_parts();
+    let operational_identity_sha256 = supervisor
+        .bootstrap()
+        .operational_identity_sha256()
+        .to_string();
+    let deployment_generation = supervisor.bootstrap().deployment_generation();
+    let runtime_config_fingerprint_sha256 =
+        supervisor.runtime_config_fingerprint_sha256().to_string();
+    let (bootstrap, runtime, attach_plan, settings) = supervisor.into_run_parts();
     let restart = admit_stage8b_p1e_ordinary_run_v1(bootstrap, &commitment_key, runtime)
+        .map_err(|_| Stage8bP1eProcessErrorV1::DurableRestart)?;
+    let (durable_seal_generation, durable_commitment_sha256) = restart
+        .stage8b_p1e_telemetry_seal_v1()
         .map_err(|_| Stage8bP1eProcessErrorV1::DurableRestart)?;
     stage8b_p1e_process_startup_test_barrier_v1("after-admission", &latch).await;
     if latch.intent().is_some() {
@@ -4189,6 +4656,7 @@ async fn run_stage8b_p1e_production_owner_v1(
         .clean_stale_zero_pending_consumers(&consumer_name)
         .await
         .map_err(map_redis_attach_error)?;
+    let telemetry_publisher = session.redis_control_mut().telemetry_publisher();
     if latch.intent().is_some() {
         drop(session);
         drop(attachable);
@@ -4200,7 +4668,7 @@ async fn run_stage8b_p1e_production_owner_v1(
         drop(attachable);
         return Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop);
     }
-    let startup = match await_stage8b_p1e_startup_operation_v1(
+    let mut startup = match await_stage8b_p1e_startup_operation_v1(
         "inflight-s06-acquisition",
         acquire_stage8b_p1e_startup_owner_v1(attachable, session),
         &latch,
@@ -4216,6 +4684,11 @@ async fn run_stage8b_p1e_production_owner_v1(
         drop(startup);
         return Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop);
     }
+    let initial_pel_count = startup
+        .redis_control_mut()
+        .pel_count()
+        .await
+        .map_err(map_redis_attach_error)? as u64;
     let reader = crate::Stage8bP1eRedisScheduleReader::connect(&redis_url)
         .await
         .map_err(|_| Stage8bP1eProcessErrorV1::ScheduleReader)?;
@@ -4224,9 +4697,131 @@ async fn run_stage8b_p1e_production_owner_v1(
         drop(startup);
         return Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop);
     }
-    run_stage8b_p1e_process_owner_v1(startup, reader, context, latch, commitment_key)
-        .await
-        .map_err(map_startup_error)
+    let initial_telemetry = Stage8bP1eProductionTelemetryStateV1 {
+        boot_id: settings.boot_id,
+        operational_identity_sha256,
+        deployment_generation,
+        runtime_config_fingerprint_sha256,
+        durable_seal_generation,
+        durable_commitment_sha256,
+        consumer_name,
+        lifecycle: Stage8bP1eTelemetryLifecycleV1::Starting,
+        owner_live: true,
+        durable_ready: true,
+        source_poll_fresh: false,
+        claim_scan_complete: true,
+        settlement_healthy: true,
+        pel_count: initial_pel_count,
+        unresolved_lifecycle_count: u64::from(initial_pel_count != 0),
+        blocked_request_count: 0,
+        blocked_request_hashes: Vec::new(),
+        last_semantic_bar_ts_utc: None,
+        last_canonical_ack_ts_utc: None,
+        last_failure_class: Stage8bP1eFailureClassV1::None,
+        terminal: false,
+    };
+    let telemetry_state = Arc::new(std::sync::Mutex::new(initial_telemetry.clone()));
+    let (telemetry_sender, telemetry_receiver) = tokio::sync::mpsc::channel(32);
+    let telemetry_reporter = Stage8bP1eTelemetryReporterV1 {
+        state: telemetry_state,
+        sender: telemetry_sender,
+        latch: Arc::clone(&latch),
+        shutdown_grace_ms: settings.shutdown_grace_ms,
+    };
+    let telemetry_latch = Arc::clone(&latch);
+    let telemetry_task = tokio::spawn(run_stage8b_p1e_production_telemetry_v1(
+        telemetry_publisher,
+        initial_telemetry,
+        telemetry_receiver,
+        telemetry_latch,
+        settings.health_interval_ms,
+        settings.shutdown_grace_ms,
+    ));
+    let owner_result = run_stage8b_p1e_process_owner_with_telemetry_v1(
+        startup,
+        reader,
+        context,
+        Arc::clone(&latch),
+        commitment_key,
+        Some(&telemetry_reporter),
+    )
+    .await
+    .map_err(map_startup_error);
+    match &owner_result {
+        Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop) => {
+            telemetry_reporter.update_draining();
+            telemetry_reporter.finish_stopped();
+        }
+        Ok(Stage8bP1eOwnerTaskBoundaryV1::RestartRequired) => {
+            telemetry_reporter.finish_degraded(Stage8bP1eFailureClassV1::RecoveryBlocked);
+        }
+        Err(error) => {
+            telemetry_reporter.finish_degraded(process_failure_class(error));
+        }
+    }
+    drop(telemetry_reporter);
+    let telemetry_result = tokio::time::timeout(
+        StdDuration::from_millis(settings.shutdown_grace_ms),
+        telemetry_task,
+    )
+    .await;
+    settle_stage8b_p1e_production_telemetry_v1(
+        owner_result,
+        matches!(telemetry_result, Ok(Ok(Ok(())))),
+        latch.as_ref(),
+    )
+}
+
+fn settle_stage8b_p1e_production_telemetry_v1(
+    owner_result: Result<Stage8bP1eOwnerTaskBoundaryV1, Stage8bP1eProcessErrorV1>,
+    telemetry_succeeded: bool,
+    latch: &Stage8bP1eShutdownLatchV1,
+) -> Result<Stage8bP1eOwnerTaskBoundaryV1, Stage8bP1eProcessErrorV1> {
+    if telemetry_succeeded {
+        return owner_result;
+    }
+    match owner_result {
+        Err(error) => Err(error),
+        Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop)
+            if latch.intent().map(Stage8bP1eShutdownIntentV1::cause)
+                == Some(Stage8bP1eShutdownCauseV1::ExternalSignal) =>
+        {
+            Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop)
+        }
+        Ok(_) => Err(Stage8bP1eProcessErrorV1::TelemetryFailed),
+    }
+}
+
+fn process_failure_class(error: &Stage8bP1eProcessErrorV1) -> Stage8bP1eFailureClassV1 {
+    match error {
+        Stage8bP1eProcessErrorV1::ConfigBoundary
+        | Stage8bP1eProcessErrorV1::Config
+        | Stage8bP1eProcessErrorV1::Usage
+        | Stage8bP1eProcessErrorV1::BootIdentity => Stage8bP1eFailureClassV1::ConfigInvalid,
+        Stage8bP1eProcessErrorV1::Credential => Stage8bP1eFailureClassV1::CredentialInvalid,
+        Stage8bP1eProcessErrorV1::RedisDeployment => {
+            Stage8bP1eFailureClassV1::RedisManifestMismatch
+        }
+        Stage8bP1eProcessErrorV1::RedisAttach => Stage8bP1eFailureClassV1::RedisClaimFailed,
+        Stage8bP1eProcessErrorV1::ScheduleReader | Stage8bP1eProcessErrorV1::OwnerLoop => {
+            Stage8bP1eFailureClassV1::RedisReadFailed
+        }
+        Stage8bP1eProcessErrorV1::TelemetryFailed => Stage8bP1eFailureClassV1::RedisTelemetryFailed,
+        Stage8bP1eProcessErrorV1::OwnerTaskFailed => {
+            Stage8bP1eFailureClassV1::OwnerReturnedUnexpectedly
+        }
+        Stage8bP1eProcessErrorV1::SignalTaskFailed => Stage8bP1eFailureClassV1::SignalTaskFailed,
+        Stage8bP1eProcessErrorV1::ShutdownGraceExpired => {
+            Stage8bP1eFailureClassV1::GraceDeadlineExceeded
+        }
+        Stage8bP1eProcessErrorV1::FirstBootSource
+        | Stage8bP1eProcessErrorV1::FirstBootTransaction
+        | Stage8bP1eProcessErrorV1::FirstBootRecovery
+        | Stage8bP1eProcessErrorV1::DurableRestart
+        | Stage8bP1eProcessErrorV1::RestartBlocked => {
+            Stage8bP1eFailureClassV1::DurableAuthenticationFailed
+        }
+    }
 }
 
 #[cfg(test)]
@@ -4454,9 +5049,10 @@ fn terminal_process_result(
         Some(64) => Err(Stage8bP1eProcessErrorV1::Config),
         Some(66) => Err(Stage8bP1eProcessErrorV1::DurableRestart),
         Some(67) => Err(Stage8bP1eProcessErrorV1::OwnerLoop),
+        Some(71) => Err(Stage8bP1eProcessErrorV1::TelemetryFailed),
         Some(72) => Err(Stage8bP1eProcessErrorV1::ShutdownGraceExpired),
         Some(73) => Err(Stage8bP1eProcessErrorV1::SignalTaskFailed),
-        Some(70 | 71) | Some(_) | None => Err(Stage8bP1eProcessErrorV1::OwnerTaskFailed),
+        Some(70) | Some(_) | None => Err(Stage8bP1eProcessErrorV1::OwnerTaskFailed),
     }
 }
 
@@ -4764,6 +5360,257 @@ mod tests {
             let _ = self.child.kill();
             let _ = self.child.wait();
         }
+    }
+
+    fn production_telemetry_state() -> Stage8bP1eProductionTelemetryStateV1 {
+        Stage8bP1eProductionTelemetryStateV1 {
+            boot_id: [0x42; 16],
+            operational_identity_sha256: "11".repeat(32),
+            deployment_generation: 1,
+            runtime_config_fingerprint_sha256: "22".repeat(32),
+            durable_seal_generation: 7,
+            durable_commitment_sha256: "33".repeat(32),
+            consumer_name: "p1e-1-42424242424242424242424242424242".to_string(),
+            lifecycle: Stage8bP1eTelemetryLifecycleV1::Starting,
+            owner_live: true,
+            durable_ready: true,
+            source_poll_fresh: false,
+            claim_scan_complete: true,
+            settlement_healthy: true,
+            pel_count: 0,
+            unresolved_lifecycle_count: 0,
+            blocked_request_count: 0,
+            blocked_request_hashes: Vec::new(),
+            last_semantic_bar_ts_utc: None,
+            last_canonical_ack_ts_utc: None,
+            last_failure_class: Stage8bP1eFailureClassV1::None,
+            terminal: false,
+        }
+    }
+
+    async fn preprovision_telemetry_streams(connection: &mut redis::aio::ConnectionManager) {
+        let namespace = crate::stage8b_p1_redis_namespace();
+        for stream in [&namespace.health_stream, &namespace.readiness_stream] {
+            let _: String = redis::cmd("XADD")
+                .arg(stream)
+                .arg("*")
+                .arg("fixture")
+                .arg("preprovisioned")
+                .query_async(connection)
+                .await
+                .unwrap();
+        }
+    }
+
+    async fn telemetry_phases(
+        connection: &mut redis::aio::ConnectionManager,
+        stream: &str,
+        field: &str,
+    ) -> Vec<String> {
+        let rows: redis::streams::StreamRangeReply = redis::cmd("XRANGE")
+            .arg(stream)
+            .arg("-")
+            .arg("+")
+            .query_async(connection)
+            .await
+            .unwrap();
+        rows.ids
+            .iter()
+            .filter_map(|row| row.get::<String>("payload"))
+            .map(|payload| {
+                serde_json::from_str::<serde_json::Value>(&payload).unwrap()["payload"][field]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect()
+    }
+
+    async fn telemetry_payloads(
+        connection: &mut redis::aio::ConnectionManager,
+        stream: &str,
+    ) -> Vec<serde_json::Value> {
+        let rows: redis::streams::StreamRangeReply = redis::cmd("XRANGE")
+            .arg(stream)
+            .arg("-")
+            .arg("+")
+            .query_async(connection)
+            .await
+            .unwrap();
+        rows.ids
+            .iter()
+            .filter_map(|row| row.get::<String>("payload"))
+            .map(|payload| serde_json::from_str::<serde_json::Value>(&payload).unwrap())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn production_telemetry_publishes_all_transitions_in_order() {
+        let redis = RedisServer::start().await;
+        let mut connection =
+            redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        preprovision_telemetry_streams(&mut connection).await;
+        let control =
+            crate::stage8b_p1_supervisor::stage8b_p1e_test_redis_control_v1(&redis.url).await;
+        let publisher = control.telemetry_publisher();
+        let initial = production_telemetry_state();
+        let latch = Arc::new(Stage8bP1eShutdownLatchV1::new());
+        let (sender, receiver) = tokio::sync::mpsc::channel(8);
+        let reporter = Stage8bP1eTelemetryReporterV1 {
+            state: Arc::new(std::sync::Mutex::new(initial.clone())),
+            sender,
+            latch: Arc::clone(&latch),
+            shutdown_grace_ms: 5_000,
+        };
+        let task = tokio::spawn(run_stage8b_p1e_production_telemetry_v1(
+            publisher,
+            initial.clone(),
+            receiver,
+            Arc::clone(&latch),
+            60_000,
+            5_000,
+        ));
+
+        reporter.update_ready(true, 8, "44".repeat(32), 0);
+        reporter.update_lifecycle_pending(1);
+        reporter.update_draining();
+        reporter.finish_stopped();
+        drop(reporter);
+        assert!(task.await.unwrap().is_ok());
+        assert!(latch.intent().is_none());
+
+        let namespace = crate::stage8b_p1_redis_namespace();
+        assert_eq!(
+            telemetry_phases(&mut connection, &namespace.readiness_stream, "phase").await,
+            ["starting", "paper_ready", "degraded", "draining", "stopped"]
+        );
+        assert_eq!(
+            telemetry_phases(&mut connection, &namespace.health_stream, "status").await,
+            ["starting", "healthy", "degraded", "draining", "stopped"]
+        );
+    }
+
+    #[tokio::test]
+    async fn production_telemetry_missing_stream_fails_closed_without_creation() {
+        let redis = RedisServer::start().await;
+        let mut connection =
+            redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let control =
+            crate::stage8b_p1_supervisor::stage8b_p1e_test_redis_control_v1(&redis.url).await;
+        let publisher = control.telemetry_publisher();
+        let latch = Arc::new(Stage8bP1eShutdownLatchV1::new());
+        let (_sender, receiver) = tokio::sync::mpsc::channel(1);
+        let result = run_stage8b_p1e_production_telemetry_v1(
+            publisher,
+            production_telemetry_state(),
+            receiver,
+            Arc::clone(&latch),
+            60_000,
+            5_000,
+        )
+        .await;
+        assert_eq!(
+            result,
+            Err(Stage8bP1eRedisControlError::TelemetryWriteFailed)
+        );
+        assert_eq!(
+            latch.intent().map(Stage8bP1eShutdownIntentV1::cause),
+            Some(Stage8bP1eShutdownCauseV1::TelemetryFailure)
+        );
+        let namespace = crate::stage8b_p1_redis_namespace();
+        for stream in [&namespace.health_stream, &namespace.readiness_stream] {
+            let key_type: String = redis::cmd("TYPE")
+                .arg(stream)
+                .query_async(&mut connection)
+                .await
+                .unwrap();
+            assert_eq!(key_type, "none");
+        }
+    }
+
+    #[tokio::test]
+    async fn production_telemetry_periodically_republishes_current_snapshot() {
+        let redis = RedisServer::start().await;
+        let mut connection =
+            redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        preprovision_telemetry_streams(&mut connection).await;
+        let control =
+            crate::stage8b_p1_supervisor::stage8b_p1e_test_redis_control_v1(&redis.url).await;
+        let publisher = control.telemetry_publisher();
+        let initial = production_telemetry_state();
+        let latch = Arc::new(Stage8bP1eShutdownLatchV1::new());
+        let (sender, receiver) = tokio::sync::mpsc::channel(2);
+        let reporter = Stage8bP1eTelemetryReporterV1 {
+            state: Arc::new(std::sync::Mutex::new(initial.clone())),
+            sender,
+            latch: Arc::clone(&latch),
+            shutdown_grace_ms: 5_000,
+        };
+        let task = tokio::spawn(run_stage8b_p1e_production_telemetry_v1(
+            publisher,
+            initial,
+            receiver,
+            Arc::clone(&latch),
+            20,
+            5_000,
+        ));
+        let namespace = crate::stage8b_p1_redis_namespace();
+        let deadline = tokio::time::Instant::now() + StdDuration::from_secs(2);
+        loop {
+            let count: usize = redis::cmd("XLEN")
+                .arg(&namespace.health_stream)
+                .query_async(&mut connection)
+                .await
+                .unwrap();
+            if count >= 4 {
+                break;
+            }
+            assert!(tokio::time::Instant::now() < deadline);
+            tokio::time::sleep(StdDuration::from_millis(5)).await;
+        }
+        reporter.finish_stopped();
+        drop(reporter);
+        assert!(task.await.unwrap().is_ok());
+        let phases = telemetry_phases(&mut connection, &namespace.readiness_stream, "phase").await;
+        assert!(phases.len() >= 3);
+        assert!(phases[..phases.len() - 1]
+            .iter()
+            .all(|phase| phase == "starting"));
+        assert_eq!(phases.last().map(String::as_str), Some("stopped"));
+    }
+
+    #[test]
+    fn telemetry_reporter_backpressure_is_fail_closed_and_first_wins() {
+        let initial = production_telemetry_state();
+        let latch = Arc::new(Stage8bP1eShutdownLatchV1::new());
+        let (sender, _receiver) = tokio::sync::mpsc::channel(1);
+        let reporter = Stage8bP1eTelemetryReporterV1 {
+            state: Arc::new(std::sync::Mutex::new(initial)),
+            sender,
+            latch: Arc::clone(&latch),
+            shutdown_grace_ms: 5_000,
+        };
+        reporter.update_lifecycle_pending(1);
+        reporter.update_ready(true, 9, "55".repeat(32), 0);
+        assert_eq!(
+            latch.intent().map(Stage8bP1eShutdownIntentV1::cause),
+            Some(Stage8bP1eShutdownCauseV1::TelemetryFailure)
+        );
+        assert!(!latch.request(Stage8bP1eShutdownIntentV1::new(
+            Stage8bP1eShutdownCauseV1::ExternalSignal,
+            i64::MAX,
+            2,
+        )));
+        assert_eq!(
+            latch.intent().map(Stage8bP1eShutdownIntentV1::cause),
+            Some(Stage8bP1eShutdownCauseV1::TelemetryFailure)
+        );
     }
 
     const PROCESS_FIXTURE_PARENT: &str = "STAGE8B_P1E_PROCESS_FIXTURE_PARENT";
@@ -5531,6 +6378,100 @@ mod tests {
             fs::remove_dir_all(control).unwrap();
             fs::remove_dir_all(credentials).unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn production_process_publishes_ready_drain_and_stop_telemetry() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("production-telemetry-owner");
+        let control = temp_directory("production-telemetry-owner-control");
+        let credentials = production_process_credentials("production-telemetry-owner-creds");
+        seed_adopted_production_process_fixture(&parent);
+        let manifest_sha256 =
+            crate::stage8b_p1_supervisor::stage8b_p1e_test_provision_production_redis_v1(
+                production_supervisor_config(parent.clone()),
+                PROCESS_FIXTURE_BOOT_ID,
+                &redis.url,
+            )
+            .await;
+        let durable_before = durable_file_snapshot(&parent);
+        let ready = control.join("production-telemetry-ready");
+        let mut child = spawn_production_startup_fixture_child(
+            &redis.url,
+            &parent,
+            &ready,
+            &credentials,
+            "telemetry-paper-ready",
+            &manifest_sha256,
+        );
+        wait_for_process_fixture(&mut child, &ready);
+        assert_eq!(fs::read_to_string(&ready).unwrap(), "telemetry-paper-ready");
+
+        let namespace = crate::stage8b_p1_redis_namespace();
+        let mut connection =
+            redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        assert_eq!(
+            telemetry_phases(&mut connection, &namespace.readiness_stream, "phase").await,
+            ["starting", "paper_ready"]
+        );
+        assert_eq!(
+            telemetry_phases(&mut connection, &namespace.health_stream, "status").await,
+            ["starting", "healthy"]
+        );
+
+        assert_eq!(
+            unsafe { libc::kill(child.id().try_into().unwrap(), libc::SIGTERM) },
+            0
+        );
+        let status = wait_for_process_exit(&mut child);
+        assert_eq!(status.code(), Some(0));
+        assert_eq!(status.signal(), None);
+        assert_eq!(durable_file_snapshot(&parent), durable_before);
+
+        assert_eq!(
+            telemetry_phases(&mut connection, &namespace.readiness_stream, "phase").await,
+            ["starting", "paper_ready", "draining", "stopped"]
+        );
+        assert_eq!(
+            telemetry_phases(&mut connection, &namespace.health_stream, "status").await,
+            ["starting", "healthy", "draining", "stopped"]
+        );
+        for stream in [&namespace.health_stream, &namespace.readiness_stream] {
+            let payloads = telemetry_payloads(&mut connection, stream).await;
+            assert_eq!(payloads.len(), 4);
+            for envelope in payloads {
+                let payload = &envelope["payload"];
+                assert_eq!(payload["paper_only"], true);
+                assert_eq!(payload["finam_transport_attached"], false);
+                assert_eq!(payload["broker_network_dispatch_attached"], false);
+                assert_eq!(payload["runtime_live"], false);
+                assert_eq!(payload["real_orders"], false);
+                let serialized = serde_json::to_string(&envelope).unwrap();
+                for forbidden in [
+                    "redis_url",
+                    "filesystem_path",
+                    "account_id",
+                    "credential",
+                    "token",
+                    "raw_error",
+                ] {
+                    assert!(!serialized.contains(forbidden));
+                }
+            }
+        }
+        let pending: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending.count(), 0);
+
+        fs::remove_dir_all(parent).unwrap();
+        fs::remove_dir_all(control).unwrap();
+        fs::remove_dir_all(credentials).unwrap();
     }
 
     #[tokio::test]
@@ -6854,11 +7795,54 @@ mod tests {
         assert_eq!(Stage8bP1eProcessErrorV1::RedisDeployment.exit_code(), 66);
         assert_eq!(Stage8bP1eProcessErrorV1::RedisAttach.exit_code(), 67);
         assert_eq!(Stage8bP1eProcessErrorV1::OwnerTaskFailed.exit_code(), 70);
+        assert_eq!(Stage8bP1eProcessErrorV1::TelemetryFailed.exit_code(), 71);
         assert_eq!(
             Stage8bP1eProcessErrorV1::ShutdownGraceExpired.exit_code(),
             72
         );
         assert_eq!(Stage8bP1eProcessErrorV1::SignalTaskFailed.exit_code(), 73);
+    }
+
+    #[test]
+    fn production_telemetry_settlement_preserves_first_wins_failure_precedence() {
+        let external = Stage8bP1eShutdownLatchV1::new();
+        assert!(external.request(Stage8bP1eShutdownIntentV1::new(
+            Stage8bP1eShutdownCauseV1::ExternalSignal,
+            i64::MAX,
+            1,
+        )));
+        assert!(matches!(
+            settle_stage8b_p1e_production_telemetry_v1(
+                Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop),
+                false,
+                &external,
+            ),
+            Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop)
+        ));
+
+        let telemetry = Stage8bP1eShutdownLatchV1::new();
+        assert!(telemetry.request(Stage8bP1eShutdownIntentV1::new(
+            Stage8bP1eShutdownCauseV1::TelemetryFailure,
+            i64::MAX,
+            1,
+        )));
+        assert!(matches!(
+            settle_stage8b_p1e_production_telemetry_v1(
+                Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop),
+                false,
+                &telemetry,
+            ),
+            Err(Stage8bP1eProcessErrorV1::TelemetryFailed)
+        ));
+
+        assert!(matches!(
+            settle_stage8b_p1e_production_telemetry_v1(
+                Err(Stage8bP1eProcessErrorV1::OwnerLoop),
+                false,
+                &telemetry,
+            ),
+            Err(Stage8bP1eProcessErrorV1::OwnerLoop)
+        ));
     }
 
     #[test]
@@ -6896,6 +7880,23 @@ mod tests {
             .unwrap(),
             Stage8bP1eProcessSuccessV1::RunStopped
         );
+
+        let mut telemetry_failure = Stage8bP1eCoordinatorV1::new();
+        let _ = telemetry_failure.coordinate(
+            Stage8bP1eSupervisorEventV1::TelemetryFailed,
+            true,
+            100,
+            200,
+            1,
+        );
+        assert!(matches!(
+            finish_owner_task_at(
+                &mut telemetry_failure,
+                Ok(Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop)),
+                199,
+            ),
+            Err(Stage8bP1eProcessErrorV1::TelemetryFailed)
+        ));
 
         let mut at_deadline = Stage8bP1eCoordinatorV1::new();
         let _ = at_deadline.coordinate(
