@@ -22,6 +22,10 @@ SUPERVISOR = "crates/runtime-durable-service/src/stage8b_p1_supervisor.rs"
 SEMANTIC = "crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs"
 RECOVERY = "crates/runtime-durable-service/src/recovery.rs"
 LIB = "crates/runtime-durable-service/src/lib.rs"
+HYBRID_RUNTIME = "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs"
+CLEAN_RESTART = "crates/strategy-runtime-core/src/stage5g_clean_restart.rs"
+ORDER_POSITION = "crates/strategy-runtime-core/src/stage5g_order_position.rs"
+LIVE_CORE = "crates/strategy-runtime-core/src/stage6d_live_core.rs"
 CONTRACT = "docs/stage-8/stage8b-p1e-telemetry-contract-v1.json"
 
 ALLOWED_CHANGES = {
@@ -30,6 +34,10 @@ ALLOWED_CHANGES = {
     SEMANTIC,
     SUPERVISOR,
     PROCESS,
+    HYBRID_RUNTIME,
+    CLEAN_RESTART,
+    ORDER_POSITION,
+    LIVE_CORE,
     DOCUMENT,
     MATRIX,
     STATUS,
@@ -72,6 +80,10 @@ def load_content(root: Path = ROOT) -> dict[str, str]:
         "semantic": SEMANTIC,
         "supervisor": SUPERVISOR,
         "process": PROCESS,
+        "hybrid_runtime": HYBRID_RUNTIME,
+        "clean_restart": CLEAN_RESTART,
+        "order_position": ORDER_POSITION,
+        "live_core": LIVE_CORE,
         "document": DOCUMENT,
         "status": STATUS,
     }
@@ -115,7 +127,7 @@ def validate_matrix(root: Path) -> None:
     except OSError as error:
         raise CheckFailure(f"cannot read acceptance matrix: {error}") from error
     require(rows and list(rows[0]) == ["id", "area", "requirement", "status"], "matrix header drift")
-    require([row["id"] for row in rows] == [f"I1TEL-{index:03}" for index in range(1, 21)], "matrix inventory drift")
+    require([row["id"] for row in rows] == [f"I1TEL-{index:03}" for index in range(1, 30)], "matrix inventory drift")
     require(all(row["status"] == "REQUIRED" for row in rows), "optional matrix row introduced")
 
 
@@ -127,6 +139,10 @@ def validate_content(content: dict[str, str]) -> None:
     lib = content["lib"]
     document = content["document"]
     status = content["status"]
+    hybrid_runtime = content["hybrid_runtime"]
+    clean_restart = content["clean_restart"]
+    order_position = content["order_position"]
+    live_core = content["live_core"]
 
     publisher_struct = section(
         supervisor,
@@ -242,7 +258,18 @@ def validate_content(content: dict[str, str]) -> None:
         ),
         "bounded periodic telemetry task",
     )
-    require("latch.request(Stage8bP1eShutdownIntentV1::new(" in publisher_task, "write failure is not fail closed")
+    require(
+        "request_stage8b_p1e_telemetry_shutdown_v1(latch.as_ref(), shutdown_grace_ms)"
+        in publisher_task,
+        "write failure is not fail closed",
+    )
+    for token in (
+        "state.reconcile_live_process_state(latch.as_ref(), Utc::now().timestamp_millis())",
+        "wait_for_stage8b_p1e_shutdown_v1(latch.as_ref())",
+        "receiver.recv()",
+        "interval.tick()",
+    ):
+        require(token in publisher_task, f"live telemetry reconciliation missing: {token}")
 
     production_owner = section(
         process,
@@ -277,6 +304,12 @@ def validate_content(content: dict[str, str]) -> None:
         "durable_commitment_sha256",
         "consumer_name",
         "pel_count: initial_pel_count",
+        "last_semantic_bar_ts_utc",
+        "last_canonical_ack_ts_utc",
+        "Stage8bP1eTelemetryTaskGuardV1::new(telemetry_task)",
+        "result = telemetry_task.task_mut()",
+        "telemetry_reporter.request_telemetry_failure()",
+        "await_stage8b_p1e_telemetry_until_retained_deadline_v1(",
     ):
         require(token in production_owner, f"initial production identity missing: {token}")
     for token in (
@@ -302,8 +335,108 @@ def validate_content(content: dict[str, str]) -> None:
     ):
         require(token in process, f"owner/failure telemetry invariant missing: {token}")
     require(process.count("telemetry.update_ready(") == 2, "ready transition inventory drift")
-    require(process.count("telemetry.update_lifecycle_pending(") == 3, "degraded transition inventory drift")
+    require(process.count("telemetry.update_lifecycle_pending(") == 4, "degraded transition inventory drift")
     require(process.count("telemetry.update_draining()") == 2, "draining transition inventory drift")
+
+    for token in (
+        "source_poll_observed_at_utc_ms: Option<i64>",
+        "source_poll_fresh_until_utc_ms: Option<i64>",
+        "fn stage8b_p1e_source_poll_freshness_ms(health_interval_ms: u64)",
+        "health_interval_ms.saturating_mul(2).max(3_000)",
+        "let shutdown_requested = self.latch.intent().is_some()",
+        "Stage8bP1eTelemetryLifecycleV1::Draining",
+        "fn reconcile_live_process_state(",
+        "intent.grace_deadline_utc_ms()",
+        "state.reconcile_live_process_state(latch.as_ref(), Utc::now().timestamp_millis())",
+    ):
+        require(token in process, f"live readiness/freshness invariant missing: {token}")
+    require(
+        process.count("let shutdown_requested = self.latch.intent().is_some()") == 2,
+        "ready/pending latch reconciliation inventory drift",
+    )
+
+    telemetry_guard = section(
+        process,
+        "struct Stage8bP1eTelemetryTaskGuardV1 {",
+        "async fn await_stage8b_p1e_telemetry_until_retained_deadline_v1(",
+    )
+    for token in ("task.abort()", "impl Drop for Stage8bP1eTelemetryTaskGuardV1"):
+        require(token in telemetry_guard, f"telemetry child cleanup missing: {token}")
+
+    retained_wait = section(
+        process,
+        "async fn await_stage8b_p1e_telemetry_until_retained_deadline_v1(",
+        "#[cfg(test)]\nasync fn stage8b_p1e_telemetry_test_barrier_v1(",
+    )
+    require_order(
+        retained_wait,
+        (
+            ".map(Stage8bP1eShutdownIntentV1::grace_deadline_utc_ms)",
+            "deadline_utc_ms.saturating_sub(now_utc_ms)",
+            "tokio::time::timeout(StdDuration::from_millis(remaining_ms)",
+            "telemetry.abort()",
+        ),
+        "retained telemetry deadline",
+    )
+
+    common_supervisor = section(
+        process,
+        "async fn supervise_stage8b_p1e_owner_task_v1(",
+        "fn map_redis_attach_error(",
+    )
+    for token in (
+        "ShutdownTriggerV1::RetainedIntent",
+        "wait_for_stage8b_p1e_shutdown_v1(shutdown_latch.as_ref())",
+        ".map(Stage8bP1eShutdownIntentV1::grace_deadline_utc_ms)",
+        "grace_deadline.saturating_sub(now)",
+        "Stage8bP1eSupervisorEventV1::GraceExpired",
+        "owner.abort()",
+    ):
+        require(token in common_supervisor, f"active process supervision missing: {token}")
+
+    finish_owner = section(process, "fn finish_owner_task_at(", "fn terminal_process_result(")
+    require(
+        "intent.bounded_exit_class(now_utc_ms)" in finish_owner,
+        "telemetry exit 71/72 retained-deadline mapping missing",
+    )
+
+    for token in (
+        "pub(crate) struct Stage8bP1eTelemetryDurableSnapshotV1",
+        "last_semantic_bar_ts_utc",
+        "last_canonical_ack_ts_utc",
+        "stage8b_p1e_telemetry_snapshot_from_ready_v1",
+        "stage8b_p1e_telemetry_snapshot_from_recovered_v1",
+    ):
+        require(token in recovery, f"authenticated durable telemetry snapshot missing: {token}")
+    for token in (
+        "pub(crate) fn stage8b_p1e_telemetry_snapshot_v1",
+        "pub(crate) fn stage8b_p1e_telemetry_runtime_audit_v1",
+    ):
+        require(token in semantic, f"semantic telemetry bridge missing: {token}")
+    require(
+        semantic.count("pub(crate) fn stage8b_p1e_telemetry_snapshot_v1") == 8,
+        "semantic durable-snapshot route inventory drift",
+    )
+    require(
+        semantic.count("pub(crate) fn stage8b_p1e_telemetry_runtime_audit_v1") == 1,
+        "semantic runtime-audit route inventory drift",
+    )
+    require(
+        "stage8b_p1e_last_semantic_bar_ts_utc" in hybrid_runtime,
+        "runtime semantic timestamp bridge missing",
+    )
+    require(
+        "stage8b_p1e_last_semantic_bar_ts_utc" in clean_restart,
+        "restart semantic timestamp bridge missing",
+    )
+    require(
+        "stage8b_p1e_last_canonical_ack_ts_utc" in order_position,
+        "order ACK timestamp bridge missing",
+    )
+    require(
+        "stage8b_p1e_telemetry_runtime_audit_v1" in live_core,
+        "Stage6 runtime telemetry audit bridge missing",
+    )
 
     for test in (
         "production_telemetry_publishes_all_transitions_in_order",
@@ -312,22 +445,41 @@ def validate_content(content: dict[str, str]) -> None:
         "telemetry_reporter_backpressure_is_fail_closed_and_first_wins",
         "production_telemetry_settlement_preserves_first_wins_failure_precedence",
         "production_process_publishes_ready_drain_and_stop_telemetry",
+        "production_telemetry_expires_source_poll_while_redis_writer_remains_live",
+        "production_telemetry_reconciles_shutdown_and_source_freshness_at_observation_time",
+        "production_telemetry_queued_ready_cannot_override_retained_shutdown",
+        "process_supervisor_observes_telemetry_intent_without_os_signal",
+        "process_supervisor_uses_retained_telemetry_deadline_without_extension",
+        "production_process_telemetry_panic_and_fifo_overflow_exit_71_without_signal",
+        "production_process_telemetry_redis_error_exits_71_without_signal",
+        "production_heartbeat_turns_draining_while_ready_poll_response_is_withheld",
+        "late_sigterm_does_not_extend_retained_telemetry_deadline",
+        "production_telemetry_payload_tracks_real_signed_market_ack_truth_and_xack",
+        "retained_signed_market_ack_exposes_exact_terminal_snapshot_and_pel",
+        "production_telemetry_publishes_typed_blocked_inventory",
     ):
         require(test in process, f"telemetry executable evidence missing: {test}")
 
     for fragment in (
-        "SOURCE REVIEW CANDIDATE — I1 NOT CLOSED",
+        "SOURCE CORRECTION REVIEW CANDIDATE — I1 NOT CLOSED",
         "write-only `Stage8bP1eTelemetryPublisherV1`",
         "Starting/PaperReady/Degraded/Draining/Stopped",
         "XADD <fixed-stream> NOMKSTREAM MAXLEN = 4096",
         "fixed-path installation and systemd material",
         "No operational installation or service start is authorized here",
+        "one retained deadline",
+        "Source freshness is not inferred from heartbeat activity",
+        "Durable diagnostic truth",
+        "signed-V4",
     ):
         require(fragment in document, f"telemetry document fragment missing: {fragment}")
     for fragment in (
         "I1 telemetry composition candidate",
         "source review candidate, not acceptance",
         "Operational Redis, VPS activation",
+        "I1 telemetry correction candidate",
+        "source correction review candidate, not acceptance",
+        "P1-TEL01, P1-TEL02 and P2-TEL03",
     ):
         require(fragment in status, f"current status fragment missing: {fragment}")
 
@@ -350,7 +502,7 @@ def main() -> int:
     except (OSError, UnicodeDecodeError, CheckFailure) as error:
         print(f"stage8b-p1e-i1-telemetry-composition-check: FAIL {error}")
         return 1
-    print("stage8b-p1e-i1-telemetry-composition-check: PASS rows=20 closed_surfaces=9")
+    print("stage8b-p1e-i1-telemetry-composition-check: PASS rows=29 closed_surfaces=9 findings=3")
     return 0
 
 

@@ -19,3 +19,12 @@ I1TEL-017,process,Real child process publishes PaperReady Draining Stopped and e
 I1TEL-018,durability,Telemetry process witness leaves durable root unchanged and source PEL empty,REQUIRED
 I1TEL-019,regression,Inherited process restart cancel day-expiry and XACK-last tests remain green,REQUIRED
 I1TEL-020,scope,Install systemd operational Redis VPS FINAM dispatch runtime-live real orders and P1-f remain closed,REQUIRED
+I1TEL-021,supervision,The common process supervisor actively observes the first retained shutdown intent without an OS signal,REQUIRED
+I1TEL-022,supervision,Unexpected telemetry task completion panic and FIFO overflow initiate bounded shutdown and child-task cleanup,REQUIRED
+I1TEL-023,deadline,One first-wins grace deadline governs owner drain telemetry settlement and terminal exit without extension,REQUIRED
+I1TEL-024,exit,Telemetry failure before the retained deadline exits 71 while reaching or exceeding that deadline exits 72,REQUIRED
+I1TEL-025,readiness,Every publication reconciles the current shutdown latch and queued Ready cannot restore PaperReady after shutdown,REQUIRED
+I1TEL-026,freshness,Source-poll freshness has an observed time and expiry and can degrade while telemetry Redis remains healthy,REQUIRED
+I1TEL-027,process,A real in-flight owner poll publishes Draining before release and never publishes a later PaperReady,REQUIRED
+I1TEL-028,durability,Actual semantic and ACK timestamps seal generation commitment and PEL follow authenticated ACK truth and XACK boundaries,REQUIRED
+I1TEL-029,recovery,Retained and blocked boundaries expose exact durable snapshot PEL and typed blocked inventory without lifecycle or XACK authority,REQUIRED

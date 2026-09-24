@@ -622,6 +622,20 @@ fn stage5g_reconstruct_runtime_from_clean_restart(
 }
 
 impl Stage5gCleanRestartedCapability {
+    pub(crate) fn stage8b_p1e_last_semantic_bar_ts_utc(&self) -> Option<String> {
+        self.continuation_authority
+            .lifecycle_watermarks
+            .last_semantic_bar_ts
+            .map(|value| value.to_rfc3339_opts(chrono::SecondsFormat::Micros, true))
+    }
+
+    pub(crate) fn stage8b_p1e_last_canonical_ack_ts_utc(&self) -> Option<String> {
+        self.projection
+            .order_position_state
+            .as_ref()
+            .and_then(Stage5gOrderPositionState::stage8b_p1e_last_canonical_ack_ts_utc)
+    }
+
     pub(crate) fn stage6d_restart_binding(&self) -> (&str, &BrokerAccountId, &InstrumentId, &str) {
         (
             &self.projection.binding.strategy_id,

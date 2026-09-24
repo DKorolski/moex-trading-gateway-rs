@@ -1248,6 +1248,23 @@ impl Stage8bP1RedisSemanticCompositionOwner {
         ))
     }
 
+    pub(crate) fn stage8b_p1e_telemetry_runtime_audit_v1(
+        &self,
+    ) -> Result<(Option<String>, Option<String>), Stage8bP1RedisSemanticError> {
+        self.stage7
+            .stage8b_p1e_telemetry_runtime_audit_v1()
+            .map_err(Into::into)
+    }
+
+    pub(crate) fn stage8b_p1e_telemetry_snapshot_v1(
+        &self,
+    ) -> Result<crate::recovery::Stage8bP1eTelemetryDurableSnapshotV1, Stage8bP1RedisSemanticError>
+    {
+        self.stage7
+            .stage8b_p1e_telemetry_snapshot_v1()
+            .map_err(Into::into)
+    }
+
     pub(crate) fn stage8b_p1e_validate_telemetry_readiness_v1(
         &mut self,
         commitment_key: &Stage5gLifecycleCommitmentKey,
@@ -2548,6 +2565,100 @@ impl Stage8bP1RedisZeroIntentAckResolved {
     }
 }
 
+type Stage8bP1eTelemetryDurableSnapshotV1 = crate::recovery::Stage8bP1eTelemetryDurableSnapshotV1;
+
+impl Stage8bP1RedisSemanticOutcome {
+    pub(crate) fn stage8b_p1e_telemetry_snapshot_v1(
+        &self,
+    ) -> Result<Option<Stage8bP1eTelemetryDurableSnapshotV1>, Stage8bP1RedisSemanticError> {
+        match self {
+            Self::Ready { owner, .. } | Self::PendingNotClaimable { owner, .. } => {
+                owner.stage8b_p1e_telemetry_snapshot_v1().map(Some)
+            }
+            Self::Prepublication(pending) => pending.stage8b_p1e_telemetry_snapshot_v1().map(Some),
+            Self::MultiIntentBlocked { .. } => Ok(None),
+        }
+    }
+}
+
+impl Stage8bP1RedisPrepublicationPending {
+    pub(crate) fn stage8b_p1e_telemetry_snapshot_v1(
+        &self,
+    ) -> Result<Stage8bP1eTelemetryDurableSnapshotV1, Stage8bP1RedisSemanticError> {
+        self.durable
+            .stage8b_p1e_telemetry_snapshot_v1()
+            .map_err(Into::into)
+    }
+}
+
+impl Stage8bP1RedisCommandPublished {
+    pub(crate) fn stage8b_p1e_telemetry_snapshot_v1(
+        &self,
+    ) -> Result<Stage8bP1eTelemetryDurableSnapshotV1, Stage8bP1RedisSemanticError> {
+        self.stage7
+            .stage8b_p1e_telemetry_snapshot_v1()
+            .map_err(Into::into)
+    }
+}
+
+macro_rules! impl_stage8b_p1e_redis_durable_telemetry_snapshot {
+    ($($owner:ty),+ $(,)?) => {
+        $(
+            impl $owner {
+                pub(crate) fn stage8b_p1e_telemetry_snapshot_v1(
+                    &self,
+                ) -> Result<Stage8bP1eTelemetryDurableSnapshotV1, Stage8bP1RedisSemanticError> {
+                    self.durable
+                        .stage8b_p1e_telemetry_snapshot_v1()
+                        .map_err(Into::into)
+                }
+            }
+        )+
+    };
+}
+
+impl_stage8b_p1e_redis_durable_telemetry_snapshot!(
+    Stage8bP1RedisGeneratedMarketAckCommitted,
+    Stage8bP1RedisGeneratedMarketTruthCommitted,
+    Stage8bP1RedisFeedbackAckCommitted,
+    Stage8bP1RedisFeedbackTruthCommitted,
+    Stage8bP1RedisLimitAckCommitted,
+    Stage8bP1RedisLimitTruthCommitted,
+    Stage8bP1RedisCancelContinuationPending,
+);
+
+macro_rules! impl_stage8b_p1e_redis_ready_telemetry_snapshot {
+    ($($owner:ty),+ $(,)?) => {
+        $(
+            impl $owner {
+                pub(crate) fn stage8b_p1e_telemetry_snapshot_v1(
+                    &self,
+                ) -> Result<Stage8bP1eTelemetryDurableSnapshotV1, Stage8bP1RedisSemanticError> {
+                    self.owner.stage8b_p1e_telemetry_snapshot_v1()
+                }
+            }
+        )+
+    };
+}
+
+impl_stage8b_p1e_redis_ready_telemetry_snapshot!(
+    Stage8bP1RedisZeroIntentAckResolved,
+    Stage8bP1RedisFeedbackResolved,
+    Stage8bP1RedisLimitResolved,
+);
+
+impl Stage8bP1RedisPreAckRecoveryOutcome {
+    pub(crate) fn stage8b_p1e_telemetry_snapshot_v1(
+        &self,
+    ) -> Result<Option<Stage8bP1eTelemetryDurableSnapshotV1>, Stage8bP1RedisSemanticError> {
+        match self {
+            Self::AckCommitted(owner) => owner.stage8b_p1e_telemetry_snapshot_v1().map(Some),
+            Self::TruthCommitted(owner) => owner.stage8b_p1e_telemetry_snapshot_v1().map(Some),
+            Self::Semantic(outcome) => outcome.stage8b_p1e_telemetry_snapshot_v1(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage8bP1eShutdownCauseV1 {
     ExternalSignal,
@@ -2653,6 +2764,17 @@ enum Stage8bP1d4JournalAheadPending {
     PreAck(Stage8bP1d4GeneratedMarketPreAckPendingOwner),
 }
 
+impl Stage8bP1d4JournalAheadPending {
+    fn stage8b_p1e_telemetry_snapshot_v1(&self) -> Stage8bP1eTelemetryDurableSnapshotV1 {
+        match self {
+            Self::Dispatch(owner) => owner.stage8b_p1e_telemetry_snapshot_v1(),
+            Self::Order(owner) => owner.stage8b_p1e_telemetry_snapshot_v1(),
+            Self::PreFinalization(owner) => owner.stage8b_p1e_telemetry_snapshot_v1(),
+            Self::PreAck(owner) => owner.stage8b_p1e_telemetry_snapshot_v1(),
+        }
+    }
+}
+
 enum Stage8bP1ePostAcquisitionRouteV1 {
     ReadySource {
         claimed: Stage8bP1eClaimedM10DeliveryV2,
@@ -2753,6 +2875,41 @@ enum Stage8bP1ePostAcquisitionRouteV1 {
 }
 
 impl Stage8bP1ePostAcquisitionRouteV1 {
+    fn stage8b_p1e_telemetry_snapshot_v1(
+        &self,
+    ) -> Result<Option<Stage8bP1eTelemetryDurableSnapshotV1>, Stage8bP1RedisSemanticError> {
+        let snapshot = match self {
+            Self::ReadySource { claimed } | Self::ReadyWorkingLimit { claimed } => {
+                claimed.owner.stage8b_p1e_telemetry_snapshot_v1()?
+            }
+            Self::ZeroIntentAck { pending, .. } => pending.stage8b_p1e_telemetry_snapshot_v1()?,
+            Self::JournalAhead { pending, .. } => pending.stage8b_p1e_telemetry_snapshot_v1(),
+            Self::Prepublication { durable, .. } => durable.stage8b_p1e_telemetry_snapshot_v1()?,
+            Self::P1d4Prepublication { durable, .. } => {
+                durable.stage8b_p1e_telemetry_snapshot_v1()?
+            }
+            Self::P1d4JournalAhead { durable, .. } => durable.stage8b_p1e_telemetry_snapshot_v1(),
+            Self::P1d4Ack { durable, .. } => durable.stage8b_p1e_telemetry_snapshot_v1()?,
+            Self::P1d4Truth { durable, .. } => durable.stage8b_p1e_telemetry_snapshot_v1()?,
+            Self::P1d2Ack { durable, .. } => durable.stage8b_p1e_telemetry_snapshot_v1()?,
+            Self::P1d2PreAck { durable, .. } => durable.stage8b_p1e_telemetry_snapshot_v1(),
+            Self::P1d2Truth { durable, .. } => durable.stage8b_p1e_telemetry_snapshot_v1()?,
+            Self::P1d3PreAck { durable, .. } => durable.stage8b_p1e_telemetry_snapshot_v1(),
+            Self::P1d3DispatchLimit { durable, .. }
+            | Self::P1d3DispatchExpiry { durable, .. }
+            | Self::P1d3DispatchCancel { durable, .. } => {
+                durable.stage8b_p1e_telemetry_snapshot_v1()
+            }
+            Self::P1d3Ack { durable, .. } => durable.stage8b_p1e_telemetry_snapshot_v1()?,
+            Self::P1d3Truth { durable, .. } => durable.stage8b_p1e_telemetry_snapshot_v1()?,
+            Self::P1d3CancelContinuation { durable, .. } => {
+                durable.stage8b_p1e_telemetry_snapshot_v1()?
+            }
+            Self::P1d3Semantic { durable, .. } => durable.stage8b_p1e_telemetry_snapshot_v1()?,
+        };
+        Ok(Some(snapshot))
+    }
+
     fn route_id(&self) -> &'static str {
         match self {
             Self::ReadySource { .. } | Self::ReadyWorkingLimit { .. } => "S08",
@@ -3133,6 +3290,37 @@ pub enum Stage8bP1eRoutedContinuationV1 {
 }
 
 impl Stage8bP1eRoutedContinuationV1 {
+    pub(crate) fn stage8b_p1e_telemetry_snapshot_v1(
+        &self,
+    ) -> Result<Option<Stage8bP1eTelemetryDurableSnapshotV1>, Stage8bP1RedisSemanticError> {
+        let permit = match self {
+            Self::ReadySemantic(permit)
+            | Self::ReadyWorkingLimit(permit)
+            | Self::ZeroIntentAck(permit)
+            | Self::JournalAhead(permit)
+            | Self::Prepublication(permit)
+            | Self::P1d4Prepublication(permit)
+            | Self::P1d4DispatchPending(permit)
+            | Self::P1d4OrderPending(permit)
+            | Self::P1d4PreFinalizationPending(permit)
+            | Self::P1d4PreAckPending(permit)
+            | Self::P1d4Ack(permit)
+            | Self::P1d4Truth(permit)
+            | Self::P1d2Ack(permit)
+            | Self::P1d2PreAck(permit)
+            | Self::P1d2Truth(permit)
+            | Self::P1d3PreAck(permit)
+            | Self::P1d3DispatchLimit(permit)
+            | Self::P1d3DispatchExpiry(permit)
+            | Self::P1d3DispatchCancel(permit)
+            | Self::P1d3Ack(permit)
+            | Self::P1d3Truth(permit)
+            | Self::P1d3CancelContinuation(permit)
+            | Self::P1d3Semantic(permit) => permit,
+        };
+        permit.route.stage8b_p1e_telemetry_snapshot_v1()
+    }
+
     pub const fn kind(&self) -> Stage8bP1eContinuationRouteKindV1 {
         match self {
             Self::ReadySemantic(_) => Stage8bP1eContinuationRouteKindV1::ReadySemantic,

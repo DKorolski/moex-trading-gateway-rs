@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the immutable I1 production telemetry composition handoff."""
+"""Create the immutable I1 production telemetry correction handoff."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ import stage8b_p1e_i1_telemetry_composition_handoff_safety_check as safety
 
 ROOT = runner.ROOT
 OUTPUT = runner.OUTPUT
-REVIEW_SOURCE = Path("/Users/denisq/Downloads/FINAM_I1_AGGREGATE_READINESS_REVIEW_896ad1b_2026-09-23.md")
+REVIEW_SOURCE = Path("/Users/denisq/Downloads/FINAM_I1_TELEMETRY_REVIEW_22ad2d5_2026-09-24.md")
 
 
 def main() -> None:
@@ -33,7 +33,9 @@ def main() -> None:
         raise SystemExit(
             f"stage8b-p1e-i1-telemetry-handoff: FAIL parent={source_parent} expected={safety.PARENT}"
         )
-    changed_paths = runner.git("diff", "--name-only", safety.PARENT, source_ref, "--").decode().splitlines()
+    changed_paths = runner.git(
+        "diff", "--name-only", telemetry_check.BASE, source_ref, "--"
+    ).decode().splitlines()
     if set(changed_paths) != telemetry_check.ALLOWED_CHANGES:
         raise SystemExit("stage8b-p1e-i1-telemetry-handoff: FAIL changed-path inventory")
     review_raw = REVIEW_SOURCE.read_bytes()
@@ -99,14 +101,14 @@ def main() -> None:
 
     archive_name = (
         f"moex-trading-project-{source_short_ref}-"
-        "stage8b-p1e-i1-telemetry-composition.zip"
+        "stage8b-p1e-i1-telemetry-correction.zip"
     )
     archive_path = OUTPUT / archive_name
     manifest_raw, entries = common.source_manifest(source_ref)
     evidence = {
         "schema_version": 1,
         "stage": safety.STAGE,
-        "status": "SOURCE_REVIEW_CANDIDATE_I1_NOT_CLOSED",
+        "status": "SOURCE_CORRECTION_REVIEW_CANDIDATE_I1_NOT_CLOSED",
         "source_ref": source_ref,
         "source_parent": source_parent,
         "source_tree": source_tree,
@@ -125,6 +127,18 @@ def main() -> None:
             "nomkstream_exact_maxlen_4096": True,
             "missing_stream_no_create": True,
             "first_wins_failure_precedence": True,
+            "active_telemetry_intent_supervision": True,
+            "telemetry_task_panic_and_early_completion_supervised": True,
+            "single_retained_deadline": True,
+            "exit_71_before_deadline_and_72_at_expiry": True,
+            "latch_reconciled_at_publication": True,
+            "source_poll_freshness_expires": True,
+            "queued_ready_cannot_restore_paper_ready": True,
+            "inflight_poll_draining_heartbeat": True,
+            "authenticated_semantic_and_ack_timestamps": True,
+            "ack_truth_xack_seal_and_pel_tracking": True,
+            "retained_terminal_snapshot": True,
+            "typed_blocked_inventory": True,
             "production_child_sigterm_exit_zero": True,
             "durable_root_unchanged": True,
             "m10_pel_empty": True,
@@ -142,7 +156,7 @@ def main() -> None:
             "real_orders": False,
             "p1f_authorized": False,
         },
-        "predecessor_review_sha256": safety.REVIEW_SHA256,
+        "correction_review_sha256": safety.REVIEW_SHA256,
     }
     evidence_raw = (json.dumps(evidence, indent=2, sort_keys=True) + "\n").encode()
     marker = (

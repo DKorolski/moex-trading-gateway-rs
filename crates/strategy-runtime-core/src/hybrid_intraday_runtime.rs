@@ -242,6 +242,12 @@ pub(crate) enum Stage5dProcessedBarPolicy {
 }
 
 impl HybridIntradayRuntimeStrategy {
+    pub(crate) fn stage8b_p1e_last_semantic_bar_ts_utc(&self) -> Option<String> {
+        self.last_processed_bar_ts
+            .and_then(|ts| Utc.timestamp_opt(ts, 0).single())
+            .map(|ts| ts.to_rfc3339_opts(chrono::SecondsFormat::Micros, true))
+    }
+
     pub(crate) fn stage5d_timezone_offset_hours(&self) -> i32 {
         self.config.timezone_offset_hours
     }

@@ -1953,3 +1953,30 @@ open. Fixed-path installation/systemd material is the next slice only after
 independent telemetry source acceptance. Operational Redis, VPS activation,
 paper-provider activation, FINAM send, broker dispatch, runtime-live, real
 orders and P1-f remain closed.
+
+## Stage 8B-P1-e I1 telemetry correction candidate (2026-09-24)
+
+The correction above `22ad2d546ba358e8c42d28ce0c3d8bb3a275535a`
+addresses independent-review findings P1-TEL01, P1-TEL02 and P2-TEL03 without
+opening installation or operational surfaces. The common supervisor now wakes
+on a telemetry-retained shutdown intent without an OS signal, actively observes
+early telemetry-task completion, preserves one first-wins deadline through
+owner drain and final publication, and maps telemetry completion before that
+deadline to 71 versus deadline expiry to 72. Armed child telemetry tasks are
+aborted on parent exit or unwind.
+
+Every publication reconciles the current latch and a time-bounded source-poll
+freshness observation. A queued Ready transition cannot restore PaperReady
+after shutdown, and an in-flight production Redis poll has an executable
+witness showing Draining heartbeats before the response is released and no
+later PaperReady. A separate witness proves freshness expiry while the
+telemetry writer remains live.
+
+Read-only diagnostic bridges now obtain semantic/ACK timestamps and exact seal
+generation/commitment from the authenticated runtime/recovery owner. Retained
+and terminal paths reread actual PEL; signed Market ACK/truth/XACK and typed
+blocked-recovery tests compare published payloads with those durable facts.
+This remains a source correction review candidate, not acceptance. Fixed-path
+installation/systemd material, operational Redis, VPS activation,
+paper-provider activation, FINAM send, broker dispatch, runtime-live, real
+orders and P1-f remain closed until independent correction acceptance.

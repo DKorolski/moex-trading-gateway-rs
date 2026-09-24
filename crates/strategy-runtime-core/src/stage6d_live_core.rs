@@ -1927,6 +1927,18 @@ impl Stage6Stage8a4BatchAppendReceipt {
 }
 
 impl Stage6dDurableRuntimeRecovered {
+    pub fn stage8b_p1e_telemetry_runtime_audit_v1(&self) -> (Option<String>, Option<String>) {
+        match &self.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::FirstBoot(runtime) => {
+                (runtime.stage8b_p1e_last_semantic_bar_ts_utc(), None)
+            }
+            Stage6dStage5RuntimeAuthority::Restart(restart) => (
+                restart.stage8b_p1e_last_semantic_bar_ts_utc(),
+                restart.stage8b_p1e_last_canonical_ack_ts_utc(),
+            ),
+        }
+    }
+
     fn stage8b_p1e_candidate_matches_runtime(
         &self,
         candidate: &crate::Stage8bP1eScheduleBindingCandidateV1,

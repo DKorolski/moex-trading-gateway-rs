@@ -147,12 +147,13 @@ def validate_content(content: dict[str, str]) -> None:
         require(token in process, f"process invariant missing: {token}")
     for token in (
         "Stage8bP1eSupervisorEventV1::ExternalSignal",
+        "Stage8bP1eSupervisorEventV1::SignalTaskFailed",
         "Stage8bP1eSupervisorEventV1::GraceExpired",
     ):
         require(token in supervision, f"supervision invariant missing: {token}")
     require(
-        supervision.count("Stage8bP1eSupervisorEventV1::GraceExpired") == 2,
-        "both signal-failure and external-signal grace paths must remain explicit",
+        supervision.count("Stage8bP1eSupervisorEventV1::GraceExpired") == 1,
+        "first-wins signal and telemetry paths must share one retained grace deadline",
     )
     require(
         process.count("async fn await_stage8b_p1e_startup_operation_v1<F>(") == 1,
@@ -177,6 +178,10 @@ def validate_content(content: dict[str, str]) -> None:
         "Stage8bP1eOwnerTaskBoundaryV1::RestartRequired",
     ):
         require(token in owner, f"owner handoff invariant missing: {token}")
+    require(
+        owner.count("Stage8bP1eOwnerTaskBoundaryV1::RestartRequired") == 2,
+        "restart-required owner route inventory drift",
+    )
 
     for error, code in (
         ("Self::RedisAttach | Self::ScheduleReader | Self::OwnerLoop", "67"),

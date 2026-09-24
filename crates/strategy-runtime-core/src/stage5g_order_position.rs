@@ -306,6 +306,21 @@ pub(crate) struct Stage5gOrderPositionState {
     last_continuation_checkpoint_ts_utc_ms: Option<i64>,
 }
 
+impl Stage5gOrderPositionState {
+    pub(crate) fn stage8b_p1e_last_canonical_ack_ts_utc(&self) -> Option<String> {
+        self.slots
+            .iter()
+            .filter_map(|slot| slot.ack.latest_received_ts_utc.as_deref())
+            .filter_map(|value| DateTime::parse_from_rfc3339(value).ok())
+            .max()
+            .map(|value| {
+                value
+                    .with_timezone(&Utc)
+                    .to_rfc3339_opts(chrono::SecondsFormat::Micros, true)
+            })
+    }
+}
+
 /// Minimal immutable view consumed by the Stage 5G-e-d-b reducer.  It is
 /// intentionally produced by the module that owns `Stage5gOrderPositionState`
 /// so the reducer never receives mutable state or broad field visibility.

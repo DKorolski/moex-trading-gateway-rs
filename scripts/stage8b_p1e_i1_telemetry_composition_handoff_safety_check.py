@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the immutable I1 production telemetry composition handoff."""
+"""Validate the immutable I1 production telemetry correction handoff."""
 
 from __future__ import annotations
 
@@ -14,15 +14,15 @@ import stage8b_p1e_i1_telemetry_composition_check as telemetry_check
 import stage8b_p1e_i1a_handoff_safety_check as common
 
 
-PARENT = telemetry_check.BASE
+PARENT = "22ad2d546ba358e8c42d28ce0c3d8bb3a275535a"
 BRANCH = "stage8b-paper-shadow-resumption"
-STAGE = "Stage 8B-P1-e I1 production telemetry composition"
+STAGE = "Stage 8B-P1-e I1 production telemetry composition correction"
 MARKER = "handoff-commit.txt"
 MANIFEST = "handoff-evidence/source-tree-manifest.json"
 COMMIT_RAW = "handoff-evidence/source-commit.raw"
 EVIDENCE = "handoff-evidence/stage8b-p1e-i1-telemetry-composition-evidence.json"
-REVIEW = "handoff-evidence/reviews/FINAM_I1_AGGREGATE_READINESS_REVIEW_896ad1b_2026-09-23.md"
-REVIEW_SHA256 = "14b5b8b3ddb526acacd7d1345b44027057c1c5faff2f636c88b9a2025465f78d"
+REVIEW = "handoff-evidence/reviews/FINAM_I1_TELEMETRY_REVIEW_22ad2d5_2026-09-24.md"
+REVIEW_SHA256 = "90f2646a2b10e640f01cca7a53f657aa9dc94d0df150c6ad839f2124aca886fd"
 LOGS = {
     "source_gate": "handoff-evidence/stage8b-p1e-i1-telemetry-source-gate.log",
     "runtime_process": "handoff-evidence/stage8b-p1e-i1-telemetry-process-tests.log",
@@ -113,7 +113,10 @@ def check(path: str) -> dict[str, object]:
         require(common.build_tree_oid(entries, payloads) == marker["source_tree"], "tree reconstruction mismatch")
 
         evidence = json.loads(files[EVIDENCE])
-        require(evidence["status"] == "SOURCE_REVIEW_CANDIDATE_I1_NOT_CLOSED", "evidence status drift")
+        require(
+            evidence["status"] == "SOURCE_CORRECTION_REVIEW_CANDIDATE_I1_NOT_CLOSED",
+            "evidence status drift",
+        )
         require(evidence["source_ref"] == marker["source_ref"], "evidence source mismatch")
         require(evidence["source_parent"] == PARENT, "evidence parent mismatch")
         require(evidence["source_tree"] == marker["source_tree"], "evidence tree mismatch")
@@ -131,8 +134,8 @@ def check(path: str) -> dict[str, object]:
             require(commands[name]["log_sha256"] == sha256(files[log_path]), f"log digest drift: {name}")
             require(b"exit_code=0" in files[log_path], f"successful exit marker missing: {name}")
         for token in (
-            b"stage8b-p1e-i1-telemetry-composition-check: PASS rows=20 closed_surfaces=9",
-            b"stage8b-p1e-i1-telemetry-composition-negative-harness 41/41",
+            b"stage8b-p1e-i1-telemetry-composition-check: PASS rows=29 closed_surfaces=9 findings=3",
+            b"stage8b-p1e-i1-telemetry-composition-negative-harness 72/72",
             b"stage8b-p1e-i1-process-supervision-negative-harness 77/77",
             b"PASS stage8b-p1e-i1-telemetry-composition-gate",
         ):

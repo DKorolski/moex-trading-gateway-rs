@@ -843,6 +843,42 @@ pub struct Stage7bRecoveryReadyOwner {
     stage8a4_test_fail_before_covering_seal: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Stage8bP1eTelemetryDurableSnapshotV1 {
+    pub(crate) seal_generation: u64,
+    pub(crate) seal_commitment_sha256: String,
+    pub(crate) last_semantic_bar_ts_utc: Option<String>,
+    pub(crate) last_canonical_ack_ts_utc: Option<String>,
+}
+
+fn stage8b_p1e_telemetry_snapshot_from_ready_v1(
+    ready: &Stage7bRecoveryReadyOwner,
+) -> Result<Stage8bP1eTelemetryDurableSnapshotV1, Stage7bRecoveryError> {
+    let seal = ready.committed_seal()?;
+    let (last_semantic_bar_ts_utc, last_canonical_ack_ts_utc) =
+        ready.stage8b_p1e_telemetry_runtime_audit_v1()?;
+    Ok(Stage8bP1eTelemetryDurableSnapshotV1 {
+        seal_generation: seal.seal_generation(),
+        seal_commitment_sha256: seal.seal_commitment_sha256().to_string(),
+        last_semantic_bar_ts_utc,
+        last_canonical_ack_ts_utc,
+    })
+}
+
+fn stage8b_p1e_telemetry_snapshot_from_recovered_v1(
+    recovered: &Stage6dDurableRuntimeRecovered,
+    seal: &Stage7bRecoverySealV1,
+) -> Stage8bP1eTelemetryDurableSnapshotV1 {
+    let (last_semantic_bar_ts_utc, last_canonical_ack_ts_utc) =
+        recovered.stage8b_p1e_telemetry_runtime_audit_v1();
+    Stage8bP1eTelemetryDurableSnapshotV1 {
+        seal_generation: seal.seal_generation(),
+        seal_commitment_sha256: seal.seal_commitment_sha256().to_string(),
+        last_semantic_bar_ts_utc,
+        last_canonical_ack_ts_utc,
+    }
+}
+
 /// Crate-private linear first-boot authority stopped at the exact
 /// journal-durable / initial-seal-absent frontier. Stage 8B-P1-e uses this
 /// boundary to persist and reread its authenticated transaction marker before
@@ -3487,6 +3523,19 @@ fn stage8a4_i3_uncovered_checkpoint(
 }
 
 impl Stage7bRecoveryReadyOwner {
+    pub(crate) fn stage8b_p1e_telemetry_snapshot_v1(
+        &self,
+    ) -> Result<Stage8bP1eTelemetryDurableSnapshotV1, Stage7bRecoveryError> {
+        stage8b_p1e_telemetry_snapshot_from_ready_v1(self)
+    }
+
+    pub(crate) fn stage8b_p1e_telemetry_runtime_audit_v1(
+        &self,
+    ) -> Result<(Option<String>, Option<String>), Stage7bRecoveryError> {
+        self.writer_lease.validate_namespace()?;
+        Ok(self.recovered.stage8b_p1e_telemetry_runtime_audit_v1())
+    }
+
     /// Classifies the only two semantic continuations that a recovered Ready
     /// owner may take after one M10 has already been acquired by the P1-e
     /// supervisor.  The answer comes solely from the authenticated restart
@@ -7321,6 +7370,110 @@ impl Stage8a4I3RecoveryPendingOwner {
     }
 }
 
+macro_rules! impl_stage8b_p1e_ready_telemetry_snapshot {
+    ($($owner:ty => $ready:ident),+ $(,)?) => {
+        $(
+            impl $owner {
+                pub(crate) fn stage8b_p1e_telemetry_snapshot_v1(
+                    &self,
+                ) -> Result<Stage8bP1eTelemetryDurableSnapshotV1, Stage7bRecoveryError> {
+                    stage8b_p1e_telemetry_snapshot_from_ready_v1(&self.$ready)
+                }
+            }
+        )+
+    };
+}
+
+impl_stage8b_p1e_ready_telemetry_snapshot!(
+    P1SemanticZeroIntentAckPending => ready,
+    Stage8bP1SemanticPrepublicationOwner => ready,
+    Stage8bP1d4GeneratedMarketPrepublicationOwner => ready,
+    Stage8bP1d2AckCommittedOwner => ready,
+    Stage8bP1d2TruthCommittedOwner => ready,
+    Stage8bP1d4GeneratedMarketAckCommittedOwner => ready,
+    Stage8bP1d4GeneratedMarketTruthCommittedOwner => ready,
+    Stage8bP1d3AckCommittedOwner => ready,
+    Stage8bP1d3TruthCommittedOwner => ready,
+    Stage8bP1d3SemanticPendingOwner => ready,
+    Stage8bP1eScheduleBindingCommittedOwner => ready,
+);
+
+impl P1SemanticPrepublicationPending {
+    pub(crate) fn stage8b_p1e_telemetry_snapshot_v1(&self) -> Stage8bP1eTelemetryDurableSnapshotV1 {
+        Stage8bP1eTelemetryDurableSnapshotV1 {
+            seal_generation: self.committed_s0.seal_generation(),
+            seal_commitment_sha256: self.committed_s0.seal_commitment_sha256().to_string(),
+            last_semantic_bar_ts_utc: None,
+            last_canonical_ack_ts_utc: None,
+        }
+    }
+}
+
+macro_rules! impl_stage8b_p1e_recovered_telemetry_snapshot {
+    ($($owner:ty => ($recovered:ident, $seal:ident)),+ $(,)?) => {
+        $(
+            impl $owner {
+                pub(crate) fn stage8b_p1e_telemetry_snapshot_v1(
+                    &self,
+                ) -> Stage8bP1eTelemetryDurableSnapshotV1 {
+                    stage8b_p1e_telemetry_snapshot_from_recovered_v1(
+                        &self.$recovered,
+                        &self.$seal,
+                    )
+                }
+            }
+        )+
+    };
+}
+
+impl_stage8b_p1e_recovered_telemetry_snapshot!(
+    Stage8bP1d2PreAckPendingOwner => (recovered, committed_pre_ack_seal),
+    Stage8bP1d3PreAckPendingOwner => (recovered, committed_pre_ack_seal),
+    Stage8bP1d3DispatchPendingOwner => (recovered, committed_pre_dispatch_seal),
+);
+
+impl Stage8bP1d4GeneratedMarketJournalAheadState {
+    pub(crate) fn stage8b_p1e_telemetry_snapshot_v1(&self) -> Stage8bP1eTelemetryDurableSnapshotV1 {
+        stage8b_p1e_telemetry_snapshot_from_recovered_v1(
+            &self.recovered,
+            &self.committed_pre_ack_seal,
+        )
+    }
+}
+
+macro_rules! impl_stage8b_p1e_journal_ahead_telemetry_snapshot {
+    ($($owner:ty),+ $(,)?) => {
+        $(
+            impl $owner {
+                pub(crate) fn stage8b_p1e_telemetry_snapshot_v1(
+                    &self,
+                ) -> Stage8bP1eTelemetryDurableSnapshotV1 {
+                    self.state.stage8b_p1e_telemetry_snapshot_v1()
+                }
+            }
+        )+
+    };
+}
+
+impl_stage8b_p1e_journal_ahead_telemetry_snapshot!(
+    Stage8bP1d4GeneratedMarketDispatchPendingOwner,
+    Stage8bP1d4GeneratedMarketOrderPendingOwner,
+    Stage8bP1d4GeneratedMarketPreFinalizationPendingOwner,
+    Stage8bP1d4GeneratedMarketPreAckPendingOwner,
+);
+
+impl Stage8bP1d3CancelContinuationOwner {
+    pub(crate) fn stage8b_p1e_telemetry_snapshot_v1(
+        &self,
+    ) -> Result<Stage8bP1eTelemetryDurableSnapshotV1, Stage7bRecoveryError> {
+        match &self.state {
+            Stage8bP1d3CancelContinuationState::TargetSealed(ready) => {
+                stage8b_p1e_telemetry_snapshot_from_ready_v1(ready)
+            }
+        }
+    }
+}
+
 pub enum Stage7bRestartOutcome {
     Ready(Box<Stage7bRecoveryReadyOwner>),
     Stage8a4I3Pending(Box<Stage8a4I3RecoveryPendingOwner>),
@@ -7367,6 +7520,38 @@ pub(crate) struct Stage8bP1d4RestartAuditV1 {
 }
 
 impl Stage7bRestartOutcome {
+    pub(crate) fn stage8b_p1e_telemetry_runtime_audit_v1(
+        &self,
+    ) -> Option<(Option<String>, Option<String>)> {
+        let recovered = match self {
+            Self::Ready(owner) => &owner.recovered,
+            Self::Stage8a4I3Pending(owner) => &owner.recovered,
+            Self::P1SemanticPrepublicationReady(owner) => &owner.ready.recovered,
+            Self::P1SemanticZeroIntentAckPending(owner) => &owner.ready.recovered,
+            Self::P1d2PreAckPending(owner) => &owner.recovered,
+            Self::P1d2AckCommitted(owner) => &owner.ready.recovered,
+            Self::P1d2TruthCommitted(owner) => &owner.ready.recovered,
+            Self::P1d4GeneratedMarketPrepublicationPending(owner) => &owner.ready.recovered,
+            Self::P1d4GeneratedMarketDispatchPending(owner) => &owner.state.recovered,
+            Self::P1d4GeneratedMarketOrderPending(owner) => &owner.state.recovered,
+            Self::P1d4GeneratedMarketPreFinalizationPending(owner) => &owner.state.recovered,
+            Self::P1d4GeneratedMarketPreAckPending(owner) => &owner.state.recovered,
+            Self::P1d4GeneratedMarketAckCommitted(owner) => &owner.ready.recovered,
+            Self::P1d4GeneratedMarketTruthCommitted(owner) => &owner.ready.recovered,
+            Self::P1d3DispatchPending(owner) => &owner.recovered,
+            Self::P1d3PreAckPending(owner) => &owner.recovered,
+            Self::P1d3AckCommitted(owner) => &owner.ready.recovered,
+            Self::P1d3TruthCommitted(owner) => &owner.ready.recovered,
+            Self::P1d3CancelContinuationPending(owner) => match &owner.state {
+                Stage8bP1d3CancelContinuationState::TargetSealed(ready) => &ready.recovered,
+            },
+            Self::P1d3SemanticPending(owner) => &owner.ready.recovered,
+            Self::P1eScheduleBindingCommitted(owner) => &owner.ready.recovered,
+            Self::P1SemanticPrepublicationPending(_) | Self::Blocked(_) => return None,
+        };
+        Some(recovered.stage8b_p1e_telemetry_runtime_audit_v1())
+    }
+
     fn stage8b_p1e_current_seal(&self) -> Result<&Stage7bRecoverySealV1, Stage7bRecoveryError> {
         match self {
             Self::Ready(owner) => Ok(&owner.committed_seal),
