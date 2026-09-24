@@ -13,13 +13,13 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 ## Active Stage 8B-P1-e I1 slice
 
 Telemetry correction `b6f6d5b6ea924db8c97512bc2bcecb8a5ed760ac`
-is independently SOURCE ACCEPTED. P1-TEL01, P1-TEL02 and P2-TEL03 are
-closed. The active source/material candidate is now the fixed-path,
-non-activating P1-e installation boundary: exact `run`, `bootstrap` and
-`bootstrap-recover@` systemd units, persistent service identity, tmpfiles
-custody, a fail-closed install/rollback transaction and isolated target-Linux
-verification. It does not provision operator config, first-boot source or the
-lifecycle credential, reload the service manager, enable/start a unit, contact
+is independently SOURCE ACCEPTED. Fixed-path installation correction
+`7f2e876c4cad7a3a4a0fa10a1eb5202e58202d2f` is independently
+SOURCE/MATERIAL ACCEPTED; P1-INS01, P1-INS02, P2-INS03 and P2-INS04 are
+closed. The active boundary is now the governance/evidence-only aggregate I1
+acceptance candidate. It changes no Rust, Cargo, deployment, configuration or
+workflow file and cannot self-close I1. It does not provision operator config,
+reload the service manager, enable/start a unit, contact operational
 Redis/FINAM or activate a VPS.
 
 Cancel signed-schedule composition `cc1f02c`, Day-expiry P1-DEX01 correction

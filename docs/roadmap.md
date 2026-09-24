@@ -393,6 +393,12 @@ inventory/custody/quarantine/reproducibility correction receives independent
 SOURCE/MATERIAL ACCEPT. That correction is part of step 1 and does not open or
 replace the aggregate gate in step 3.
 
+The correction `7f2e876` is now independently SOURCE/MATERIAL ACCEPTED. The
+active boundary is therefore step 3: one governance/evidence-only aggregate I1
+acceptance candidate over the exact accepted process, telemetry and fixed
+installation lineages. I1 remains open until independent aggregate review;
+P1-f remains downstream and unauthorized.
+
 Operational install/start, Redis DB15/DB0 activation, VPS deployment,
 paper-provider execution, FINAM send, broker dispatch, runtime-live and real
 orders remain downstream and require separate authority.

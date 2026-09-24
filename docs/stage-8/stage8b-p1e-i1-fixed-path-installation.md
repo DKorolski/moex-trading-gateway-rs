@@ -102,8 +102,8 @@ without changing package, manifest or retained state.
 The source gate cross-checks all fixed paths and commands against
 `stage8b-p1e-deployment-identity-v2.json`, checks shared and mode-specific
 hardening, rejects `[Install]`, and inspects the installer for activation or
-network clients. Its mutation harness rejects 25 source/material and ten
-retained-evidence weakenings.
+network clients. Its mutation harness rejects 34 source/material and 14
+retained-evidence weakenings (48 total).
 
 The target-Linux runner uses Ubuntu 24.04/systemd 255 with an isolated network
 namespace (the reproducible local runner uses a container with
