@@ -1,16 +1,16 @@
-# Stage 8B-P1-f R3 isolated operational acceptance design correction
+# Stage 8B-P1-f R4 isolated operational acceptance design correction
 
 Status: **DESIGN CORRECTION REVIEW CANDIDATE — NO ACTIVATION**.
 
-Correction parent: `eeac091635f102fa5b7dc9db3564c214e2efefe0`.
-The independent R2 review is bound by SHA-256
-`cdb156224dc76349b20a710d043bbf069c5a38e4231546e831f723cf105a2fb6`.
+Correction parent: `811ebe8ce22291311bd63fbf0cc5ff723261b758`.
+The independent R3 review is bound by SHA-256
+`585872992198d80a0f05e76a791303c272b016903e9fbba1bcaf1132cf0365b9`.
 Stage 8B-P1-e I1 remains CLOSED / ACCEPTED at governance closure
 `3f171d997de5616cb9a07311d7776e446456c0c1`.
 
 This correction changes design, model fixtures and fail-closed review tooling
 only. It performs no SSH mutation, installation, Redis command, systemd action,
-FINAM request or process start. The 72 matrix rows below are design obligations,
+FINAM request or process start. The 78 matrix rows below are design obligations,
 not completed operational scenarios.
 
 ## 1. Goal and unchanged phase boundary
@@ -100,18 +100,49 @@ any authority directory entry. The existing
 `/var/lib/moex-finam-p1-paper/state` remains service-owned `0700` and carries
 no phase authority.
 
-The root P1-f guardian is the sole writer. Every signed manifest binds an
+The root P1-f guardian is the sole writer. Every signed phase manifest binds an
 authority generation, the next sequence and the exact predecessor event hash.
 Under one root-owned exclusive lock the guardian creates the manifest-scoped
 directory and claim event, fsyncs files and parents, commits and rereads the
 hash-chained `history-head.json`, and only then permits a first effect. The
 manifest directory plus its claim/terminal chain is the durable spent-manifest
-registry. Missing, corrupt, substituted or rolled-back history fails closed;
-it never reconstructs `Unclaimed` and requires separately reviewed
-administrative recovery. An Active restart must match the exact history head
-and original deadline. A newly authorized manifest binds the retained terminal
-head and next sequence and creates a distinct directory without deleting old
-evidence.
+registry while the trusted control root is retained. Missing, corrupt,
+substituted, head-only rolled-back or cross-file-inconsistent history then
+fails closed and never reconstructs `Unclaimed`. An Active restart must match
+the exact history head and original deadline. A newly authorized manifest
+binds the retained terminal head and next sequence and creates a distinct
+directory without deleting old evidence.
+
+### Authority rollback trust boundary and genesis
+
+The complete control root is the trusted non-rollback authority relative to
+all permitted runtime-data, config, evidence and service-state restore
+operations. Such tooling must exclude
+`/var/lib/moex-finam-p1-paper-control` and fail before mutation when a source,
+target or snapshot selection overlaps it. Root operator conduct and the
+provider whole-host restore procedure are part of this trust boundary.
+
+A coherent rollback of the entire control root is deliberately **not** claimed
+to be locally detectable by the hash chain. A whole-host/control-state restore,
+missing control root after activation, or suspected coherent rollback is an
+administrative incident: all ordinary guardian starts, claims, restarts and
+service starts remain quarantined. Recovery requires a separately reviewed
+authority-rebind package, retirement of the old generation in the offline
+registry and a distinct generation/ceremony nonce. No such rebind is authorized
+by this design correction.
+
+Genesis is a separate one-time operation before the first O1 phase claim, not
+an interpretation of missing history. An offline registry outside the VPS
+records one Prepared generation and unique ceremony nonce. The root-only
+`initialize-authority` command verifies a signed genesis manifest binding the
+installation, target host, control root, generation, genesis head and validity
+window; commits/fsyncs/rereads the local genesis; and emits a receipt while
+ordinary claims remain blocked. The offline operator verifies that receipt,
+marks the generation Activated and signs an activation certificate. Only the
+exact certificate plus local genesis head admits sequence-1 claim. Before
+activation a crash may resume only that genesis transaction; after activation
+the genesis command is permanently rejected. Absence after prior activation is
+control-state loss, never a fresh installation.
 
 Fresh admission retains the accepted 300-second maximum broker-truth age. If
 the source is 301 seconds old before O2-B, the phase becomes `Failed`, bootstrap
@@ -288,7 +319,7 @@ test-only authority or replace the production callback/provider path.
 
 ## 9. Model fixtures and evidence
 
-The checked model file contains 39 positive/fail-closed cases. It adds O2
+The checked model file contains 45 positive/fail-closed cases. It adds O2
 source/config/receipt crash cuts, byte/hash conflict, separate V5 source and
 administrative recovery, distinct V4 schedule continuation, exact Redis attach,
 M10 publication/response-loss, COUNT 64 schedule read, stale-consumer cleanup,
@@ -296,7 +327,9 @@ retention and all six route-specific schedule frontiers to the existing
 authority/deadline/P0/resource cases. R3 additionally proves the complete
 initializer trace, reserved-publication `XINFO STREAM` authority, protected
 multi-UID custody, consumed-manifest rollback refusal and preserved history
-across a newly authorized manifest.
+across a newly authorized manifest. R4 separates ordinary duplicate, partial
+head/directory rollback, coherent full rollback under the explicit trust
+boundary, one-time genesis, repeated genesis and same-Active restart cases.
 
 Evidence inventory is exact: target and installed identities, systemd state,
 phase claim/deadline, artifact freshness, publisher/consumer high-water,
@@ -306,7 +339,7 @@ network facts, resource growth and redacted secret-free logs.
 
 ## 10. What acceptance opens
 
-Independent acceptance of this R3 correction opens only `P1F-I` source
+Independent acceptance of this R4 correction opens only `P1F-I` source
 implementation. It does not authorize SSH mutation, installation, systemd
 reload/enable/start, DB15 provisioning, bootstrap, FINAM attachment, paper
 provider operation, broker dispatch, runtime-live or real orders.

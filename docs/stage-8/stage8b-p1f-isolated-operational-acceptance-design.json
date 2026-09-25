@@ -1,11 +1,11 @@
 {
-  "schema_version": 4,
-  "stage": "Stage 8B-P1-f R3 isolated operational acceptance design correction",
+  "schema_version": 5,
+  "stage": "Stage 8B-P1-f R4 isolated operational acceptance design correction",
   "status": "DESIGN_CORRECTION_REVIEW_CANDIDATE_NO_ACTIVATION",
   "correction_parent": {
-    "commit": "eeac091635f102fa5b7dc9db3564c214e2efefe0",
-    "tree": "6efd543c9cf8ca496c92d37cebca0df528c3698e",
-    "review_sha256": "cdb156224dc76349b20a710d043bbf069c5a38e4231546e831f723cf105a2fb6"
+    "commit": "811ebe8ce22291311bd63fbf0cc5ff723261b758",
+    "tree": "82170aace5e735237ae2191e6d3cf04cb2681d19",
+    "review_sha256": "585872992198d80a0f05e76a791303c272b016903e9fbba1bcaf1132cf0365b9"
   },
   "accepted_predecessor": {
     "commit": "3f171d997de5616cb9a07311d7776e446456c0c1",
@@ -28,7 +28,7 @@
     "non_loopback_redis_allowed": false
   },
   "phases": [
-    {"id":"P1F-I","name":"source implementation","remote_mutation":false,"service_start":false,"requires_prior_acceptance":"P1F-R3-design"},
+    {"id":"P1F-I","name":"source implementation","remote_mutation":false,"service_start":false,"requires_prior_acceptance":"P1F-R4-design"},
     {"id":"P1F-O0","name":"immutable read-only target preflight","remote_mutation":false,"service_start":false,"requires_prior_acceptance":"P1F-I-source"},
     {"id":"P1F-O1","name":"non-activating provisioning","remote_mutation":true,"service_start":false,"requires_prior_acceptance":"P1F-O0-preflight"},
     {"id":"P1F-O2","name":"fresh materialization then network-isolated one-shot bootstrap","remote_mutation":true,"service_start":false,"requires_prior_acceptance":"P1F-O1-provisioning"},
@@ -97,6 +97,8 @@
     "o2_materialized_receipt_binds_source_final_config_and_claim": true,
     "consumed_manifest_history_root_guardian_only": true,
     "new_manifest_binds_prior_history_head": true,
+    "ordinary_claim_cannot_create_genesis": true,
+    "control_state_loss_requires_new_generation_rebind": true,
     "durable_claim_before_first_effect": true,
     "second_controller_rejected": true,
     "automatic_phase_escalation": false,
@@ -143,10 +145,31 @@
       "manifest_binding": "signed manifest binds authority_generation authority_sequence and predecessor_event_sha256; claim requires exact current head and next sequence",
       "claim_transaction": "exclusive lock; validate signed manifest and head; create-new manifest directory and claim event; fsync files and parents; atomically commit and reread hash-chained head before first effect",
       "consumed_history": "manifest directory existence and hash-chained claim through terminal events permanently consume that manifest identity",
-      "missing_corrupt_or_rollback": "fail closed; never reconstruct Unclaimed and never accept a new claim; separate reviewed administrative recovery required",
+      "partial_history_failure": "with trusted control root retained, any missing corrupt substituted head event manifest directory or cross-file rollback fails closed; never reconstruct Unclaimed",
       "same_active_restart": "requires exact manifest directory claim event current history head and original deadline; no new claim and no deadline extension",
       "new_manifest": "must bind exact terminal history head and next authority sequence; creates a distinct manifest directory without deleting or rewriting earlier evidence",
-      "implementation_evidence": "real multi-UID tests prove service UID cannot unlink rename or substitute authority; root guardian can transition; parent substitution and concurrent claim fail closed"
+      "rollback_trust_boundary": "root operator and provider restore procedure are trusted to keep the complete control root outside every permitted runtime data config evidence and service-state restore",
+      "permitted_restore_operations": "must exclude /var/lib/moex-finam-p1-paper-control and fail before mutation if any source target or snapshot selection overlaps it",
+      "coherent_full_rollback": "a coherent rollback of the complete control root is not claimed to be locally detectable; whole-host or control-state restore is an explicit administrative incident that quarantines normal guardian use before any claim",
+      "genesis_protocol": {
+        "domain": "moex.stage8b.p1f.authority-genesis.v1",
+        "command": "root guardian initialize-authority only; ordinary phase claim never creates or repairs genesis",
+        "manifest_binds": ["installation_instance_sha256", "target_host_key", "control_root", "authority_generation", "genesis_head_sha256", "ceremony_nonce", "not_before_utc", "expires_at_utc"],
+        "offline_registry": "offline operator registry outside VPS records one Prepared generation and never reissues the same ceremony nonce",
+        "local_steps": "verify empty never-initialized control root and signed genesis manifest; create generation metadata genesis event and head; fsync files and parents; emit genesis receipt; claims remain blocked",
+        "activation_certificate": "offline operator verifies exact genesis receipt marks generation Activated and signs certificate binding generation genesis head installation and host",
+        "claim_admission": "root guardian requires exact Activated certificate plus local genesis head before accepting sequence 1 phase manifest",
+        "crash_recovery": "before activation resume only the same genesis transaction; after activation genesis command is permanently rejected",
+        "repeat_attempt": "existing generation or Activated offline registry record rejects repeated genesis; absence after prior activation is control-state loss not fresh installation"
+      },
+      "control_loss_rebind": {
+        "triggers": ["declared whole-host snapshot restore", "control-root restore", "missing control root after Activated generation", "suspected coherent control-state rollback"],
+        "normal_start": "operator and guardian keep every phase quarantined; no ordinary claim restart service start or automatic genesis",
+        "required_authority": "separate independently reviewed authority-rebind package and offline registry transition",
+        "generation_rule": "old generation is administratively retired; new signed genesis uses a distinct generation and ceremony nonce and never imports spent status as ordinary local truth",
+        "current_stage_authorized": false
+      },
+      "implementation_evidence": "real multi-UID tests prove service UID cannot unlink rename or substitute authority; restore tooling rejects control-root overlap; root guardian genesis activation and transitions are exact; parent substitution repeated genesis and concurrent claim fail closed"
     }
   },
   "session_policy": {"readiness":"PaperReady","live_ready_forbidden":true,"paper_only_required":true,"synthetic_session_max_minutes":30,"finam_bars_session_max_minutes":180,"stop_and_disable_after_each_session":true,"retain_db15_and_durable_state_for_review":true},

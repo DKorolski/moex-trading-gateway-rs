@@ -400,8 +400,8 @@ authorized boundary is a separate P1-f isolated operational-acceptance design.
 That design authority does not authorize installation, service start or any
 operational provider/Redis/VPS surface.
 
-P1-f R0, R1 and R2 were held by independent review. P1-f R3 is the active
-design/checker-only correction candidate; P1F-I remains closed until R3
+P1-f R0 through R3 were held by independent review. P1-f R4 is the active
+design/checker-only correction candidate; P1F-I remains closed until R4
 acceptance. Its sequence is:
 source implementation, immutable read-only target preflight, non-activating
 provisioning, one-shot network-isolated bootstrap, bounded synthetic paper
@@ -409,7 +409,7 @@ session/restart acceptance, separately authorized read-only FINAM-bar session,
 then aggregate P1 acceptance. Each operational transition remains fail closed
 until the preceding immutable package receives independent acceptance.
 
-R3 makes the sequence executable without weakening accepted freshness or I1
+R4 makes the sequence executable without weakening accepted freshness or I1
 ordering. O2 uses a signed policy/template and a crash-safe exact
 source/config/materialized-receipt chain readable by the nonroot service; V5
 first-boot recovery is separate from schedule V4 continuation. Redis roles map
@@ -419,9 +419,12 @@ Market `XINFO STREAM`, COUNT 64 schedule history and atomic consumer hygiene.
 Schedule failure preserves each accepted route-specific owner. Every
 operational phase retains a durable single-use claim and absolute deadline in
 a root-owned non-service-writable control root with sequence/predecessor hash-
-chained consumed-manifest history. Missing or rolled-back history fails closed;
-typed capabilities and resource limits protect P0 without false whole-DB0
-equality.
+chained consumed-manifest history. Permitted restore operations exclude that
+trusted root. Partial inconsistencies fail closed; coherent full-root rollback
+is explicitly outside local detection and requires quarantine plus separately
+reviewed new-generation rebind. One-time genesis requires offline Prepared and
+Activated evidence and cannot be created by ordinary claim. Typed capabilities
+and resource limits protect P0 without false whole-DB0 equality.
 
 Operational install/start, Redis DB15/DB0 activation, VPS deployment,
 paper-provider execution, FINAM send, broker dispatch, runtime-live and real

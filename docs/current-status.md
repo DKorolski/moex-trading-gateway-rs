@@ -30,19 +30,21 @@ implementation and operational gates explicitly authorize them. Historical
 candidate descriptions below are retained as lineage and are not the active
 project status.
 
-The active P1-f R3 design/checker correction candidate follows the independent
-HOLD of R2 `eeac091635f102fa5b7dc9db3564c214e2efefe0`. It preserves the
-closed P1-F02/P1-F06 findings and addresses only the remaining P1-F05 Redis
-trace mismatches and P1-F07 phase-authority custody. The public namespace
-initializer now has its complete initialization-plus-verification capability
-trace, and reserved generated-Market publication includes the source-exact
-`XINFO STREAM` predecessor check. It binds
+The active P1-f R4 design/checker correction candidate follows the independent
+HOLD of R3 `811ebe8ce22291311bd63fbf0cc5ff723261b758`. P1-F05 and the
+filesystem-custody portion of P1-F07 are closed. R4 addresses only the final
+consumed-history rollback question. It chooses the explicit trusted-control-
+root model: permitted runtime/data/config/evidence restores cannot touch the
+control root; coherent full-control/host rollback is not claimed locally
+detectable and instead requires quarantine plus separately reviewed generation
+rebind. A root-only signed one-time genesis and offline activation certificate
+distinguish initial admission from lost authority. It binds
 the already-paid isolated VPS as a coexistence target: existing P0 services
 remain outside P1 control in DB0 while typed P1 roles are restricted to DB15
 and exact paths. It adds a policy-bound source/config/materialized-receipt
 identity chain, exact hashes for eight production Lua scripts, ten accepted
 source-operation mappings, two explicit conformance traces, six route-specific
-schedule frontiers and 39 model cases. Phase receipts and consumed-manifest
+schedule frontiers and 45 model cases. Phase receipts and consumed-manifest
 history move to a root-owned sibling control root with a hash-chained head;
 service-owned runtime state remains unchanged and carries no phase authority.
 It performs none of those actions and grants no operational authority.
