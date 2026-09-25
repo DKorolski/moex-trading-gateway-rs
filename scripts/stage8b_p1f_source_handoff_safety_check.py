@@ -13,10 +13,10 @@ import stage8b_p1e_i1a_handoff_safety_check as common
 import stage8b_p1f_source_check as source_check
 
 
-STAGE = "Stage 8B-P1-f Ia guardian foundation correction R2"
-PARENT = "fde0406cea23c555b17e4d4b6e3ea625cf871a6c"
+STAGE = "Stage 8B-P1-f Ia guardian foundation correction R3"
+PARENT = "5cea6b0173195d030222e06538af750a498347a4"
 BRANCH = "stage8b-paper-shadow-resumption"
-REVIEW_SHA256 = "ee4b0cd03675c9ed924f87e6b609c1935fb1d4d982929894b948fb5a2040eff5"
+REVIEW_SHA256 = "3a146da30b4db59613c8285036d9cafdae36cd2445a9afc1613f23ebd5dfc64d"
 PREFIX = "handoff-evidence/"
 MARKER = "handoff-commit.txt"
 MANIFEST = PREFIX + "source-tree-manifest.json"
@@ -24,7 +24,7 @@ COMMIT_RAW = PREFIX + "source-commit.raw"
 EVIDENCE = PREFIX + "stage8b-p1f-source-evidence.json"
 GATE = PREFIX + "stage8b-p1f-source-gate.txt"
 MULTI_UID = PREFIX + "stage8b-p1f-multi-uid-custody.txt"
-REVIEW = PREFIX + "reviews/FINAM_P1F_IA_REVIEW_fde0406_2026-09-25.md"
+REVIEW = PREFIX + "reviews/FINAM_P1F_IA_R2_REVIEW_5cea6b0_2026-09-25.md"
 GENERATED = {MARKER, MANIFEST, COMMIT_RAW, EVIDENCE, GATE, MULTI_UID, REVIEW}
 REQUIRED = GENERATED | source_check.ALLOWED_CHANGES
 
@@ -104,7 +104,7 @@ def check(path: str) -> dict[str, object]:
         require(evidence["source_ref"] == marker["source_ref"], "evidence source mismatch")
         require(evidence["source_parent"] == PARENT, "evidence parent mismatch")
         require(evidence["source_tree"] == marker["source_tree"], "evidence tree mismatch")
-        require(evidence["status"] == "GUARDIAN_FOUNDATION_CORRECTION_R2_NO_ACTIVATION", "evidence status mismatch")
+        require(evidence["status"] == "GUARDIAN_FOUNDATION_CORRECTION_R3_NO_ACTIVATION", "evidence status mismatch")
         require(evidence["changed_paths"] == sorted(source_check.ALLOWED_CHANGES), "changed path drift")
         require(evidence["source_negative_cases"] == 19, "negative count mismatch")
         require(evidence["guardian_tests"] >= 23, "guardian test count mismatch")

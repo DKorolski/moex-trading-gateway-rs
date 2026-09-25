@@ -16,7 +16,7 @@ import stage8b_p1f_source_handoff_safety_check as safety
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "reports/handoff"
-REVIEW_SOURCE = Path("/Users/denisq/Downloads/FINAM_P1F_IA_REVIEW_fde0406_2026-09-25.md")
+REVIEW_SOURCE = Path("/Users/denisq/Downloads/FINAM_P1F_IA_R2_REVIEW_5cea6b0_2026-09-25.md")
 
 
 def git(*args: str) -> bytes:
@@ -63,7 +63,7 @@ def main() -> None:
         raise SystemExit("stage8b-p1f-source-handoff: FAIL source changed during evidence run")
 
     short = source_ref[:7]
-    archive_name = f"moex-trading-project-{short}-stage8b-p1f-ia-correction-r2-review-package.zip"
+    archive_name = f"moex-trading-project-{short}-stage8b-p1f-ia-correction-r3-review-package.zip"
     archive_path = OUTPUT / archive_name
     manifest, entries = common.source_manifest(source_ref)
     closed_surfaces = {
@@ -80,7 +80,7 @@ def main() -> None:
     evidence = {
         "schema_version": 1,
         "stage": safety.STAGE,
-        "status": "GUARDIAN_FOUNDATION_CORRECTION_R2_NO_ACTIVATION",
+        "status": "GUARDIAN_FOUNDATION_CORRECTION_R3_NO_ACTIVATION",
         "source_ref": source_ref,
         "source_parent": source_parent,
         "source_tree": source_tree,

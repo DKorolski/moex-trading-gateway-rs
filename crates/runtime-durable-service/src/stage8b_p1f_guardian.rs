@@ -1766,14 +1766,12 @@ impl Stage8bP1fAuthorityStoreV1 {
         let claim = self.read_claim_receipt(manifest_sha256)?;
         let stopping_started_at = parse_timestamp(&receipt.stopping_started_at_utc)?;
         let force_kill_at = parse_timestamp(&receipt.force_kill_at_utc)?;
-        let remaining = if trusted_now < stopping_started_at || trusted_now >= force_kill_at {
-            StdDuration::ZERO
-        } else {
-            force_kill_at
-                .signed_duration_since(trusted_now)
-                .to_std()
-                .unwrap_or(StdDuration::ZERO)
-        };
+        // A public resume runs after the process-local monotonic witness was
+        // lost.  UTC can authenticate the retained transaction, but it cannot
+        // prove how much real grace remains.  Preserve the original receipt
+        // and timestamps while failing closed on the first poll; only the
+        // original live permit may consume the bounded 30-second grace.
+        let force_kill_after_elapsed = StdDuration::ZERO;
         Ok(Stage8bP1fRunPermitV1 {
             manifest_sha256: manifest_sha256.to_string(),
             phase: claim.phase,
@@ -1788,7 +1786,7 @@ impl Stage8bP1fAuthorityStoreV1 {
             boot_id: current_boot_id()?,
             stopping_started_at: Some(stopping_started_at),
             force_kill_at: Some(force_kill_at),
-            force_kill_after_elapsed: Some(remaining),
+            force_kill_after_elapsed: Some(force_kill_after_elapsed),
             last_trusted_wall: trusted_now,
         })
     }
@@ -4324,7 +4322,7 @@ mod tests {
     }
 
     #[test]
-    fn execution_owner_is_unique_and_stopping_resumes_without_grace_extension() {
+    fn execution_owner_is_unique_and_stopping_resume_has_no_new_grace() {
         let setup = Setup::new();
         let head = setup.initialize_and_activate();
         let phase = setup.phase(&head, Stage8bP1fPhaseV1::O3SyntheticPaper);
@@ -4364,19 +4362,18 @@ mod tests {
             .unwrap();
         assert_eq!(
             resumed
-                .poll_deadline_at_elapsed(
-                    setup.now + Duration::seconds(20),
-                    StdDuration::from_secs(19)
-                )
+                .poll_deadline_at_elapsed(setup.now + Duration::seconds(10), StdDuration::ZERO)
                 .unwrap(),
-            Stage8bP1fDeadlineDecisionV1::BeginStopping
+            Stage8bP1fDeadlineDecisionV1::ForceKill
         );
+        drop(resumed);
+        let mut resumed_again = setup
+            .store
+            .resume_stopping_phase(&manifest_sha256, setup.now + Duration::seconds(10))
+            .unwrap();
         assert_eq!(
-            resumed
-                .poll_deadline_at_elapsed(
-                    setup.now + Duration::seconds(20),
-                    StdDuration::from_secs(20)
-                )
+            resumed_again
+                .poll_deadline_at_elapsed(setup.now + Duration::seconds(10), StdDuration::ZERO)
                 .unwrap(),
             Stage8bP1fDeadlineDecisionV1::ForceKill
         );
@@ -4490,11 +4487,22 @@ mod tests {
         );
         let mut resumed = setup
             .store
-            .resume_stopping_phase(&manifest_sha256, setup.now + Duration::seconds(500))
+            .resume_stopping_phase(&manifest_sha256, setup.now + Duration::seconds(590))
             .unwrap();
         assert_eq!(
             resumed
-                .poll_deadline_at_elapsed(setup.now + Duration::seconds(500), StdDuration::ZERO)
+                .poll_deadline_at_elapsed(setup.now + Duration::seconds(590), StdDuration::ZERO)
+                .unwrap(),
+            Stage8bP1fDeadlineDecisionV1::ForceKill
+        );
+        drop(resumed);
+        let mut resumed_again = setup
+            .store
+            .resume_stopping_phase(&manifest_sha256, setup.now + Duration::seconds(590))
+            .unwrap();
+        assert_eq!(
+            resumed_again
+                .poll_deadline_at_elapsed(setup.now + Duration::seconds(590), StdDuration::ZERO)
                 .unwrap(),
             Stage8bP1fDeadlineDecisionV1::ForceKill
         );
@@ -4700,19 +4708,18 @@ mod tests {
             .unwrap();
         assert_eq!(
             resumed
-                .poll_deadline_at_elapsed(
-                    setup.now + Duration::seconds(10),
-                    StdDuration::from_secs(19)
-                )
+                .poll_deadline_at_elapsed(setup.now + Duration::seconds(10), StdDuration::ZERO)
                 .unwrap(),
-            Stage8bP1fDeadlineDecisionV1::BeginStopping
+            Stage8bP1fDeadlineDecisionV1::ForceKill
         );
+        drop(resumed);
+        let mut resumed_again = setup
+            .store
+            .resume_stopping_phase(&manifest_sha256, setup.now + Duration::seconds(10))
+            .unwrap();
         assert_eq!(
-            resumed
-                .poll_deadline_at_elapsed(
-                    setup.now + Duration::seconds(10),
-                    StdDuration::from_secs(20)
-                )
+            resumed_again
+                .poll_deadline_at_elapsed(setup.now + Duration::seconds(10), StdDuration::ZERO)
                 .unwrap(),
             Stage8bP1fDeadlineDecisionV1::ForceKill
         );

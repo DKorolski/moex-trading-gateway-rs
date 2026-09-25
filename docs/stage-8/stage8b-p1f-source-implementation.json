@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "stage": "Stage 8B-P1-f Ia guardian foundation correction R2",
-  "status": "REVIEW_CANDIDATE_GUARDIAN_FOUNDATION_R2_ONLY",
+  "stage": "Stage 8B-P1-f Ia guardian foundation correction R3",
+  "status": "REVIEW_CANDIDATE_GUARDIAN_FOUNDATION_R3_ONLY",
   "accepted_design_commit": "5d81b8e212300858246237a227a95d115dd67c2d",
   "production_module": "crates/runtime-durable-service/src/stage8b_p1f_guardian.rs",
   "authority_control_root": "/var/lib/moex-finam-p1-paper-control",
@@ -13,7 +13,7 @@
     "replay-derived-head-and-pending-recovery-exclusion",
     "crash-resumable-claim-materialization-stopping-terminal-and-prepared-event-transactions",
     "o2-exact-source-config-materialized-receipt",
-    "process-owned-run-permit-and-monotonic-bounded-durable-stopping",
+    "process-owned-run-permit-monotonic-bounded-stop-and-no-grace-public-resume",
     "descriptor-relative-restore-and-permanent-quarantine"
   ],
   "inherited_contracts": {

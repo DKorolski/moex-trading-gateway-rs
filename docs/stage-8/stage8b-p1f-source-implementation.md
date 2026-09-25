@@ -1,6 +1,6 @@
-# Stage 8B-P1-f Ia — guardian foundation correction R2
+# Stage 8B-P1-f Ia — guardian foundation correction R3
 
-Status: `REVIEW_CANDIDATE_GUARDIAN_FOUNDATION_R2_ONLY`.
+Status: `REVIEW_CANDIDATE_GUARDIAN_FOUNDATION_R3_ONLY`.
 
 Accepted predecessor: P1-f R4 design at
 `5d81b8e212300858246237a227a95d115dd67c2d`. This slice implements the
@@ -81,10 +81,12 @@ commits a hash-chained `Stopping` transition with an immutable 30-second
 force-kill deadline. The in-process permit preserves a monotonic elapsed bound,
 so frozen or backward wall time cannot extend stopping. A surviving execution-
 owner record cannot mint a new Active permit without a monotonic witness: it
-fails closed into an already-expired Stopping decision. Restart of committed or
-pending Stopping uses a dedicated continuation API and derives only the
-remaining wall-bounded grace; uncertainty resolves to `ForceKill`, never a new
-30-second interval. `ForceKill` is a required decision for the future
+fails closed into an already-expired Stopping decision. Public restart of
+committed or pending Stopping uses a dedicated continuation API to complete the
+exact retained transaction, but it never derives positive grace from UTC after
+the process-local monotonic witness is lost. Its first and every repeated poll
+resolve to `ForceKill` without changing the original timestamps, sequence or
+event. `ForceKill` is a required decision for the future
 supervision composition; this foundation does not claim to launch or kill a
 child process.
 

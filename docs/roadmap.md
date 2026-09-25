@@ -402,7 +402,7 @@ operational provider/Redis/VPS surface.
 
 P1-f R0 through R3 were held by independent review. P1-f R4 at
 `5d81b8e212300858246237a227a95d115dd67c2d` is independently design-accepted.
-P1F-Ia guardian foundation correction R2 is the active review candidate. P1F-Ib
+P1F-Ia guardian foundation correction R3 is the active review candidate. P1F-Ib
 local supervision, P1F-Ic producer/high-water composition, P1F-Id eight role
 adapters/resource polling/command audit and P1F-Ie aggregate source closure
 remain required; P1F-O0 stays closed until P1F-Ie acceptance. The remaining sequence is:

@@ -140,8 +140,8 @@ def validate_inventory(root: Path) -> None:
         "source inventory key set drift",
     )
     require(value["schema_version"] == 1 and type(value["schema_version"]) is int, "schema drift")
-    require(value["stage"] == "Stage 8B-P1-f Ia guardian foundation correction R2", "stage drift")
-    require(value["status"] == "REVIEW_CANDIDATE_GUARDIAN_FOUNDATION_R2_ONLY", "source self-accepted")
+    require(value["stage"] == "Stage 8B-P1-f Ia guardian foundation correction R3", "stage drift")
+    require(value["status"] == "REVIEW_CANDIDATE_GUARDIAN_FOUNDATION_R3_ONLY", "source self-accepted")
     require(value["accepted_design_commit"] == BASE, "accepted design binding drift")
     require(value["production_module"] == SOURCE, "production module drift")
     require(value["authority_control_root"] == "/var/lib/moex-finam-p1-paper-control", "control root drift")
@@ -215,6 +215,7 @@ def validate_source(root: Path) -> None:
         "resume_stopping_phase",
         "poll_deadline_at_elapsed",
         "force_kill_after_elapsed",
+        "let force_kill_after_elapsed = StdDuration::ZERO;",
         "current_boot_id",
         "force_kill_at = stopping_started_at + chrono::Duration::seconds(30)",
         "sha256_hex(&retained_manifest_bytes) != event.manifest_sha256",
@@ -236,6 +237,7 @@ def validate_source(root: Path) -> None:
     for test in (
         "stopping_monotonic_bound_rejects_frozen_and_backward_wall_clock",
         "active_readmission_without_monotonic_witness_fails_closed",
+        "execution_owner_is_unique_and_stopping_resume_has_no_new_grace",
         "public_transitions_recover_exact_event_temp_and_pending_stopping",
         "restore_allows_sibling_and_binds_leaf_and_parent_by_descriptor",
     ):
@@ -289,7 +291,7 @@ def validate_documents(root: Path) -> None:
     status = (root / STATUS).read_text()
     roadmap = (root / ROADMAP).read_text()
     for fragment in (
-        "REVIEW_CANDIDATE_GUARDIAN_FOUNDATION_R2_ONLY",
+        "REVIEW_CANDIDATE_GUARDIAN_FOUNDATION_R3_ONLY",
         BASE,
         "exact recovery",
         "0..=300",
@@ -298,8 +300,8 @@ def validate_documents(root: Path) -> None:
         "P1F-Ib local supervision composition",
     ):
         require(fragment in document, f"source document fragment missing: {fragment}")
-    require("P1F-Ia guardian-foundation correction R2 candidate" in status, "current status source boundary missing")
-    require("P1F-Ia guardian foundation correction R2 is the active review candidate" in roadmap, "roadmap source boundary missing")
+    require("P1F-Ia guardian-foundation correction R3 candidate" in status, "current status source boundary missing")
+    require("P1F-Ia guardian foundation correction R3 is the active review candidate" in roadmap, "roadmap source boundary missing")
 
 
 def validate(root: Path = ROOT, *, verify_lineage: bool = True) -> None:

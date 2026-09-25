@@ -22,7 +22,7 @@ P1FI-020,o2,Broker truth age above 300 seconds commits Failed and rejects admiss
 P1FI-021,recovery,Accepted V5 first-boot recovery remains separate from V4 committed schedule continuation,REQUIRED
 P1FI-022,deadline,Run permit owns an exclusive process-lifetime execution lock and existing owner state cannot mint a fresh monotonic witness,REQUIRED
 P1FI-023,deadline,Clock rollback frozen wall deadline or reboot commits durable Stopping and closes ordinary admission,REQUIRED
-P1FI-024,deadline,Monotonic stopping and restart continuation preserve the original force-kill bound without grace extension,REQUIRED
+P1FI-024,deadline,Live permit enforces monotonic stopping while every public restart without its witness completes exact recovery and yields immediate ForceKill,REQUIRED
 P1FI-025,restore,Descriptor-relative restore permits nonoverlapping siblings and prevents symlink leaf or parent substitution from reaching control state,REQUIRED
 P1FI-026,restore,Declared coherent restore permanently quarantines ordinary use,REQUIRED
 P1FI-027,restore,No authority clear or rebind API exists,REQUIRED
