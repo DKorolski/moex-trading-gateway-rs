@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P1-e I1 governance closure",
+  "status": "CLOSED_ACCEPTED",
+  "accepted_candidate": {
+    "commit": "a9bcd940635b62c2a13f8d378453e6ca21511e30",
+    "parent": "7f2e876c4cad7a3a4a0fa10a1eb5202e58202d2f",
+    "tree": "2d4196abf22d95af8e794bd0ae9c360794e44802",
+    "archive": "moex-trading-project-a9bcd94-stage8b-p1e-i1-aggregate-acceptance.zip",
+    "archive_sha256": "5dfb664d86f37c00441c40b0d622db1fc87f6559812ab726d2a076c1f6bac81d"
+  },
+  "independent_review": {
+    "file": "FINAM_I1_AGGREGATE_ACCEPTANCE_a9bcd94_2026-09-24.md",
+    "sha256": "c5be3e66cadd6c45f6678669afa3f9a194c31f6288aae1c3d29fa59aac47ca54",
+    "verdict": "AGGREGATE_I1_ACCEPT"
+  },
+  "scope": {
+    "source_accepted": true,
+    "installation_systemd_material_accepted": true,
+    "retained_evidence_accepted": true,
+    "production_source_changed_by_closure": false
+  },
+  "transition": {
+    "i1_closed": true,
+    "p1f_design_authorized": true,
+    "p1f_implementation_authorized": false,
+    "p1f_operational_activation_authorized": false
+  },
+  "closed_surfaces": {
+    "installation_or_service_start": false,
+    "operational_redis_db15": false,
+    "operational_redis_db0": false,
+    "vps_deployment": false,
+    "paper_provider_execution": false,
+    "finam_post_delete_send": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false
+  }
+}

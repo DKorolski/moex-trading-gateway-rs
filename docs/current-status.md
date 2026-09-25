@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-09-24.
+Status date: 2026-09-25.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -10,49 +10,25 @@ The stable macro-roadmap is fixed in [roadmap.md](roadmap.md). Review may split
 an accepted macro-stage into smaller patch gates, but it does not renumber or
 replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
-## Active Stage 8B-P1-e I1 slice
+## Active Stage 8B-P1-f design boundary
 
-Telemetry correction `b6f6d5b6ea924db8c97512bc2bcecb8a5ed760ac`
-is independently SOURCE ACCEPTED. Fixed-path installation correction
-`7f2e876c4cad7a3a4a0fa10a1eb5202e58202d2f` is independently
-SOURCE/MATERIAL ACCEPTED; P1-INS01, P1-INS02, P2-INS03 and P2-INS04 are
-closed. The active boundary is now the governance/evidence-only aggregate I1
-acceptance candidate. It changes no Rust, Cargo, deployment, configuration or
-workflow file and cannot self-close I1. It does not provision operator config,
-reload the service manager, enable/start a unit, contact operational
-Redis/FINAM or activate a VPS.
+Stage 8B-P1-e I1 aggregate candidate
+`a9bcd940635b62c2a13f8d378453e6ca21511e30` is independently
+`CLOSED / ACCEPTED` in source, installation/systemd material and retained
+evidence scope. Its accepted tree is
+`2d4196abf22d95af8e794bd0ae9c360794e44802`; the reviewed handoff SHA-256 is
+`5dfb664d86f37c00441c40b0d622db1fc87f6559812ab726d2a076c1f6bac81d`.
+This closure preserves the independently accepted process (`1086b8d`),
+telemetry (`b6f6d5b`) and fixed-installation (`7f2e876`) boundaries.
 
-Cancel signed-schedule composition `cc1f02c`, Day-expiry P1-DEX01 correction
-`a667938`, committed Cancel/Day-expiry restart source `efe56a9` and committed
-owner-loop correction `e2ce442` are independently SOURCE ACCEPTED. The active
-source candidate composes that accepted owner loop into the fixed-path `run`
-process: signal supervision, credential load, authenticated V5 ordinary-run
-admission, verify-only Redis attach and one retained S06R/S08/S09 owner.
-Admission rejects incomplete/corrupt/foreign adoption authority before Redis
-work and validates the current authenticated package without pinning it to the
-initial seal. Cancel has exhaustive
-ACK/truth/target-first routing, typed restart and terminal boundaries,
-XACK-last and idempotent final-XACK response-loss replay. Day-expiry requires
-an empty canonical M10 PEL and returns a source-free typed terminal owner.
-Neither route can fall through to fresh schedule admission.
-
-This is not full I1 closure. The active source candidate now includes the
-separate OS-process SIGTERM/panic/SIGKILL/restart matrix: production startup
-signals before admission, after admission, before and inside Redis attach and
-S06 acquisition; cooperative shutdown and grace-expiry controls; idle
-shutdown and restart; exact unexpected-stop/panic/72/73 exit classes;
-committed-Cancel owner handoff; and a durable truth-before-XACK crash/restart
-witness. The V5 lifecycle mismatch is corrected by exporting fresh and
-historical bootstrap through `P1BootstrapReady`, yielding an authenticated
-zero-effect `P1SemanticReady` owner under adoption predicate version 2.
-A production-path regression advances that root through M10 callback/command,
-Cancel/V4 and repeated admission without rewriting provenance or repeating
-effects. Legacy predicate-v1/TimerReady V5 artifacts are rejected without
-automatic migration. Its review package must contain
-retained command logs and exact exit status; no operational stand is activated
-by this source work. Redis DB0/VPS activation, paper-provider execution,
-FINAM write/send,
-broker dispatch, runtime-live and real orders remain closed.
+The only newly authorized work is a separate Stage 8B-P1-f isolated
+operational-acceptance design. Design authority is not activation authority.
+Operational installation or service start, Redis DB15/DB0 activation, VPS
+deployment, paper-provider execution, FINAM POST/DELETE/send, broker dispatch,
+runtime-live and real orders remain closed until separately reviewed P1-f
+implementation and operational gates explicitly authorize them. Historical
+candidate descriptions below are retained as lineage and are not the active
+project status.
 
 ## Current accepted boundary
 
