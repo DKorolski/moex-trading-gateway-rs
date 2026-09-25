@@ -25,13 +25,15 @@ The independently accepted P1-f R4 design baseline is
 `5d81b8e212300858246237a227a95d115dd67c2d`. P1F-Ia guardian foundation is
 independently `CLOSED / ACCEPTED` at
 `9be356b04a38e627337ed148ccc9fbdaebae8d4a`; all FI01–FI06 findings are closed.
-The first P1F-Ib candidate `b45a11cda0a564344fabcfea688bae06bd98ec17`
-was held on P1-IB01 through P1-IB03. The active source candidate is its narrow
-R2 correction after R1 `9890d713783a479ee08512b21647240eb222053d`
-closed IB02/IB03 but left the signal-driver scheduling half of IB01 open. R2
-uses a direct process-signal witness before spawn rather than relying on Tokio
-driver/forwarder scheduling, while retaining the ready/barrier handshake,
-exact pending-stopping recovery and fail-closed child/recovery exit semantics.
+P1F-Ib correction R2 is independently `CLOSED / SOURCE ACCEPTED` at
+`7c481bc60699b514b016e8dffe62eb9ca462a100`; its accepted review SHA-256 is
+`098a24fc87871968bc6e7b0a77deefffd403bc56d997d21af18e1869750acf7e`.
+The active source candidate is P1F-Ic fixed producers and retained high-water.
+It reuses the accepted O2/Ia materialization path and adds only fixed O3
+synthetic and O4 GET/read-only schedule and canonical-M10 composition. O3 and
+O4 share one retained source generation, publication sequence and exact
+Prepared/Published high-water; missing, stale or conflicting lineage fails
+closed and O4 cannot create a new genesis.
 Source authority is not activation authority.
 Operational installation or service start, Redis DB15/DB0 activation, VPS
 deployment, paper-provider execution, FINAM POST/DELETE/send, broker dispatch,
@@ -77,9 +79,11 @@ exit `0` is the only successful operator stop; I1 exits 70/71/72, recovered
 stops and invalid phases remain nonzero. Real OS TERM/INT startup tests use the
 production pre-spawn composition, assert zero child starts and no marker, and
 retain a no-signal child-start control. It performs no operational action and grants no
-operational authority. P1F-Ic producer/high-water composition, P1F-Id role
+operational authority. The active P1F-Ic candidate uses the accepted P1-e
+schedule publisher and canonical M10 contracts, retains exact state across
+restart and O3-to-O4, and adds no network or Redis client. P1F-Id role
 adapters/resource polling/command audit and P1F-Ie aggregate source closure
-remain open. P1F-O0 is not unlocked by P1F-Ib implementation or review.
+remain open. P1F-O0 is not unlocked by P1F-Ic implementation or review.
 
 ## Current accepted boundary
 

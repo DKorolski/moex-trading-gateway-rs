@@ -1,0 +1,54 @@
+{
+  "accepted_ib_commit": "7c481bc60699b514b016e8dffe62eb9ca462a100",
+  "accepted_ib_review_sha256": "098a24fc87871968bc6e7b0a77deefffd403bc56d997d21af18e1869750acf7e",
+  "closed_surfaces": {
+    "broker_dispatch": false,
+    "finam_post_or_delete": false,
+    "operational_install_or_service_start": false,
+    "operational_redis": false,
+    "paper_provider_execution": false,
+    "real_orders": false,
+    "runtime_live": false,
+    "vps_mutation": false
+  },
+  "evidence": {
+    "acceptance_scenarios": 24,
+    "checker": "scripts/stage8b_p1f_ic_check.py",
+    "gate": "scripts/stage8b_p1f_ic_gate.sh",
+    "negative_harness": "scripts/stage8b_p1f_ic_negative_harness.py",
+    "targeted_rust_tests": 4
+  },
+  "m10_contract": {
+    "aggregation": "existing CanonicalBarAggregator over exactly ten canonical final IMOEXF M1 bars",
+    "first_authority": "typed explicit authorization valid only for O3",
+    "o3_source": "ReadOnlyPoll plus phase-pinned public fixture digest",
+    "o4_source": "LiveStream with no synthetic fixture digest",
+    "publication_phases": [
+      "Prepared",
+      "Published"
+    ],
+    "published_confirmation": "exact deterministic Redis ID plus exact canonical M10 bytes",
+    "source_generation": "1"
+  },
+  "next_after_acceptance": "P1F-Id fixed Redis roles, resource polling and command audit; P1F-O0 remains closed",
+  "o2_contract": "retained accepted P1F-Ia materialize_o2 and P1-e first-boot verifier; no duplicate Ic producer",
+  "production_module": "crates/finam-gateway/src/stage8b_p1f_fixed_producers.rs",
+  "restart_contract": {
+    "equal_prepared": "replay exact retained Prepared state",
+    "equal_published": "return exact retained Published state",
+    "newer_while_prepared": "reject until exact publication is resolved",
+    "o3_to_o4": "retain source generation and advance the same publication sequence",
+    "persistence": "canonical JSON; create-new temporary; file fsync; rename; parent fsync; exact reread",
+    "same_close_conflict": "fail closed",
+    "stale_candidate": "fail closed"
+  },
+  "schedule_contract": {
+    "o3": "manifest-pinned synthetic semantic fixture; freshness 2 seconds; skew 5 seconds",
+    "o4": "accepted typed GET/read-only FINAM adapter; freshness 30 seconds; skew 5 seconds; retained Published lineage required",
+    "publisher": "accepted P1-e verifier/normalizer/generation-2 signer/publisher",
+    "signed_schedule_max_age_ms_at_m10": 2000
+  },
+  "schema_version": 1,
+  "stage": "Stage 8B-P1-f Ic fixed producers and retained high-water",
+  "status": "REVIEW_CANDIDATE_FIXED_PRODUCERS_ONLY"
+}

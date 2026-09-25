@@ -1,0 +1,25 @@
+id,area,requirement,status
+P1FIC-001,lineage,Ic is based on independently accepted Ib commit 7c481bc60699b514b016e8dffe62eb9ca462a100,REQUIRED
+P1FIC-002,o2,O2 retains the accepted Ia materialize_o2 and P1-e verifier without a second producer path,REQUIRED
+P1FIC-003,o3,O3 schedule input is bound to an exact phase and public synthetic semantic fixture digest,REQUIRED
+P1FIC-004,o3,O3 schedule and Stage4 observations are no older than two seconds and no more than five seconds apart,REQUIRED
+P1FIC-005,o4,O4 schedule uses the accepted typed GET/read-only FINAM adapter,REQUIRED
+P1FIC-006,o4,O4 requires retained Published schedule lineage and cannot create genesis,REQUIRED
+P1FIC-007,o4,O4 observations are no older than thirty seconds and no more than five seconds apart,REQUIRED
+P1FIC-008,schedule,O3 and O4 reuse the accepted normalizer generation-2 signer and publisher,REQUIRED
+P1FIC-009,schedule,Publication sequence is retained across O3 to O4 and semantic revision changes only with semantic identity,REQUIRED
+P1FIC-010,m10,Each candidate contains exactly ten canonical final IMOEXF M1 bars,REQUIRED
+P1FIC-011,m10,O3 accepts ReadOnlyPoll plus a pinned fixture while O4 accepts LiveStream and forbids a fixture,REQUIRED
+P1FIC-012,m10,The existing CanonicalBarAggregator creates the exact 600-second bar,REQUIRED
+P1FIC-013,m10,The existing canonical M10 builder and parser cross-check all identities and exact bytes,REQUIRED
+P1FIC-014,schedule,M10 must fit completely inside a fresh signed TradableOpen session,REQUIRED
+P1FIC-015,high-water,Source generation is fixed to one and publication sequence is strictly retained,REQUIRED
+P1FIC-016,high-water,Only O3 can consume explicit first-M10 authority,REQUIRED
+P1FIC-017,restart,Equal Prepared input replays exact retained bytes after restart,REQUIRED
+P1FIC-018,restart,Equal Published input is idempotent after restart,REQUIRED
+P1FIC-019,conflict,Same-close conflict older input and missing O4 lineage fail closed,REQUIRED
+P1FIC-020,ordering,A newer candidate cannot overtake unresolved Prepared publication,REQUIRED
+P1FIC-021,persistence,State uses canonical JSON create-new temp file fsync rename parent fsync and exact reread,REQUIRED
+P1FIC-022,publish,Published requires exact deterministic Redis ID and exact retained M10 bytes,REQUIRED
+P1FIC-023,tests,Local tests cover happy restart duplicate conflict stale missing and O3-to-O4 continuity,REQUIRED
+P1FIC-024,closed,Installation VPS operational Redis FINAM write provider dispatch runtime-live and real orders remain closed,REQUIRED

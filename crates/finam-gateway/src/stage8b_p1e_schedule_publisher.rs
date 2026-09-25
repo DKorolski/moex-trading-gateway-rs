@@ -630,6 +630,22 @@ fn prepare_stage8b_p1e_schedule_publication_with_key(
     Ok(state)
 }
 
+#[cfg(test)]
+pub(crate) fn test_prepare_stage8b_p1e_schedule_publication_with_key(
+    input: Stage8bP1eSchedulePublisherInputV1,
+    lineage: Stage8bP1eSchedulePublisherLineage<'_>,
+    signer: &impl Stage8bP1eScheduleSigner,
+    expected_public_key_hex: &str,
+) -> Result<Stage8bP1eSchedulePublisherStateV1, Stage8bP1eSchedulePublisherError> {
+    prepare_stage8b_p1e_schedule_publication_with_key(
+        input,
+        lineage,
+        signer,
+        expected_public_key_hex,
+        &|state| state.validate_with_fixture_key(expected_public_key_hex),
+    )
+}
+
 pub fn load_stage8b_p1e_schedule_publisher_state(
     path: &Path,
 ) -> Result<Stage8bP1eSchedulePublisherStateV1, Stage8bP1eSchedulePublisherError> {
@@ -790,6 +806,19 @@ async fn publish_stage8b_p1e_prepared_schedule_with_validator(
     Ok(prepared)
 }
 
+#[cfg(test)]
+pub(crate) async fn test_publish_stage8b_p1e_prepared_schedule_with_key(
+    path: &Path,
+    prepared: Stage8bP1eSchedulePublisherStateV1,
+    writer: &mut impl Stage8bP1eScheduleStreamWriter,
+    expected_public_key_hex: &str,
+) -> Result<Stage8bP1eSchedulePublisherStateV1, Stage8bP1eSchedulePublisherError> {
+    publish_stage8b_p1e_prepared_schedule_with_validator(path, prepared, writer, &|state| {
+        state.validate_with_fixture_key(expected_public_key_hex)
+    })
+    .await
+}
+
 fn valid_nonzero_decimal(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 20
@@ -869,7 +898,7 @@ fn decode_fixed_hex<const N: usize>(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use broker_core::{
         BrokerAccountId, BrokerInstrumentSpec, BrokerKind, BrokerMarketSessionState, BrokerSymbol,
@@ -881,13 +910,13 @@ mod tests {
     use ed25519_dalek::{Signer, SigningKey};
     use rust_decimal::Decimal;
 
-    struct FixtureSigner {
+    pub(crate) struct FixtureSigner {
         key: SigningKey,
         public_key_hex: String,
     }
 
     impl FixtureSigner {
-        fn new(seed: u8) -> Self {
+        pub(crate) fn new(seed: u8) -> Self {
             let key = SigningKey::from_bytes(&[seed; 32]);
             let public_key_hex = encode_lower_hex(&key.verifying_key().to_bytes());
             Self {
@@ -1032,7 +1061,10 @@ mod tests {
         }
     }
 
-    fn fixture_input(now: DateTime<Utc>, session_end: &str) -> Stage8bP1eSchedulePublisherInputV1 {
+    pub(crate) fn fixture_input(
+        now: DateTime<Utc>,
+        session_end: &str,
+    ) -> Stage8bP1eSchedulePublisherInputV1 {
         Stage8bP1eSchedulePublisherInputV1 {
             payload: fixture_payload(now, session_end),
             operational_identity_sha256: "4".repeat(64),
@@ -1079,7 +1111,7 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct FixtureWriter {
+    pub(crate) struct FixtureWriter {
         calls: Vec<(String, usize, Vec<u8>)>,
         fail_after_write: bool,
     }
@@ -1120,7 +1152,9 @@ mod tests {
         root.join("publisher-state.json")
     }
 
-    fn fixture_adapter_input(now: DateTime<Utc>) -> Stage8bP1eReadonlyScheduleAdapterInputV1 {
+    pub(crate) fn fixture_adapter_input(
+        now: DateTime<Utc>,
+    ) -> Stage8bP1eReadonlyScheduleAdapterInputV1 {
         let fixture = fixture_payload(now, "2026-09-14T15:50:00.000000Z");
         let report_bytes = decode_lower_hex(&fixture.stage4_evidence.report_canonical_json_hex)
             .expect("fixture Stage4 bytes");
