@@ -1,11 +1,16 @@
 # Stage 8B-P1-f Ib — fixed local guardian/I1 supervision
 
-Status: `REVIEW_CANDIDATE_LOCAL_SUPERVISION_ONLY`.
+Status: `REVIEW_CANDIDATE_CORRECTION_R1_LOCAL_SUPERVISION_ONLY`.
 
 Accepted predecessor: P1F-Ia guardian foundation at
 `9be356b04a38e627337ed148ccc9fbdaebae8d4a`. This slice composes that linear
 guardian permit with the already accepted P1-e/I1 process. It performs no
 installation, target start, Redis activation or FINAM operation.
+
+The first Ib candidate at
+`b45a11cda0a564344fabcfea688bae06bd98ec17` was held by independent review.
+This correction closes exactly P1-IB01 through P1-IB03; it does not open Ic or
+any operational phase.
 
 ## Fixed production boundary
 
@@ -30,7 +35,10 @@ execution flock.
 
 ## Process ownership and stop ordering
 
-SIGTERM and SIGINT handlers are installed before authority admission. A signal
+SIGTERM and SIGINT streams are synchronously registered before identity lookup,
+authority open or admission. The forwarding actor acknowledges readiness before
+admission. After admission a biased signal/barrier handshake drains any retained
+TERM/INT before the first spawn; this is not inferred from `yield_now`. A signal
 retained before spawn commits Stopping and creates no child. Each admitted
 child becomes leader of a new Unix process group. The production launch drops
 supplementary groups and changes to the exact service GID/UID before exec. On
@@ -54,14 +62,21 @@ terminal evidence was successfully retained.
 
 ## Recovery behavior
 
-An Active execution-owner record with no live permit is not readmitted. The Ia
+An exact pending-stopping/event-temp frontier is routed directly through the
+accepted Ia `resume_stopping_phase` API before ordinary `inspect` can veto it.
+Pending claim, materialization, terminal, foreign selector and corrupt pending
+state remain rejected. An Active execution-owner record with no live permit is not readmitted. The Ia
 recovery changes it to Stopping and Ib resumes that exact transaction. Because
 the monotonic witness was lost, the first poll is `ForceKill`; Ib does not
 spawn a replacement child and terminates the phase conservatively. A retained
 Stopping phase follows the same no-spawn path. Pending authority writes remain
 owned by the accepted Ia exact-recovery API.
 
-Every in-process error keeps a kill-on-drop process-group guard. Guardian or
+Only a cooperative child exit `0` can complete an operator stop successfully.
+Accepted I1 fatal exit classes `70`, `71` and `72` are retained as the outer
+executable exit code and commit `Failed`; other abnormal child exits map
+conservatively to `70`. A recovered stop without its original monotonic witness
+and an unsupported O1/O2 permit always return nonzero. Every in-process error keeps a kill-on-drop process-group guard. Guardian or
 signal supervision failure first requests bounded termination and then kills
 the group if it remains alive. No error path intentionally detaches a child.
 
@@ -79,6 +94,12 @@ replacement for the fixed I1 command. They prove:
 - lost guardian/monotonic ownership resumes Stopping and never spawns;
 - on Linux, killing the guardian with SIGKILL triggers the child's parent-death
   SIGKILL.
+
+Correction controls additionally prove real SIGTERM and SIGINT retention while
+the current-thread runtime is inside its synchronous admission section, exact
+pending-stopping recovery with no child, rejection of a foreign selector,
+preservation of child exits 70/71/72, recovered external-stop failure and
+invalid-phase failure.
 
 The Ib gate also reruns all inherited runtime-durable-service tests, doctests,
 strict Clippy and the accepted Ia multi-UID evidence when a root Linux runner

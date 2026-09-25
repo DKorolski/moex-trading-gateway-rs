@@ -1,6 +1,8 @@
 {
   "accepted_guardian_commit": "9be356b04a38e627337ed148ccc9fbdaebae8d4a",
   "accepted_guardian_review_sha256": "db684cb6ba10cb951801cc917c317d2817c99c3f10874d5a1d959c053f6ebb60",
+  "reviewed_ib_commit": "b45a11cda0a564344fabcfea688bae06bd98ec17",
+  "ib_correction_review_sha256": "3d4f97816ed5b392c7e49d4f61af191ef190b69c61a4cbdb32ba1967fb4654ac",
   "child": {
     "args": [
       "run",
@@ -32,16 +34,17 @@
     ]
   },
   "evidence": {
+    "correction_controls": 5,
     "checker": "scripts/stage8b_p1f_ib_check.py",
     "gate": "scripts/stage8b_p1f_ib_gate.sh",
     "negative_harness": "scripts/stage8b_p1f_ib_negative_harness.py",
-    "real_process_tests": 8
+    "real_process_tests": 10
   },
   "next_after_acceptance": "P1F-Ic fixed producers and retained high-water; P1F-O0 remains closed",
   "production_module": "crates/runtime-durable-service/src/stage8b_p1f_local_supervision.rs",
   "schema_version": 1,
   "stage": "Stage 8B-P1-f Ib local supervision composition",
-  "status": "REVIEW_CANDIDATE_LOCAL_SUPERVISION_ONLY",
+  "status": "REVIEW_CANDIDATE_CORRECTION_R1_LOCAL_SUPERVISION_ONLY",
   "stop_contract": {
     "force_kill_scope": "entire child process group",
     "grace_seconds": 30,

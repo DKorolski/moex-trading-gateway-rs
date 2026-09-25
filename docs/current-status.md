@@ -25,8 +25,11 @@ The independently accepted P1-f R4 design baseline is
 `5d81b8e212300858246237a227a95d115dd67c2d`. P1F-Ia guardian foundation is
 independently `CLOSED / ACCEPTED` at
 `9be356b04a38e627337ed148ccc9fbdaebae8d4a`; all FI01–FI06 findings are closed.
-The active source candidate is now the narrow P1F-Ib fixed local guardian/I1
-supervision composition. Source authority is not activation authority.
+The first P1F-Ib candidate `b45a11cda0a564344fabcfea688bae06bd98ec17`
+was held on P1-IB01 through P1-IB03. The active source candidate is its narrow
+correction: synchronous signal registration plus a ready/barrier handshake,
+exact pending-stopping recovery and fail-closed child/recovery exit semantics.
+Source authority is not activation authority.
 Operational installation or service start, Redis DB15/DB0 activation, VPS
 deployment, paper-provider execution, FINAM POST/DELETE/send, broker dispatch,
 runtime-live and real orders remain closed until separately reviewed P1-f
@@ -57,13 +60,17 @@ schedule frontiers and 45 model cases. Phase receipts and consumed-manifest
 history move to a root-owned sibling control root with a hash-chained head;
 service-owned runtime state remains unchanged and carries no phase authority.
 P1F-Ib adds only one fixed local execution owner around the accepted I1 run
-binary. It installs TERM/INT handling before admission, starts only an exact
+binary. Its correction synchronously registers TERM/INT before admission and
+uses an acknowledged biased barrier before spawn, starts only an exact
 O3/O4 child process group, keeps the original linear permit and monotonic
 deadline across bounded child restart, performs actual process-group SIGKILL
 at ForceKill, uses Linux parent-death SIGKILL, and returns nonzero after
 recovered-witness or supervision failure. Real process tests cover pre-spawn
 stop, TERM/INT, restart, restart exhaustion, process-group kill, lost guardian
-and signal-task failure. It performs no operational action and grants no
+and signal-task failure. Exact pending-stopping recovery reaches the accepted
+Ia resume API, while foreign pending state stays rejected. Cooperative child
+exit `0` is the only successful operator stop; I1 exits 70/71/72, recovered
+stops and invalid phases remain nonzero. It performs no operational action and grants no
 operational authority. P1F-Ic producer/high-water composition, P1F-Id role
 adapters/resource polling/command audit and P1F-Ie aggregate source closure
 remain open. P1F-O0 is not unlocked by P1F-Ib implementation or review.

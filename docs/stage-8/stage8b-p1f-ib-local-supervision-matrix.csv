@@ -4,8 +4,8 @@ P1FIB-002,entry,Public CLI accepts only run plus exact manifest SHA input,REQUIR
 P1FIB-003,child,Production child binary and run config paths are fixed,REQUIRED
 P1FIB-004,admission,Child spawn requires one exact O3 or O4 linear run permit,REQUIRED
 P1FIB-005,ownership,Execution flock and permit remain owned for the complete child lifecycle,REQUIRED
-P1FIB-006,signal,SIGTERM and SIGINT supervision is installed before admission,REQUIRED
-P1FIB-007,signal,A retained pre-spawn signal closes the phase without creating a child,REQUIRED
+P1FIB-006,signal,SIGTERM and SIGINT streams are synchronously registered and actor-ready before admission,REQUIRED
+P1FIB-007,signal,A biased post-admission barrier drains retained real OS signals before child spawn,REQUIRED
 P1FIB-008,group,Child is leader of a dedicated process group,REQUIRED
 P1FIB-009,identity,Production child drops supplementary groups and uses exact service UID and GID,REQUIRED
 P1FIB-010,pdeath,Linux child receives SIGKILL when its guardian dies,REQUIRED
@@ -14,8 +14,8 @@ P1FIB-012,restart,Restart reuses the same permit and never performs phase readmi
 P1FIB-013,restart,Restart policy is five starts per 600 seconds with five-second delay,REQUIRED
 P1FIB-014,stop,Operator signal is forwarded to the whole process group,REQUIRED
 P1FIB-015,stop,ForceKill sends actual SIGKILL to the whole process group and reaps the leader,REQUIRED
-P1FIB-016,recovery,Loss of monotonic ownership resumes exact Stopping and creates no child,REQUIRED
-P1FIB-017,error,Guardian or signal-supervision failure is nonzero and leaves no child,REQUIRED
+P1FIB-016,recovery,Exact pending-stopping and lost monotonic ownership resume Stopping and create no child,REQUIRED
+P1FIB-017,error,Guardian signal child-fatal recovered-stop and invalid-phase failures are nonzero and leave no child,REQUIRED
 P1FIB-018,evidence,Terminal authority receipt plus typed result preserve stop disposition and child status,REQUIRED
 P1FIB-019,tests,Real local process tests cover cooperative restart force-kill recovery and error paths,REQUIRED
 P1FIB-020,closed,Installation VPS Redis FINAM provider dispatch runtime-live and real orders remain closed,REQUIRED

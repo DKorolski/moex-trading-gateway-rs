@@ -21,4 +21,4 @@ else
   linux_custody="separate-evidence-required"
 fi
 
-echo "PASS stage8b-p1f-ib-gate boundary=P1F-Ib scenarios=20 negatives=16 real_process_tests=8 linux_custody=$linux_custody operational=false"
+echo "PASS stage8b-p1f-ib-gate boundary=P1F-Ib-correction-R1 scenarios=20 negatives=21 correction_controls=5 real_process_tests=10 linux_custody=$linux_custody operational=false"

@@ -13,10 +13,10 @@ import stage8b_p1e_i1a_handoff_safety_check as common
 import stage8b_p1f_ib_check as source_check
 
 
-STAGE = "Stage 8B-P1-f Ib local supervision composition"
-PARENT = source_check.BASE
+STAGE = "Stage 8B-P1-f Ib correction R1 local supervision composition"
+PARENT = source_check.REVIEWED_IB
 BRANCH = "stage8b-paper-shadow-resumption"
-REVIEW_SHA256 = source_check.REVIEW_SHA256
+REVIEW_SHA256 = source_check.CORRECTION_REVIEW_SHA256
 PREFIX = "handoff-evidence/"
 MARKER = "handoff-commit.txt"
 MANIFEST = PREFIX + "source-tree-manifest.json"
@@ -24,7 +24,7 @@ COMMIT_RAW = PREFIX + "source-commit.raw"
 EVIDENCE = PREFIX + "stage8b-p1f-ib-evidence.json"
 GATE = PREFIX + "stage8b-p1f-ib-gate.txt"
 LINUX = PREFIX + "stage8b-p1f-ib-linux-process-evidence.txt"
-REVIEW = PREFIX + "reviews/FINAM_P1F_IA_R3_SOURCE_ACCEPT_9be356b_2026-09-25.md"
+REVIEW = PREFIX + "reviews/FINAM_P1F_IB_REVIEW_b45a11c_AND_LIGHT_IC_SCOPE_2026-09-25.md"
 GENERATED = {MARKER, MANIFEST, COMMIT_RAW, EVIDENCE, GATE, LINUX, REVIEW}
 REQUIRED = GENERATED | source_check.ALLOWED_CHANGES
 
@@ -55,6 +55,7 @@ def parse_marker(raw: bytes) -> dict[str, str]:
             "source_tree",
             "branch",
             "accepted_guardian_ref",
+            "reviewed_ib_ref",
             "archive_name",
         },
         "marker inventory drift",
@@ -87,6 +88,7 @@ def check(path: str) -> dict[str, object]:
         require(marker["archive_name"] == PurePosixPath(path).name, "archive-name mismatch")
         require(marker["source_parent"] == PARENT, "source parent mismatch")
         require(marker["accepted_guardian_ref"] == source_check.BASE, "guardian ref mismatch")
+        require(marker["reviewed_ib_ref"] == source_check.REVIEWED_IB, "reviewed Ib ref mismatch")
         require(marker["branch"] == BRANCH, "branch mismatch")
         require(marker["source_ref"].startswith(marker["source_short_ref"]), "short ref mismatch")
 
@@ -124,15 +126,18 @@ def check(path: str) -> dict[str, object]:
         require(evidence["source_parent"] == PARENT, "evidence parent mismatch")
         require(evidence["source_tree"] == marker["source_tree"], "evidence tree mismatch")
         require(
-            evidence["status"] == "LOCAL_SUPERVISION_REVIEW_CANDIDATE_NO_ACTIVATION",
+            evidence["status"]
+            == "LOCAL_SUPERVISION_CORRECTION_R1_REVIEW_CANDIDATE_NO_ACTIVATION",
             "evidence status mismatch",
         )
         require(
             evidence["changed_paths"] == sorted(source_check.ALLOWED_CHANGES),
             "changed path drift",
         )
-        require(evidence["source_negative_cases"] == 16, "negative count mismatch")
-        require(evidence["real_process_tests"] == 8, "real-process count mismatch")
+        require(evidence["reviewed_ib_ref"] == source_check.REVIEWED_IB, "evidence reviewed Ib mismatch")
+        require(evidence["source_negative_cases"] == 21, "negative count mismatch")
+        require(evidence["correction_controls"] == 5, "correction-control count mismatch")
+        require(evidence["real_process_tests"] == 10, "real-process count mismatch")
         require(all(flag is False for flag in evidence["closed_surfaces"].values()), "surface opened")
         require(evidence["gate_sha256"] == sha256(files[GATE]), "gate digest mismatch")
         require(evidence["linux_evidence_sha256"] == sha256(files[LINUX]), "Linux digest mismatch")
@@ -141,7 +146,7 @@ def check(path: str) -> dict[str, object]:
 
         for expected in (
             b"PASS stage8b-p1f-ib-check",
-            b"PASS stage8b-p1f-ib-negative-harness 16/16",
+            b"PASS stage8b-p1f-ib-negative-harness 21/21",
             b"PASS positive-control",
             b"PASS nonsemantic-control",
             b"test result: ok.",

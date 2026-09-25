@@ -5255,6 +5255,279 @@ mod tests {
         );
     }
 
+    #[test]
+    fn production_signal_registration_precedes_synchronous_admission() {
+        use crate::stage8b_p1f_local_supervision::test_support;
+
+        const HELPER_ENV: &str = "STAGE8B_P1F_SIGNAL_REGISTRATION_HELPER";
+        const MARKER_ENV: &str = "STAGE8B_P1F_SIGNAL_REGISTRATION_MARKER";
+        const EXPECTED_ENV: &str = "STAGE8B_P1F_SIGNAL_REGISTRATION_EXPECTED";
+        if std::env::var(HELPER_ENV).as_deref() == Ok("1") {
+            let marker = PathBuf::from(std::env::var_os(MARKER_ENV).unwrap());
+            let expected = std::env::var(EXPECTED_ENV).unwrap();
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let observed = runtime
+                .block_on(test_support::registered_signal_during_sync_admission(
+                    &marker,
+                    StdDuration::from_millis(250),
+                ))
+                .unwrap();
+            assert_eq!(
+                observed,
+                if expected == "SIGTERM" {
+                    test_support::sigterm()
+                } else {
+                    test_support::sigint()
+                }
+            );
+            return;
+        }
+
+        let setup = Setup::new_current();
+        for (name, signal) in [("SIGTERM", libc::SIGTERM), ("SIGINT", libc::SIGINT)] {
+            let marker = setup.root.join(format!("signal-registration-{name}"));
+            let mut helper = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("--exact")
+                .arg(
+                    "stage8b_p1f_guardian::tests::production_signal_registration_precedes_synchronous_admission",
+                )
+                .arg("--nocapture")
+                .env(HELPER_ENV, "1")
+                .env(MARKER_ENV, &marker)
+                .env(EXPECTED_ENV, name)
+                .spawn()
+                .unwrap();
+            let deadline = Instant::now() + StdDuration::from_secs(5);
+            while !marker.exists() && Instant::now() < deadline {
+                std::thread::sleep(StdDuration::from_millis(5));
+            }
+            assert!(
+                marker.exists(),
+                "{name} registration helper did not become ready"
+            );
+            assert_eq!(unsafe { libc::kill(helper.id() as i32, signal) }, 0);
+            assert!(helper.wait().unwrap().success(), "{name} was not retained");
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn pending_stopping_frontier_recovers_through_ib_without_child() {
+        use crate::stage8b_p1f_local_supervision::{
+            test_support, PreparedRunV1, Stage8bP1fLocalSupervisionErrorV1,
+        };
+
+        let setup = Setup::new_current();
+        let (manifest_sha256, mut permit) = admitted_o3(&setup);
+        P1F_TEST_FAULT_POINT.store(5, AtomicOrdering::SeqCst);
+        assert_eq!(
+            permit
+                .request_local_stop(
+                    Stage8bP1fLocalStopCauseV1::Sigterm,
+                    setup.now + Duration::seconds(1),
+                )
+                .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::Io(ErrorKind::Interrupted)
+        );
+        drop(permit);
+        assert_eq!(
+            setup.store.inspect().unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::PendingRecoveryRequired
+        );
+        let recovered = test_support::prepare(
+            &setup.store,
+            &manifest_sha256,
+            setup.now + Duration::seconds(2),
+        )
+        .unwrap();
+        let permit = match recovered {
+            PreparedRunV1::Permit(permit) => permit,
+            PreparedRunV1::Expired(_) => panic!("pending stopping must recover a stop permit"),
+        };
+        let forbidden = setup.root.join("pending-stopping-child-must-not-start");
+        let child = test_support::shell(format!("echo started > {}", shell_path(&forbidden)));
+        let (_sender, receiver) = test_support::signals();
+        assert!(matches!(
+            test_support::run(
+                &setup.store,
+                permit,
+                child,
+                receiver,
+                test_support::policy(StdDuration::from_millis(5), StdDuration::from_millis(50),),
+            )
+            .await
+            .unwrap_err(),
+            Stage8bP1fLocalSupervisionErrorV1::RecoveryTerminated
+        ));
+        assert!(!forbidden.exists());
+        let terminal = setup.store.inspect().unwrap();
+        assert_eq!(terminal.state, Stage8bP1fPhaseStateV1::Failed);
+        assert_eq!(terminal.latest_sequence, 3);
+    }
+
+    #[test]
+    fn foreign_pending_stopping_selector_is_rejected_without_advancing_head() {
+        use crate::stage8b_p1f_local_supervision::test_support;
+
+        let setup = Setup::new_current();
+        let (manifest_sha256, mut permit) = admitted_o3(&setup);
+        P1F_TEST_FAULT_POINT.store(5, AtomicOrdering::SeqCst);
+        permit
+            .request_local_stop(
+                Stage8bP1fLocalStopCauseV1::Sigterm,
+                setup.now + Duration::seconds(1),
+            )
+            .unwrap_err();
+        drop(permit);
+        let authority = setup.root.join(AUTHORITY_DIRECTORY);
+        let pending_path = authority.join(PENDING_STOPPING_FILE);
+        let mut pending: PendingStoppingV1 = setup
+            .store
+            .read_authority_file(&pending_path, 0o440)
+            .unwrap();
+        pending.manifest_sha256 = "f".repeat(64);
+        setup
+            .store
+            .replace_exact(&pending_path, &canonical_json(&pending).unwrap(), 0o440)
+            .unwrap();
+        let head_before: HistoryHeadV1 = setup
+            .store
+            .read_authority_file(&authority.join(HISTORY_HEAD_FILE), 0o440)
+            .unwrap();
+        assert!(matches!(
+            test_support::prepare(
+                &setup.store,
+                &manifest_sha256,
+                setup.now + Duration::seconds(2),
+            )
+            .unwrap_err(),
+            crate::stage8b_p1f_local_supervision::Stage8bP1fLocalSupervisionErrorV1::Authority(
+                Stage8bP1fAuthorityErrorV1::PendingRecoveryRequired
+            )
+        ));
+        let head_after: HistoryHeadV1 = setup
+            .store
+            .read_authority_file(&authority.join(HISTORY_HEAD_FILE), 0o440)
+            .unwrap();
+        assert_eq!(head_before, head_after);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn fatal_i1_exit_classes_remain_nonzero_after_operator_stop() {
+        use crate::stage8b_p1f_local_supervision::{
+            test_support, Stage8bP1fLocalSupervisionErrorV1,
+        };
+
+        for exit_code in [70u8, 71, 72] {
+            let setup = Setup::new_current();
+            let (_manifest_sha256, permit) = admitted_o3(&setup);
+            let started = setup.root.join(format!("fatal-child-{exit_code}-started"));
+            let child = test_support::shell(format!(
+                "trap 'exit {exit_code}' TERM INT; echo started > {}; while :; do sleep 0.02; done",
+                shell_path(&started)
+            ));
+            let (sender, receiver) = test_support::signals();
+            let runner = test_support::run(
+                &setup.store,
+                permit,
+                child,
+                receiver,
+                test_support::policy(StdDuration::from_millis(5), StdDuration::from_millis(100)),
+            );
+            let trigger = async {
+                wait_for_file(&started).await;
+                sender.send(test_support::sigterm()).unwrap();
+            };
+            let (result, ()) = tokio::join!(runner, trigger);
+            let error = result.unwrap_err();
+            assert!(matches!(
+                error,
+                Stage8bP1fLocalSupervisionErrorV1::ChildExit(code) if code == exit_code
+            ));
+            assert_eq!(error.exit_code(), exit_code);
+            assert_eq!(
+                setup.store.inspect().unwrap().state,
+                Stage8bP1fPhaseStateV1::Failed
+            );
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn recovered_external_stop_and_invalid_phase_are_never_successful() {
+        use crate::stage8b_p1f_local_supervision::{
+            test_support, PreparedRunV1, Stage8bP1fLocalSupervisionErrorV1,
+        };
+
+        let recovered_setup = Setup::new_current();
+        let (manifest_sha256, mut permit) = admitted_o3(&recovered_setup);
+        permit
+            .request_local_stop(
+                Stage8bP1fLocalStopCauseV1::Sigterm,
+                recovered_setup.now + Duration::seconds(1),
+            )
+            .unwrap();
+        drop(permit);
+        let recovered = test_support::prepare(
+            &recovered_setup.store,
+            &manifest_sha256,
+            recovered_setup.now + Duration::seconds(2),
+        )
+        .unwrap();
+        let recovered_permit = match recovered {
+            PreparedRunV1::Permit(permit) => permit,
+            PreparedRunV1::Expired(_) => panic!("external stop must resume"),
+        };
+        let forbidden = recovered_setup
+            .root
+            .join("external-stop-child-must-not-start");
+        let (_sender, receiver) = test_support::signals();
+        let error = test_support::run(
+            &recovered_setup.store,
+            recovered_permit,
+            test_support::shell(format!("echo started > {}", shell_path(&forbidden))),
+            receiver,
+            test_support::policy(StdDuration::from_millis(5), StdDuration::from_millis(50)),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            Stage8bP1fLocalSupervisionErrorV1::RecoveryTerminated
+        ));
+        assert!(!forbidden.exists());
+        assert_eq!(
+            recovered_setup.store.inspect().unwrap().state,
+            Stage8bP1fPhaseStateV1::Failed
+        );
+
+        let invalid_setup = Setup::new_current();
+        let (_manifest_sha256, mut invalid_permit) = admitted_o3(&invalid_setup);
+        invalid_permit.phase = Stage8bP1fPhaseV1::O1Provision;
+        let invalid_child = invalid_setup
+            .root
+            .join("invalid-phase-child-must-not-start");
+        let (_sender, receiver) = test_support::signals();
+        assert!(matches!(
+            test_support::run(
+                &invalid_setup.store,
+                invalid_permit,
+                test_support::shell(format!("echo started > {}", shell_path(&invalid_child))),
+                receiver,
+                test_support::policy(StdDuration::from_millis(5), StdDuration::from_millis(50),),
+            )
+            .await
+            .unwrap_err(),
+            Stage8bP1fLocalSupervisionErrorV1::RecoveryTerminated
+        ));
+        assert!(!invalid_child.exists());
+        assert_eq!(
+            invalid_setup.store.inspect().unwrap().state,
+            Stage8bP1fPhaseStateV1::Failed
+        );
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_guardian_death_signal_kills_child() {

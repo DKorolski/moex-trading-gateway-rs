@@ -162,8 +162,53 @@ def cases() -> list[tuple[str, str, Callable[[Path], None]]]:
             lambda root: replace(
                 root,
                 check.SUPERVISION,
-                "let signal_task = tokio::spawn(forward_unix_signals(signal_sender));",
-                "let signal_task = { let _ = resolve_service_identity()?; tokio::spawn(forward_unix_signals(signal_sender)) };",
+                "register_unix_signal_supervision().await?",
+                "{ let _ = resolve_service_identity()?; register_unix_signal_supervision().await? }",
+            ),
+        ),
+        (
+            "synchronous-term-registration",
+            "signal",
+            lambda root: replace(
+                root,
+                check.SUPERVISION,
+                "let terminate = unix_signal(SignalKind::terminate())",
+                "let terminate = unix_signal(SignalKind::interrupt())",
+            ),
+        ),
+        (
+            "pre-spawn-signal-barrier-priority",
+            "signal",
+            lambda root: replace(root, check.SUPERVISION, "        biased;", "        // unbiased"),
+        ),
+        (
+            "pending-stopping-recovery-route",
+            "recovery",
+            lambda root: replace(
+                root,
+                check.SUPERVISION,
+                "Err(Stage8bP1fAuthorityErrorV1::PendingRecoveryRequired)",
+                "Err(Stage8bP1fAuthorityErrorV1::InvalidDocument)",
+            ),
+        ),
+        (
+            "fatal-child-exit-preservation",
+            "exit-status",
+            lambda root: replace(
+                root,
+                check.SUPERVISION,
+                "Self::ChildExit(code) => *code",
+                "Self::ChildExit(_) => 70",
+            ),
+        ),
+        (
+            "recovered-stop-nonzero",
+            "exit-status",
+            lambda root: replace(
+                root,
+                check.SUPERVISION,
+                "if !forced && decision == Stage8bP1fDeadlineDecisionV1::ForceKill",
+                "if !forced && decision == Stage8bP1fDeadlineDecisionV1::BeginStopping",
             ),
         ),
         (

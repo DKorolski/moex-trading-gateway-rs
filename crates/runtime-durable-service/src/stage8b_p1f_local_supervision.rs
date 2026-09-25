@@ -16,7 +16,11 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
+use tokio::{
+    signal::unix::{signal as unix_signal, Signal, SignalKind},
+    sync::{mpsc, oneshot},
+    task::JoinHandle,
+};
 
 use crate::{
     stage8b_p1f_guardian::Stage8bP1fLocalStopCauseV1, Stage8bP1fAuthorityErrorV1,
@@ -134,6 +138,8 @@ pub enum Stage8bP1fLocalSupervisionErrorV1 {
     SignalTask,
     #[error("P1-f child process operation failed: {0:?}")]
     ChildProcess(ErrorKind),
+    #[error("P1-f child terminated with accepted fatal exit class {0}")]
+    ChildExit(u8),
     #[error("P1-f child restart budget was exhausted")]
     RestartExhausted,
     #[error("P1-f child exited successfully without a stop decision")]
@@ -153,10 +159,47 @@ impl Stage8bP1fLocalSupervisionErrorV1 {
             Self::Authority(_) | Self::RecoveryTerminated => 66,
             Self::RestartExhausted | Self::UnexpectedCleanExit => 67,
             Self::ChildProcess(_) => 70,
+            Self::ChildExit(code) => *code,
             Self::ForceKilled => 72,
             Self::SignalTask => 73,
         }
     }
+}
+
+type SignalBarrierSenderV1 = mpsc::UnboundedSender<oneshot::Sender<()>>;
+
+struct RegisteredUnixSignalsV1 {
+    signal_receiver: mpsc::UnboundedReceiver<LocalSignalV1>,
+    barrier_sender: SignalBarrierSenderV1,
+    task: JoinHandle<()>,
+}
+
+async fn register_unix_signal_supervision(
+) -> Result<RegisteredUnixSignalsV1, Stage8bP1fLocalSupervisionErrorV1> {
+    // These calls install Tokio's OS handlers synchronously, before any
+    // identity lookup, authority open or phase admission can run.
+    let terminate = unix_signal(SignalKind::terminate())
+        .map_err(|_| Stage8bP1fLocalSupervisionErrorV1::SignalTask)?;
+    let interrupt = unix_signal(SignalKind::interrupt())
+        .map_err(|_| Stage8bP1fLocalSupervisionErrorV1::SignalTask)?;
+    let (signal_sender, signal_receiver) = mpsc::unbounded_channel();
+    let (barrier_sender, barrier_receiver) = mpsc::unbounded_channel();
+    let (ready_sender, ready_receiver) = oneshot::channel();
+    let task = tokio::spawn(forward_unix_signals(
+        terminate,
+        interrupt,
+        signal_sender,
+        barrier_receiver,
+        ready_sender,
+    ));
+    ready_receiver
+        .await
+        .map_err(|_| Stage8bP1fLocalSupervisionErrorV1::SignalTask)?;
+    Ok(RegisteredUnixSignalsV1 {
+        signal_receiver,
+        barrier_sender,
+        task,
+    })
 }
 
 struct ChildGroupV1 {
@@ -283,8 +326,11 @@ impl Drop for ChildGroupV1 {
 pub async fn run_stage8b_p1f_local_supervisor_v1(
     manifest_sha256: &str,
 ) -> Result<Stage8bP1fLocalSupervisionResultV1, Stage8bP1fLocalSupervisionErrorV1> {
-    let (signal_sender, signal_receiver) = mpsc::unbounded_channel();
-    let signal_task = tokio::spawn(forward_unix_signals(signal_sender));
+    let RegisteredUnixSignalsV1 {
+        signal_receiver,
+        barrier_sender,
+        task: signal_task,
+    } = register_unix_signal_supervision().await?;
     let result = async {
         let (service_uid, service_gid) = resolve_service_identity()?;
         let store = Stage8bP1fAuthorityStoreV1::open_production(service_gid)?;
@@ -295,6 +341,7 @@ pub async fn run_stage8b_p1f_local_supervisor_v1(
                     permit,
                     FixedChildCommandV1::production(service_uid, service_gid),
                     signal_receiver,
+                    Some(barrier_sender),
                     LocalSupervisionPolicyV1::production(),
                 )
                 .await
@@ -307,6 +354,7 @@ pub async fn run_stage8b_p1f_local_supervisor_v1(
     result
 }
 
+#[derive(Debug)]
 pub(crate) enum PreparedRunV1 {
     Permit(Stage8bP1fRunPermitV1),
     Expired(Stage8bP1fLocalSupervisionResultV1),
@@ -317,7 +365,15 @@ fn prepare_permit_or_expire(
     manifest_sha256: &str,
     trusted_now: DateTime<Utc>,
 ) -> Result<PreparedRunV1, Stage8bP1fLocalSupervisionErrorV1> {
-    let inspection = store.inspect()?;
+    let inspection = match store.inspect() {
+        Ok(inspection) => inspection,
+        Err(Stage8bP1fAuthorityErrorV1::PendingRecoveryRequired) => {
+            return Ok(PreparedRunV1::Permit(
+                store.resume_stopping_phase(manifest_sha256, trusted_now)?,
+            ));
+        }
+        Err(error) => return Err(error.into()),
+    };
     if inspection.active_manifest_sha256.as_deref() != Some(manifest_sha256) {
         return Err(Stage8bP1fAuthorityErrorV1::ActiveConflict.into());
     }
@@ -357,28 +413,58 @@ fn prepare_permit_or_expire(
     }
 }
 
-async fn forward_unix_signals(sender: mpsc::UnboundedSender<LocalSignalV1>) {
-    let mut terminate =
-        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-            Ok(signal) => signal,
-            Err(_) => {
-                let _ = sender.send(LocalSignalV1::SignalTaskFailed);
-                return;
+async fn forward_unix_signals(
+    mut terminate: Signal,
+    mut interrupt: Signal,
+    sender: mpsc::UnboundedSender<LocalSignalV1>,
+    mut barrier_receiver: mpsc::UnboundedReceiver<oneshot::Sender<()>>,
+    ready_sender: oneshot::Sender<()>,
+) {
+    if ready_sender.send(()).is_err() {
+        return;
+    }
+    loop {
+        tokio::select! {
+            biased;
+            value = terminate.recv() => {
+                let signal = value.map_or(LocalSignalV1::SignalTaskFailed, |_| LocalSignalV1::Sigterm);
+                if sender.send(signal).is_err() || signal == LocalSignalV1::SignalTaskFailed {
+                    return;
+                }
             }
-        };
-    let mut interrupt =
-        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()) {
-            Ok(signal) => signal,
-            Err(_) => {
-                let _ = sender.send(LocalSignalV1::SignalTaskFailed);
-                return;
+            value = interrupt.recv() => {
+                let signal = value.map_or(LocalSignalV1::SignalTaskFailed, |_| LocalSignalV1::Sigint);
+                if sender.send(signal).is_err() || signal == LocalSignalV1::SignalTaskFailed {
+                    return;
+                }
             }
-        };
-    let signal = tokio::select! {
-        value = terminate.recv() => value.map(|_| LocalSignalV1::Sigterm),
-        value = interrupt.recv() => value.map(|_| LocalSignalV1::Sigint),
-    };
-    let _ = sender.send(signal.unwrap_or(LocalSignalV1::SignalTaskFailed));
+            barrier = barrier_receiver.recv() => {
+                match barrier {
+                    Some(barrier) => {
+                        let _ = barrier.send(());
+                    }
+                    None => return,
+                }
+            }
+        }
+    }
+}
+
+async fn cross_signal_barrier(
+    sender: Option<&SignalBarrierSenderV1>,
+) -> Result<(), Stage8bP1fLocalSupervisionErrorV1> {
+    if let Some(sender) = sender {
+        let (completed_sender, completed_receiver) = oneshot::channel();
+        sender
+            .send(completed_sender)
+            .map_err(|_| Stage8bP1fLocalSupervisionErrorV1::SignalTask)?;
+        completed_receiver
+            .await
+            .map_err(|_| Stage8bP1fLocalSupervisionErrorV1::SignalTask)?;
+    } else {
+        tokio::task::yield_now().await;
+    }
+    Ok(())
 }
 
 async fn supervise_admitted_child(
@@ -386,6 +472,7 @@ async fn supervise_admitted_child(
     mut permit: Stage8bP1fRunPermitV1,
     child_spec: FixedChildCommandV1,
     mut signal_receiver: mpsc::UnboundedReceiver<LocalSignalV1>,
+    signal_barrier: Option<SignalBarrierSenderV1>,
     policy: LocalSupervisionPolicyV1,
 ) -> Result<Stage8bP1fLocalSupervisionResultV1, Stage8bP1fLocalSupervisionErrorV1> {
     let manifest_sha256 = permit.manifest_sha256().to_string();
@@ -393,30 +480,24 @@ async fn supervise_admitted_child(
         permit.phase(),
         Stage8bP1fPhaseV1::O3SyntheticPaper | Stage8bP1fPhaseV1::O4FinamReadOnly
     ) {
-        let receipt = store.finish_phase(
+        let _receipt = store.finish_phase(
             &manifest_sha256,
             Stage8bP1fPhaseStateV1::Failed,
             "local-supervision-phase-invalid",
             Utc::now(),
         )?;
-        return Ok(supervision_result(
-            &manifest_sha256,
-            0,
-            None,
-            Stage8bP1fLocalSupervisionDispositionV1::RecoveryTerminated,
-            false,
-            receipt,
-        ));
+        return Err(Stage8bP1fLocalSupervisionErrorV1::RecoveryTerminated);
     }
 
     let mut start_times = VecDeque::new();
     let mut child_starts = 0u32;
     let mut signal_channel_open = true;
     loop {
-        // Give the already-installed signal task one scheduling point before
-        // every spawn. A signal retained before admission/restart therefore
-        // closes the phase without creating a child.
-        tokio::task::yield_now().await;
+        // The production signal actor acknowledges this barrier only after
+        // draining already-ready TERM/INT branches (the select is biased).
+        // Therefore a signal retained during synchronous admission is visible
+        // before this composition can create its first child.
+        cross_signal_barrier(signal_barrier.as_ref()).await?;
         if signal_channel_open {
             let queued = match signal_receiver.try_recv() {
                 Ok(signal) => Some(signal),
@@ -690,7 +771,8 @@ fn finish_without_child(
     trusted_now: DateTime<Utc>,
 ) -> Result<Stage8bP1fLocalSupervisionResultV1, Stage8bP1fLocalSupervisionErrorV1> {
     let reason = permit.stopping_reason_code().unwrap_or("recovery-stop");
-    let (state, terminal_reason, disposition) = terminal_classification(reason, false, decision);
+    let (state, terminal_reason, disposition) =
+        terminal_classification(reason, false, decision, None);
     let receipt = store.finish_phase(
         permit.manifest_sha256(),
         state,
@@ -723,7 +805,8 @@ fn finish_after_child_stop(
     } else {
         Stage8bP1fDeadlineDecisionV1::BeginStopping
     };
-    let (state, terminal_reason, disposition) = terminal_classification(reason, forced, decision);
+    let (state, terminal_reason, disposition) =
+        terminal_classification(reason, forced, decision, Some(&status));
     let receipt = store.finish_phase(
         permit.manifest_sha256(),
         state,
@@ -744,11 +827,26 @@ fn terminal_classification(
     stopping_reason: &str,
     forced: bool,
     decision: Stage8bP1fDeadlineDecisionV1,
+    child_status: Option<&ExitStatus>,
 ) -> (
     Stage8bP1fPhaseStateV1,
     &'static str,
     Stage8bP1fLocalSupervisionDispositionV1,
 ) {
+    if !forced && child_status.is_some_and(|status| !status.success()) {
+        return (
+            Stage8bP1fPhaseStateV1::Failed,
+            "child-stop-failed",
+            Stage8bP1fLocalSupervisionDispositionV1::RecoveryTerminated,
+        );
+    }
+    if !forced && decision == Stage8bP1fDeadlineDecisionV1::ForceKill {
+        return (
+            Stage8bP1fPhaseStateV1::Failed,
+            "recovered-stop-complete",
+            Stage8bP1fLocalSupervisionDispositionV1::RecoveryTerminated,
+        );
+    }
     if stopping_reason == "deadline-reached" {
         return (
             Stage8bP1fPhaseStateV1::Expired,
@@ -792,6 +890,23 @@ fn settle_terminal_result(
     permit: &Stage8bP1fRunPermitV1,
     result: Stage8bP1fLocalSupervisionResultV1,
 ) -> Result<Stage8bP1fLocalSupervisionResultV1, Stage8bP1fLocalSupervisionErrorV1> {
+    if result
+        .last_exit_code
+        .is_some_and(|code| code != libc::EXIT_SUCCESS)
+        || result.last_signal.is_some() && !result.force_killed
+    {
+        let code = match result.last_exit_code {
+            Some(code @ (70..=72)) => code as u8,
+            _ => 70,
+        };
+        return Err(Stage8bP1fLocalSupervisionErrorV1::ChildExit(code));
+    }
+    if result.terminal_receipt.terminal_state == Stage8bP1fPhaseStateV1::Failed {
+        return match permit.stopping_reason_code() {
+            Some("supervision-failure") => Err(Stage8bP1fLocalSupervisionErrorV1::SignalTask),
+            _ => Err(Stage8bP1fLocalSupervisionErrorV1::RecoveryTerminated),
+        };
+    }
     match permit.stopping_reason_code() {
         Some("supervision-failure") => Err(Stage8bP1fLocalSupervisionErrorV1::SignalTask),
         Some("external-sigterm" | "external-sigint" | "deadline-reached") => Ok(result),
@@ -925,7 +1040,30 @@ pub(crate) mod test_support {
         signals: mpsc::UnboundedReceiver<LocalSignalV1>,
         policy: LocalSupervisionPolicyV1,
     ) -> Result<Stage8bP1fLocalSupervisionResultV1, Stage8bP1fLocalSupervisionErrorV1> {
-        supervise_admitted_child(store, permit, child, signals, policy).await
+        supervise_admitted_child(store, permit, child, signals, None, policy).await
+    }
+
+    pub(crate) async fn registered_signal_during_sync_admission(
+        marker: &std::path::Path,
+        block_for: StdDuration,
+    ) -> Result<LocalSignalV1, Stage8bP1fLocalSupervisionErrorV1> {
+        let RegisteredUnixSignalsV1 {
+            mut signal_receiver,
+            barrier_sender,
+            task,
+        } = register_unix_signal_supervision().await?;
+        std::fs::write(marker, b"registered")
+            .map_err(|error| Stage8bP1fLocalSupervisionErrorV1::ChildProcess(error.kind()))?;
+        // Model the synchronous identity/open/admission section of the real
+        // entry while the already registered Tokio OS handlers retain signal.
+        std::thread::sleep(block_for);
+        cross_signal_barrier(Some(&barrier_sender)).await?;
+        let signal = signal_receiver
+            .recv()
+            .await
+            .ok_or(Stage8bP1fLocalSupervisionErrorV1::SignalTask)?;
+        task.abort();
+        Ok(signal)
     }
 
     #[cfg(target_os = "linux")]

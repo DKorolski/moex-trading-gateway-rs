@@ -14,6 +14,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 BASE = "9be356b04a38e627337ed148ccc9fbdaebae8d4a"
 REVIEW_SHA256 = "db684cb6ba10cb951801cc917c317d2817c99c3f10874d5a1d959c053f6ebb60"
+REVIEWED_IB = "b45a11cda0a564344fabcfea688bae06bd98ec17"
+CORRECTION_REVIEW_SHA256 = "3d4f97816ed5b392c7e49d4f61af191ef190b69c61a4cbdb32ba1967fb4654ac"
 GUARDIAN = "crates/runtime-durable-service/src/stage8b_p1f_guardian.rs"
 SUPERVISION = "crates/runtime-durable-service/src/stage8b_p1f_local_supervision.rs"
 BINARY = "crates/runtime-durable-service/src/bin/stage8b-p1f-local-supervisor.rs"
@@ -106,6 +108,8 @@ def validate_inventory(root: Path) -> None:
             "status",
             "accepted_guardian_commit",
             "accepted_guardian_review_sha256",
+            "reviewed_ib_commit",
+            "ib_correction_review_sha256",
             "production_module",
             "entry",
             "child",
@@ -118,9 +122,17 @@ def validate_inventory(root: Path) -> None:
     )
     require(value["schema_version"] == 1 and type(value["schema_version"]) is int, "schema drift")
     require(value["stage"] == "Stage 8B-P1-f Ib local supervision composition", "stage drift")
-    require(value["status"] == "REVIEW_CANDIDATE_LOCAL_SUPERVISION_ONLY", "Ib self-accepted")
+    require(
+        value["status"] == "REVIEW_CANDIDATE_CORRECTION_R1_LOCAL_SUPERVISION_ONLY",
+        "Ib correction self-accepted",
+    )
     require(value["accepted_guardian_commit"] == BASE, "Ia commit binding drift")
     require(value["accepted_guardian_review_sha256"] == REVIEW_SHA256, "Ia review binding drift")
+    require(value["reviewed_ib_commit"] == REVIEWED_IB, "reviewed Ib binding drift")
+    require(
+        value["ib_correction_review_sha256"] == CORRECTION_REVIEW_SHA256,
+        "Ib correction review binding drift",
+    )
     require(value["production_module"] == SUPERVISION, "production module drift")
     require(
         value["entry"]
@@ -155,10 +167,11 @@ def validate_inventory(root: Path) -> None:
         "stop contract drift",
     )
     require(value["evidence"] == {
+        "correction_controls": 5,
         "checker": CHECKER,
         "gate": GATE,
         "negative_harness": NEGATIVE,
-        "real_process_tests": 8,
+        "real_process_tests": 10,
     }, "evidence inventory drift")
     closed = value["closed_surfaces"]
     require(type(closed) is dict and len(closed) == 8, "closed surface inventory drift")
@@ -214,6 +227,16 @@ def validate_source(root: Path) -> None:
         "child.force_kill_and_reap()",
         "Stage8bP1fLocalSupervisionErrorV1::RecoveryTerminated",
         "Stage8bP1fLocalSupervisionErrorV1::SignalTask",
+        "let terminate = unix_signal(SignalKind::terminate())",
+        "let interrupt = unix_signal(SignalKind::interrupt())",
+        "ready_receiver",
+        "biased;",
+        "cross_signal_barrier(signal_barrier.as_ref()).await?",
+        "Err(Stage8bP1fAuthorityErrorV1::PendingRecoveryRequired)",
+        "ChildExit(u8)",
+        "Self::ChildExit(code) => *code",
+        '"child-stop-failed"',
+        "if !forced && decision == Stage8bP1fDeadlineDecisionV1::ForceKill",
     ):
         require(fragment in source, f"Ib source contract missing: {fragment}")
     for forbidden in (
@@ -228,9 +251,15 @@ def validate_source(root: Path) -> None:
         require(forbidden not in source, f"forbidden generic/operational surface: {forbidden}")
     require(source.count("store.admit_active_phase(manifest_sha256, trusted_now)") == 1,
             "phase admission count drift")
-    require("tokio::spawn(forward_unix_signals(signal_sender))" in source, "signals not installed first")
-    require(source.index("tokio::spawn(forward_unix_signals(signal_sender))") < source.index("resolve_service_identity()?"),
-            "signal registration moved after admission boundary")
+    require(
+        source.count("register_unix_signal_supervision().await?") == 2,
+        "signal registration call count drift",
+    )
+    require(
+        source.index("register_unix_signal_supervision().await?")
+        < source.index("resolve_service_identity()?"),
+        "signal registration moved after admission boundary",
+    )
     for test in (
         "local_supervision_starts_after_admission_and_stops_on_sigterm",
         "retained_pre_spawn_signal_prevents_child_start",
@@ -240,6 +269,11 @@ def validate_source(root: Path) -> None:
         "signal_supervision_loss_is_nonzero_and_leaves_no_child",
         "child_restart_budget_is_bounded_without_readmission",
         "linux_guardian_death_signal_kills_child",
+        "production_signal_registration_precedes_synchronous_admission",
+        "pending_stopping_frontier_recovers_through_ib_without_child",
+        "foreign_pending_stopping_selector_is_rejected_without_advancing_head",
+        "fatal_i1_exit_classes_remain_nonzero_after_operator_stop",
+        "recovered_external_stop_and_invalid_phase_are_never_successful",
     ):
         require(f"fn {test}" in guardian, f"real process case missing: {test}")
     require('Some("run"), Some(manifest), None' in binary, "CLI grammar drift")
@@ -253,8 +287,11 @@ def validate_documents(root: Path) -> None:
     status = (root / STATUS).read_text()
     roadmap = (root / ROADMAP).read_text()
     for fragment in (
-        "REVIEW_CANDIDATE_LOCAL_SUPERVISION_ONLY",
+        "REVIEW_CANDIDATE_CORRECTION_R1_LOCAL_SUPERVISION_ONLY",
         BASE,
+        REVIEWED_IB,
+        "P1-IB01",
+        "P1-IB03",
         "PR_SET_PDEATHSIG=SIGKILL",
         "starts in 600 seconds",
         "P1F-Ic producer/high-water composition",
@@ -263,6 +300,7 @@ def validate_documents(root: Path) -> None:
         require(fragment in document, f"Ib document missing: {fragment}")
     for text, name in ((status, STATUS), (roadmap, ROADMAP)):
         require(BASE in text, f"{name}: accepted Ia ref missing")
+        require(REVIEWED_IB in text, f"{name}: reviewed Ib ref missing")
         require("P1F-Ib" in text and "active source" in text, f"{name}: active Ib status missing")
         require("P1F-Ic" in text and "P1F-Ie" in text, f"{name}: remaining source sequence missing")
     require("P1F-O0 is not unlocked" in status, f"{STATUS}: operational boundary missing")
@@ -284,7 +322,10 @@ def main() -> int:
     except (CheckFailure, OSError, UnicodeDecodeError) as error:
         print(f"FAIL stage8b-p1f-ib-check: {error}")
         return 1
-    print("PASS stage8b-p1f-ib-check scenarios=20 real_process_tests=8 operational=false")
+    print(
+        "PASS stage8b-p1f-ib-check scenarios=20 correction_controls=5 "
+        "real_process_tests=10 operational=false"
+    )
     return 0
 
 
