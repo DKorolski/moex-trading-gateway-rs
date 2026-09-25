@@ -400,6 +400,13 @@ authorized boundary is a separate P1-f isolated operational-acceptance design.
 That design authority does not authorize installation, service start or any
 operational provider/Redis/VPS surface.
 
+P1-f R0 is opened as a design-only candidate. Its proposed sequence is:
+source implementation, immutable read-only target preflight, non-activating
+provisioning, one-shot network-isolated bootstrap, bounded synthetic paper
+session/restart acceptance, separately authorized read-only FINAM-bar session,
+then aggregate P1 acceptance. Each operational transition remains fail closed
+until the preceding immutable package receives independent acceptance.
+
 Operational install/start, Redis DB15/DB0 activation, VPS deployment,
 paper-provider execution, FINAM send, broker dispatch, runtime-live and real
 orders remain downstream and require separate authority.

@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P1-f R0 isolated operational acceptance design",
+  "status": "DESIGN_REVIEW_CANDIDATE_NO_ACTIVATION",
+  "accepted_predecessor": {
+    "commit": "3f171d997de5616cb9a07311d7776e446456c0c1",
+    "tree": "12a13b9c3418ec844219f8f9130904896e7a622e",
+    "accepted_aggregate_commit": "a9bcd940635b62c2a13f8d378453e6ca21511e30",
+    "aggregate_review_sha256": "c5be3e66cadd6c45f6678669afa3f9a194c31f6288aae1c3d29fa59aac47ca54"
+  },
+  "target_baseline": "docs/stage-8/stage8b-p1f-target-vps-baseline.json",
+  "isolation": {
+    "p1_redis_database": 15,
+    "p0_redis_database": 0,
+    "p1_namespace": "finam_imoexf_paper:{finam-imoexf-p1}:",
+    "p1_service_user": "moex-p1-paper",
+    "p1_config_root": "/etc/moex-finam-p1-paper",
+    "p1_state_root": "/var/lib/moex-finam-p1-paper/state",
+    "p1_binary": "/usr/local/libexec/moex/stage8b-p1-paper-supervisor",
+    "p0_services_must_remain_unchanged": true,
+    "db0_write_allowed": false,
+    "non_loopback_redis_allowed": false
+  },
+  "phases": [
+    {"id": "P1F-I", "name": "source implementation", "remote_mutation": false, "service_start": false, "requires_prior_acceptance": "P1F-R0-design"},
+    {"id": "P1F-O0", "name": "immutable read-only target preflight", "remote_mutation": false, "service_start": false, "requires_prior_acceptance": "P1F-I-source"},
+    {"id": "P1F-O1", "name": "non-activating provisioning", "remote_mutation": true, "service_start": false, "requires_prior_acceptance": "P1F-O0-preflight"},
+    {"id": "P1F-O2", "name": "network-isolated one-shot bootstrap", "remote_mutation": true, "service_start": false, "requires_prior_acceptance": "P1F-O1-provisioning"},
+    {"id": "P1F-O3", "name": "bounded synthetic paper session and restart matrix", "remote_mutation": true, "service_start": true, "requires_prior_acceptance": "P1F-O2-bootstrap"},
+    {"id": "P1F-O4", "name": "bounded read-only FINAM bars paper session", "remote_mutation": true, "service_start": true, "requires_prior_acceptance": "P1F-O3-synthetic"},
+    {"id": "P1F-A", "name": "aggregate operational acceptance", "remote_mutation": false, "service_start": false, "requires_prior_acceptance": "P1F-O4-finam-bars"}
+  ],
+  "operator_authority": {
+    "one_signed_phase_manifest_per_operational_phase": true,
+    "manifest_single_use": true,
+    "manifest_binds_source_tree_target_host_phase_and_deadline": true,
+    "automatic_phase_escalation": false,
+    "unattended_activation": false
+  },
+  "session_policy": {
+    "readiness": "PaperReady",
+    "live_ready_forbidden": true,
+    "paper_only_required": true,
+    "synthetic_session_max_minutes": 30,
+    "finam_bars_session_max_minutes": 180,
+    "stop_and_disable_after_each_session": true,
+    "retain_db15_and_durable_state_for_review": true
+  },
+  "finam_bars_phase": {
+    "requires_separate_acceptance_after_synthetic": true,
+    "market_data_only": true,
+    "read_only_token_required": true,
+    "finam_order_http_allowed": false,
+    "command_consumer_allowed": false,
+    "broker_dispatch_allowed": false,
+    "main_supervisor_has_finam_dependency": false
+  },
+  "restart_scenarios": [
+    "clean-sigterm",
+    "sigkill-before-semantic-effect",
+    "stale-pel-reclaim",
+    "exact-duplicate-idempotence",
+    "conflicting-duplicate-fail-closed",
+    "paper-provider-uncertain-outcome-recovery"
+  ],
+  "evidence": {
+    "target_preflight": true,
+    "installed_file_manifest": true,
+    "systemd_security_and_activation_state": true,
+    "db15_exact_inventory_and_groups": true,
+    "db0_p1_namespace_absence": true,
+    "durable_tree_metadata_and_hashes": true,
+    "health_readiness_and_runtime_state": true,
+    "m10_command_ack_order_trade_position_and_pel": true,
+    "process_exit_restart_and_network_endpoints": true,
+    "redacted_logs_and_no_secret_scan": true,
+    "pre_and_post_stop_state": true
+  },
+  "closed_surfaces": {
+    "design_performs_remote_mutation": false,
+    "p1f_source_implementation_authorized": false,
+    "operational_installation_authorized": false,
+    "systemd_reload_enable_start_authorized": false,
+    "operational_redis_db15_authorized": false,
+    "operational_redis_db0_authorized": false,
+    "finam_post_delete_send_authorized": false,
+    "broker_dispatch_authorized": false,
+    "runtime_live_authorized": false,
+    "real_orders_authorized": false
+  }
+}

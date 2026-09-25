@@ -1,0 +1,37 @@
+id,area,requirement,status
+P1F-001,lineage,Design parent is the accepted I1 governance closure,REQUIRED
+P1F-002,scope,Design changes no Rust Cargo deploy config workflow or remote state,REQUIRED
+P1F-003,target,Target host identity and SSH host-key fingerprint are exact,REQUIRED
+P1F-004,target,Ubuntu systemd architecture CPU memory and disk floors are explicit,REQUIRED
+P1F-005,isolation,P1 owns DB15 and never mutates DB0,REQUIRED
+P1F-006,isolation,P1 namespace service identity config root state root and binary are distinct,REQUIRED
+P1F-007,coexistence,Existing P0 runtime and WS services remain unchanged,REQUIRED
+P1F-008,redis,Redis remains loopback-only protected AOF-enabled port 6379 with 16 databases,REQUIRED
+P1F-009,preflight,DB15 must be empty and all P1 paths absent before first provisioning,REQUIRED
+P1F-010,phases,Source implementation precedes every remote action,REQUIRED
+P1F-011,phases,Read-only immutable preflight precedes provisioning,REQUIRED
+P1F-012,phases,Provisioning cannot reload enable or start a service,REQUIRED
+P1F-013,phases,Network-isolated bootstrap precedes ordinary service start,REQUIRED
+P1F-014,phases,Synthetic acceptance precedes read-only FINAM-bar acceptance,REQUIRED
+P1F-015,authority,Every operational phase has a single-use signed bounded manifest,REQUIRED
+P1F-016,authority,Phase escalation and unattended activation are forbidden,REQUIRED
+P1F-017,session,Readiness is PaperReady and LiveReady is forbidden,REQUIRED
+P1F-018,session,Synthetic session is bounded to 30 minutes,REQUIRED
+P1F-019,session,Read-only FINAM-bars session is bounded to 180 minutes,REQUIRED
+P1F-020,session,Service is stopped and disabled after each session,REQUIRED
+P1F-021,state,DB15 and durable state are retained unchanged for review,REQUIRED
+P1F-022,restart,Clean SIGTERM is evidenced,REQUIRED
+P1F-023,restart,Pre-effect SIGKILL restart is evidenced,REQUIRED
+P1F-024,restart,Stale PEL reclaim is evidenced,REQUIRED
+P1F-025,restart,Exact duplicate is idempotent,REQUIRED
+P1F-026,restart,Conflicting duplicate fails closed,REQUIRED
+P1F-027,restart,Uncertain paper-provider outcome recovers without repeat effect,REQUIRED
+P1F-028,finam,FINAM phase uses market-data-only read-only credentials,REQUIRED
+P1F-029,finam,Supervisor has no FINAM dependency and no order HTTP or command consumer,REQUIRED
+P1F-030,evidence,Installed files systemd security and activation state are retained,REQUIRED
+P1F-031,evidence,DB15 inventory groups lifecycle streams and PEL are retained,REQUIRED
+P1F-032,evidence,DB0 has no P1 namespace before and after every phase,REQUIRED
+P1F-033,evidence,Durable hashes telemetry runtime state and lifecycle projections are retained,REQUIRED
+P1F-034,evidence,Logs and process network evidence are redacted and secret-scanned,REQUIRED
+P1F-035,stop,Any identity scope namespace readiness or lifecycle mismatch stops the phase,REQUIRED
+P1F-036,closed,Installation Redis FINAM dispatch runtime-live and real orders remain unauthorized by design,REQUIRED

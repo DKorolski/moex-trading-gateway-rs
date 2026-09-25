@@ -30,6 +30,14 @@ implementation and operational gates explicitly authorize them. Historical
 candidate descriptions below are retained as lineage and are not the active
 project status.
 
+The active P1-f R0 design candidate binds the already-paid isolated VPS as a
+coexistence target: the existing P0 read-only services remain active in DB0,
+while P1 owns only the initially empty DB15 and the distinct
+`moex-finam-p1-paper` service identity and paths. The candidate defines
+separate implementation, read-only preflight, provisioning, bootstrap,
+synthetic-session, read-only FINAM-bars and aggregate gates. It performs none
+of those actions and grants no operational authority.
+
 ## Current accepted boundary
 
 - Stage 8B-P1-d3 is independently CLOSED / ACCEPTED at governance authority
