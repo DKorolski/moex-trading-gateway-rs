@@ -1,6 +1,6 @@
-# Stage 8B-P1-f Ia — guardian foundation correction
+# Stage 8B-P1-f Ia — guardian foundation correction R2
 
-Status: `REVIEW_CANDIDATE_GUARDIAN_FOUNDATION_ONLY`.
+Status: `REVIEW_CANDIDATE_GUARDIAN_FOUNDATION_R2_ONLY`.
 
 Accepted predecessor: P1-f R4 design at
 `5d81b8e212300858246237a227a95d115dd67c2d`. This slice implements the
@@ -51,9 +51,13 @@ duplicate active request returns the original receipt
 and deadline. A different active request, spent manifest, head rollback,
 missing claim directory or modified retained manifest fails closed.
 
-Create-once pending markers make claim, O2 materialization, durable stopping and terminal
-transitions resumable only as the same transaction. Terminal evidence and all
-consumed manifest directories are retained.
+Create-once pending markers make claim, O2 materialization, durable stopping and
+terminal transitions resumable only as the same transaction. Exact prepared
+event temp files are classified against the retained pending selector before
+the general history inventory is checked. Public stopping recovery completes
+the exact retained transaction without recreating sequence numbers or
+timestamps; ordinary admission remains closed while the marker exists.
+Terminal evidence and all consumed manifest directories are retained.
 
 ## O2 and bounded admission
 
@@ -74,8 +78,13 @@ Admission requires exact reread of both files and broker truth age in
 execution lock. A second process cannot admit the same Active phase. Admission
 retains boot identity. Deadline, clock rollback or changed boot identity
 commits a hash-chained `Stopping` transition with an immutable 30-second
-force-kill deadline. Restart uses a dedicated stopping-continuation API and
-cannot reset that deadline. `ForceKill` is a required decision for the future
+force-kill deadline. The in-process permit preserves a monotonic elapsed bound,
+so frozen or backward wall time cannot extend stopping. A surviving execution-
+owner record cannot mint a new Active permit without a monotonic witness: it
+fails closed into an already-expired Stopping decision. Restart of committed or
+pending Stopping uses a dedicated continuation API and derives only the
+remaining wall-bounded grace; uncertainty resolves to `ForceKill`, never a new
+30-second interval. `ForceKill` is a required decision for the future
 supervision composition; this foundation does not claim to launch or kill a
 child process.
 
@@ -83,10 +92,15 @@ child process.
 
 `execute_stage8b_p1f_permitted_restore_v1` normalizes every source, target and
 selected path, rejects equality/ancestor/descendant overlap, rejects symlink
-components and retains opened ancestor descriptors across the callback. A declared or
-suspected coherent whole-host/control-root restore writes a permanent
-quarantine receipt. No clear/rebind API exists in this source slice. Hidden
-coherent rollback is deliberately not claimed locally detectable.
+components and opens each accepted target component with `openat` and
+`O_NOFOLLOW`. Restore effects are a constrained list of descriptor-relative
+writes; no arbitrary path-based callback is exposed. Renaming or substituting
+the selected leaf or parent after preflight cannot redirect writes into the
+control root, while a legitimate sibling such as
+`/var/lib/moex-finam-p1-paper/state` remains allowed. A declared or suspected
+coherent whole-host/control-root restore writes a permanent quarantine receipt.
+No clear/rebind API exists in this source slice. Hidden coherent rollback is
+deliberately not claimed locally detectable.
 
 ## Executable evidence
 

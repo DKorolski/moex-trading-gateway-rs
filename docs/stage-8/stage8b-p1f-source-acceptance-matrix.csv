@@ -14,16 +14,16 @@ P1FI-012,history,Events are generation sequence predecessor and receipt-hash cha
 P1FI-013,history,Retained phase manifest bytes must equal the hash bound by claim event,REQUIRED
 P1FI-014,history,Head rollback claim-directory loss and retained-manifest tamper fail closed,REQUIRED
 P1FI-015,history,Head state active identity deadlines and stopping state equal the event-replayed projection,REQUIRED
-P1FI-016,transactions,Pending claim materialization stopping and terminal markers block admission and resume only the same transaction,REQUIRED
+P1FI-016,transactions,Pending claim materialization stopping and terminal markers plus exact prepared event temps block admission and resume only the same transaction,REQUIRED
 P1FI-017,o2,O2 policy template installation source config and claim identities are exact,REQUIRED
 P1FI-018,o2,Only first_boot_source_bundle_sha256 is finalized from the signed template,REQUIRED
 P1FI-019,o2,Source and config exact temp crash cuts recover and committed receipt event head binding precedes admission,REQUIRED
 P1FI-020,o2,Broker truth age above 300 seconds commits Failed and rejects admission,REQUIRED
 P1FI-021,recovery,Accepted V5 first-boot recovery remains separate from V4 committed schedule continuation,REQUIRED
-P1FI-022,deadline,Run permit owns an exclusive process-lifetime execution lock and exact boot identity,REQUIRED
-P1FI-023,deadline,Clock rollback deadline or reboot commits durable Stopping and closes ordinary admission,REQUIRED
-P1FI-024,deadline,Restart continuation preserves the exact 30-second force-kill deadline without extension,REQUIRED
-P1FI-025,restore,Restore selectors reject lexical overlap symlink aliases and parent substitution before mutation,REQUIRED
+P1FI-022,deadline,Run permit owns an exclusive process-lifetime execution lock and existing owner state cannot mint a fresh monotonic witness,REQUIRED
+P1FI-023,deadline,Clock rollback frozen wall deadline or reboot commits durable Stopping and closes ordinary admission,REQUIRED
+P1FI-024,deadline,Monotonic stopping and restart continuation preserve the original force-kill bound without grace extension,REQUIRED
+P1FI-025,restore,Descriptor-relative restore permits nonoverlapping siblings and prevents symlink leaf or parent substitution from reaching control state,REQUIRED
 P1FI-026,restore,Declared coherent restore permanently quarantines ordinary use,REQUIRED
 P1FI-027,restore,No authority clear or rebind API exists,REQUIRED
 P1FI-028,inheritance,Exact accepted Redis trace capability and P0 isolation sources are unchanged,REQUIRED

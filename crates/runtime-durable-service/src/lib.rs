@@ -524,10 +524,11 @@ pub use stage8b_p1f_guardian::{
     Stage8bP1fClaimDispositionV1, Stage8bP1fClaimReceiptV1, Stage8bP1fDeadlineDecisionV1,
     Stage8bP1fGenesisManifestV1, Stage8bP1fGenesisReceiptV1, Stage8bP1fMaterializedSetReceiptV1,
     Stage8bP1fPhaseManifestV1, Stage8bP1fPhaseStateV1, Stage8bP1fPhaseV1,
-    Stage8bP1fQuarantineReceiptV1, Stage8bP1fRestorePlanV1, Stage8bP1fRunPermitV1,
-    Stage8bP1fStoppingReceiptV1, Stage8bP1fTerminalReceiptV1, STAGE8B_P1F_AUTHORITY_CONTROL_ROOT,
-    STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION, STAGE8B_P1F_CONFIG_ROOT, STAGE8B_P1F_SERVICE_USER,
-    STAGE8B_P1F_SOURCE_SHA256_TEMPLATE_SENTINEL, STAGE8B_P1F_TARGET_HOST_ID,
+    Stage8bP1fQuarantineReceiptV1, Stage8bP1fRestorePlanV1, Stage8bP1fRestoreWriteV1,
+    Stage8bP1fRunPermitV1, Stage8bP1fStoppingReceiptV1, Stage8bP1fTerminalReceiptV1,
+    STAGE8B_P1F_AUTHORITY_CONTROL_ROOT, STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+    STAGE8B_P1F_CONFIG_ROOT, STAGE8B_P1F_SERVICE_USER, STAGE8B_P1F_SOURCE_SHA256_TEMPLATE_SENTINEL,
+    STAGE8B_P1F_TARGET_HOST_ID,
 };
 
 use std::{

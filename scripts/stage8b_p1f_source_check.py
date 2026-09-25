@@ -140,8 +140,8 @@ def validate_inventory(root: Path) -> None:
         "source inventory key set drift",
     )
     require(value["schema_version"] == 1 and type(value["schema_version"]) is int, "schema drift")
-    require(value["stage"] == "Stage 8B-P1-f Ia guardian foundation correction", "stage drift")
-    require(value["status"] == "REVIEW_CANDIDATE_GUARDIAN_FOUNDATION_ONLY", "source self-accepted")
+    require(value["stage"] == "Stage 8B-P1-f Ia guardian foundation correction R2", "stage drift")
+    require(value["status"] == "REVIEW_CANDIDATE_GUARDIAN_FOUNDATION_R2_ONLY", "source self-accepted")
     require(value["accepted_design_commit"] == BASE, "accepted design binding drift")
     require(value["production_module"] == SOURCE, "production module drift")
     require(value["authority_control_root"] == "/var/lib/moex-finam-p1-paper-control", "control root drift")
@@ -213,6 +213,8 @@ def validate_source(root: Path) -> None:
         "PendingRecoveryRequired",
         "acquire_execution_lock",
         "resume_stopping_phase",
+        "poll_deadline_at_elapsed",
+        "force_kill_after_elapsed",
         "current_boot_id",
         "force_kill_at = stopping_started_at + chrono::Duration::seconds(30)",
         "sha256_hex(&retained_manifest_bytes) != event.manifest_sha256",
@@ -221,12 +223,23 @@ def validate_source(root: Path) -> None:
         "parse_stage8b_p1e_first_boot_source_v1",
         "Stage8bP1fDeadlineDecisionV1::ForceKill",
         "RestoreOverlapsControlRoot",
-        "verify_restore_selector",
+        "validate_prepared_pending_event",
+        "self.continue_stopping_transaction(&pending)?",
+        "pub fn execute_stage8b_p1f_permitted_restore_v1(\n    plan: &Stage8bP1fRestorePlanV1,\n    writes: &[Stage8bP1fRestoreWriteV1]",
+        "openat_restore_component",
+        "write_restore_file_at",
         "rebind_authorized: false",
     )
     for fragment in required:
         require(fragment in source, f"source contract missing: {fragment}")
     require("#[derive(Debug)]\npub struct Stage8bP1fRunPermitV1" in source, "run permit became cloneable or serializable")
+    for test in (
+        "stopping_monotonic_bound_rejects_frozen_and_backward_wall_clock",
+        "active_readmission_without_monotonic_witness_fails_closed",
+        "public_transitions_recover_exact_event_temp_and_pending_stopping",
+        "restore_allows_sibling_and_binds_leaf_and_parent_by_descriptor",
+    ):
+        require(f"fn {test}()" in source, f"executable correction case missing: {test}")
     require("#[derive(Debug)]\npub struct Stage8bP1fAuthorityStoreV1" not in source, "authority store derivation drift")
     for forbidden in ("redis::Client", "reqwest::", "std::process::Command", "tokio::process", "clear_quarantine", "rebind_authority"):
         require(forbidden not in source, f"forbidden operational or rebind surface: {forbidden}")
@@ -276,7 +289,7 @@ def validate_documents(root: Path) -> None:
     status = (root / STATUS).read_text()
     roadmap = (root / ROADMAP).read_text()
     for fragment in (
-        "REVIEW_CANDIDATE_GUARDIAN_FOUNDATION_ONLY",
+        "REVIEW_CANDIDATE_GUARDIAN_FOUNDATION_R2_ONLY",
         BASE,
         "exact recovery",
         "0..=300",
@@ -285,8 +298,8 @@ def validate_documents(root: Path) -> None:
         "P1F-Ib local supervision composition",
     ):
         require(fragment in document, f"source document fragment missing: {fragment}")
-    require("P1F-Ia guardian-foundation correction candidate" in status, "current status source boundary missing")
-    require("P1F-Ia guardian foundation correction is the active review candidate" in roadmap, "roadmap source boundary missing")
+    require("P1F-Ia guardian-foundation correction R2 candidate" in status, "current status source boundary missing")
+    require("P1F-Ia guardian foundation correction R2 is the active review candidate" in roadmap, "roadmap source boundary missing")
 
 
 def validate(root: Path = ROOT, *, verify_lineage: bool = True) -> None:

@@ -18,7 +18,7 @@ use std::{
         },
     },
     path::{Component, Path, PathBuf},
-    time::Instant,
+    time::{Duration as StdDuration, Instant},
 };
 
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -329,6 +329,8 @@ pub struct Stage8bP1fRunPermitV1 {
     boot_id: String,
     stopping_started_at: Option<DateTime<Utc>>,
     force_kill_at: Option<DateTime<Utc>>,
+    force_kill_after_elapsed: Option<StdDuration>,
+    last_trusted_wall: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -357,27 +359,44 @@ impl Stage8bP1fRunPermitV1 {
         &mut self,
         trusted_wall_now: DateTime<Utc>,
     ) -> Result<Stage8bP1fDeadlineDecisionV1, Stage8bP1fAuthorityErrorV1> {
+        self.poll_deadline_at_elapsed(trusted_wall_now, self.admitted_monotonic.elapsed())
+    }
+
+    fn poll_deadline_at_elapsed(
+        &mut self,
+        trusted_wall_now: DateTime<Utc>,
+        elapsed: StdDuration,
+    ) -> Result<Stage8bP1fDeadlineDecisionV1, Stage8bP1fAuthorityErrorV1> {
         let _ = self.execution_lock.metadata()?;
         if let (Some(started), Some(force_kill_at)) = (self.stopping_started_at, self.force_kill_at)
         {
-            return Ok(
-                if trusted_wall_now < started || trusted_wall_now >= force_kill_at {
-                    Stage8bP1fDeadlineDecisionV1::ForceKill
-                } else {
-                    Stage8bP1fDeadlineDecisionV1::BeginStopping
-                },
-            );
+            let monotonic_expired = match self.force_kill_after_elapsed {
+                Some(limit) => elapsed >= limit,
+                None => true,
+            };
+            let wall_untrusted = trusted_wall_now < started
+                || trusted_wall_now < self.last_trusted_wall
+                || trusted_wall_now >= force_kill_at;
+            if trusted_wall_now > self.last_trusted_wall {
+                self.last_trusted_wall = trusted_wall_now;
+            }
+            return Ok(if monotonic_expired || wall_untrusted {
+                Stage8bP1fDeadlineDecisionV1::ForceKill
+            } else {
+                Stage8bP1fDeadlineDecisionV1::BeginStopping
+            });
         }
-        let elapsed = self.admitted_monotonic.elapsed();
         let expected_wall = self.admitted_wall
             + chrono::Duration::from_std(elapsed).unwrap_or(chrono::Duration::MAX);
         let clock_untrusted = trusted_wall_now + chrono::Duration::seconds(1) < expected_wall
-            || trusted_wall_now < self.claimed_at;
+            || trusted_wall_now < self.claimed_at
+            || trusted_wall_now < self.last_trusted_wall;
         if trusted_wall_now < self.deadline && !clock_untrusted {
+            self.last_trusted_wall = trusted_wall_now;
             return Ok(Stage8bP1fDeadlineDecisionV1::Continue);
         }
         let stopping_started_at = if clock_untrusted {
-            self.admitted_wall
+            expected_wall
         } else {
             trusted_wall_now
         };
@@ -400,6 +419,8 @@ impl Stage8bP1fRunPermitV1 {
         )?;
         self.stopping_started_at = Some(parse_timestamp(&receipt.stopping_started_at_utc)?);
         self.force_kill_at = Some(parse_timestamp(&receipt.force_kill_at_utc)?);
+        self.force_kill_after_elapsed = elapsed.checked_add(StdDuration::from_secs(30));
+        self.last_trusted_wall = trusted_wall_now;
         Ok(Stage8bP1fDeadlineDecisionV1::BeginStopping)
     }
 }
@@ -409,6 +430,14 @@ pub struct Stage8bP1fRestorePlanV1 {
     pub source_roots: Vec<PathBuf>,
     pub target_roots: Vec<PathBuf>,
     pub selected_paths: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stage8bP1fRestoreWriteV1 {
+    pub target_root_index: usize,
+    pub relative_path: PathBuf,
+    pub bytes: Vec<u8>,
+    pub mode: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1158,7 +1187,7 @@ impl Stage8bP1fAuthorityStoreV1 {
             .parent()
             .ok_or(Stage8bP1fAuthorityErrorV1::InvalidPath)?;
         let owner_path = manifest_directory.join(EXECUTION_OWNER_FILE);
-        let owner = if owner_path.exists() {
+        if owner_path.exists() {
             let retained: ExecutionOwnerV1 = self.read_authority_file(&owner_path, 0o440)?;
             if retained.schema_version != STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION
                 || retained.domain != "stage8b-p1f-execution-owner-v1"
@@ -1169,31 +1198,34 @@ impl Stage8bP1fAuthorityStoreV1 {
             {
                 return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
             }
-            if retained.boot_id != boot_id {
-                drop(lease);
-                drop(execution_lock);
-                self.begin_stopping_phase(
-                    manifest_sha256,
-                    "boot-identity-changed",
-                    trusted_now,
-                    trusted_now + chrono::Duration::seconds(30),
-                    &boot_id,
-                )?;
-                return Err(Stage8bP1fAuthorityErrorV1::DeadlineExpired);
-            }
-            retained
-        } else {
-            let owner = ExecutionOwnerV1 {
-                schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
-                domain: "stage8b-p1f-execution-owner-v1".to_string(),
-                manifest_sha256: manifest_sha256.to_string(),
-                boot_id: boot_id.clone(),
-                admitted_at_utc: canonical_timestamp(trusted_now),
-                phase_deadline_utc: claim.deadline_utc.clone(),
-            };
-            self.write_create_new(&owner_path, &canonical_json(&owner)?, 0o440)?;
-            owner
+            // The old process no longer owns the execution flock, but no
+            // trustworthy monotonic witness survives that process boundary.
+            // Fail closed with an already elapsed grace instead of issuing a
+            // fresh Active permit or extending shutdown after restart.
+            drop(lease);
+            drop(execution_lock);
+            self.begin_stopping_phase(
+                manifest_sha256,
+                if retained.boot_id == boot_id {
+                    "execution-owner-recovered"
+                } else {
+                    "boot-identity-changed"
+                },
+                trusted_now - chrono::Duration::seconds(30),
+                trusted_now,
+                &boot_id,
+            )?;
+            return Err(Stage8bP1fAuthorityErrorV1::DeadlineExpired);
+        }
+        let owner = ExecutionOwnerV1 {
+            schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+            domain: "stage8b-p1f-execution-owner-v1".to_string(),
+            manifest_sha256: manifest_sha256.to_string(),
+            boot_id: boot_id.clone(),
+            admitted_at_utc: canonical_timestamp(trusted_now),
+            phase_deadline_utc: claim.deadline_utc.clone(),
         };
+        self.write_create_new(&owner_path, &canonical_json(&owner)?, 0o440)?;
         Ok(Stage8bP1fRunPermitV1 {
             manifest_sha256: manifest_sha256.to_string(),
             phase: manifest.phase,
@@ -1208,6 +1240,8 @@ impl Stage8bP1fAuthorityStoreV1 {
             boot_id,
             stopping_started_at: None,
             force_kill_at: None,
+            force_kill_after_elapsed: None,
+            last_trusted_wall: trusted_now,
         })
     }
 
@@ -1689,6 +1723,28 @@ impl Stage8bP1fAuthorityStoreV1 {
         trusted_now: DateTime<Utc>,
     ) -> Result<Stage8bP1fRunPermitV1, Stage8bP1fAuthorityErrorV1> {
         let _lease = self.acquire_lease()?;
+        self.reject_quarantine()?;
+        if !valid_sha256(manifest_sha256) {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        let execution_lock = self.acquire_execution_lock()?;
+        let authority = self.root.join(AUTHORITY_DIRECTORY);
+        let pending_path = authority.join(PENDING_STOPPING_FILE);
+        if pending_path.exists() {
+            let pending: PendingStoppingV1 = self.read_authority_file(&pending_path, 0o440)?;
+            let started = parse_timestamp(&pending.stopping_started_at_utc)?;
+            let force = parse_timestamp(&pending.force_kill_at_utc)?;
+            if pending.schema_version != STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION
+                || pending.domain != "stage8b-p1f-pending-stopping-v1"
+                || pending.manifest_sha256 != manifest_sha256
+                || !canonical_token(&pending.reason_code)
+                || !canonical_token(&pending.boot_id)
+                || force - started != chrono::Duration::seconds(30)
+            {
+                return Err(Stage8bP1fAuthorityErrorV1::PendingRecoveryRequired);
+            }
+            self.continue_stopping_transaction(&pending)?;
+        }
         let inspection = self.validate_history(true)?;
         if inspection.state != Stage8bP1fPhaseStateV1::Stopping
             || inspection.active_manifest_sha256.as_deref() != Some(manifest_sha256)
@@ -1707,8 +1763,17 @@ impl Stage8bP1fAuthorityStoreV1 {
                 )),
             0o440,
         )?;
-        let execution_lock = self.acquire_execution_lock()?;
         let claim = self.read_claim_receipt(manifest_sha256)?;
+        let stopping_started_at = parse_timestamp(&receipt.stopping_started_at_utc)?;
+        let force_kill_at = parse_timestamp(&receipt.force_kill_at_utc)?;
+        let remaining = if trusted_now < stopping_started_at || trusted_now >= force_kill_at {
+            StdDuration::ZERO
+        } else {
+            force_kill_at
+                .signed_duration_since(trusted_now)
+                .to_std()
+                .unwrap_or(StdDuration::ZERO)
+        };
         Ok(Stage8bP1fRunPermitV1 {
             manifest_sha256: manifest_sha256.to_string(),
             phase: claim.phase,
@@ -1721,8 +1786,10 @@ impl Stage8bP1fAuthorityStoreV1 {
             service_gid: self.service_gid,
             execution_lock,
             boot_id: current_boot_id()?,
-            stopping_started_at: Some(parse_timestamp(&receipt.stopping_started_at_utc)?),
-            force_kill_at: Some(parse_timestamp(&receipt.force_kill_at_utc)?),
+            stopping_started_at: Some(stopping_started_at),
+            force_kill_at: Some(force_kill_at),
+            force_kill_after_elapsed: Some(remaining),
+            last_trusted_wall: trusted_now,
         })
     }
 
@@ -2089,7 +2156,17 @@ impl Stage8bP1fAuthorityStoreV1 {
         let pending_event_exists = pending_event_sequence
             .map(|sequence| event_path(&authority, sequence).exists())
             .unwrap_or(false);
-        let expected_event_count = committed_event_count + usize::from(pending_event_exists);
+        let prepared_event_exists = match (pending_event_sequence, present_pending.first()) {
+            (Some(sequence), Some((name, path))) => {
+                self.validate_prepared_pending_event(&authority, &head, name, path, sequence)?
+            }
+            _ => false,
+        };
+        if pending_event_exists && prepared_event_exists {
+            return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+        }
+        let expected_event_count =
+            committed_event_count + usize::from(pending_event_exists || prepared_event_exists);
         if entries.len() != expected_event_count {
             return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
         }
@@ -2360,6 +2437,132 @@ impl Stage8bP1fAuthorityStoreV1 {
             deadline_utc: head.deadline_utc,
             force_kill_at_utc: head.force_kill_at_utc,
         })
+    }
+
+    fn validate_prepared_pending_event(
+        &self,
+        authority: &Path,
+        head: &HistoryHeadV1,
+        pending_name: &str,
+        pending_path: &Path,
+        sequence: u64,
+    ) -> Result<bool, Stage8bP1fAuthorityErrorV1> {
+        let final_path = event_path(authority, sequence);
+        let final_name = final_path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .ok_or(Stage8bP1fAuthorityErrorV1::InvalidPath)?;
+        let prepared_path = final_path.with_file_name(format!(".{final_name}.p1f-create"));
+        if !prepared_path.exists() {
+            return Ok(false);
+        }
+        if final_path.exists()
+            || sequence != head.latest_sequence + 1
+            || head.latest_event_sha256.is_empty()
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+        }
+        let event: AuthorityEventV1 = self.read_authority_file(&prepared_path, 0o440)?;
+        let expected = match pending_name {
+            PENDING_CLAIM_FILE => {
+                let pending: PendingClaimV1 = self.read_authority_file(pending_path, 0o440)?;
+                let receipt = self.read_claim_receipt(&pending.manifest_sha256)?;
+                AuthorityEventV1 {
+                    schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+                    domain: "stage8b-p1f-authority-event-v1".to_string(),
+                    authority_generation: receipt.authority_generation,
+                    authority_sequence: pending.authority_sequence,
+                    predecessor_event_sha256: pending.predecessor_event_sha256,
+                    event_kind: "PHASE_CLAIMED".to_string(),
+                    state: Stage8bP1fPhaseStateV1::Active,
+                    manifest_sha256: pending.manifest_sha256,
+                    receipt_sha256: sha256_hex(&canonical_json(&receipt)?),
+                    recorded_at_utc: pending.claimed_at_utc,
+                }
+            }
+            PENDING_MATERIALIZATION_FILE => {
+                let pending: PendingMaterializationV1 =
+                    self.read_authority_file(pending_path, 0o440)?;
+                let receipt: Stage8bP1fMaterializedSetReceiptV1 = self.read_authority_file(
+                    &authority
+                        .join(MANIFESTS_DIRECTORY)
+                        .join(&pending.manifest_sha256)
+                        .join(MATERIALIZED_SET_RECEIPT_FILE),
+                    0o440,
+                )?;
+                AuthorityEventV1 {
+                    schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+                    domain: "stage8b-p1f-authority-event-v1".to_string(),
+                    authority_generation: pending.authority_generation,
+                    authority_sequence: pending.authority_sequence,
+                    predecessor_event_sha256: pending.predecessor_event_sha256,
+                    event_kind: "O2_MATERIALIZED".to_string(),
+                    state: Stage8bP1fPhaseStateV1::Active,
+                    manifest_sha256: pending.manifest_sha256,
+                    receipt_sha256: sha256_hex(&canonical_json(&receipt)?),
+                    recorded_at_utc: pending.ready_at_utc,
+                }
+            }
+            PENDING_STOPPING_FILE => {
+                let pending: PendingStoppingV1 = self.read_authority_file(pending_path, 0o440)?;
+                let receipt: Stage8bP1fStoppingReceiptV1 = self.read_authority_file(
+                    &authority
+                        .join(MANIFESTS_DIRECTORY)
+                        .join(&pending.manifest_sha256)
+                        .join(format!(
+                            "stopping-receipt-{:020}.json",
+                            pending.authority_sequence
+                        )),
+                    0o440,
+                )?;
+                AuthorityEventV1 {
+                    schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+                    domain: "stage8b-p1f-authority-event-v1".to_string(),
+                    authority_generation: pending.authority_generation,
+                    authority_sequence: pending.authority_sequence,
+                    predecessor_event_sha256: pending.predecessor_event_sha256,
+                    event_kind: "PHASE_STOPPING".to_string(),
+                    state: Stage8bP1fPhaseStateV1::Stopping,
+                    manifest_sha256: pending.manifest_sha256,
+                    receipt_sha256: sha256_hex(&canonical_json(&receipt)?),
+                    recorded_at_utc: pending.stopping_started_at_utc,
+                }
+            }
+            PENDING_TERMINAL_FILE => {
+                let pending: PendingTerminalV1 = self.read_authority_file(pending_path, 0o440)?;
+                let receipt: Stage8bP1fTerminalReceiptV1 = self.read_authority_file(
+                    &authority
+                        .join(MANIFESTS_DIRECTORY)
+                        .join(&pending.manifest_sha256)
+                        .join(format!(
+                            "terminal-receipt-{:020}.json",
+                            pending.authority_sequence
+                        )),
+                    0o440,
+                )?;
+                AuthorityEventV1 {
+                    schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+                    domain: "stage8b-p1f-authority-event-v1".to_string(),
+                    authority_generation: pending.authority_generation,
+                    authority_sequence: pending.authority_sequence,
+                    predecessor_event_sha256: pending.predecessor_event_sha256,
+                    event_kind: "PHASE_TERMINAL".to_string(),
+                    state: pending.terminal_state,
+                    manifest_sha256: pending.manifest_sha256,
+                    receipt_sha256: sha256_hex(&canonical_json(&receipt)?),
+                    recorded_at_utc: pending.recorded_at_utc,
+                }
+            }
+            _ => return Err(Stage8bP1fAuthorityErrorV1::PendingRecoveryRequired),
+        };
+        if event != expected
+            || event.authority_generation != head.authority_generation
+            || event.authority_sequence != sequence
+            || event.predecessor_event_sha256 != head.latest_event_sha256
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+        }
+        Ok(true)
     }
 
     fn read_claim_receipt(
@@ -2685,6 +2888,13 @@ impl Stage8bP1fAuthorityStoreV1 {
         }
         file.write_all(bytes)?;
         file.sync_all()?;
+        if path
+            .parent()
+            .and_then(Path::file_name)
+            .is_some_and(|name| name == EVENTS_DIRECTORY)
+        {
+            inject_test_fault(5)?;
+        }
         inject_test_fault(2)?;
         validate_file_metadata(&file.metadata()?, self.expected_uid, self.service_gid, mode)?;
         fs::rename(&temporary, path)?;
@@ -2748,18 +2958,32 @@ impl Drop for GuardianLease<'_> {
     }
 }
 
-/// Checks every restore selector before invoking the supplied mutation.  The
-/// callback is never called when any source, target or selected path is equal
-/// to, contains, or is contained by the trusted control root.
-pub fn execute_stage8b_p1f_permitted_restore_v1<T, F>(
+/// Executes only descriptor-relative writes below already opened target roots.
+/// No path-based mutation callback is exposed: every selector is resolved with
+/// `openat(O_NOFOLLOW)`, retained for the whole operation, and the trusted
+/// control root is excluded before the first write.
+pub fn execute_stage8b_p1f_permitted_restore_v1(
     plan: &Stage8bP1fRestorePlanV1,
-    mutation: F,
-) -> Result<T, Stage8bP1fAuthorityErrorV1>
+    writes: &[Stage8bP1fRestoreWriteV1],
+) -> Result<(), Stage8bP1fAuthorityErrorV1> {
+    execute_restore_at(
+        plan,
+        writes,
+        Path::new(STAGE8B_P1F_AUTHORITY_CONTROL_ROOT),
+        || Ok(()),
+    )
+}
+
+fn execute_restore_at<F>(
+    plan: &Stage8bP1fRestorePlanV1,
+    writes: &[Stage8bP1fRestoreWriteV1],
+    control_root: &Path,
+    before_write: F,
+) -> Result<(), Stage8bP1fAuthorityErrorV1>
 where
-    F: FnOnce() -> Result<T, Stage8bP1fAuthorityErrorV1>,
+    F: FnOnce() -> Result<(), Stage8bP1fAuthorityErrorV1>,
 {
-    let control = normalize_absolute(Path::new(STAGE8B_P1F_AUTHORITY_CONTROL_ROOT))?;
-    let mut guards = Vec::new();
+    let control = normalize_absolute(control_root)?;
     for path in plan
         .source_roots
         .iter()
@@ -2770,37 +2994,46 @@ where
         if candidate.starts_with(&control) || control.starts_with(&candidate) {
             return Err(Stage8bP1fAuthorityErrorV1::RestoreOverlapsControlRoot);
         }
-        guards.extend(verify_restore_selector(&candidate, &control)?);
     }
-    let result = mutation()?;
-    for guard in guards {
-        let named = fs::symlink_metadata(&guard.path)?;
-        let opened = guard.file.metadata()?;
-        if named.file_type().is_symlink()
-            || named.dev() != guard.dev
-            || named.ino() != guard.ino
-            || opened.dev() != guard.dev
-            || opened.ino() != guard.ino
-        {
-            return Err(Stage8bP1fAuthorityErrorV1::InvalidCustody);
+    let mut source_guards = Vec::new();
+    let mut target_guards = Vec::new();
+    let mut selected_guards = Vec::new();
+    for path in &plan.source_roots {
+        let candidate = normalize_absolute(path)?;
+        if candidate.starts_with(&control) || control.starts_with(&candidate) {
+            return Err(Stage8bP1fAuthorityErrorV1::RestoreOverlapsControlRoot);
         }
+        source_guards.push(open_restore_selector(&candidate, false)?);
     }
-    Ok(result)
+    for path in &plan.target_roots {
+        let candidate = normalize_absolute(path)?;
+        if candidate.starts_with(&control) || control.starts_with(&candidate) {
+            return Err(Stage8bP1fAuthorityErrorV1::RestoreOverlapsControlRoot);
+        }
+        target_guards.push(open_restore_selector(&candidate, true)?);
+    }
+    for path in &plan.selected_paths {
+        let candidate = normalize_absolute(path)?;
+        if candidate.starts_with(&control) || control.starts_with(&candidate) {
+            return Err(Stage8bP1fAuthorityErrorV1::RestoreOverlapsControlRoot);
+        }
+        selected_guards.push(open_restore_selector(&candidate, false)?);
+    }
+    before_write()?;
+    for write in writes {
+        let target = target_guards
+            .get(write.target_root_index)
+            .ok_or(Stage8bP1fAuthorityErrorV1::InvalidPath)?;
+        write_restore_file_at(target, write)?;
+    }
+    drop((source_guards, selected_guards));
+    Ok(())
 }
 
-struct RestorePathGuard {
-    path: PathBuf,
-    file: File,
-    dev: u64,
-    ino: u64,
-}
-
-fn verify_restore_selector(
+fn open_restore_selector(
     candidate: &Path,
-    control: &Path,
-) -> Result<Vec<RestorePathGuard>, Stage8bP1fAuthorityErrorV1> {
-    let mut guards = Vec::new();
-    let mut current = PathBuf::from("/");
+    require_directory: bool,
+) -> Result<File, Stage8bP1fAuthorityErrorV1> {
     let components = candidate
         .components()
         .filter_map(|component| match component {
@@ -2808,36 +3041,121 @@ fn verify_restore_selector(
             _ => None,
         })
         .collect::<Vec<_>>();
+    let mut current = open_directory(Path::new("/"))?;
     for (index, component) in components.iter().enumerate() {
-        current.push(component);
-        match fs::symlink_metadata(&current) {
-            Ok(metadata) => {
-                if metadata.file_type().is_symlink() {
-                    return Err(Stage8bP1fAuthorityErrorV1::RestoreOverlapsControlRoot);
-                }
-                let canonical = fs::canonicalize(&current)?;
-                if canonical.starts_with(control) || control.starts_with(&canonical) {
-                    return Err(Stage8bP1fAuthorityErrorV1::RestoreOverlapsControlRoot);
-                }
-                if metadata.is_dir() && index + 1 < components.len() {
-                    let file = open_directory(&current)?;
-                    let opened = file.metadata()?;
-                    if opened.dev() != metadata.dev() || opened.ino() != metadata.ino() {
-                        return Err(Stage8bP1fAuthorityErrorV1::InvalidCustody);
-                    }
-                    guards.push(RestorePathGuard {
-                        path: current.clone(),
-                        file,
-                        dev: metadata.dev(),
-                        ino: metadata.ino(),
-                    });
-                }
+        let require_component_directory = index + 1 < components.len() || require_directory;
+        current =
+            openat_restore_component(&current, component.as_os_str(), require_component_directory)?;
+    }
+    Ok(current)
+}
+
+fn openat_restore_component(
+    parent: &File,
+    name: &std::ffi::OsStr,
+    require_directory: bool,
+) -> Result<File, Stage8bP1fAuthorityErrorV1> {
+    let name =
+        CString::new(name.as_bytes()).map_err(|_| Stage8bP1fAuthorityErrorV1::InvalidPath)?;
+    let mut flags = libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK;
+    if require_directory {
+        flags |= libc::O_DIRECTORY;
+    }
+    let fd = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), flags) };
+    if fd < 0 {
+        let error = std::io::Error::last_os_error();
+        if matches!(error.raw_os_error(), Some(code) if code == libc::ELOOP || code == libc::ENOTDIR)
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::RestoreOverlapsControlRoot);
+        }
+        return Err(error.into());
+    }
+    let file = unsafe { File::from_raw_fd(fd) };
+    let metadata = file.metadata()?;
+    if require_directory && !metadata.is_dir() {
+        return Err(Stage8bP1fAuthorityErrorV1::InvalidPath);
+    }
+    Ok(file)
+}
+
+fn write_restore_file_at(
+    target_root: &File,
+    write: &Stage8bP1fRestoreWriteV1,
+) -> Result<(), Stage8bP1fAuthorityErrorV1> {
+    if write.bytes.len() as u64 > STAGE8B_P1F_MAX_AUTHORITY_BYTES
+        || write.mode & !0o660 != 0
+        || write.mode == 0
+    {
+        return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+    }
+    let components = normalize_relative(&write.relative_path)?;
+    let (leaf, parents) = components
+        .split_last()
+        .ok_or(Stage8bP1fAuthorityErrorV1::InvalidPath)?;
+    let mut directory = target_root.try_clone()?;
+    for component in parents {
+        directory = openat_restore_component(&directory, component.as_os_str(), true)?;
+    }
+    let leaf =
+        CString::new(leaf.as_bytes()).map_err(|_| Stage8bP1fAuthorityErrorV1::InvalidPath)?;
+    let existing_fd = unsafe {
+        libc::openat(
+            directory.as_raw_fd(),
+            leaf.as_ptr(),
+            libc::O_WRONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK,
+        )
+    };
+    let mut file = if existing_fd >= 0 {
+        let file = unsafe { File::from_raw_fd(existing_fd) };
+        let metadata = file.metadata()?;
+        if !metadata.file_type().is_file() || metadata.nlink() != 1 {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidCustody);
+        }
+        file.set_len(0)?;
+        file
+    } else {
+        let error = std::io::Error::last_os_error();
+        if error.kind() != ErrorKind::NotFound {
+            if matches!(error.raw_os_error(), Some(code) if code == libc::ELOOP) {
+                return Err(Stage8bP1fAuthorityErrorV1::RestoreOverlapsControlRoot);
             }
-            Err(error) if error.kind() == ErrorKind::NotFound => break,
-            Err(error) => return Err(error.into()),
+            return Err(error.into());
+        }
+        let fd = unsafe {
+            libc::openat(
+                directory.as_raw_fd(),
+                leaf.as_ptr(),
+                libc::O_WRONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_CREAT | libc::O_EXCL,
+                write.mode,
+            )
+        };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        unsafe { File::from_raw_fd(fd) }
+    };
+    file.set_permissions(fs::Permissions::from_mode(write.mode))?;
+    file.write_all(&write.bytes)?;
+    file.sync_all()?;
+    directory.sync_all()?;
+    Ok(())
+}
+
+fn normalize_relative(path: &Path) -> Result<Vec<std::ffi::OsString>, Stage8bP1fAuthorityErrorV1> {
+    if path.is_absolute() {
+        return Err(Stage8bP1fAuthorityErrorV1::InvalidPath);
+    }
+    let mut components = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(value) => components.push(value.to_os_string()),
+            Component::CurDir
+            | Component::ParentDir
+            | Component::RootDir
+            | Component::Prefix(_) => return Err(Stage8bP1fAuthorityErrorV1::InvalidPath),
         }
     }
-    Ok(guards)
+    Ok(components)
 }
 
 fn normalize_absolute(path: &Path) -> Result<PathBuf, Stage8bP1fAuthorityErrorV1> {
@@ -3103,7 +3421,7 @@ mod tests {
     use chrono::Duration;
     use ed25519_dalek::{Signer, SigningKey};
     use std::{
-        sync::atomic::{AtomicBool, AtomicU64, Ordering},
+        sync::atomic::{AtomicU64, Ordering},
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -3916,22 +4234,16 @@ mod tests {
 
     #[test]
     fn restore_overlap_is_rejected_before_mutation() {
-        let called = AtomicBool::new(false);
         let plan = Stage8bP1fRestorePlanV1 {
             source_roots: vec![PathBuf::from("/backup/p1")],
             target_roots: vec![PathBuf::from("/var/lib")],
             selected_paths: vec![PathBuf::from(STAGE8B_P1F_AUTHORITY_CONTROL_ROOT)],
         };
-        let error = execute_stage8b_p1f_permitted_restore_v1(&plan, || {
-            called.store(true, Ordering::SeqCst);
-            Ok(())
-        })
-        .unwrap_err();
+        let error = execute_stage8b_p1f_permitted_restore_v1(&plan, &[]).unwrap_err();
         assert_eq!(
             error,
             Stage8bP1fAuthorityErrorV1::RestoreOverlapsControlRoot
         );
-        assert!(!called.load(Ordering::SeqCst));
     }
 
     #[test]
@@ -4052,13 +4364,137 @@ mod tests {
             .unwrap();
         assert_eq!(
             resumed
-                .poll_deadline(setup.now + Duration::seconds(20))
+                .poll_deadline_at_elapsed(
+                    setup.now + Duration::seconds(20),
+                    StdDuration::from_secs(19)
+                )
                 .unwrap(),
             Stage8bP1fDeadlineDecisionV1::BeginStopping
         );
         assert_eq!(
             resumed
-                .poll_deadline(setup.now + Duration::seconds(31))
+                .poll_deadline_at_elapsed(
+                    setup.now + Duration::seconds(20),
+                    StdDuration::from_secs(20)
+                )
+                .unwrap(),
+            Stage8bP1fDeadlineDecisionV1::ForceKill
+        );
+    }
+
+    #[test]
+    fn stopping_monotonic_bound_rejects_frozen_and_backward_wall_clock() {
+        let setup = Setup::new();
+        let head = setup.initialize_and_activate();
+        let phase = setup.phase(&head, Stage8bP1fPhaseV1::O3SyntheticPaper);
+        let manifest_sha256 = sha256_hex(&phase);
+        setup
+            .store
+            .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+            .unwrap();
+        let mut permit = setup
+            .store
+            .admit_active_phase_at(&manifest_sha256, setup.now, None)
+            .unwrap();
+        assert_eq!(
+            permit
+                .poll_deadline_at_elapsed(setup.now - Duration::seconds(1), StdDuration::ZERO)
+                .unwrap(),
+            Stage8bP1fDeadlineDecisionV1::BeginStopping
+        );
+        assert_eq!(
+            permit
+                .poll_deadline_at_elapsed(
+                    setup.now + Duration::seconds(10),
+                    StdDuration::from_secs(29)
+                )
+                .unwrap(),
+            Stage8bP1fDeadlineDecisionV1::BeginStopping
+        );
+        assert_eq!(
+            permit
+                .poll_deadline_at_elapsed(
+                    setup.now + Duration::seconds(10),
+                    StdDuration::from_secs(30)
+                )
+                .unwrap(),
+            Stage8bP1fDeadlineDecisionV1::ForceKill
+        );
+        assert_eq!(
+            permit
+                .poll_deadline_at_elapsed(
+                    setup.now + Duration::seconds(10),
+                    StdDuration::from_secs(31)
+                )
+                .unwrap(),
+            Stage8bP1fDeadlineDecisionV1::ForceKill
+        );
+
+        let setup = Setup::new();
+        let head = setup.initialize_and_activate();
+        let phase = setup.phase(&head, Stage8bP1fPhaseV1::O3SyntheticPaper);
+        let manifest_sha256 = sha256_hex(&phase);
+        setup
+            .store
+            .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+            .unwrap();
+        let mut permit = setup
+            .store
+            .admit_active_phase_at(&manifest_sha256, setup.now, None)
+            .unwrap();
+        permit
+            .poll_deadline_at_elapsed(setup.now - Duration::seconds(1), StdDuration::ZERO)
+            .unwrap();
+        assert_eq!(
+            permit
+                .poll_deadline_at_elapsed(
+                    setup.now + Duration::seconds(10),
+                    StdDuration::from_secs(10)
+                )
+                .unwrap(),
+            Stage8bP1fDeadlineDecisionV1::BeginStopping
+        );
+        assert_eq!(
+            permit
+                .poll_deadline_at_elapsed(
+                    setup.now + Duration::seconds(9),
+                    StdDuration::from_secs(11)
+                )
+                .unwrap(),
+            Stage8bP1fDeadlineDecisionV1::ForceKill
+        );
+    }
+
+    #[test]
+    fn active_readmission_without_monotonic_witness_fails_closed() {
+        let setup = Setup::new();
+        let head = setup.initialize_and_activate();
+        let phase = setup.phase(&head, Stage8bP1fPhaseV1::O3SyntheticPaper);
+        let manifest_sha256 = sha256_hex(&phase);
+        setup
+            .store
+            .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+            .unwrap();
+        drop(
+            setup
+                .store
+                .admit_active_phase_at(&manifest_sha256, setup.now, None)
+                .unwrap(),
+        );
+        assert_eq!(
+            setup
+                .store
+                .admit_active_phase_at(&manifest_sha256, setup.now + Duration::seconds(600), None)
+                .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::DeadlineExpired
+        );
+        let mut resumed = setup
+            .store
+            .resume_stopping_phase(&manifest_sha256, setup.now + Duration::seconds(500))
+            .unwrap();
+        assert_eq!(
+            resumed
+                .poll_deadline_at_elapsed(setup.now + Duration::seconds(500), StdDuration::ZERO)
                 .unwrap(),
             Stage8bP1fDeadlineDecisionV1::ForceKill
         );
@@ -4211,26 +4647,92 @@ mod tests {
     }
 
     #[test]
+    fn public_transitions_recover_exact_event_temp_and_pending_stopping() {
+        let setup = Setup::new();
+        let head = setup.initialize_and_activate();
+        let phase = setup.phase(&head, Stage8bP1fPhaseV1::O3SyntheticPaper);
+        let manifest_sha256 = sha256_hex(&phase);
+        P1F_TEST_FAULT_POINT.store(5, AtomicOrdering::SeqCst);
+        assert_eq!(
+            setup
+                .store
+                .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+                .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::Io(ErrorKind::Interrupted)
+        );
+        let event_temp = setup
+            .root
+            .join(AUTHORITY_DIRECTORY)
+            .join(EVENTS_DIRECTORY)
+            .join(".00000000000000000001.json.p1f-create");
+        assert!(event_temp.exists());
+        assert!(matches!(
+            setup
+                .store
+                .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+                .unwrap(),
+            Stage8bP1fClaimDispositionV1::ContinuedExisting(_)
+        ));
+        assert!(!event_temp.exists());
+
+        let mut permit = setup
+            .store
+            .admit_active_phase_at(&manifest_sha256, setup.now, None)
+            .unwrap();
+        P1F_TEST_FAULT_POINT.store(5, AtomicOrdering::SeqCst);
+        assert_eq!(
+            permit
+                .poll_deadline_at_elapsed(setup.now - Duration::seconds(1), StdDuration::ZERO)
+                .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::Io(ErrorKind::Interrupted)
+        );
+        drop(permit);
+        assert_eq!(
+            setup
+                .store
+                .admit_active_phase_at(&manifest_sha256, setup.now, None)
+                .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::PendingRecoveryRequired
+        );
+        let mut resumed = setup
+            .store
+            .resume_stopping_phase(&manifest_sha256, setup.now + Duration::seconds(10))
+            .unwrap();
+        assert_eq!(
+            resumed
+                .poll_deadline_at_elapsed(
+                    setup.now + Duration::seconds(10),
+                    StdDuration::from_secs(19)
+                )
+                .unwrap(),
+            Stage8bP1fDeadlineDecisionV1::BeginStopping
+        );
+        assert_eq!(
+            resumed
+                .poll_deadline_at_elapsed(
+                    setup.now + Duration::seconds(10),
+                    StdDuration::from_secs(20)
+                )
+                .unwrap(),
+            Stage8bP1fDeadlineDecisionV1::ForceKill
+        );
+    }
+
+    #[test]
     fn restore_symlink_alias_is_rejected_before_mutation() {
         let root = std::env::temp_dir().join(format!("p1f-restore-alias-{}", uuid::Uuid::new_v4()));
         fs::create_dir(&root).unwrap();
         let alias = root.join("control-alias");
         std::os::unix::fs::symlink(STAGE8B_P1F_AUTHORITY_CONTROL_ROOT, &alias).unwrap();
-        let called = AtomicBool::new(false);
         let plan = Stage8bP1fRestorePlanV1 {
             source_roots: vec![],
             target_roots: vec![alias.join("authority")],
             selected_paths: vec![],
         };
         assert_eq!(
-            execute_stage8b_p1f_permitted_restore_v1(&plan, || {
-                called.store(true, Ordering::SeqCst);
-                Ok(())
-            })
-            .unwrap_err(),
+            execute_stage8b_p1f_permitted_restore_v1(&plan, &[]).unwrap_err(),
             Stage8bP1fAuthorityErrorV1::RestoreOverlapsControlRoot
         );
-        assert!(!called.load(Ordering::SeqCst));
         fs::remove_file(alias).unwrap();
         let real_parent = root.join("real-parent");
         fs::create_dir(&real_parent).unwrap();
@@ -4242,17 +4744,106 @@ mod tests {
             selected_paths: vec![parent_alias.join("future-target")],
         };
         assert_eq!(
-            execute_stage8b_p1f_permitted_restore_v1(&parent_plan, || {
-                called.store(true, Ordering::SeqCst);
-                Ok(())
-            })
-            .unwrap_err(),
+            execute_stage8b_p1f_permitted_restore_v1(&parent_plan, &[]).unwrap_err(),
             Stage8bP1fAuthorityErrorV1::RestoreOverlapsControlRoot
         );
-        assert!(!called.load(Ordering::SeqCst));
         fs::remove_file(parent_alias).unwrap();
         fs::remove_dir(real_parent).unwrap();
         fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
+    fn restore_allows_sibling_and_binds_leaf_and_parent_by_descriptor() {
+        let scratch =
+            std::env::temp_dir().join(format!("p1f-restore-descriptor-{}", uuid::Uuid::new_v4()));
+        let control = scratch.join("moex-finam-p1-paper-control");
+        let runtime_parent = scratch.join("moex-finam-p1-paper");
+        let target = runtime_parent.join("state");
+        fs::create_dir_all(&control).unwrap();
+        fs::create_dir_all(&target).unwrap();
+        let scratch = fs::canonicalize(&scratch).unwrap();
+        let control = scratch.join("moex-finam-p1-paper-control");
+        let runtime_parent = scratch.join("moex-finam-p1-paper");
+        let target = runtime_parent.join("state");
+        let plan = Stage8bP1fRestorePlanV1 {
+            source_roots: vec![],
+            target_roots: vec![target.clone()],
+            selected_paths: vec![],
+        };
+        let write = Stage8bP1fRestoreWriteV1 {
+            target_root_index: 0,
+            relative_path: PathBuf::from("restored.json"),
+            bytes: b"allowed-sibling".to_vec(),
+            mode: 0o640,
+        };
+        execute_restore_at(&plan, std::slice::from_ref(&write), &control, || Ok(())).unwrap();
+        assert_eq!(fs::read(target.join("restored.json")).unwrap(), write.bytes);
+
+        fs::write(control.join("protected.json"), b"unchanged").unwrap();
+        let moved_target = runtime_parent.join("state-moved");
+        execute_restore_at(
+            &plan,
+            &[Stage8bP1fRestoreWriteV1 {
+                target_root_index: 0,
+                relative_path: PathBuf::from("substitution.json"),
+                bytes: b"descriptor-bound".to_vec(),
+                mode: 0o600,
+            }],
+            &control,
+            || {
+                fs::rename(&target, &moved_target)?;
+                std::os::unix::fs::symlink(&control, &target)?;
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(control.join("protected.json")).unwrap(),
+            b"unchanged"
+        );
+        assert!(!control.join("substitution.json").exists());
+        assert_eq!(
+            fs::read(moved_target.join("substitution.json")).unwrap(),
+            b"descriptor-bound"
+        );
+        fs::remove_file(&target).unwrap();
+
+        let parent_target = runtime_parent.join("parent-state");
+        fs::create_dir(&parent_target).unwrap();
+        let parent_plan = Stage8bP1fRestorePlanV1 {
+            source_roots: vec![],
+            target_roots: vec![parent_target.clone()],
+            selected_paths: vec![],
+        };
+        let moved_parent = scratch.join("runtime-parent-moved");
+        execute_restore_at(
+            &parent_plan,
+            &[Stage8bP1fRestoreWriteV1 {
+                target_root_index: 0,
+                relative_path: PathBuf::from("parent-substitution.json"),
+                bytes: b"parent-descriptor-bound".to_vec(),
+                mode: 0o600,
+            }],
+            &control,
+            || {
+                fs::rename(&runtime_parent, &moved_parent)?;
+                std::os::unix::fs::symlink(&control, &runtime_parent)?;
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(!control.join("parent-substitution.json").exists());
+        assert_eq!(
+            fs::read(
+                moved_parent
+                    .join("parent-state")
+                    .join("parent-substitution.json")
+            )
+            .unwrap(),
+            b"parent-descriptor-bound"
+        );
+        fs::remove_file(&runtime_parent).unwrap();
+        fs::remove_dir_all(&scratch).unwrap();
     }
 
     #[test]

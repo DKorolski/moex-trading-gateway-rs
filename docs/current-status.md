@@ -23,7 +23,7 @@ telemetry (`b6f6d5b`) and fixed-installation (`7f2e876`) boundaries.
 
 The independently accepted P1-f R4 design baseline is
 `5d81b8e212300858246237a227a95d115dd67c2d`. The only newly authorized work is
-the P1F-Ia guardian-foundation correction candidate. Source authority is not
+the P1F-Ia guardian-foundation correction R2 candidate. Source authority is not
 activation authority.
 Operational installation or service start, Redis DB15/DB0 activation, VPS
 deployment, paper-provider execution, FINAM POST/DELETE/send, broker dispatch,
@@ -37,7 +37,8 @@ trusted-control-root model without performing installation or activation. It
 adds a root-only guardian, signed one-time genesis and activation, retained
 hash-chained phase claims, replay-derived head state, crash-resumable
 claim/materialization/stopping/terminal transactions, exact O2 source/config
-finalization, process-owned deadline permits, filesystem-aware restore
+finalization, exact prepared-event and pending-stopping recovery,
+process-owned monotonic-bounded deadline permits, descriptor-relative restore
 exclusion and permanent administrative quarantine. Real Linux
 multi-UID evidence proves that the service UID cannot mutate authority;
 guardian tests cover concurrent ownership, rollback/tamper, same-Active
