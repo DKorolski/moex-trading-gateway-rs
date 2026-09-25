@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P1-f I source implementation",
+  "status": "REVIEW_CANDIDATE_SOURCE_ONLY_NO_ACTIVATION",
+  "accepted_design_commit": "5d81b8e212300858246237a227a95d115dd67c2d",
+  "production_module": "crates/runtime-durable-service/src/stage8b_p1f_guardian.rs",
+  "authority_control_root": "/var/lib/moex-finam-p1-paper-control",
+  "config_root": "/etc/moex-finam-p1-paper",
+  "implemented_contracts": [
+    "root-and-service-uid-custody",
+    "one-time-signed-genesis-and-activation",
+    "single-use-phase-claim-hash-chain",
+    "same-active-exact-deadline-continuation",
+    "crash-resumable-claim-materialization-terminal-transactions",
+    "o2-exact-source-config-materialized-receipt",
+    "linear-run-permit-monotonic-deadline",
+    "restore-preflight-and-permanent-quarantine"
+  ],
+  "inherited_contracts": {
+    "first_boot_recovery": "V5",
+    "committed_schedule_recovery": "V4",
+    "redis_operation_inventory": "accepted P1-e I1 exact traces and capabilities",
+    "p0_isolation": "no P0 control or DB0 write capability added"
+  },
+  "executable_evidence": {
+    "guardian_test_module": "stage8b_p1f_guardian::tests",
+    "multi_uid_harness": "scripts/stage8b_p1f_multi_uid_custody_harness.sh",
+    "source_gate": "scripts/stage8b_p1f_source_gate.sh",
+    "source_checker": "scripts/stage8b_p1f_source_check.py",
+    "negative_harness": "scripts/stage8b_p1f_source_negative_harness.py"
+  },
+  "closed_surfaces": {
+    "operational_install_or_service_start": false,
+    "vps_mutation": false,
+    "redis_db15_or_db0_mutation": false,
+    "paper_provider_execution": false,
+    "finam_attachment_or_send": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "authority_rebind": false
+  },
+  "next_after_independent_source_acceptance": "P1F-O0 immutable read-only target preflight"
+}

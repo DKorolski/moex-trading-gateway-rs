@@ -1209,7 +1209,7 @@ pub(crate) mod tests {
         fixture_for_binding(&"1".repeat(64), "ACC_TEST_0001")
     }
 
-    fn fixture_for_binding(
+    pub(crate) fn fixture_for_binding(
         operational: &str,
         account: &str,
     ) -> (Vec<u8>, DateTime<Utc>, String, String) {

@@ -14,6 +14,7 @@ stage8b-p1-test-fixtures = ["strategy-runtime-core/stage5g-artifact-fixtures"]
 [dependencies]
 broker-core = { path = "../broker-core" }
 chrono.workspace = true
+ed25519-dalek.workspace = true
 libc.workspace = true
 redis.workspace = true
 rust_decimal.workspace = true
@@ -27,6 +28,5 @@ tokio.workspace = true
 uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
-ed25519-dalek.workspace = true
 serde_json.workspace = true
 strategy-runtime-core = { path = "../strategy-runtime-core", features = ["stage5g-artifact-fixtures"] }

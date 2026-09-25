@@ -400,9 +400,10 @@ authorized boundary is a separate P1-f isolated operational-acceptance design.
 That design authority does not authorize installation, service start or any
 operational provider/Redis/VPS surface.
 
-P1-f R0 through R3 were held by independent review. P1-f R4 is the active
-design/checker-only correction candidate; P1F-I remains closed until R4
-acceptance. Its sequence is:
+P1-f R0 through R3 were held by independent review. P1-f R4 at
+`5d81b8e212300858246237a227a95d115dd67c2d` is independently design-accepted.
+P1F-I source implementation is the active review candidate; P1F-O0 remains
+closed until independent P1F-I source acceptance. The remaining sequence is:
 source implementation, immutable read-only target preflight, non-activating
 provisioning, one-shot network-isolated bootstrap, bounded synthetic paper
 session/restart acceptance, separately authorized read-only FINAM-bar session,

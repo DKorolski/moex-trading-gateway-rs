@@ -10,7 +10,7 @@ The stable macro-roadmap is fixed in [roadmap.md](roadmap.md). Review may split
 an accepted macro-stage into smaller patch gates, but it does not renumber or
 replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
-## Active Stage 8B-P1-f design boundary
+## Active Stage 8B-P1-f source boundary
 
 Stage 8B-P1-e I1 aggregate candidate
 `a9bcd940635b62c2a13f8d378453e6ca21511e30` is independently
@@ -21,8 +21,10 @@ evidence scope. Its accepted tree is
 This closure preserves the independently accepted process (`1086b8d`),
 telemetry (`b6f6d5b`) and fixed-installation (`7f2e876`) boundaries.
 
-The only newly authorized work is a separate Stage 8B-P1-f isolated
-operational-acceptance design. Design authority is not activation authority.
+The independently accepted P1-f R4 design baseline is
+`5d81b8e212300858246237a227a95d115dd67c2d`. The only newly authorized work is
+the P1F-I source implementation review candidate. Source authority is not
+activation authority.
 Operational installation or service start, Redis DB15/DB0 activation, VPS
 deployment, paper-provider execution, FINAM POST/DELETE/send, broker dispatch,
 runtime-live and real orders remain closed until separately reviewed P1-f
@@ -30,15 +32,17 @@ implementation and operational gates explicitly authorize them. Historical
 candidate descriptions below are retained as lineage and are not the active
 project status.
 
-The active P1-f R4 design/checker correction candidate follows the independent
-HOLD of R3 `811ebe8ce22291311bd63fbf0cc5ff723261b758`. P1-F05 and the
-filesystem-custody portion of P1-F07 are closed. R4 addresses only the final
-consumed-history rollback question. It chooses the explicit trusted-control-
-root model: permitted runtime/data/config/evidence restores cannot touch the
-control root; coherent full-control/host rollback is not claimed locally
-detectable and instead requires quarantine plus separately reviewed generation
-rebind. A root-only signed one-time genesis and offline activation certificate
-distinguish initial admission from lost authority. It binds
+The P1F-I source implementation review candidate implements the accepted
+trusted-control-root model without performing installation or activation. It
+adds a root-only guardian, signed one-time genesis and activation, retained
+hash-chained phase claims, crash-resumable claim/materialization/terminal
+transactions, exact O2 source/config finalization, linear deadline permits,
+restore exclusion and permanent administrative quarantine. Real Linux
+multi-UID evidence proves that the service UID cannot mutate authority;
+guardian tests cover concurrent ownership, rollback/tamper, same-Active
+continuation and freshness. Coherent hidden full-control rollback remains
+explicitly outside local detection and requires separately reviewed rebind.
+The accepted design binds
 the already-paid isolated VPS as a coexistence target: existing P0 services
 remain outside P1 control in DB0 while typed P1 roles are restricted to DB15
 and exact paths. It adds a policy-bound source/config/materialized-receipt
@@ -47,7 +51,9 @@ source-operation mappings, two explicit conformance traces, six route-specific
 schedule frontiers and 45 model cases. Phase receipts and consumed-manifest
 history move to a root-owned sibling control root with a hash-chained head;
 service-owned runtime state remains unchanged and carries no phase authority.
-It performs none of those actions and grants no operational authority.
+P1F-I performs none of the operational actions and grants no operational
+authority. Independent source acceptance is required before P1F-O0 read-only
+target preflight.
 
 ## Current accepted boundary
 

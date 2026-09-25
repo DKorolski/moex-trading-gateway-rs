@@ -1,0 +1,3180 @@
+//! Stage 8B-P1-f root-guardian authority source.
+//!
+//! This module deliberately owns no Redis connection, FINAM client, broker
+//! dispatch or child-process launcher.  It implements the local, fail-closed
+//! authority boundary which must be accepted before any operational P1-f
+//! installation or service start is allowed.
+
+use std::{
+    collections::BTreeSet,
+    ffi::CString,
+    fs::{self, File, OpenOptions},
+    io::{ErrorKind, Read, Write},
+    os::{
+        fd::{AsRawFd, FromRawFd},
+        unix::{
+            ffi::OsStrExt,
+            fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
+        },
+    },
+    path::{Component, Path, PathBuf},
+    time::{Duration as StdDuration, Instant},
+};
+
+use chrono::{DateTime, SecondsFormat, Utc};
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_json::Value;
+use sha2::{Digest, Sha256};
+
+pub const STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION: u16 = 1;
+pub const STAGE8B_P1F_AUTHORITY_CONTROL_ROOT: &str = "/var/lib/moex-finam-p1-paper-control";
+pub const STAGE8B_P1F_TARGET_HOST_ID: &str = "stage8b-p1f-isolated-vps-1";
+pub const STAGE8B_P1F_TARGET_HOST_SSH_ED25519_SHA256: &str =
+    "SHA256:8fOAPkfvZ61LYmldUBs6A5ZC+BFr6O3yCvUrBAWZsAo";
+pub const STAGE8B_P1F_SERVICE_USER: &str = "moex-p1-paper";
+pub const STAGE8B_P1F_MAX_AUTHORITY_BYTES: u64 = 128 * 1024;
+pub const STAGE8B_P1F_CONFIG_ROOT: &str = "/etc/moex-finam-p1-paper";
+pub const STAGE8B_P1F_SOURCE_SHA256_TEMPLATE_SENTINEL: &str =
+    "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+
+const AUTHORITY_DIRECTORY: &str = "authority";
+const EVENTS_DIRECTORY: &str = "events";
+const MANIFESTS_DIRECTORY: &str = "manifests";
+const LOCK_FILE: &str = ".guardian.lock";
+const GENESIS_TRANSACTION_FILE: &str = "genesis-transaction.json";
+const GENESIS_MANIFEST_FILE: &str = "genesis-manifest.json";
+const GENESIS_RECEIPT_FILE: &str = "genesis-receipt.json";
+const ACTIVATION_CERTIFICATE_FILE: &str = "activation-certificate.json";
+const HISTORY_HEAD_FILE: &str = "history-head.json";
+const PENDING_CLAIM_FILE: &str = "pending-claim.json";
+const PENDING_TERMINAL_FILE: &str = "pending-terminal.json";
+const PENDING_MATERIALIZATION_FILE: &str = "pending-materialization.json";
+const MATERIALIZED_SET_RECEIPT_FILE: &str = "materialized-set-receipt.json";
+const QUARANTINE_FILE: &str = "restore-quarantine.json";
+const ZERO_SHA256: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+const GENESIS_DOMAIN: &[u8] = b"moex.stage8b.p1f.authority-genesis.v1\0";
+const EVENT_DOMAIN: &[u8] = b"moex.stage8b.p1f.authority-event.v1\0";
+const SIGNED_GENESIS_DOMAIN: &[u8] = b"moex.stage8b.p1f.signed-genesis.v1\0";
+const SIGNED_ACTIVATION_DOMAIN: &[u8] = b"moex.stage8b.p1f.signed-activation.v1\0";
+const SIGNED_PHASE_DOMAIN: &[u8] = b"moex.stage8b.p1f.signed-phase-manifest.v1\0";
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum Stage8bP1fAuthorityErrorV1 {
+    #[error("P1-f authority operation requires root")]
+    RootRequired,
+    #[error("P1-f authority path is outside the accepted boundary")]
+    InvalidPath,
+    #[error("P1-f authority filesystem custody is invalid")]
+    InvalidCustody,
+    #[error("P1-f authority document is invalid")]
+    InvalidDocument,
+    #[error("P1-f authority signature is invalid")]
+    InvalidSignature,
+    #[error("P1-f authority validity window is invalid")]
+    InvalidValidityWindow,
+    #[error("P1-f authority is not initialized")]
+    NotInitialized,
+    #[error("P1-f authority is not activated")]
+    NotActivated,
+    #[error("P1-f authority was already activated")]
+    AlreadyActivated,
+    #[error("P1-f authority is quarantined pending separately reviewed rebind")]
+    Quarantined,
+    #[error("P1-f authority generation conflicts with retained state")]
+    GenerationConflict,
+    #[error("P1-f authority history is inconsistent")]
+    HistoryConflict,
+    #[error("P1-f phase manifest was already consumed")]
+    ManifestSpent,
+    #[error("P1-f phase has another active owner")]
+    ActiveConflict,
+    #[error("P1-f authority deadline has expired")]
+    DeadlineExpired,
+    #[error("P1-f restore selection overlaps the trusted control root")]
+    RestoreOverlapsControlRoot,
+    #[error("P1-f guardian lock is already held")]
+    ConcurrentGuardian,
+    #[error("P1-f authority I/O failed: {0:?}")]
+    Io(ErrorKind),
+}
+
+impl From<std::io::Error> for Stage8bP1fAuthorityErrorV1 {
+    fn from(value: std::io::Error) -> Self {
+        Self::Io(value.kind())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum Stage8bP1fPhaseV1 {
+    O1Provision,
+    O2MaterializeBootstrap,
+    O3SyntheticPaper,
+    O4FinamReadOnly,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum Stage8bP1fPhaseStateV1 {
+    GenesisPrepared,
+    GenesisActivated,
+    Active,
+    Stopping,
+    Completed,
+    Failed,
+    Expired,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stage8bP1fGenesisManifestV1 {
+    pub schema_version: u16,
+    pub domain: String,
+    pub installation_id: String,
+    pub target_host_id: String,
+    pub target_host_ssh_ed25519_sha256: String,
+    pub control_root: String,
+    pub authority_generation: u64,
+    pub ceremony_nonce_sha256: String,
+    pub genesis_head_sha256: String,
+    pub not_before_utc: String,
+    pub expires_at_utc: String,
+    pub issuer_key_id: String,
+    pub signature_ed25519_hex: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stage8bP1fGenesisReceiptV1 {
+    pub schema_version: u16,
+    pub domain: String,
+    pub installation_id: String,
+    pub target_host_id: String,
+    pub control_root: String,
+    pub authority_generation: u64,
+    pub ceremony_nonce_sha256: String,
+    pub genesis_manifest_sha256: String,
+    pub genesis_head_sha256: String,
+    pub committed_at_utc: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stage8bP1fActivationCertificateV1 {
+    pub schema_version: u16,
+    pub domain: String,
+    pub installation_id: String,
+    pub target_host_id: String,
+    pub control_root: String,
+    pub authority_generation: u64,
+    pub ceremony_nonce_sha256: String,
+    pub genesis_manifest_sha256: String,
+    pub genesis_receipt_sha256: String,
+    pub genesis_head_sha256: String,
+    pub activated_at_utc: String,
+    pub expires_at_utc: String,
+    pub issuer_key_id: String,
+    pub signature_ed25519_hex: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stage8bP1fPhaseManifestV1 {
+    pub schema_version: u16,
+    pub domain: String,
+    pub installation_id: String,
+    pub target_host_id: String,
+    pub target_host_ssh_ed25519_sha256: String,
+    pub authority_generation: u64,
+    pub authority_sequence: u64,
+    pub predecessor_event_sha256: String,
+    pub accepted_source_tree_sha256: String,
+    pub phase: Stage8bP1fPhaseV1,
+    pub materialization_policy_sha256: String,
+    pub config_template_sha256: String,
+    pub installation_sha256: String,
+    pub controller_id: String,
+    pub not_before_utc: String,
+    pub deadline_utc: String,
+    pub issuer_key_id: String,
+    pub signature_ed25519_hex: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stage8bP1fClaimReceiptV1 {
+    pub schema_version: u16,
+    pub domain: String,
+    pub manifest_sha256: String,
+    pub authority_generation: u64,
+    pub authority_sequence: u64,
+    pub predecessor_event_sha256: String,
+    pub phase: Stage8bP1fPhaseV1,
+    pub controller_id: String,
+    pub claimed_at_utc: String,
+    pub deadline_utc: String,
+    pub state: Stage8bP1fPhaseStateV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stage8bP1fTerminalReceiptV1 {
+    pub schema_version: u16,
+    pub domain: String,
+    pub manifest_sha256: String,
+    pub authority_generation: u64,
+    pub authority_sequence: u64,
+    pub predecessor_event_sha256: String,
+    pub terminal_state: Stage8bP1fPhaseStateV1,
+    pub reason_code: String,
+    pub recorded_at_utc: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stage8bP1fMaterializedSetReceiptV1 {
+    pub schema_version: u16,
+    pub domain: String,
+    pub manifest_sha256: String,
+    pub authority_generation: u64,
+    pub authority_sequence: u64,
+    pub predecessor_event_sha256: String,
+    pub materialization_policy_sha256: String,
+    pub config_template_sha256: String,
+    pub source_sha256: String,
+    pub final_config_sha256: String,
+    pub installation_sha256: String,
+    pub claim_receipt_sha256: String,
+    pub broker_truth_checked_at_utc: String,
+    pub ready_at_utc: String,
+    pub state: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Stage8bP1fClaimDispositionV1 {
+    Claimed(Stage8bP1fClaimReceiptV1),
+    ContinuedExisting(Stage8bP1fClaimReceiptV1),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stage8bP1fAuthorityInspectionV1 {
+    pub authority_generation: u64,
+    pub latest_sequence: u64,
+    pub latest_event_sha256: String,
+    pub state: Stage8bP1fPhaseStateV1,
+    pub active_manifest_sha256: Option<String>,
+    pub deadline_utc: Option<String>,
+}
+
+/// Linear local admission to one already claimed phase.  It grants no Redis,
+/// FINAM or broker capability and is deliberately neither Clone nor serde.
+#[derive(Debug)]
+pub struct Stage8bP1fRunPermitV1 {
+    manifest_sha256: String,
+    phase: Stage8bP1fPhaseV1,
+    claimed_at: DateTime<Utc>,
+    deadline: DateTime<Utc>,
+    admitted_wall: DateTime<Utc>,
+    admitted_monotonic: Instant,
+    stopping_started: Option<Instant>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage8bP1fDeadlineDecisionV1 {
+    Continue,
+    BeginStopping,
+    ForceKill,
+}
+
+impl Stage8bP1fRunPermitV1 {
+    pub fn manifest_sha256(&self) -> &str {
+        &self.manifest_sha256
+    }
+
+    pub const fn phase(&self) -> Stage8bP1fPhaseV1 {
+        self.phase
+    }
+
+    pub fn deadline_utc(&self) -> String {
+        canonical_timestamp(self.deadline)
+    }
+
+    /// Uses monotonic elapsed time to reject wall-clock rollback and enforces
+    /// the exact 30-second ordered-stop grace independently of SSH.
+    pub fn poll_deadline(
+        &mut self,
+        trusted_wall_now: DateTime<Utc>,
+    ) -> Stage8bP1fDeadlineDecisionV1 {
+        let elapsed = self.admitted_monotonic.elapsed();
+        let expected_wall = self.admitted_wall
+            + chrono::Duration::from_std(elapsed).unwrap_or(chrono::Duration::MAX);
+        let clock_untrusted = trusted_wall_now + chrono::Duration::seconds(1) < expected_wall
+            || trusted_wall_now < self.claimed_at;
+        if self.stopping_started.is_none() && trusted_wall_now < self.deadline && !clock_untrusted {
+            return Stage8bP1fDeadlineDecisionV1::Continue;
+        }
+        match self.stopping_started {
+            None => {
+                self.stopping_started = Some(Instant::now());
+                Stage8bP1fDeadlineDecisionV1::BeginStopping
+            }
+            Some(started) if started.elapsed() < StdDuration::from_secs(30) => {
+                Stage8bP1fDeadlineDecisionV1::BeginStopping
+            }
+            Some(_) => Stage8bP1fDeadlineDecisionV1::ForceKill,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stage8bP1fRestorePlanV1 {
+    pub source_roots: Vec<PathBuf>,
+    pub target_roots: Vec<PathBuf>,
+    pub selected_paths: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stage8bP1fQuarantineReceiptV1 {
+    pub schema_version: u16,
+    pub domain: String,
+    pub reason_code: String,
+    pub declared_at_utc: String,
+    pub rebind_authorized: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GenesisTransactionV1 {
+    schema_version: u16,
+    domain: String,
+    genesis_manifest_sha256: String,
+    authority_generation: u64,
+    ceremony_nonce_sha256: String,
+    committed_at_utc: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PendingClaimV1 {
+    schema_version: u16,
+    domain: String,
+    manifest_sha256: String,
+    authority_sequence: u64,
+    predecessor_event_sha256: String,
+    claimed_at_utc: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PendingTerminalV1 {
+    schema_version: u16,
+    domain: String,
+    manifest_sha256: String,
+    authority_generation: u64,
+    authority_sequence: u64,
+    predecessor_event_sha256: String,
+    terminal_state: Stage8bP1fPhaseStateV1,
+    reason_code: String,
+    recorded_at_utc: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PendingMaterializationV1 {
+    schema_version: u16,
+    domain: String,
+    manifest_sha256: String,
+    authority_generation: u64,
+    authority_sequence: u64,
+    predecessor_event_sha256: String,
+    materialization_policy_sha256: String,
+    config_template_sha256: String,
+    source_sha256: String,
+    final_config_sha256: String,
+    installation_sha256: String,
+    claim_receipt_sha256: String,
+    broker_truth_checked_at_utc: String,
+    ready_at_utc: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AuthorityEventV1 {
+    schema_version: u16,
+    domain: String,
+    authority_generation: u64,
+    authority_sequence: u64,
+    predecessor_event_sha256: String,
+    event_kind: String,
+    state: Stage8bP1fPhaseStateV1,
+    manifest_sha256: String,
+    receipt_sha256: String,
+    recorded_at_utc: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HistoryHeadV1 {
+    schema_version: u16,
+    domain: String,
+    authority_generation: u64,
+    latest_sequence: u64,
+    latest_event_sha256: String,
+    state: Stage8bP1fPhaseStateV1,
+    active_manifest_sha256: Option<String>,
+    deadline_utc: Option<String>,
+}
+
+/// Root guardian bound to one retained control-root inode and exact custody.
+pub struct Stage8bP1fAuthorityStoreV1 {
+    root: PathBuf,
+    root_file: File,
+    root_dev: u64,
+    root_ino: u64,
+    expected_uid: u32,
+    service_gid: u32,
+}
+
+struct GuardianLease<'a> {
+    store: &'a Stage8bP1fAuthorityStoreV1,
+    lock: File,
+}
+
+impl Stage8bP1fAuthorityStoreV1 {
+    /// Opens only the accepted production control root and only as root.
+    pub fn open_production(service_gid: u32) -> Result<Self, Stage8bP1fAuthorityErrorV1> {
+        if unsafe { libc::geteuid() } != 0 {
+            return Err(Stage8bP1fAuthorityErrorV1::RootRequired);
+        }
+        Self::open_at(
+            Path::new(STAGE8B_P1F_AUTHORITY_CONTROL_ROOT),
+            0,
+            service_gid,
+        )
+    }
+
+    fn open_at(
+        root: &Path,
+        expected_uid: u32,
+        service_gid: u32,
+    ) -> Result<Self, Stage8bP1fAuthorityErrorV1> {
+        if !root.is_absolute() {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidPath);
+        }
+        let metadata = fs::symlink_metadata(root)
+            .map_err(|error| Stage8bP1fAuthorityErrorV1::Io(error.kind()))?;
+        validate_directory_metadata(&metadata, expected_uid, service_gid, 0o750)?;
+        let canonical = fs::canonicalize(root)?;
+        if canonical != root {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidPath);
+        }
+        let root_file = open_directory(root)?;
+        let opened = root_file.metadata()?;
+        validate_directory_metadata(&opened, expected_uid, service_gid, 0o750)?;
+        if opened.dev() != metadata.dev() || opened.ino() != metadata.ino() {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidCustody);
+        }
+        Ok(Self {
+            root: canonical,
+            root_file,
+            root_dev: opened.dev(),
+            root_ino: opened.ino(),
+            expected_uid,
+            service_gid,
+        })
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    pub fn initialize_authority(
+        &self,
+        manifest_bytes: &[u8],
+        expected_public_key_hex: &str,
+        expected_key_id: &str,
+        trusted_now: DateTime<Utc>,
+    ) -> Result<Stage8bP1fGenesisReceiptV1, Stage8bP1fAuthorityErrorV1> {
+        let _lease = self.acquire_lease()?;
+        self.reject_quarantine()?;
+        let manifest: Stage8bP1fGenesisManifestV1 = read_signed_document(
+            manifest_bytes,
+            SIGNED_GENESIS_DOMAIN,
+            expected_public_key_hex,
+            expected_key_id,
+            |value: &Stage8bP1fGenesisManifestV1| &value.issuer_key_id,
+            |value: &Stage8bP1fGenesisManifestV1| &value.signature_ed25519_hex,
+            |value: &Stage8bP1fGenesisManifestV1| {
+                let mut unsigned = value.clone();
+                unsigned.signature_ed25519_hex.clear();
+                unsigned
+            },
+        )?;
+        self.validate_genesis_manifest(&manifest, trusted_now)?;
+        let manifest_sha256 = sha256_hex(manifest_bytes);
+        let authority = self.root.join(AUTHORITY_DIRECTORY);
+        let mut transaction = GenesisTransactionV1 {
+            schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+            domain: "stage8b-p1f-genesis-transaction-v1".to_string(),
+            genesis_manifest_sha256: manifest_sha256.clone(),
+            authority_generation: manifest.authority_generation,
+            ceremony_nonce_sha256: manifest.ceremony_nonce_sha256.clone(),
+            committed_at_utc: canonical_timestamp(trusted_now),
+        };
+
+        if authority.exists() {
+            let retained: GenesisTransactionV1 =
+                self.read_authority_file(&authority.join(GENESIS_TRANSACTION_FILE), 0o440)?;
+            if retained.schema_version != transaction.schema_version
+                || retained.domain != transaction.domain
+                || retained.genesis_manifest_sha256 != transaction.genesis_manifest_sha256
+                || retained.authority_generation != transaction.authority_generation
+                || retained.ceremony_nonce_sha256 != transaction.ceremony_nonce_sha256
+                || parse_timestamp(&retained.committed_at_utc).is_err()
+            {
+                return Err(Stage8bP1fAuthorityErrorV1::GenerationConflict);
+            }
+            transaction = retained;
+            if authority.join(ACTIVATION_CERTIFICATE_FILE).exists() {
+                return Err(Stage8bP1fAuthorityErrorV1::AlreadyActivated);
+            }
+        } else {
+            self.create_authority_directory(&authority, 0o750)?;
+            self.create_authority_directory(&authority.join(EVENTS_DIRECTORY), 0o750)?;
+            self.create_authority_directory(&authority.join(MANIFESTS_DIRECTORY), 0o750)?;
+            sync_directory(&authority)?;
+            sync_directory(&self.root)?;
+            self.write_create_new(
+                &authority.join(GENESIS_TRANSACTION_FILE),
+                &canonical_json(&transaction)?,
+                0o440,
+            )?;
+        }
+
+        self.write_or_require_exact(
+            &authority.join(GENESIS_MANIFEST_FILE),
+            manifest_bytes,
+            0o440,
+        )?;
+        let committed_at = transaction.committed_at_utc;
+        let receipt = Stage8bP1fGenesisReceiptV1 {
+            schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+            domain: "stage8b-p1f-genesis-receipt-v1".to_string(),
+            installation_id: manifest.installation_id.clone(),
+            target_host_id: manifest.target_host_id.clone(),
+            control_root: manifest.control_root.clone(),
+            authority_generation: manifest.authority_generation,
+            ceremony_nonce_sha256: manifest.ceremony_nonce_sha256.clone(),
+            genesis_manifest_sha256: manifest_sha256.clone(),
+            genesis_head_sha256: manifest.genesis_head_sha256.clone(),
+            committed_at_utc: committed_at.clone(),
+        };
+        let receipt_bytes = canonical_json(&receipt)?;
+        self.write_or_require_exact(&authority.join(GENESIS_RECEIPT_FILE), &receipt_bytes, 0o440)?;
+        let event = AuthorityEventV1 {
+            schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+            domain: "stage8b-p1f-authority-event-v1".to_string(),
+            authority_generation: manifest.authority_generation,
+            authority_sequence: 0,
+            predecessor_event_sha256: ZERO_SHA256.to_string(),
+            event_kind: "GENESIS_PREPARED".to_string(),
+            state: Stage8bP1fPhaseStateV1::GenesisPrepared,
+            manifest_sha256,
+            receipt_sha256: sha256_hex(&receipt_bytes),
+            recorded_at_utc: committed_at,
+        };
+        let event_bytes = canonical_json(&event)?;
+        let event_sha256 = event_digest(&event_bytes);
+        self.write_or_require_exact(&event_path(&authority, 0), &event_bytes, 0o440)?;
+        let head = HistoryHeadV1 {
+            schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+            domain: "stage8b-p1f-history-head-v1".to_string(),
+            authority_generation: manifest.authority_generation,
+            latest_sequence: 0,
+            latest_event_sha256: event_sha256,
+            state: Stage8bP1fPhaseStateV1::GenesisPrepared,
+            active_manifest_sha256: None,
+            deadline_utc: None,
+        };
+        self.write_or_require_exact(
+            &authority.join(HISTORY_HEAD_FILE),
+            &canonical_json(&head)?,
+            0o440,
+        )?;
+        self.validate_history(false)?;
+        Ok(receipt)
+    }
+
+    pub fn activate_authority(
+        &self,
+        certificate_bytes: &[u8],
+        expected_public_key_hex: &str,
+        expected_key_id: &str,
+        trusted_now: DateTime<Utc>,
+    ) -> Result<(), Stage8bP1fAuthorityErrorV1> {
+        let _lease = self.acquire_lease()?;
+        self.reject_quarantine()?;
+        let authority = self.root.join(AUTHORITY_DIRECTORY);
+        let certificate_path = authority.join(ACTIVATION_CERTIFICATE_FILE);
+        let certificate: Stage8bP1fActivationCertificateV1 = read_signed_document(
+            certificate_bytes,
+            SIGNED_ACTIVATION_DOMAIN,
+            expected_public_key_hex,
+            expected_key_id,
+            |value: &Stage8bP1fActivationCertificateV1| &value.issuer_key_id,
+            |value: &Stage8bP1fActivationCertificateV1| &value.signature_ed25519_hex,
+            |value: &Stage8bP1fActivationCertificateV1| {
+                let mut unsigned = value.clone();
+                unsigned.signature_ed25519_hex.clear();
+                unsigned
+            },
+        )?;
+        validate_window(
+            &certificate.activated_at_utc,
+            &certificate.expires_at_utc,
+            trusted_now,
+        )?;
+        let manifest: Stage8bP1fGenesisManifestV1 =
+            self.read_authority_file(&authority.join(GENESIS_MANIFEST_FILE), 0o440)?;
+        let receipt: Stage8bP1fGenesisReceiptV1 =
+            self.read_authority_file(&authority.join(GENESIS_RECEIPT_FILE), 0o440)?;
+        let receipt_bytes = canonical_json(&receipt)?;
+        if certificate.installation_id != manifest.installation_id
+            || certificate.target_host_id != manifest.target_host_id
+            || certificate.control_root != manifest.control_root
+            || certificate.authority_generation != manifest.authority_generation
+            || certificate.ceremony_nonce_sha256 != manifest.ceremony_nonce_sha256
+            || certificate.genesis_manifest_sha256 != sha256_hex(&canonical_json(&manifest)?)
+            || certificate.genesis_receipt_sha256 != sha256_hex(&receipt_bytes)
+            || certificate.genesis_head_sha256 != manifest.genesis_head_sha256
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        let mut head: HistoryHeadV1 =
+            self.read_authority_file(&authority.join(HISTORY_HEAD_FILE), 0o440)?;
+        if certificate_path.exists() {
+            if self.read_authority_bytes(&certificate_path, 0o440)? != certificate_bytes {
+                return Err(Stage8bP1fAuthorityErrorV1::GenerationConflict);
+            }
+            if head.state == Stage8bP1fPhaseStateV1::GenesisPrepared {
+                head.state = Stage8bP1fPhaseStateV1::GenesisActivated;
+                self.replace_exact(
+                    &authority.join(HISTORY_HEAD_FILE),
+                    &canonical_json(&head)?,
+                    0o440,
+                )?;
+            } else if head.state != Stage8bP1fPhaseStateV1::GenesisActivated {
+                return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+            }
+            self.validate_history(true)?;
+            return Ok(());
+        }
+        self.validate_history(false)?;
+        if head.state == Stage8bP1fPhaseStateV1::GenesisPrepared {
+            head.state = Stage8bP1fPhaseStateV1::GenesisActivated;
+            self.replace_exact(
+                &authority.join(HISTORY_HEAD_FILE),
+                &canonical_json(&head)?,
+                0o440,
+            )?;
+        } else if head.state != Stage8bP1fPhaseStateV1::GenesisActivated {
+            return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+        }
+        self.write_create_new(&certificate_path, certificate_bytes, 0o440)?;
+        self.validate_history(true)?;
+        Ok(())
+    }
+
+    pub fn claim_phase(
+        &self,
+        manifest_bytes: &[u8],
+        expected_public_key_hex: &str,
+        expected_key_id: &str,
+        trusted_now: DateTime<Utc>,
+    ) -> Result<Stage8bP1fClaimDispositionV1, Stage8bP1fAuthorityErrorV1> {
+        let _lease = self.acquire_lease()?;
+        self.reject_quarantine()?;
+        let manifest: Stage8bP1fPhaseManifestV1 = read_signed_document(
+            manifest_bytes,
+            SIGNED_PHASE_DOMAIN,
+            expected_public_key_hex,
+            expected_key_id,
+            |value: &Stage8bP1fPhaseManifestV1| &value.issuer_key_id,
+            |value: &Stage8bP1fPhaseManifestV1| &value.signature_ed25519_hex,
+            |value: &Stage8bP1fPhaseManifestV1| {
+                let mut unsigned = value.clone();
+                unsigned.signature_ed25519_hex.clear();
+                unsigned
+            },
+        )?;
+        self.validate_phase_manifest(&manifest, trusted_now)?;
+        let manifest_sha256 = sha256_hex(manifest_bytes);
+        let authority = self.root.join(AUTHORITY_DIRECTORY);
+        let pending_path = authority.join(PENDING_CLAIM_FILE);
+        if pending_path.exists() {
+            let pending: PendingClaimV1 = self.read_authority_file(&pending_path, 0o440)?;
+            if pending.schema_version != STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION
+                || pending.domain != "stage8b-p1f-pending-claim-v1"
+                || parse_timestamp(&pending.claimed_at_utc).is_err()
+                || pending.manifest_sha256 != manifest_sha256
+                || pending.authority_sequence != manifest.authority_sequence
+                || pending.predecessor_event_sha256 != manifest.predecessor_event_sha256
+            {
+                return Err(Stage8bP1fAuthorityErrorV1::ActiveConflict);
+            }
+            let receipt = self.continue_claim_transaction(
+                &manifest,
+                manifest_bytes,
+                &manifest_sha256,
+                &pending,
+            )?;
+            validate_not_expired(&receipt.deadline_utc, trusted_now)?;
+            return Ok(Stage8bP1fClaimDispositionV1::ContinuedExisting(receipt));
+        }
+        let inspection = self.validate_history(true)?;
+        if inspection.state == Stage8bP1fPhaseStateV1::Active {
+            if inspection.active_manifest_sha256.as_deref() != Some(&manifest_sha256) {
+                return Err(Stage8bP1fAuthorityErrorV1::ActiveConflict);
+            }
+            let receipt = self.read_claim_receipt(&manifest_sha256)?;
+            validate_not_expired(&receipt.deadline_utc, trusted_now)?;
+            return Ok(Stage8bP1fClaimDispositionV1::ContinuedExisting(receipt));
+        }
+        if self
+            .root
+            .join(AUTHORITY_DIRECTORY)
+            .join(MANIFESTS_DIRECTORY)
+            .join(&manifest_sha256)
+            .exists()
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::ManifestSpent);
+        }
+        if manifest.authority_generation != inspection.authority_generation
+            || manifest.authority_sequence != inspection.latest_sequence + 1
+            || manifest.predecessor_event_sha256 != inspection.latest_event_sha256
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+        }
+        let pending = PendingClaimV1 {
+            schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+            domain: "stage8b-p1f-pending-claim-v1".to_string(),
+            manifest_sha256: manifest_sha256.clone(),
+            authority_sequence: manifest.authority_sequence,
+            predecessor_event_sha256: manifest.predecessor_event_sha256.clone(),
+            claimed_at_utc: canonical_timestamp(trusted_now),
+        };
+        self.write_create_new(
+            &authority.join(PENDING_CLAIM_FILE),
+            &canonical_json(&pending)?,
+            0o440,
+        )?;
+        let receipt =
+            self.continue_claim_transaction(&manifest, manifest_bytes, &manifest_sha256, &pending)?;
+        Ok(Stage8bP1fClaimDispositionV1::Claimed(receipt))
+    }
+
+    fn continue_claim_transaction(
+        &self,
+        manifest: &Stage8bP1fPhaseManifestV1,
+        manifest_bytes: &[u8],
+        manifest_sha256: &str,
+        pending: &PendingClaimV1,
+    ) -> Result<Stage8bP1fClaimReceiptV1, Stage8bP1fAuthorityErrorV1> {
+        let authority = self.root.join(AUTHORITY_DIRECTORY);
+        let head: HistoryHeadV1 =
+            self.read_authority_file(&authority.join(HISTORY_HEAD_FILE), 0o440)?;
+        let manifest_directory = authority.join(MANIFESTS_DIRECTORY).join(manifest_sha256);
+        if head.latest_sequence == manifest.authority_sequence
+            && head.latest_event_sha256
+                == event_digest(&self.read_authority_bytes(
+                    &event_path(&authority, manifest.authority_sequence),
+                    0o440,
+                )?)
+            && head.state == Stage8bP1fPhaseStateV1::Active
+            && head.active_manifest_sha256.as_deref() == Some(manifest_sha256)
+        {
+            let receipt = self.read_claim_receipt(manifest_sha256)?;
+            fs::remove_file(authority.join(PENDING_CLAIM_FILE))?;
+            sync_directory(&authority)?;
+            self.validate_history(true)?;
+            return Ok(receipt);
+        }
+        if head.latest_sequence + 1 != pending.authority_sequence
+            || head.latest_event_sha256 != pending.predecessor_event_sha256
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+        }
+        self.validate_history_with_pending(true, Some(pending), None)?;
+        if manifest_directory.exists() {
+            self.validate_directory(&manifest_directory)?;
+        } else {
+            self.create_authority_directory(&manifest_directory, 0o750)?;
+        }
+        self.write_or_require_exact(
+            &manifest_directory.join("phase-manifest.json"),
+            manifest_bytes,
+            0o440,
+        )?;
+        let receipt = Stage8bP1fClaimReceiptV1 {
+            schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+            domain: "stage8b-p1f-claim-receipt-v1".to_string(),
+            manifest_sha256: manifest_sha256.to_string(),
+            authority_generation: manifest.authority_generation,
+            authority_sequence: manifest.authority_sequence,
+            predecessor_event_sha256: manifest.predecessor_event_sha256.clone(),
+            phase: manifest.phase,
+            controller_id: manifest.controller_id.clone(),
+            claimed_at_utc: pending.claimed_at_utc.clone(),
+            deadline_utc: manifest.deadline_utc.clone(),
+            state: Stage8bP1fPhaseStateV1::Active,
+        };
+        let receipt_bytes = canonical_json(&receipt)?;
+        self.write_or_require_exact(
+            &manifest_directory.join("claim-receipt.json"),
+            &receipt_bytes,
+            0o440,
+        )?;
+        sync_directory(&manifest_directory)?;
+        let event = AuthorityEventV1 {
+            schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+            domain: "stage8b-p1f-authority-event-v1".to_string(),
+            authority_generation: manifest.authority_generation,
+            authority_sequence: manifest.authority_sequence,
+            predecessor_event_sha256: manifest.predecessor_event_sha256.clone(),
+            event_kind: "PHASE_CLAIMED".to_string(),
+            state: Stage8bP1fPhaseStateV1::Active,
+            manifest_sha256: manifest_sha256.to_string(),
+            receipt_sha256: sha256_hex(&receipt_bytes),
+            recorded_at_utc: receipt.claimed_at_utc.clone(),
+        };
+        let event_bytes = canonical_json(&event)?;
+        let event_sha256 = event_digest(&event_bytes);
+        self.write_or_require_exact(
+            &event_path(&authority, manifest.authority_sequence),
+            &event_bytes,
+            0o440,
+        )?;
+        let head = HistoryHeadV1 {
+            schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+            domain: "stage8b-p1f-history-head-v1".to_string(),
+            authority_generation: manifest.authority_generation,
+            latest_sequence: manifest.authority_sequence,
+            latest_event_sha256: event_sha256,
+            state: Stage8bP1fPhaseStateV1::Active,
+            active_manifest_sha256: Some(manifest_sha256.to_string()),
+            deadline_utc: Some(receipt.deadline_utc.clone()),
+        };
+        self.replace_exact(
+            &authority.join(HISTORY_HEAD_FILE),
+            &canonical_json(&head)?,
+            0o440,
+        )?;
+        fs::remove_file(authority.join(PENDING_CLAIM_FILE))?;
+        sync_directory(&authority)?;
+        self.validate_history(true)?;
+        Ok(receipt)
+    }
+
+    pub fn inspect(&self) -> Result<Stage8bP1fAuthorityInspectionV1, Stage8bP1fAuthorityErrorV1> {
+        let _lease = self.acquire_lease()?;
+        self.validate_history(true)
+    }
+
+    pub fn admit_active_phase(
+        &self,
+        manifest_sha256: &str,
+        trusted_now: DateTime<Utc>,
+    ) -> Result<Stage8bP1fRunPermitV1, Stage8bP1fAuthorityErrorV1> {
+        self.admit_active_phase_at(
+            manifest_sha256,
+            trusted_now,
+            Some(Path::new(STAGE8B_P1F_CONFIG_ROOT)),
+        )
+    }
+
+    fn admit_active_phase_at(
+        &self,
+        manifest_sha256: &str,
+        trusted_now: DateTime<Utc>,
+        config_root: Option<&Path>,
+    ) -> Result<Stage8bP1fRunPermitV1, Stage8bP1fAuthorityErrorV1> {
+        let _lease = self.acquire_lease()?;
+        self.reject_quarantine()?;
+        let inspection = self.validate_history(true)?;
+        if inspection.state != Stage8bP1fPhaseStateV1::Active
+            || inspection.active_manifest_sha256.as_deref() != Some(manifest_sha256)
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::ActiveConflict);
+        }
+        let manifest_path = self
+            .root
+            .join(AUTHORITY_DIRECTORY)
+            .join(MANIFESTS_DIRECTORY)
+            .join(manifest_sha256)
+            .join("phase-manifest.json");
+        let manifest_bytes = self.read_authority_bytes(&manifest_path, 0o440)?;
+        if sha256_hex(&manifest_bytes) != manifest_sha256 {
+            return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+        }
+        let manifest: Stage8bP1fPhaseManifestV1 = parse_canonical(&manifest_bytes)?;
+        let claim = self.read_claim_receipt(manifest_sha256)?;
+        let claimed_at = parse_timestamp(&claim.claimed_at_utc)?;
+        let deadline = parse_timestamp(&claim.deadline_utc)?;
+        if trusted_now < claimed_at || trusted_now >= deadline {
+            return Err(Stage8bP1fAuthorityErrorV1::DeadlineExpired);
+        }
+        match manifest.phase {
+            Stage8bP1fPhaseV1::O1Provision => {
+                return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument)
+            }
+            Stage8bP1fPhaseV1::O2MaterializeBootstrap => {
+                let receipt: Stage8bP1fMaterializedSetReceiptV1 = self.read_authority_file(
+                    &manifest_path
+                        .parent()
+                        .ok_or(Stage8bP1fAuthorityErrorV1::InvalidPath)?
+                        .join(MATERIALIZED_SET_RECEIPT_FILE),
+                    0o440,
+                )?;
+                let age = trusted_now
+                    .signed_duration_since(parse_timestamp(&receipt.broker_truth_checked_at_utc)?)
+                    .num_seconds();
+                if receipt.state != "ReadyForBootstrap"
+                    || receipt.manifest_sha256 != manifest_sha256
+                    || !(0..=300).contains(&age)
+                {
+                    return Err(Stage8bP1fAuthorityErrorV1::InvalidValidityWindow);
+                }
+                let config_root = config_root.ok_or(Stage8bP1fAuthorityErrorV1::InvalidPath)?;
+                if sha256_hex(
+                    &self.read_external_bytes(
+                        &config_root
+                            .join("bootstrap")
+                            .join("stage8b-p1-first-boot-source-v1.json"),
+                        crate::STAGE8B_P1E_FIRST_BOOT_SOURCE_MAX_BYTES,
+                    )?,
+                ) != receipt.source_sha256
+                    || sha256_hex(&self.read_external_bytes(
+                        &config_root.join("supervisor.json"),
+                        STAGE8B_P1F_MAX_AUTHORITY_BYTES,
+                    )?) != receipt.final_config_sha256
+                {
+                    return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+                }
+            }
+            Stage8bP1fPhaseV1::O3SyntheticPaper | Stage8bP1fPhaseV1::O4FinamReadOnly => {}
+        }
+        Ok(Stage8bP1fRunPermitV1 {
+            manifest_sha256: manifest_sha256.to_string(),
+            phase: manifest.phase,
+            claimed_at,
+            deadline,
+            admitted_wall: trusted_now,
+            admitted_monotonic: Instant::now(),
+            stopping_started: None,
+        })
+    }
+
+    /// Permanently closes ordinary use after a declared or suspected
+    /// whole-host/control-root restore.  This module intentionally exposes no
+    /// clear/rebind operation; a new generation requires separate review.
+    pub fn declare_restore_incident(
+        &self,
+        reason_code: &str,
+        trusted_now: DateTime<Utc>,
+    ) -> Result<Stage8bP1fQuarantineReceiptV1, Stage8bP1fAuthorityErrorV1> {
+        let _lease = self.acquire_lease()?;
+        if !canonical_token(reason_code) {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        let receipt = Stage8bP1fQuarantineReceiptV1 {
+            schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+            domain: "stage8b-p1f-restore-quarantine-v1".to_string(),
+            reason_code: reason_code.to_string(),
+            declared_at_utc: canonical_timestamp(trusted_now),
+            rebind_authorized: false,
+        };
+        let path = self.root.join(QUARANTINE_FILE);
+        self.write_or_require_exact(&path, &canonical_json(&receipt)?, 0o440)?;
+        Ok(receipt)
+    }
+
+    /// Finalizes the sole dynamic supervisor field from exact fresh source
+    /// bytes and commits the ReadyForBootstrap receipt.  This function has no
+    /// network or Redis capability and accepts no production path override.
+    pub fn materialize_o2(
+        &self,
+        manifest_sha256: &str,
+        materialization_policy_bytes: &[u8],
+        config_template_bytes: &[u8],
+        source_bytes: &[u8],
+        broker_truth_checked_at_utc: &str,
+        trusted_now: DateTime<Utc>,
+    ) -> Result<Stage8bP1fMaterializedSetReceiptV1, Stage8bP1fAuthorityErrorV1> {
+        if self.root != Path::new(STAGE8B_P1F_AUTHORITY_CONTROL_ROOT) {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidPath);
+        }
+        self.materialize_o2_at(
+            Path::new(STAGE8B_P1F_CONFIG_ROOT),
+            manifest_sha256,
+            materialization_policy_bytes,
+            config_template_bytes,
+            source_bytes,
+            broker_truth_checked_at_utc,
+            trusted_now,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn materialize_o2_at(
+        &self,
+        config_root: &Path,
+        manifest_sha256: &str,
+        materialization_policy_bytes: &[u8],
+        config_template_bytes: &[u8],
+        source_bytes: &[u8],
+        broker_truth_checked_at_utc: &str,
+        trusted_now: DateTime<Utc>,
+    ) -> Result<Stage8bP1fMaterializedSetReceiptV1, Stage8bP1fAuthorityErrorV1> {
+        let _lease = self.acquire_lease()?;
+        self.reject_quarantine()?;
+        if !config_root.is_absolute()
+            || !valid_sha256(manifest_sha256)
+            || source_bytes.is_empty()
+            || source_bytes.len() as u64 > crate::STAGE8B_P1E_FIRST_BOOT_SOURCE_MAX_BYTES
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        let checked_at = parse_timestamp(broker_truth_checked_at_utc)?;
+        let age = trusted_now.signed_duration_since(checked_at).num_seconds();
+        if !(0..=300).contains(&age) {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidValidityWindow);
+        }
+        let source_value: Value = serde_json::from_slice(source_bytes)
+            .map_err(|_| Stage8bP1fAuthorityErrorV1::InvalidDocument)?;
+        if !source_value.is_object() {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        let policy_sha256 = sha256_hex(materialization_policy_bytes);
+        let template_sha256 = sha256_hex(config_template_bytes);
+        let source_sha256 = sha256_hex(source_bytes);
+        let template: Value = parse_canonical(config_template_bytes)?;
+        let mut final_config = template.clone();
+        let template_object = template
+            .as_object()
+            .ok_or(Stage8bP1fAuthorityErrorV1::InvalidDocument)?;
+        if template_object
+            .get("first_boot_source_bundle_sha256")
+            .and_then(Value::as_str)
+            != Some(STAGE8B_P1F_SOURCE_SHA256_TEMPLATE_SENTINEL)
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        final_config
+            .as_object_mut()
+            .ok_or(Stage8bP1fAuthorityErrorV1::InvalidDocument)?
+            .insert(
+                "first_boot_source_bundle_sha256".to_string(),
+                Value::String(source_sha256.clone()),
+            );
+        let final_config_bytes = canonical_json(&final_config)?;
+        let parsed = crate::parse_stage8b_p1e_supervisor_config_v1(&final_config_bytes)
+            .map_err(|_| Stage8bP1fAuthorityErrorV1::InvalidDocument)?;
+        let validated = crate::validate_stage8b_p1e_supervisor_config_v1(parsed, [0u8; 16])
+            .map_err(|_| Stage8bP1fAuthorityErrorV1::InvalidDocument)?;
+        let validated_source =
+            crate::stage8b_p1e_first_boot_source::parse_stage8b_p1e_first_boot_source_v1(
+                source_bytes,
+                &source_sha256,
+                validated.bootstrap().operational_identity_sha256(),
+                validated.bootstrap().account_id().as_str(),
+                trusted_now,
+            )
+            .map_err(|_| Stage8bP1fAuthorityErrorV1::InvalidDocument)?;
+        if canonical_timestamp(validated_source.broker_truth_checked_at())
+            != broker_truth_checked_at_utc
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+
+        let authority = self.root.join(AUTHORITY_DIRECTORY);
+        let manifest_directory = authority.join(MANIFESTS_DIRECTORY).join(manifest_sha256);
+        let manifest_bytes =
+            self.read_authority_bytes(&manifest_directory.join("phase-manifest.json"), 0o440)?;
+        let phase_manifest: Stage8bP1fPhaseManifestV1 = parse_canonical(&manifest_bytes)?;
+        let claim = self.read_claim_receipt(manifest_sha256)?;
+        let claim_bytes = canonical_json(&claim)?;
+        if phase_manifest.phase != Stage8bP1fPhaseV1::O2MaterializeBootstrap
+            || phase_manifest.materialization_policy_sha256 != policy_sha256
+            || phase_manifest.config_template_sha256 != template_sha256
+            || claim.state != Stage8bP1fPhaseStateV1::Active
+            || claim.manifest_sha256 != manifest_sha256
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        validate_not_expired(&claim.deadline_utc, trusted_now)?;
+
+        let pending_path = manifest_directory.join(PENDING_MATERIALIZATION_FILE);
+        let existing_receipt_path = manifest_directory.join(MATERIALIZED_SET_RECEIPT_FILE);
+        if !pending_path.exists() && existing_receipt_path.exists() {
+            let existing: Stage8bP1fMaterializedSetReceiptV1 =
+                self.read_authority_file(&existing_receipt_path, 0o440)?;
+            if existing.manifest_sha256 != manifest_sha256
+                || existing.materialization_policy_sha256 != policy_sha256
+                || existing.config_template_sha256 != template_sha256
+                || existing.source_sha256 != source_sha256
+                || existing.final_config_sha256 != sha256_hex(&final_config_bytes)
+                || existing.broker_truth_checked_at_utc != broker_truth_checked_at_utc
+                || existing.state != "ReadyForBootstrap"
+            {
+                return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+            }
+            self.validate_history(true)?;
+            return Ok(existing);
+        }
+        let pending = if pending_path.exists() {
+            let retained: PendingMaterializationV1 =
+                self.read_authority_file(&pending_path, 0o440)?;
+            if retained.schema_version != STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION
+                || retained.domain != "stage8b-p1f-pending-materialization-v1"
+                || parse_timestamp(&retained.broker_truth_checked_at_utc).is_err()
+                || parse_timestamp(&retained.ready_at_utc).is_err()
+                || retained.manifest_sha256 != manifest_sha256
+                || retained.materialization_policy_sha256 != policy_sha256
+                || retained.config_template_sha256 != template_sha256
+                || retained.source_sha256 != source_sha256
+                || retained.final_config_sha256 != sha256_hex(&final_config_bytes)
+                || retained.broker_truth_checked_at_utc != broker_truth_checked_at_utc
+            {
+                return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+            }
+            retained
+        } else {
+            let inspection = self.validate_history(true)?;
+            if inspection.state != Stage8bP1fPhaseStateV1::Active
+                || inspection.active_manifest_sha256.as_deref() != Some(manifest_sha256)
+            {
+                return Err(Stage8bP1fAuthorityErrorV1::ActiveConflict);
+            }
+            let pending = PendingMaterializationV1 {
+                schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+                domain: "stage8b-p1f-pending-materialization-v1".to_string(),
+                manifest_sha256: manifest_sha256.to_string(),
+                authority_generation: inspection.authority_generation,
+                authority_sequence: inspection.latest_sequence + 1,
+                predecessor_event_sha256: inspection.latest_event_sha256,
+                materialization_policy_sha256: policy_sha256,
+                config_template_sha256: template_sha256,
+                source_sha256,
+                final_config_sha256: sha256_hex(&final_config_bytes),
+                installation_sha256: phase_manifest.installation_sha256.clone(),
+                claim_receipt_sha256: sha256_hex(&claim_bytes),
+                broker_truth_checked_at_utc: broker_truth_checked_at_utc.to_string(),
+                ready_at_utc: canonical_timestamp(trusted_now),
+            };
+            self.write_create_new(&pending_path, &canonical_json(&pending)?, 0o440)?;
+            pending
+        };
+        self.continue_materialization_transaction(
+            config_root,
+            source_bytes,
+            &final_config_bytes,
+            &pending,
+        )
+    }
+
+    fn continue_materialization_transaction(
+        &self,
+        config_root: &Path,
+        source_bytes: &[u8],
+        final_config_bytes: &[u8],
+        pending: &PendingMaterializationV1,
+    ) -> Result<Stage8bP1fMaterializedSetReceiptV1, Stage8bP1fAuthorityErrorV1> {
+        self.validate_directory_at(config_root, 0o750)?;
+        let bootstrap = config_root.join("bootstrap");
+        self.validate_directory_at(&bootstrap, 0o750)?;
+        let authority = self.root.join(AUTHORITY_DIRECTORY);
+        let manifest_directory = authority
+            .join(MANIFESTS_DIRECTORY)
+            .join(&pending.manifest_sha256);
+        let receipt = Stage8bP1fMaterializedSetReceiptV1 {
+            schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+            domain: "stage8b-p1f-materialized-set-receipt-v1".to_string(),
+            manifest_sha256: pending.manifest_sha256.clone(),
+            authority_generation: pending.authority_generation,
+            authority_sequence: pending.authority_sequence,
+            predecessor_event_sha256: pending.predecessor_event_sha256.clone(),
+            materialization_policy_sha256: pending.materialization_policy_sha256.clone(),
+            config_template_sha256: pending.config_template_sha256.clone(),
+            source_sha256: pending.source_sha256.clone(),
+            final_config_sha256: pending.final_config_sha256.clone(),
+            installation_sha256: pending.installation_sha256.clone(),
+            claim_receipt_sha256: pending.claim_receipt_sha256.clone(),
+            broker_truth_checked_at_utc: pending.broker_truth_checked_at_utc.clone(),
+            ready_at_utc: pending.ready_at_utc.clone(),
+            state: "ReadyForBootstrap".to_string(),
+        };
+        let receipt_bytes = canonical_json(&receipt)?;
+        let event = AuthorityEventV1 {
+            schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+            domain: "stage8b-p1f-authority-event-v1".to_string(),
+            authority_generation: pending.authority_generation,
+            authority_sequence: pending.authority_sequence,
+            predecessor_event_sha256: pending.predecessor_event_sha256.clone(),
+            event_kind: "O2_MATERIALIZED".to_string(),
+            state: Stage8bP1fPhaseStateV1::Active,
+            manifest_sha256: pending.manifest_sha256.clone(),
+            receipt_sha256: sha256_hex(&receipt_bytes),
+            recorded_at_utc: pending.ready_at_utc.clone(),
+        };
+        let event_bytes = canonical_json(&event)?;
+        let event_sha256 = event_digest(&event_bytes);
+        let head: HistoryHeadV1 =
+            self.read_authority_file(&authority.join(HISTORY_HEAD_FILE), 0o440)?;
+        if head.latest_sequence == pending.authority_sequence {
+            if head.latest_event_sha256 != event_sha256
+                || head.state != Stage8bP1fPhaseStateV1::Active
+                || head.active_manifest_sha256.as_deref() != Some(pending.manifest_sha256.as_str())
+            {
+                return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+            }
+        } else {
+            if head.latest_sequence + 1 != pending.authority_sequence
+                || head.latest_event_sha256 != pending.predecessor_event_sha256
+                || head.state != Stage8bP1fPhaseStateV1::Active
+                || head.active_manifest_sha256.as_deref() != Some(pending.manifest_sha256.as_str())
+            {
+                return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+            }
+            self.validate_history_with_pending(true, None, Some(pending.authority_sequence))?;
+        }
+        self.write_external_or_require_exact(
+            &bootstrap.join("stage8b-p1-first-boot-source-v1.json"),
+            source_bytes,
+            crate::STAGE8B_P1E_FIRST_BOOT_SOURCE_MAX_BYTES,
+        )?;
+        self.write_external_or_require_exact(
+            &config_root.join("supervisor.json"),
+            final_config_bytes,
+            STAGE8B_P1F_MAX_AUTHORITY_BYTES,
+        )?;
+        self.write_or_require_exact(
+            &manifest_directory.join(MATERIALIZED_SET_RECEIPT_FILE),
+            &receipt_bytes,
+            0o440,
+        )?;
+        self.write_or_require_exact(
+            &event_path(&authority, pending.authority_sequence),
+            &event_bytes,
+            0o440,
+        )?;
+        if head.latest_sequence + 1 == pending.authority_sequence {
+            let materialized_head = HistoryHeadV1 {
+                schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+                domain: "stage8b-p1f-history-head-v1".to_string(),
+                authority_generation: pending.authority_generation,
+                latest_sequence: pending.authority_sequence,
+                latest_event_sha256: event_sha256,
+                state: Stage8bP1fPhaseStateV1::Active,
+                active_manifest_sha256: Some(pending.manifest_sha256.clone()),
+                deadline_utc: head.deadline_utc,
+            };
+            self.replace_exact(
+                &authority.join(HISTORY_HEAD_FILE),
+                &canonical_json(&materialized_head)?,
+                0o440,
+            )?;
+        }
+        fs::remove_file(manifest_directory.join(PENDING_MATERIALIZATION_FILE))?;
+        sync_directory(&manifest_directory)?;
+        self.validate_history(true)?;
+        if self.read_external_bytes(
+            &bootstrap.join("stage8b-p1-first-boot-source-v1.json"),
+            crate::STAGE8B_P1E_FIRST_BOOT_SOURCE_MAX_BYTES,
+        )? != source_bytes
+            || self.read_external_bytes(
+                &config_root.join("supervisor.json"),
+                STAGE8B_P1F_MAX_AUTHORITY_BYTES,
+            )? != final_config_bytes
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        Ok(receipt)
+    }
+
+    /// Commits one terminal transition for the exact active manifest.  The
+    /// create-once marker makes a retry continue only that transaction; a new
+    /// phase cannot be claimed until the terminal event and head are durable.
+    pub fn finish_phase(
+        &self,
+        manifest_sha256: &str,
+        terminal_state: Stage8bP1fPhaseStateV1,
+        reason_code: &str,
+        trusted_now: DateTime<Utc>,
+    ) -> Result<Stage8bP1fTerminalReceiptV1, Stage8bP1fAuthorityErrorV1> {
+        let _lease = self.acquire_lease()?;
+        self.reject_quarantine()?;
+        if !matches!(
+            terminal_state,
+            Stage8bP1fPhaseStateV1::Completed
+                | Stage8bP1fPhaseStateV1::Failed
+                | Stage8bP1fPhaseStateV1::Expired
+        ) || !canonical_token(reason_code)
+            || !valid_sha256(manifest_sha256)
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        let authority = self.root.join(AUTHORITY_DIRECTORY);
+        let pending_path = authority.join(PENDING_TERMINAL_FILE);
+        let pending = if pending_path.exists() {
+            let retained: PendingTerminalV1 = self.read_authority_file(&pending_path, 0o440)?;
+            if retained.schema_version != STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION
+                || retained.domain != "stage8b-p1f-pending-terminal-v1"
+                || parse_timestamp(&retained.recorded_at_utc).is_err()
+                || retained.manifest_sha256 != manifest_sha256
+                || retained.terminal_state != terminal_state
+                || retained.reason_code != reason_code
+            {
+                return Err(Stage8bP1fAuthorityErrorV1::ActiveConflict);
+            }
+            retained
+        } else {
+            let inspection = self.validate_history(true)?;
+            if inspection.state != Stage8bP1fPhaseStateV1::Active
+                || inspection.active_manifest_sha256.as_deref() != Some(manifest_sha256)
+            {
+                return Err(Stage8bP1fAuthorityErrorV1::ActiveConflict);
+            }
+            let deadline = inspection
+                .deadline_utc
+                .as_deref()
+                .ok_or(Stage8bP1fAuthorityErrorV1::HistoryConflict)?;
+            let is_expired = trusted_now >= parse_timestamp(deadline)?;
+            if (terminal_state == Stage8bP1fPhaseStateV1::Expired) != is_expired {
+                return Err(Stage8bP1fAuthorityErrorV1::InvalidValidityWindow);
+            }
+            let pending = PendingTerminalV1 {
+                schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+                domain: "stage8b-p1f-pending-terminal-v1".to_string(),
+                manifest_sha256: manifest_sha256.to_string(),
+                authority_generation: inspection.authority_generation,
+                authority_sequence: inspection.latest_sequence + 1,
+                predecessor_event_sha256: inspection.latest_event_sha256,
+                terminal_state,
+                reason_code: reason_code.to_string(),
+                recorded_at_utc: canonical_timestamp(trusted_now),
+            };
+            self.write_create_new(&pending_path, &canonical_json(&pending)?, 0o440)?;
+            pending
+        };
+        self.continue_terminal_transaction(&pending)
+    }
+
+    fn continue_terminal_transaction(
+        &self,
+        pending: &PendingTerminalV1,
+    ) -> Result<Stage8bP1fTerminalReceiptV1, Stage8bP1fAuthorityErrorV1> {
+        let authority = self.root.join(AUTHORITY_DIRECTORY);
+        let head: HistoryHeadV1 =
+            self.read_authority_file(&authority.join(HISTORY_HEAD_FILE), 0o440)?;
+        let terminal_name = format!("terminal-receipt-{:020}.json", pending.authority_sequence);
+        let terminal_path = authority
+            .join(MANIFESTS_DIRECTORY)
+            .join(&pending.manifest_sha256)
+            .join(terminal_name);
+        let receipt = Stage8bP1fTerminalReceiptV1 {
+            schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+            domain: "stage8b-p1f-terminal-receipt-v1".to_string(),
+            manifest_sha256: pending.manifest_sha256.clone(),
+            authority_generation: pending.authority_generation,
+            authority_sequence: pending.authority_sequence,
+            predecessor_event_sha256: pending.predecessor_event_sha256.clone(),
+            terminal_state: pending.terminal_state,
+            reason_code: pending.reason_code.clone(),
+            recorded_at_utc: pending.recorded_at_utc.clone(),
+        };
+        let receipt_bytes = canonical_json(&receipt)?;
+        let event = AuthorityEventV1 {
+            schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+            domain: "stage8b-p1f-authority-event-v1".to_string(),
+            authority_generation: pending.authority_generation,
+            authority_sequence: pending.authority_sequence,
+            predecessor_event_sha256: pending.predecessor_event_sha256.clone(),
+            event_kind: "PHASE_TERMINAL".to_string(),
+            state: pending.terminal_state,
+            manifest_sha256: pending.manifest_sha256.clone(),
+            receipt_sha256: sha256_hex(&receipt_bytes),
+            recorded_at_utc: pending.recorded_at_utc.clone(),
+        };
+        let event_bytes = canonical_json(&event)?;
+        let event_sha256 = event_digest(&event_bytes);
+        if head.latest_sequence == pending.authority_sequence {
+            if head.latest_event_sha256 != event_sha256
+                || head.state != pending.terminal_state
+                || head.active_manifest_sha256.is_some()
+                || head.deadline_utc.is_some()
+                || self.read_authority_bytes(&terminal_path, 0o440)? != receipt_bytes
+                || self.read_authority_bytes(
+                    &event_path(&authority, pending.authority_sequence),
+                    0o440,
+                )? != event_bytes
+            {
+                return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+            }
+        } else {
+            if head.latest_sequence + 1 != pending.authority_sequence
+                || head.latest_event_sha256 != pending.predecessor_event_sha256
+                || head.state != Stage8bP1fPhaseStateV1::Active
+                || head.active_manifest_sha256.as_deref() != Some(pending.manifest_sha256.as_str())
+            {
+                return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+            }
+            self.validate_history_with_pending(true, None, Some(pending.authority_sequence))?;
+            self.write_or_require_exact(&terminal_path, &receipt_bytes, 0o440)?;
+            self.write_or_require_exact(
+                &event_path(&authority, pending.authority_sequence),
+                &event_bytes,
+                0o440,
+            )?;
+            let terminal_head = HistoryHeadV1 {
+                schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+                domain: "stage8b-p1f-history-head-v1".to_string(),
+                authority_generation: pending.authority_generation,
+                latest_sequence: pending.authority_sequence,
+                latest_event_sha256: event_sha256,
+                state: pending.terminal_state,
+                active_manifest_sha256: None,
+                deadline_utc: None,
+            };
+            self.replace_exact(
+                &authority.join(HISTORY_HEAD_FILE),
+                &canonical_json(&terminal_head)?,
+                0o440,
+            )?;
+        }
+        fs::remove_file(authority.join(PENDING_TERMINAL_FILE))?;
+        sync_directory(&authority)?;
+        self.validate_history(true)?;
+        Ok(receipt)
+    }
+
+    fn validate_genesis_manifest(
+        &self,
+        manifest: &Stage8bP1fGenesisManifestV1,
+        trusted_now: DateTime<Utc>,
+    ) -> Result<(), Stage8bP1fAuthorityErrorV1> {
+        if manifest.schema_version != STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION
+            || manifest.domain != "stage8b-p1f-genesis-manifest-v1"
+            || manifest.installation_id.is_empty()
+            || manifest.target_host_id != STAGE8B_P1F_TARGET_HOST_ID
+            || manifest.target_host_ssh_ed25519_sha256 != STAGE8B_P1F_TARGET_HOST_SSH_ED25519_SHA256
+            || manifest.control_root != self.root.to_string_lossy()
+            || manifest.authority_generation == 0
+            || !valid_sha256(&manifest.ceremony_nonce_sha256)
+            || !valid_sha256(&manifest.genesis_head_sha256)
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        let expected_head = genesis_head_sha256(manifest);
+        if manifest.genesis_head_sha256 != expected_head {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        validate_window(
+            &manifest.not_before_utc,
+            &manifest.expires_at_utc,
+            trusted_now,
+        )
+    }
+
+    fn validate_phase_manifest(
+        &self,
+        manifest: &Stage8bP1fPhaseManifestV1,
+        trusted_now: DateTime<Utc>,
+    ) -> Result<(), Stage8bP1fAuthorityErrorV1> {
+        if manifest.schema_version != STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION
+            || manifest.domain != "stage8b-p1f-phase-manifest-v1"
+            || manifest.installation_id.is_empty()
+            || manifest.target_host_id != STAGE8B_P1F_TARGET_HOST_ID
+            || manifest.target_host_ssh_ed25519_sha256 != STAGE8B_P1F_TARGET_HOST_SSH_ED25519_SHA256
+            || manifest.authority_generation == 0
+            || manifest.authority_sequence == 0
+            || !valid_sha256(&manifest.predecessor_event_sha256)
+            || !valid_sha256(&manifest.accepted_source_tree_sha256)
+            || !valid_sha256(&manifest.materialization_policy_sha256)
+            || !valid_sha256(&manifest.config_template_sha256)
+            || !valid_sha256(&manifest.installation_sha256)
+            || manifest.controller_id.is_empty()
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        validate_window(
+            &manifest.not_before_utc,
+            &manifest.deadline_utc,
+            trusted_now,
+        )?;
+        let start = parse_timestamp(&manifest.not_before_utc)?;
+        let deadline = parse_timestamp(&manifest.deadline_utc)?;
+        let duration = deadline.signed_duration_since(start).num_seconds();
+        if (manifest.phase == Stage8bP1fPhaseV1::O3SyntheticPaper && duration != 1_800)
+            || (manifest.phase == Stage8bP1fPhaseV1::O4FinamReadOnly && duration != 10_800)
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidValidityWindow);
+        }
+        Ok(())
+    }
+
+    fn validate_history(
+        &self,
+        require_activation: bool,
+    ) -> Result<Stage8bP1fAuthorityInspectionV1, Stage8bP1fAuthorityErrorV1> {
+        self.validate_history_with_pending(require_activation, None, None)
+    }
+
+    fn validate_history_with_pending(
+        &self,
+        require_activation: bool,
+        pending: Option<&PendingClaimV1>,
+        trailing_event_sequence: Option<u64>,
+    ) -> Result<Stage8bP1fAuthorityInspectionV1, Stage8bP1fAuthorityErrorV1> {
+        self.validate_root_identity()?;
+        self.reject_quarantine()?;
+        let authority = self.root.join(AUTHORITY_DIRECTORY);
+        if !authority.exists() {
+            return Err(Stage8bP1fAuthorityErrorV1::NotInitialized);
+        }
+        self.validate_directory(&authority)?;
+        self.validate_directory(&authority.join(EVENTS_DIRECTORY))?;
+        self.validate_directory(&authority.join(MANIFESTS_DIRECTORY))?;
+        let transaction: GenesisTransactionV1 =
+            self.read_authority_file(&authority.join(GENESIS_TRANSACTION_FILE), 0o440)?;
+        let manifest: Stage8bP1fGenesisManifestV1 =
+            self.read_authority_file(&authority.join(GENESIS_MANIFEST_FILE), 0o440)?;
+        let receipt: Stage8bP1fGenesisReceiptV1 =
+            self.read_authority_file(&authority.join(GENESIS_RECEIPT_FILE), 0o440)?;
+        if transaction.schema_version != STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION
+            || transaction.domain != "stage8b-p1f-genesis-transaction-v1"
+            || manifest.schema_version != STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION
+            || manifest.domain != "stage8b-p1f-genesis-manifest-v1"
+            || receipt.schema_version != STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION
+            || receipt.domain != "stage8b-p1f-genesis-receipt-v1"
+            || parse_timestamp(&transaction.committed_at_utc).is_err()
+            || parse_timestamp(&receipt.committed_at_utc).is_err()
+            || transaction.genesis_manifest_sha256 != sha256_hex(&canonical_json(&manifest)?)
+            || receipt.genesis_manifest_sha256 != transaction.genesis_manifest_sha256
+            || transaction.authority_generation != manifest.authority_generation
+            || receipt.authority_generation != manifest.authority_generation
+            || transaction.ceremony_nonce_sha256 != manifest.ceremony_nonce_sha256
+            || receipt.ceremony_nonce_sha256 != manifest.ceremony_nonce_sha256
+            || receipt.genesis_head_sha256 != manifest.genesis_head_sha256
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+        }
+        let activated = authority.join(ACTIVATION_CERTIFICATE_FILE).exists();
+        if require_activation && !activated {
+            return Err(Stage8bP1fAuthorityErrorV1::NotActivated);
+        }
+        if activated {
+            let certificate: Stage8bP1fActivationCertificateV1 =
+                self.read_authority_file(&authority.join(ACTIVATION_CERTIFICATE_FILE), 0o440)?;
+            if certificate.schema_version != STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION
+                || certificate.domain != "stage8b-p1f-activation-certificate-v1"
+                || parse_timestamp(&certificate.activated_at_utc).is_err()
+                || parse_timestamp(&certificate.expires_at_utc).is_err()
+                || certificate.authority_generation != manifest.authority_generation
+                || certificate.genesis_manifest_sha256 != transaction.genesis_manifest_sha256
+                || certificate.genesis_receipt_sha256 != sha256_hex(&canonical_json(&receipt)?)
+                || certificate.genesis_head_sha256 != manifest.genesis_head_sha256
+            {
+                return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+            }
+        }
+        let head: HistoryHeadV1 =
+            self.read_authority_file(&authority.join(HISTORY_HEAD_FILE), 0o440)?;
+        if head.schema_version != STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION
+            || head.domain != "stage8b-p1f-history-head-v1"
+            || head.authority_generation != manifest.authority_generation
+            || head.latest_sequence == 0
+                && !matches!(
+                    head.state,
+                    Stage8bP1fPhaseStateV1::GenesisPrepared
+                        | Stage8bP1fPhaseStateV1::GenesisActivated
+                )
+            || activated
+                && head.latest_sequence == 0
+                && head.state != Stage8bP1fPhaseStateV1::GenesisActivated
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+        }
+        let entries =
+            fs::read_dir(authority.join(EVENTS_DIRECTORY))?.collect::<Result<Vec<_>, _>>()?;
+        let committed_event_count = usize::try_from(head.latest_sequence + 1)
+            .map_err(|_| Stage8bP1fAuthorityErrorV1::HistoryConflict)?;
+        let pending_event_sequence = pending
+            .map(|value| value.authority_sequence)
+            .or(trailing_event_sequence);
+        let pending_event_exists = pending_event_sequence
+            .map(|sequence| event_path(&authority, sequence).exists())
+            .unwrap_or(false);
+        let expected_event_count = committed_event_count + usize::from(pending_event_exists);
+        if entries.len() != expected_event_count {
+            return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+        }
+        let mut predecessor = ZERO_SHA256.to_string();
+        let mut manifests = BTreeSet::new();
+        let mut latest_hash = String::new();
+        for sequence in 0..=head.latest_sequence {
+            let bytes = self.read_authority_bytes(&event_path(&authority, sequence), 0o440)?;
+            let event: AuthorityEventV1 = parse_canonical(&bytes)?;
+            if event.schema_version != STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION
+                || event.domain != "stage8b-p1f-authority-event-v1"
+                || parse_timestamp(&event.recorded_at_utc).is_err()
+                || !valid_sha256(&event.manifest_sha256)
+                || !valid_sha256(&event.receipt_sha256)
+                || event.authority_generation != head.authority_generation
+                || event.authority_sequence != sequence
+                || event.predecessor_event_sha256 != predecessor
+            {
+                return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+            }
+            if event.event_kind == "PHASE_CLAIMED" {
+                manifests.insert(event.manifest_sha256.clone());
+                let retained_manifest_path = authority
+                    .join(MANIFESTS_DIRECTORY)
+                    .join(&event.manifest_sha256)
+                    .join("phase-manifest.json");
+                let retained_manifest_bytes = self
+                    .read_authority_bytes(&retained_manifest_path, 0o440)
+                    .map_err(|_| Stage8bP1fAuthorityErrorV1::HistoryConflict)?;
+                if sha256_hex(&retained_manifest_bytes) != event.manifest_sha256 {
+                    return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+                }
+                let retained_manifest: Stage8bP1fPhaseManifestV1 =
+                    parse_canonical(&retained_manifest_bytes)
+                        .map_err(|_| Stage8bP1fAuthorityErrorV1::HistoryConflict)?;
+                let claim = self
+                    .read_claim_receipt(&event.manifest_sha256)
+                    .map_err(|_| Stage8bP1fAuthorityErrorV1::HistoryConflict)?;
+                if claim.schema_version != STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION
+                    || claim.domain != "stage8b-p1f-claim-receipt-v1"
+                    || claim.state != Stage8bP1fPhaseStateV1::Active
+                    || parse_timestamp(&claim.claimed_at_utc).is_err()
+                    || parse_timestamp(&claim.deadline_utc).is_err()
+                    || retained_manifest.authority_generation != event.authority_generation
+                    || retained_manifest.authority_sequence != sequence
+                    || retained_manifest.predecessor_event_sha256 != predecessor
+                    || retained_manifest.phase != claim.phase
+                    || claim.manifest_sha256 != event.manifest_sha256
+                    || claim.authority_generation != event.authority_generation
+                    || claim.authority_sequence != sequence
+                    || claim.predecessor_event_sha256 != predecessor
+                    || event.receipt_sha256 != sha256_hex(&canonical_json(&claim)?)
+                {
+                    return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+                }
+            } else if event.event_kind == "O2_MATERIALIZED" {
+                let materialized_path = authority
+                    .join(MANIFESTS_DIRECTORY)
+                    .join(&event.manifest_sha256)
+                    .join(MATERIALIZED_SET_RECEIPT_FILE);
+                let materialized: Stage8bP1fMaterializedSetReceiptV1 = self
+                    .read_authority_file(&materialized_path, 0o440)
+                    .map_err(|_| Stage8bP1fAuthorityErrorV1::HistoryConflict)?;
+                if materialized.schema_version != STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION
+                    || materialized.domain != "stage8b-p1f-materialized-set-receipt-v1"
+                    || parse_timestamp(&materialized.broker_truth_checked_at_utc).is_err()
+                    || parse_timestamp(&materialized.ready_at_utc).is_err()
+                    || materialized.authority_sequence != sequence
+                    || materialized.predecessor_event_sha256 != predecessor
+                    || materialized.manifest_sha256 != event.manifest_sha256
+                    || materialized.state != "ReadyForBootstrap"
+                    || event.state != Stage8bP1fPhaseStateV1::Active
+                    || event.receipt_sha256 != sha256_hex(&canonical_json(&materialized)?)
+                {
+                    return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+                }
+            } else if event.event_kind == "PHASE_TERMINAL" {
+                let terminal_path = authority
+                    .join(MANIFESTS_DIRECTORY)
+                    .join(&event.manifest_sha256)
+                    .join(format!("terminal-receipt-{sequence:020}.json"));
+                let terminal: Stage8bP1fTerminalReceiptV1 = self
+                    .read_authority_file(&terminal_path, 0o440)
+                    .map_err(|_| Stage8bP1fAuthorityErrorV1::HistoryConflict)?;
+                if terminal.schema_version != STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION
+                    || terminal.domain != "stage8b-p1f-terminal-receipt-v1"
+                    || parse_timestamp(&terminal.recorded_at_utc).is_err()
+                    || terminal.authority_sequence != sequence
+                    || terminal.predecessor_event_sha256 != predecessor
+                    || terminal.manifest_sha256 != event.manifest_sha256
+                    || terminal.terminal_state != event.state
+                    || event.receipt_sha256 != sha256_hex(&canonical_json(&terminal)?)
+                {
+                    return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+                }
+            } else if event.event_kind == "GENESIS_PREPARED" && sequence == 0 {
+                if event.state != Stage8bP1fPhaseStateV1::GenesisPrepared
+                    || event.manifest_sha256 != transaction.genesis_manifest_sha256
+                    || event.receipt_sha256 != sha256_hex(&canonical_json(&receipt)?)
+                {
+                    return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+                }
+            } else {
+                return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+            }
+            latest_hash = event_digest(&bytes);
+            predecessor = latest_hash.clone();
+        }
+        if latest_hash != head.latest_event_sha256 {
+            return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+        }
+        let manifest_root = authority.join(MANIFESTS_DIRECTORY);
+        let actual_manifests = fs::read_dir(&manifest_root)?
+            .map(|entry| {
+                entry
+                    .map_err(Stage8bP1fAuthorityErrorV1::from)
+                    .and_then(|entry| {
+                        let name = entry
+                            .file_name()
+                            .into_string()
+                            .map_err(|_| Stage8bP1fAuthorityErrorV1::HistoryConflict)?;
+                        self.validate_directory(&entry.path())?;
+                        Ok(name)
+                    })
+            })
+            .collect::<Result<BTreeSet<_>, _>>()?;
+        if let Some(pending) = pending {
+            let pending_directory = manifest_root.join(&pending.manifest_sha256);
+            if pending_directory.exists() {
+                manifests.insert(pending.manifest_sha256.clone());
+            }
+        }
+        if actual_manifests != manifests {
+            return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+        }
+        if head.state == Stage8bP1fPhaseStateV1::Active {
+            let active = head
+                .active_manifest_sha256
+                .as_ref()
+                .ok_or(Stage8bP1fAuthorityErrorV1::HistoryConflict)?;
+            if !manifests.contains(active) || head.deadline_utc.is_none() {
+                return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+            }
+        } else if head.active_manifest_sha256.is_some() || head.deadline_utc.is_some() {
+            return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+        }
+        Ok(Stage8bP1fAuthorityInspectionV1 {
+            authority_generation: head.authority_generation,
+            latest_sequence: head.latest_sequence,
+            latest_event_sha256: head.latest_event_sha256,
+            state: head.state,
+            active_manifest_sha256: head.active_manifest_sha256,
+            deadline_utc: head.deadline_utc,
+        })
+    }
+
+    fn read_claim_receipt(
+        &self,
+        manifest_sha256: &str,
+    ) -> Result<Stage8bP1fClaimReceiptV1, Stage8bP1fAuthorityErrorV1> {
+        self.read_authority_file(
+            &self
+                .root
+                .join(AUTHORITY_DIRECTORY)
+                .join(MANIFESTS_DIRECTORY)
+                .join(manifest_sha256)
+                .join("claim-receipt.json"),
+            0o440,
+        )
+    }
+
+    fn acquire_lease(&self) -> Result<GuardianLease<'_>, Stage8bP1fAuthorityErrorV1> {
+        if unsafe { libc::geteuid() } != self.expected_uid {
+            return Err(Stage8bP1fAuthorityErrorV1::RootRequired);
+        }
+        self.validate_root_identity()?;
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(self.root.join(LOCK_FILE))?;
+        let metadata = lock.metadata()?;
+        if !metadata.file_type().is_file()
+            || metadata.nlink() != 1
+            || metadata.uid() != self.expected_uid
+            || metadata.permissions().mode() & 0o777 != 0o600
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidCustody);
+        }
+        let result = unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        if result != 0 {
+            let error = std::io::Error::last_os_error();
+            if matches!(error.raw_os_error(), Some(code) if code == libc::EWOULDBLOCK || code == libc::EAGAIN)
+            {
+                return Err(Stage8bP1fAuthorityErrorV1::ConcurrentGuardian);
+            }
+            return Err(error.into());
+        }
+        Ok(GuardianLease { store: self, lock })
+    }
+
+    fn validate_root_identity(&self) -> Result<(), Stage8bP1fAuthorityErrorV1> {
+        let named = fs::symlink_metadata(&self.root)?;
+        let opened = self.root_file.metadata()?;
+        validate_directory_metadata(&named, self.expected_uid, self.service_gid, 0o750)?;
+        validate_directory_metadata(&opened, self.expected_uid, self.service_gid, 0o750)?;
+        if named.dev() != self.root_dev
+            || named.ino() != self.root_ino
+            || opened.dev() != self.root_dev
+            || opened.ino() != self.root_ino
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidCustody);
+        }
+        Ok(())
+    }
+
+    fn reject_quarantine(&self) -> Result<(), Stage8bP1fAuthorityErrorV1> {
+        let path = self.root.join(QUARANTINE_FILE);
+        if path.exists() {
+            let receipt: Stage8bP1fQuarantineReceiptV1 = self.read_authority_file(&path, 0o440)?;
+            if receipt.schema_version != STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION
+                || receipt.domain != "stage8b-p1f-restore-quarantine-v1"
+                || !canonical_token(&receipt.reason_code)
+                || parse_timestamp(&receipt.declared_at_utc).is_err()
+                || receipt.rebind_authorized
+            {
+                return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+            }
+            return Err(Stage8bP1fAuthorityErrorV1::Quarantined);
+        }
+        Ok(())
+    }
+
+    fn validate_directory(&self, path: &Path) -> Result<(), Stage8bP1fAuthorityErrorV1> {
+        let metadata = fs::symlink_metadata(path)?;
+        validate_directory_metadata(&metadata, self.expected_uid, self.service_gid, 0o750)
+    }
+
+    fn create_authority_directory(
+        &self,
+        path: &Path,
+        mode: u32,
+    ) -> Result<(), Stage8bP1fAuthorityErrorV1> {
+        fs::DirBuilder::new().mode(mode).create(path)?;
+        let path_c = CString::new(path.as_os_str().as_bytes())
+            .map_err(|_| Stage8bP1fAuthorityErrorV1::InvalidPath)?;
+        if unsafe { libc::chown(path_c.as_ptr(), self.expected_uid, self.service_gid) } != 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+        self.validate_directory_at(path, mode)?;
+        sync_directory(
+            path.parent()
+                .ok_or(Stage8bP1fAuthorityErrorV1::InvalidPath)?,
+        )?;
+        Ok(())
+    }
+
+    fn validate_directory_at(
+        &self,
+        path: &Path,
+        mode: u32,
+    ) -> Result<(), Stage8bP1fAuthorityErrorV1> {
+        let metadata = fs::symlink_metadata(path)?;
+        validate_directory_metadata(&metadata, self.expected_uid, self.service_gid, mode)
+    }
+
+    fn read_external_bytes(
+        &self,
+        path: &Path,
+        maximum_bytes: u64,
+    ) -> Result<Vec<u8>, Stage8bP1fAuthorityErrorV1> {
+        let before = fs::symlink_metadata(path)?;
+        validate_file_metadata(&before, self.expected_uid, self.service_gid, 0o440)?;
+        let mut file = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
+            .open(path)?;
+        let opened = file.metadata()?;
+        validate_file_metadata(&opened, self.expected_uid, self.service_gid, 0o440)?;
+        if opened.len() > maximum_bytes
+            || before.dev() != opened.dev()
+            || before.ino() != opened.ino()
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidCustody);
+        }
+        let mut bytes = Vec::with_capacity(opened.len() as usize);
+        (&mut file)
+            .take(maximum_bytes + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() as u64 != opened.len() {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        Ok(bytes)
+    }
+
+    fn write_external_or_require_exact(
+        &self,
+        path: &Path,
+        bytes: &[u8],
+        maximum_bytes: u64,
+    ) -> Result<(), Stage8bP1fAuthorityErrorV1> {
+        if bytes.is_empty() || bytes.len() as u64 > maximum_bytes {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        match fs::symlink_metadata(path) {
+            Ok(_) if self.read_external_bytes(path, maximum_bytes)? == bytes => return Ok(()),
+            Ok(_) => return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict),
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+        let parent = path
+            .parent()
+            .ok_or(Stage8bP1fAuthorityErrorV1::InvalidPath)?;
+        self.validate_directory_at(parent, 0o750)?;
+        let name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .ok_or(Stage8bP1fAuthorityErrorV1::InvalidPath)?;
+        let temporary = parent.join(format!(".{name}.p1f-next"));
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o440)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(&temporary)?;
+        if unsafe { libc::fchown(file.as_raw_fd(), self.expected_uid, self.service_gid) } != 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        validate_file_metadata(
+            &file.metadata()?,
+            self.expected_uid,
+            self.service_gid,
+            0o440,
+        )?;
+        if path.exists() {
+            fs::remove_file(&temporary)?;
+            return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+        }
+        fs::rename(&temporary, path)?;
+        sync_directory(parent)?;
+        if self.read_external_bytes(path, maximum_bytes)? != bytes {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        Ok(())
+    }
+
+    fn read_authority_file<T: DeserializeOwned + Serialize>(
+        &self,
+        path: &Path,
+        mode: u32,
+    ) -> Result<T, Stage8bP1fAuthorityErrorV1> {
+        parse_canonical(&self.read_authority_bytes(path, mode)?)
+    }
+
+    fn read_authority_bytes(
+        &self,
+        path: &Path,
+        mode: u32,
+    ) -> Result<Vec<u8>, Stage8bP1fAuthorityErrorV1> {
+        let before = fs::symlink_metadata(path)?;
+        validate_file_metadata(&before, self.expected_uid, self.service_gid, mode)?;
+        let mut file = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
+            .open(path)?;
+        let opened = file.metadata()?;
+        validate_file_metadata(&opened, self.expected_uid, self.service_gid, mode)?;
+        if before.dev() != opened.dev() || before.ino() != opened.ino() {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidCustody);
+        }
+        if opened.len() > STAGE8B_P1F_MAX_AUTHORITY_BYTES {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        let mut bytes = Vec::with_capacity(opened.len() as usize);
+        (&mut file)
+            .take(STAGE8B_P1F_MAX_AUTHORITY_BYTES + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() as u64 != opened.len() {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        Ok(bytes)
+    }
+
+    fn write_create_new(
+        &self,
+        path: &Path,
+        bytes: &[u8],
+        mode: u32,
+    ) -> Result<(), Stage8bP1fAuthorityErrorV1> {
+        if bytes.len() as u64 > STAGE8B_P1F_MAX_AUTHORITY_BYTES {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(mode)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(path)?;
+        if unsafe { libc::fchown(file.as_raw_fd(), self.expected_uid, self.service_gid) } != 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        validate_file_metadata(&file.metadata()?, self.expected_uid, self.service_gid, mode)?;
+        sync_directory(
+            path.parent()
+                .ok_or(Stage8bP1fAuthorityErrorV1::InvalidPath)?,
+        )?;
+        if self.read_authority_bytes(path, mode)? != bytes {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        Ok(())
+    }
+
+    fn write_or_require_exact(
+        &self,
+        path: &Path,
+        bytes: &[u8],
+        mode: u32,
+    ) -> Result<(), Stage8bP1fAuthorityErrorV1> {
+        match fs::symlink_metadata(path) {
+            Ok(_) if self.read_authority_bytes(path, mode)? == bytes => Ok(()),
+            Ok(_) => Err(Stage8bP1fAuthorityErrorV1::HistoryConflict),
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                self.write_create_new(path, bytes, mode)
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    fn replace_exact(
+        &self,
+        path: &Path,
+        bytes: &[u8],
+        mode: u32,
+    ) -> Result<(), Stage8bP1fAuthorityErrorV1> {
+        let parent = path
+            .parent()
+            .ok_or(Stage8bP1fAuthorityErrorV1::InvalidPath)?;
+        let name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .ok_or(Stage8bP1fAuthorityErrorV1::InvalidPath)?;
+        let temp = parent.join(format!(".{name}.next"));
+        if temp.exists() {
+            return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+        }
+        self.write_create_new(&temp, bytes, mode)?;
+        fs::rename(&temp, path)?;
+        sync_directory(parent)?;
+        if self.read_authority_bytes(path, mode)? != bytes {
+            return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+        }
+        Ok(())
+    }
+}
+
+impl Drop for GuardianLease<'_> {
+    fn drop(&mut self) {
+        let _ = self.store.validate_root_identity();
+        let _ = unsafe { libc::flock(self.lock.as_raw_fd(), libc::LOCK_UN) };
+    }
+}
+
+/// Checks every restore selector before invoking the supplied mutation.  The
+/// callback is never called when any source, target or selected path is equal
+/// to, contains, or is contained by the trusted control root.
+pub fn execute_stage8b_p1f_permitted_restore_v1<T, F>(
+    plan: &Stage8bP1fRestorePlanV1,
+    mutation: F,
+) -> Result<T, Stage8bP1fAuthorityErrorV1>
+where
+    F: FnOnce() -> Result<T, Stage8bP1fAuthorityErrorV1>,
+{
+    let control = normalize_absolute(Path::new(STAGE8B_P1F_AUTHORITY_CONTROL_ROOT))?;
+    for path in plan
+        .source_roots
+        .iter()
+        .chain(&plan.target_roots)
+        .chain(&plan.selected_paths)
+    {
+        let candidate = normalize_absolute(path)?;
+        if candidate.starts_with(&control) || control.starts_with(&candidate) {
+            return Err(Stage8bP1fAuthorityErrorV1::RestoreOverlapsControlRoot);
+        }
+    }
+    mutation()
+}
+
+fn normalize_absolute(path: &Path) -> Result<PathBuf, Stage8bP1fAuthorityErrorV1> {
+    if !path.is_absolute() {
+        return Err(Stage8bP1fAuthorityErrorV1::InvalidPath);
+    }
+    let mut normalized = PathBuf::from("/");
+    for component in path.components() {
+        match component {
+            Component::RootDir => {}
+            Component::Normal(value) => normalized.push(value),
+            Component::CurDir | Component::ParentDir | Component::Prefix(_) => {
+                return Err(Stage8bP1fAuthorityErrorV1::InvalidPath)
+            }
+        }
+    }
+    Ok(normalized)
+}
+
+fn read_signed_document<T, U, K, S, C>(
+    bytes: &[u8],
+    domain: &[u8],
+    expected_public_key_hex: &str,
+    expected_key_id: &str,
+    key_id: K,
+    signature: S,
+    unsigned: C,
+) -> Result<T, Stage8bP1fAuthorityErrorV1>
+where
+    T: DeserializeOwned + Serialize,
+    U: Serialize,
+    K: FnOnce(&T) -> &str,
+    S: FnOnce(&T) -> &str,
+    C: FnOnce(&T) -> U,
+{
+    let value: T = parse_canonical(bytes)?;
+    if key_id(&value) != expected_key_id {
+        return Err(Stage8bP1fAuthorityErrorV1::InvalidSignature);
+    }
+    let signature = decode_fixed_hex::<64>(signature(&value))?;
+    let public_key = decode_fixed_hex::<32>(expected_public_key_hex)?;
+    let verifying_key = VerifyingKey::from_bytes(&public_key)
+        .map_err(|_| Stage8bP1fAuthorityErrorV1::InvalidSignature)?;
+    let mut signed = domain.to_vec();
+    signed.extend(canonical_json(&unsigned(&value))?);
+    verifying_key
+        .verify(&signed, &Signature::from_bytes(&signature))
+        .map_err(|_| Stage8bP1fAuthorityErrorV1::InvalidSignature)?;
+    Ok(value)
+}
+
+fn genesis_head_sha256(manifest: &Stage8bP1fGenesisManifestV1) -> String {
+    let mut digest = Sha256::new();
+    digest.update(GENESIS_DOMAIN);
+    digest.update(manifest.installation_id.as_bytes());
+    digest.update([0]);
+    digest.update(manifest.target_host_id.as_bytes());
+    digest.update([0]);
+    digest.update(manifest.control_root.as_bytes());
+    digest.update([0]);
+    digest.update(manifest.authority_generation.to_be_bytes());
+    digest.update(manifest.ceremony_nonce_sha256.as_bytes());
+    lower_hex(&digest.finalize())
+}
+
+fn event_digest(bytes: &[u8]) -> String {
+    let mut digest = Sha256::new();
+    digest.update(EVENT_DOMAIN);
+    digest.update(bytes);
+    lower_hex(&digest.finalize())
+}
+
+fn event_path(authority: &Path, sequence: u64) -> PathBuf {
+    authority
+        .join(EVENTS_DIRECTORY)
+        .join(format!("{sequence:020}.json"))
+}
+
+fn validate_window(
+    start: &str,
+    end: &str,
+    trusted_now: DateTime<Utc>,
+) -> Result<(), Stage8bP1fAuthorityErrorV1> {
+    let start = parse_timestamp(start)?;
+    let end = parse_timestamp(end)?;
+    if end <= start || trusted_now < start || trusted_now >= end {
+        return Err(Stage8bP1fAuthorityErrorV1::InvalidValidityWindow);
+    }
+    Ok(())
+}
+
+fn validate_not_expired(
+    deadline: &str,
+    trusted_now: DateTime<Utc>,
+) -> Result<(), Stage8bP1fAuthorityErrorV1> {
+    if trusted_now >= parse_timestamp(deadline)? {
+        Err(Stage8bP1fAuthorityErrorV1::DeadlineExpired)
+    } else {
+        Ok(())
+    }
+}
+
+fn parse_timestamp(value: &str) -> Result<DateTime<Utc>, Stage8bP1fAuthorityErrorV1> {
+    let parsed = DateTime::parse_from_rfc3339(value)
+        .map_err(|_| Stage8bP1fAuthorityErrorV1::InvalidValidityWindow)?
+        .with_timezone(&Utc);
+    if canonical_timestamp(parsed) != value {
+        return Err(Stage8bP1fAuthorityErrorV1::InvalidValidityWindow);
+    }
+    Ok(parsed)
+}
+
+fn canonical_timestamp(value: DateTime<Utc>) -> String {
+    value.to_rfc3339_opts(SecondsFormat::Secs, true)
+}
+
+fn parse_canonical<T: DeserializeOwned + Serialize>(
+    bytes: &[u8],
+) -> Result<T, Stage8bP1fAuthorityErrorV1> {
+    if bytes.len() as u64 > STAGE8B_P1F_MAX_AUTHORITY_BYTES {
+        return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+    }
+    let value: T =
+        serde_json::from_slice(bytes).map_err(|_| Stage8bP1fAuthorityErrorV1::InvalidDocument)?;
+    if canonical_json(&value)? != bytes {
+        return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+    }
+    Ok(value)
+}
+
+fn canonical_json<T: Serialize>(value: &T) -> Result<Vec<u8>, Stage8bP1fAuthorityErrorV1> {
+    serde_json::to_vec(value).map_err(|_| Stage8bP1fAuthorityErrorV1::InvalidDocument)
+}
+
+fn valid_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn canonical_token(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    lower_hex(&Sha256::digest(bytes))
+}
+
+fn lower_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(char::from(HEX[usize::from(byte >> 4)]));
+        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    output
+}
+
+fn decode_fixed_hex<const N: usize>(value: &str) -> Result<[u8; N], Stage8bP1fAuthorityErrorV1> {
+    if value.len() != N * 2 || value.bytes().any(|byte| !byte.is_ascii_hexdigit()) {
+        return Err(Stage8bP1fAuthorityErrorV1::InvalidSignature);
+    }
+    let mut output = [0u8; N];
+    for (index, slot) in output.iter_mut().enumerate() {
+        let offset = index * 2;
+        let byte = u8::from_str_radix(&value[offset..offset + 2], 16)
+            .map_err(|_| Stage8bP1fAuthorityErrorV1::InvalidSignature)?;
+        *slot = byte;
+    }
+    if lower_hex(&output) != value {
+        return Err(Stage8bP1fAuthorityErrorV1::InvalidSignature);
+    }
+    Ok(output)
+}
+
+fn validate_directory_metadata(
+    metadata: &fs::Metadata,
+    uid: u32,
+    gid: u32,
+    mode: u32,
+) -> Result<(), Stage8bP1fAuthorityErrorV1> {
+    if !metadata.file_type().is_dir()
+        || metadata.file_type().is_symlink()
+        || metadata.uid() != uid
+        || metadata.gid() != gid
+        || metadata.permissions().mode() & 0o777 != mode
+    {
+        return Err(Stage8bP1fAuthorityErrorV1::InvalidCustody);
+    }
+    Ok(())
+}
+
+fn validate_file_metadata(
+    metadata: &fs::Metadata,
+    uid: u32,
+    gid: u32,
+    mode: u32,
+) -> Result<(), Stage8bP1fAuthorityErrorV1> {
+    if !metadata.file_type().is_file()
+        || metadata.file_type().is_symlink()
+        || metadata.nlink() != 1
+        || metadata.uid() != uid
+        || metadata.gid() != gid
+        || metadata.permissions().mode() & 0o777 != mode
+    {
+        return Err(Stage8bP1fAuthorityErrorV1::InvalidCustody);
+    }
+    Ok(())
+}
+
+fn sync_directory(path: &Path) -> Result<(), Stage8bP1fAuthorityErrorV1> {
+    open_directory(path)?.sync_all()?;
+    Ok(())
+}
+
+fn open_directory(path: &Path) -> Result<File, Stage8bP1fAuthorityErrorV1> {
+    let path = CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| Stage8bP1fAuthorityErrorV1::InvalidPath)?;
+    let fd = unsafe {
+        libc::open(
+            path.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    Ok(unsafe { File::from_raw_fd(fd) })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Duration;
+    use ed25519_dalek::{Signer, SigningKey};
+    use std::{
+        sync::atomic::{AtomicBool, AtomicU64, Ordering},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    struct Setup {
+        root: PathBuf,
+        store: Stage8bP1fAuthorityStoreV1,
+        signing: SigningKey,
+        now: DateTime<Utc>,
+    }
+
+    static TEST_DIRECTORY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    impl Setup {
+        fn new() -> Self {
+            let unique = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let sequence = TEST_DIRECTORY_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let scratch = std::env::current_dir().unwrap().join("target/p1f-tests");
+            fs::create_dir_all(&scratch).unwrap();
+            let root = scratch.join(format!(
+                "stage8b-p1f-{unique}-{}-{sequence}",
+                std::process::id()
+            ));
+            fs::DirBuilder::new().mode(0o750).create(&root).unwrap();
+            let uid = unsafe { libc::geteuid() };
+            let gid = unsafe { libc::getegid() };
+            let store = Stage8bP1fAuthorityStoreV1::open_at(&root, uid, gid).unwrap();
+            Self {
+                root,
+                store,
+                signing: SigningKey::from_bytes(&[7u8; 32]),
+                now: DateTime::parse_from_rfc3339("2026-09-25T12:00:00Z")
+                    .unwrap()
+                    .with_timezone(&Utc),
+            }
+        }
+
+        fn public_key_hex(&self) -> String {
+            lower_hex(self.signing.verifying_key().as_bytes())
+        }
+
+        fn genesis(&self) -> Vec<u8> {
+            let mut value = Stage8bP1fGenesisManifestV1 {
+                schema_version: 1,
+                domain: "stage8b-p1f-genesis-manifest-v1".into(),
+                installation_id: "install-1".into(),
+                target_host_id: STAGE8B_P1F_TARGET_HOST_ID.into(),
+                target_host_ssh_ed25519_sha256: STAGE8B_P1F_TARGET_HOST_SSH_ED25519_SHA256.into(),
+                control_root: self.root.to_string_lossy().into_owned(),
+                authority_generation: 1,
+                ceremony_nonce_sha256: "1".repeat(64),
+                genesis_head_sha256: String::new(),
+                not_before_utc: canonical_timestamp(self.now - Duration::seconds(1)),
+                expires_at_utc: canonical_timestamp(self.now + Duration::minutes(10)),
+                issuer_key_id: "p1f-offline-1".into(),
+                signature_ed25519_hex: String::new(),
+            };
+            value.genesis_head_sha256 = genesis_head_sha256(&value);
+            sign(
+                SIGNED_GENESIS_DOMAIN,
+                &mut value,
+                &self.signing,
+                |value, signature| value.signature_ed25519_hex = signature,
+            )
+        }
+
+        fn initialize_and_activate(&self) -> Stage8bP1fAuthorityInspectionV1 {
+            let genesis = self.genesis();
+            let receipt = self
+                .store
+                .initialize_authority(&genesis, &self.public_key_hex(), "p1f-offline-1", self.now)
+                .unwrap();
+            let cert = self.activation(&genesis, &receipt);
+            self.store
+                .activate_authority(&cert, &self.public_key_hex(), "p1f-offline-1", self.now)
+                .unwrap();
+            self.store.inspect().unwrap()
+        }
+
+        fn activation(&self, genesis: &[u8], receipt: &Stage8bP1fGenesisReceiptV1) -> Vec<u8> {
+            let manifest: Stage8bP1fGenesisManifestV1 = parse_canonical(genesis).unwrap();
+            let mut certificate = Stage8bP1fActivationCertificateV1 {
+                schema_version: 1,
+                domain: "stage8b-p1f-activation-certificate-v1".into(),
+                installation_id: manifest.installation_id,
+                target_host_id: manifest.target_host_id,
+                control_root: manifest.control_root,
+                authority_generation: manifest.authority_generation,
+                ceremony_nonce_sha256: manifest.ceremony_nonce_sha256,
+                genesis_manifest_sha256: sha256_hex(genesis),
+                genesis_receipt_sha256: sha256_hex(&canonical_json(&receipt).unwrap()),
+                genesis_head_sha256: manifest.genesis_head_sha256,
+                activated_at_utc: canonical_timestamp(self.now),
+                expires_at_utc: canonical_timestamp(self.now + Duration::hours(1)),
+                issuer_key_id: "p1f-offline-1".into(),
+                signature_ed25519_hex: String::new(),
+            };
+            sign(
+                SIGNED_ACTIVATION_DOMAIN,
+                &mut certificate,
+                &self.signing,
+                |value, signature| value.signature_ed25519_hex = signature,
+            )
+        }
+
+        fn phase(
+            &self,
+            predecessor: &Stage8bP1fAuthorityInspectionV1,
+            phase: Stage8bP1fPhaseV1,
+        ) -> Vec<u8> {
+            self.phase_with_hashes(predecessor, phase, &"3".repeat(64), &"4".repeat(64))
+        }
+
+        fn phase_with_hashes(
+            &self,
+            predecessor: &Stage8bP1fAuthorityInspectionV1,
+            phase: Stage8bP1fPhaseV1,
+            policy_sha256: &str,
+            template_sha256: &str,
+        ) -> Vec<u8> {
+            let duration = if phase == Stage8bP1fPhaseV1::O4FinamReadOnly {
+                10_800
+            } else {
+                1_800
+            };
+            let mut value = Stage8bP1fPhaseManifestV1 {
+                schema_version: 1,
+                domain: "stage8b-p1f-phase-manifest-v1".into(),
+                installation_id: "install-1".into(),
+                target_host_id: STAGE8B_P1F_TARGET_HOST_ID.into(),
+                target_host_ssh_ed25519_sha256: STAGE8B_P1F_TARGET_HOST_SSH_ED25519_SHA256.into(),
+                authority_generation: predecessor.authority_generation,
+                authority_sequence: predecessor.latest_sequence + 1,
+                predecessor_event_sha256: predecessor.latest_event_sha256.clone(),
+                accepted_source_tree_sha256: "2".repeat(64),
+                phase,
+                materialization_policy_sha256: policy_sha256.to_string(),
+                config_template_sha256: template_sha256.to_string(),
+                installation_sha256: "5".repeat(64),
+                controller_id: "controller-1".into(),
+                not_before_utc: canonical_timestamp(self.now),
+                deadline_utc: canonical_timestamp(self.now + Duration::seconds(duration)),
+                issuer_key_id: "p1f-offline-1".into(),
+                signature_ed25519_hex: String::new(),
+            };
+            sign(
+                SIGNED_PHASE_DOMAIN,
+                &mut value,
+                &self.signing,
+                |value, signature| value.signature_ed25519_hex = signature,
+            )
+        }
+    }
+
+    impl Drop for Setup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn sign<T, F>(domain: &[u8], value: &mut T, key: &SigningKey, set_signature: F) -> Vec<u8>
+    where
+        T: Serialize,
+        F: FnOnce(&mut T, String),
+    {
+        let mut payload = domain.to_vec();
+        payload.extend(canonical_json(value).unwrap());
+        let signature = lower_hex(&key.sign(&payload).to_bytes());
+        set_signature(value, signature);
+        canonical_json(value).unwrap()
+    }
+
+    #[test]
+    fn genesis_activation_and_exact_same_active_continuation() {
+        let setup = Setup::new();
+        let head = setup.initialize_and_activate();
+        assert_eq!(head.state, Stage8bP1fPhaseStateV1::GenesisActivated);
+        let phase = setup.phase(&head, Stage8bP1fPhaseV1::O3SyntheticPaper);
+        let claimed = setup
+            .store
+            .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+            .unwrap();
+        let first = match claimed {
+            Stage8bP1fClaimDispositionV1::Claimed(value) => value,
+            _ => panic!("new claim"),
+        };
+        let resumed = setup
+            .store
+            .claim_phase(
+                &phase,
+                &setup.public_key_hex(),
+                "p1f-offline-1",
+                setup.now + Duration::seconds(10),
+            )
+            .unwrap();
+        let second = match resumed {
+            Stage8bP1fClaimDispositionV1::ContinuedExisting(value) => value,
+            _ => panic!("continuation"),
+        };
+        assert_eq!(first, second);
+        assert_eq!(setup.store.inspect().unwrap().latest_sequence, 1);
+    }
+
+    #[test]
+    fn activation_resumes_exact_transaction_after_head_commit() {
+        let setup = Setup::new();
+        let genesis = setup.genesis();
+        let receipt = setup
+            .store
+            .initialize_authority(
+                &genesis,
+                &setup.public_key_hex(),
+                "p1f-offline-1",
+                setup.now,
+            )
+            .unwrap();
+        let certificate = setup.activation(&genesis, &receipt);
+        let authority = setup.root.join(AUTHORITY_DIRECTORY);
+        let mut head: HistoryHeadV1 = setup
+            .store
+            .read_authority_file(&authority.join(HISTORY_HEAD_FILE), 0o440)
+            .unwrap();
+        head.state = Stage8bP1fPhaseStateV1::GenesisActivated;
+        setup
+            .store
+            .replace_exact(
+                &authority.join(HISTORY_HEAD_FILE),
+                &canonical_json(&head).unwrap(),
+                0o440,
+            )
+            .unwrap();
+
+        setup
+            .store
+            .activate_authority(
+                &certificate,
+                &setup.public_key_hex(),
+                "p1f-offline-1",
+                setup.now,
+            )
+            .unwrap();
+        assert_eq!(
+            setup.store.inspect().unwrap().state,
+            Stage8bP1fPhaseStateV1::GenesisActivated
+        );
+        setup
+            .store
+            .activate_authority(
+                &certificate,
+                &setup.public_key_hex(),
+                "p1f-offline-1",
+                setup.now,
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn active_admission_binds_manifest_and_enforces_monotonic_stop_grace() {
+        let setup = Setup::new();
+        let head = setup.initialize_and_activate();
+        let phase = setup.phase(&head, Stage8bP1fPhaseV1::O3SyntheticPaper);
+        let manifest_sha256 = sha256_hex(&phase);
+        setup
+            .store
+            .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+            .unwrap();
+
+        let mut permit = setup
+            .store
+            .admit_active_phase_at(&manifest_sha256, setup.now + Duration::seconds(1), None)
+            .unwrap();
+        assert_eq!(permit.manifest_sha256(), manifest_sha256);
+        assert_eq!(permit.phase(), Stage8bP1fPhaseV1::O3SyntheticPaper);
+        assert_eq!(
+            permit.poll_deadline(setup.now + Duration::seconds(2)),
+            Stage8bP1fDeadlineDecisionV1::Continue
+        );
+        assert_eq!(
+            permit.poll_deadline(setup.now - Duration::seconds(1)),
+            Stage8bP1fDeadlineDecisionV1::BeginStopping
+        );
+        permit.stopping_started = Some(Instant::now() - StdDuration::from_secs(31));
+        assert_eq!(
+            permit.poll_deadline(setup.now + Duration::seconds(2)),
+            Stage8bP1fDeadlineDecisionV1::ForceKill
+        );
+
+        assert_eq!(
+            setup
+                .store
+                .admit_active_phase_at(&manifest_sha256, setup.now + Duration::seconds(1_800), None)
+                .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::DeadlineExpired
+        );
+    }
+
+    #[test]
+    fn concurrent_guardian_and_retained_manifest_tamper_fail_closed() {
+        let setup = Setup::new();
+        let head = setup.initialize_and_activate();
+        let phase = setup.phase(&head, Stage8bP1fPhaseV1::O3SyntheticPaper);
+        let manifest_sha256 = sha256_hex(&phase);
+        setup
+            .store
+            .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+            .unwrap();
+
+        let lease = setup.store.acquire_lease().unwrap();
+        assert_eq!(
+            setup.store.inspect().unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::ConcurrentGuardian
+        );
+        drop(lease);
+
+        let manifest_path = setup
+            .root
+            .join(AUTHORITY_DIRECTORY)
+            .join(MANIFESTS_DIRECTORY)
+            .join(&manifest_sha256)
+            .join("phase-manifest.json");
+        let mut retained: Stage8bP1fPhaseManifestV1 = setup
+            .store
+            .read_authority_file(&manifest_path, 0o440)
+            .unwrap();
+        retained.controller_id = "tampered-controller".into();
+        setup
+            .store
+            .replace_exact(&manifest_path, &canonical_json(&retained).unwrap(), 0o440)
+            .unwrap();
+        assert_eq!(
+            setup.store.inspect().unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::HistoryConflict
+        );
+    }
+
+    #[test]
+    fn pending_claim_and_terminal_transactions_resume_without_new_authority() {
+        let setup = Setup::new();
+        let head = setup.initialize_and_activate();
+        let phase = setup.phase(&head, Stage8bP1fPhaseV1::O3SyntheticPaper);
+        let manifest: Stage8bP1fPhaseManifestV1 = parse_canonical(&phase).unwrap();
+        let pending = PendingClaimV1 {
+            schema_version: 1,
+            domain: "stage8b-p1f-pending-claim-v1".into(),
+            manifest_sha256: sha256_hex(&phase),
+            authority_sequence: manifest.authority_sequence,
+            predecessor_event_sha256: manifest.predecessor_event_sha256,
+            claimed_at_utc: canonical_timestamp(setup.now),
+        };
+        setup
+            .store
+            .write_create_new(
+                &setup
+                    .root
+                    .join(AUTHORITY_DIRECTORY)
+                    .join(PENDING_CLAIM_FILE),
+                &canonical_json(&pending).unwrap(),
+                0o440,
+            )
+            .unwrap();
+        let resumed = setup
+            .store
+            .claim_phase(
+                &phase,
+                &setup.public_key_hex(),
+                "p1f-offline-1",
+                setup.now + Duration::seconds(1),
+            )
+            .unwrap();
+        assert!(matches!(
+            resumed,
+            Stage8bP1fClaimDispositionV1::ContinuedExisting(_)
+        ));
+
+        let active = setup.store.inspect().unwrap();
+        let pending_terminal = PendingTerminalV1 {
+            schema_version: 1,
+            domain: "stage8b-p1f-pending-terminal-v1".into(),
+            manifest_sha256: sha256_hex(&phase),
+            authority_generation: active.authority_generation,
+            authority_sequence: active.latest_sequence + 1,
+            predecessor_event_sha256: active.latest_event_sha256,
+            terminal_state: Stage8bP1fPhaseStateV1::Completed,
+            reason_code: "bounded-session-complete".into(),
+            recorded_at_utc: canonical_timestamp(setup.now + Duration::seconds(2)),
+        };
+        setup
+            .store
+            .write_create_new(
+                &setup
+                    .root
+                    .join(AUTHORITY_DIRECTORY)
+                    .join(PENDING_TERMINAL_FILE),
+                &canonical_json(&pending_terminal).unwrap(),
+                0o440,
+            )
+            .unwrap();
+        let terminal = setup
+            .store
+            .finish_phase(
+                &sha256_hex(&phase),
+                Stage8bP1fPhaseStateV1::Completed,
+                "bounded-session-complete",
+                setup.now + Duration::seconds(3),
+            )
+            .unwrap();
+        assert_eq!(terminal.recorded_at_utc, pending_terminal.recorded_at_utc);
+        assert_eq!(
+            setup.store.inspect().unwrap().state,
+            Stage8bP1fPhaseStateV1::Completed
+        );
+    }
+
+    #[test]
+    fn terminal_transition_is_required_before_next_phase_and_expiry_is_exact() {
+        let setup = Setup::new();
+        let head = setup.initialize_and_activate();
+        let phase = setup.phase(&head, Stage8bP1fPhaseV1::O3SyntheticPaper);
+        setup
+            .store
+            .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+            .unwrap();
+        let active = setup.store.inspect().unwrap();
+        let competing = setup.phase(&active, Stage8bP1fPhaseV1::O4FinamReadOnly);
+        assert_eq!(
+            setup
+                .store
+                .claim_phase(
+                    &competing,
+                    &setup.public_key_hex(),
+                    "p1f-offline-1",
+                    setup.now + Duration::seconds(1)
+                )
+                .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::ActiveConflict
+        );
+        assert_eq!(
+            setup
+                .store
+                .finish_phase(
+                    &sha256_hex(&phase),
+                    Stage8bP1fPhaseStateV1::Expired,
+                    "deadline-expired",
+                    setup.now + Duration::seconds(1)
+                )
+                .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::InvalidValidityWindow
+        );
+        setup
+            .store
+            .finish_phase(
+                &sha256_hex(&phase),
+                Stage8bP1fPhaseStateV1::Expired,
+                "deadline-expired",
+                setup.now + Duration::seconds(1_800),
+            )
+            .unwrap();
+        let terminal = setup.store.inspect().unwrap();
+        assert_eq!(terminal.state, Stage8bP1fPhaseStateV1::Expired);
+        let next = setup.phase(&terminal, Stage8bP1fPhaseV1::O4FinamReadOnly);
+        assert!(matches!(
+            setup
+                .store
+                .claim_phase(&next, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+                .unwrap(),
+            Stage8bP1fClaimDispositionV1::Claimed(_)
+        ));
+    }
+
+    #[test]
+    fn o2_materialization_finalizes_only_source_hash_and_replays_exactly() {
+        let mut setup = Setup::new();
+        let config_root = setup.root.with_extension("config");
+        let bootstrap_dir = config_root.join("bootstrap");
+        let durable_parent = setup.root.with_extension("durable");
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o750)
+            .create(&bootstrap_dir)
+            .unwrap();
+        fs::DirBuilder::new()
+            .mode(0o755)
+            .create(&durable_parent)
+            .unwrap();
+        fs::set_permissions(&config_root, fs::Permissions::from_mode(0o750)).unwrap();
+        fs::set_permissions(&bootstrap_dir, fs::Permissions::from_mode(0o750)).unwrap();
+        let durable_parent = fs::canonicalize(&durable_parent).unwrap();
+        let (_, runtime_fingerprint) =
+            crate::Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
+        let bootstrap = crate::Stage8bP1BootstrapConfig {
+            schema_version: 1,
+            broker_id: crate::STAGE8B_P1_BROKER_ID.into(),
+            strategy_id: crate::STAGE8B_P1_STRATEGY_ID.into(),
+            account_id: "ACC_TEST_0001".into(),
+            internal_symbol: crate::STAGE8B_P1_INTERNAL_SYMBOL.into(),
+            venue_symbol: crate::STAGE8B_P1_VENUE_SYMBOL.into(),
+            exchange: crate::STAGE8B_P1_EXCHANGE.into(),
+            market: crate::STAGE8B_P1_MARKET.into(),
+            tick_size: crate::STAGE8B_P1_TICK_SIZE.into(),
+            runtime_config_fingerprint_sha256: runtime_fingerprint.clone(),
+            instrument_map_fingerprint_sha256:
+                crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+            deployment_id: "finam-imoexf-paper-p1".into(),
+            deployment_generation: 1,
+            gateway_instance_id: "finam-imoexf-paper-gateway-1".into(),
+            market_data_generation: 1,
+            command_consumer_generation: 1,
+            stage8a4_writer_issuer_public_key_hex: "8".repeat(64),
+            durable_parent: durable_parent.clone(),
+        };
+        let validated_bootstrap = crate::validate_stage8b_p1_bootstrap_config(bootstrap).unwrap();
+        let operational = validated_bootstrap
+            .operational_identity_sha256()
+            .to_string();
+        let (source, trusted_now, _, _) =
+            crate::stage8b_p1e_first_boot_source::tests::fixture_for_binding(
+                &operational,
+                "ACC_TEST_0001",
+            );
+        setup.now = trusted_now;
+        let source_value: Value = serde_json::from_slice(&source).unwrap();
+        let checked_at = source_value["broker_truth"]["checked_at_utc"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let template = canonical_json(&serde_json::json!({
+            "schema_version": 1,
+            "runtime_profile_id": crate::STAGE8B_P1E_RUNTIME_PROFILE_ID,
+            "runtime_profile_sha256": crate::STAGE8B_P1E_RUNTIME_PROFILE_SHA256,
+            "first_boot_source_bundle_sha256": STAGE8B_P1F_SOURCE_SHA256_TEMPLATE_SENTINEL,
+            "schedule_registry_version": "imoexf-v1",
+            "schedule_registry_identity_sha256": "6".repeat(64),
+            "redis_url": crate::STAGE8B_P1E_REDIS_URL_IPV4,
+            "redis_deployment_manifest_sha256": "7".repeat(64),
+            "redis_runtime_policy_id": crate::STAGE8B_P1E_REDIS_RUNTIME_POLICY_ID,
+            "redis_runtime_policy_sha256": crate::STAGE8B_P1E_REDIS_RUNTIME_POLICY_SHA256,
+            "telemetry_contract_sha256": crate::STAGE8B_P1E_TELEMETRY_CONTRACT_SHA256,
+            "health_interval_ms": 1000,
+            "shutdown_grace_ms": 30000,
+            "bootstrap": {
+                "schema_version": 1,
+                "broker_id": crate::STAGE8B_P1_BROKER_ID,
+                "strategy_id": crate::STAGE8B_P1_STRATEGY_ID,
+                "account_id": "ACC_TEST_0001",
+                "internal_symbol": crate::STAGE8B_P1_INTERNAL_SYMBOL,
+                "venue_symbol": crate::STAGE8B_P1_VENUE_SYMBOL,
+                "exchange": crate::STAGE8B_P1_EXCHANGE,
+                "market": crate::STAGE8B_P1_MARKET,
+                "tick_size": crate::STAGE8B_P1_TICK_SIZE,
+                "runtime_config_fingerprint_sha256": runtime_fingerprint,
+                "instrument_map_fingerprint_sha256": crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+                "deployment_id": "finam-imoexf-paper-p1",
+                "deployment_generation": 1,
+                "gateway_instance_id": "finam-imoexf-paper-gateway-1",
+                "market_data_generation": 1,
+                "command_consumer_generation": 1,
+                "stage8a4_writer_issuer_public_key_hex": "8".repeat(64),
+                "durable_parent": durable_parent
+            }
+        })).unwrap();
+        let policy = canonical_json(&serde_json::json!({
+            "mode": "read-only-finam-get",
+            "redis_attached": false,
+            "order_endpoints": false
+        }))
+        .unwrap();
+        let head = setup.initialize_and_activate();
+        let phase = setup.phase_with_hashes(
+            &head,
+            Stage8bP1fPhaseV1::O2MaterializeBootstrap,
+            &sha256_hex(&policy),
+            &sha256_hex(&template),
+        );
+        setup
+            .store
+            .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+            .unwrap();
+        let manifest_sha256 = sha256_hex(&phase);
+        let first = setup
+            .store
+            .materialize_o2_at(
+                &config_root,
+                &manifest_sha256,
+                &policy,
+                &template,
+                &source,
+                &checked_at,
+                trusted_now,
+            )
+            .unwrap();
+        let sequence = setup.store.inspect().unwrap().latest_sequence;
+        let second = setup
+            .store
+            .materialize_o2_at(
+                &config_root,
+                &manifest_sha256,
+                &policy,
+                &template,
+                &source,
+                &checked_at,
+                trusted_now,
+            )
+            .unwrap();
+        assert_eq!(first, second);
+        assert_eq!(sequence, setup.store.inspect().unwrap().latest_sequence);
+        assert_eq!(first.state, "ReadyForBootstrap");
+        let final_config: Value =
+            serde_json::from_slice(&fs::read(config_root.join("supervisor.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            final_config["first_boot_source_bundle_sha256"],
+            Value::String(sha256_hex(&source))
+        );
+        assert_eq!(
+            fs::symlink_metadata(config_root.join("supervisor.json"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o440
+        );
+        let permit = setup
+            .store
+            .admit_active_phase_at(&manifest_sha256, trusted_now, Some(&config_root))
+            .unwrap();
+        assert_eq!(permit.phase(), Stage8bP1fPhaseV1::O2MaterializeBootstrap);
+        assert_eq!(
+            setup
+                .store
+                .admit_active_phase_at(
+                    &manifest_sha256,
+                    trusted_now + Duration::seconds(301),
+                    Some(&config_root),
+                )
+                .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::InvalidValidityWindow
+        );
+        fs::remove_dir_all(config_root).unwrap();
+        fs::remove_dir_all(durable_parent).unwrap();
+    }
+
+    #[test]
+    fn ordinary_claim_is_blocked_before_activation_and_genesis_cannot_repeat() {
+        let setup = Setup::new();
+        let genesis = setup.genesis();
+        setup
+            .store
+            .initialize_authority(
+                &genesis,
+                &setup.public_key_hex(),
+                "p1f-offline-1",
+                setup.now,
+            )
+            .unwrap();
+        let fake = Stage8bP1fAuthorityInspectionV1 {
+            authority_generation: 1,
+            latest_sequence: 0,
+            latest_event_sha256: event_digest(
+                &setup
+                    .store
+                    .read_authority_bytes(
+                        &event_path(&setup.root.join(AUTHORITY_DIRECTORY), 0),
+                        0o440,
+                    )
+                    .unwrap(),
+            ),
+            state: Stage8bP1fPhaseStateV1::GenesisPrepared,
+            active_manifest_sha256: None,
+            deadline_utc: None,
+        };
+        let phase = setup.phase(&fake, Stage8bP1fPhaseV1::O1Provision);
+        assert_eq!(
+            setup
+                .store
+                .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+                .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::NotActivated
+        );
+        setup.initialize_and_activate();
+        assert_eq!(
+            setup
+                .store
+                .initialize_authority(
+                    &genesis,
+                    &setup.public_key_hex(),
+                    "p1f-offline-1",
+                    setup.now
+                )
+                .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::AlreadyActivated
+        );
+    }
+
+    #[test]
+    fn head_rollback_and_claim_directory_loss_fail_closed() {
+        let setup = Setup::new();
+        let genesis_head = setup.initialize_and_activate();
+        let genesis_head_bytes = setup
+            .store
+            .read_authority_bytes(
+                &setup.root.join(AUTHORITY_DIRECTORY).join(HISTORY_HEAD_FILE),
+                0o440,
+            )
+            .unwrap();
+        let phase = setup.phase(&genesis_head, Stage8bP1fPhaseV1::O3SyntheticPaper);
+        setup
+            .store
+            .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+            .unwrap();
+        setup
+            .store
+            .replace_exact(
+                &setup.root.join(AUTHORITY_DIRECTORY).join(HISTORY_HEAD_FILE),
+                &genesis_head_bytes,
+                0o440,
+            )
+            .unwrap();
+        assert_eq!(
+            setup.store.inspect().unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::HistoryConflict
+        );
+
+        let setup = Setup::new();
+        let head = setup.initialize_and_activate();
+        let phase = setup.phase(&head, Stage8bP1fPhaseV1::O3SyntheticPaper);
+        setup
+            .store
+            .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+            .unwrap();
+        let manifest_sha = sha256_hex(&phase);
+        fs::remove_dir_all(
+            setup
+                .root
+                .join(AUTHORITY_DIRECTORY)
+                .join(MANIFESTS_DIRECTORY)
+                .join(manifest_sha),
+        )
+        .unwrap();
+        assert_eq!(
+            setup.store.inspect().unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::HistoryConflict
+        );
+    }
+
+    #[test]
+    fn custody_drift_and_parent_substitution_are_rejected() {
+        let setup = Setup::new();
+        setup.initialize_and_activate();
+        fs::set_permissions(
+            setup.root.join(AUTHORITY_DIRECTORY),
+            fs::Permissions::from_mode(0o770),
+        )
+        .unwrap();
+        assert_eq!(
+            setup.store.inspect().unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::InvalidCustody
+        );
+
+        let setup = Setup::new();
+        setup.initialize_and_activate();
+        let moved = setup.root.with_extension("moved");
+        fs::rename(&setup.root, &moved).unwrap();
+        fs::DirBuilder::new()
+            .mode(0o750)
+            .create(&setup.root)
+            .unwrap();
+        assert_eq!(
+            setup.store.inspect().unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::InvalidCustody
+        );
+        fs::remove_dir_all(&setup.root).unwrap();
+        fs::rename(&moved, &setup.root).unwrap();
+    }
+
+    #[test]
+    fn restore_overlap_is_rejected_before_mutation() {
+        let called = AtomicBool::new(false);
+        let plan = Stage8bP1fRestorePlanV1 {
+            source_roots: vec![PathBuf::from("/backup/p1")],
+            target_roots: vec![PathBuf::from("/var/lib")],
+            selected_paths: vec![PathBuf::from(STAGE8B_P1F_AUTHORITY_CONTROL_ROOT)],
+        };
+        let error = execute_stage8b_p1f_permitted_restore_v1(&plan, || {
+            called.store(true, Ordering::SeqCst);
+            Ok(())
+        })
+        .unwrap_err();
+        assert_eq!(
+            error,
+            Stage8bP1fAuthorityErrorV1::RestoreOverlapsControlRoot
+        );
+        assert!(!called.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn declared_coherent_restore_incident_quarantines_all_ordinary_use() {
+        let setup = Setup::new();
+        let head = setup.initialize_and_activate();
+        let phase = setup.phase(&head, Stage8bP1fPhaseV1::O3SyntheticPaper);
+        let receipt = setup
+            .store
+            .declare_restore_incident("provider-whole-host-restore", setup.now)
+            .unwrap();
+        assert!(!receipt.rebind_authorized);
+        assert_eq!(
+            setup.store.inspect().unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::Quarantined
+        );
+        assert_eq!(
+            setup
+                .store
+                .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+                .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::Quarantined
+        );
+    }
+
+    #[test]
+    fn custody_policy_has_no_service_uid_write_bit() {
+        for mode in [0o750, 0o440] {
+            assert_eq!(mode & 0o020, 0, "service group must not write");
+            assert_eq!(mode & 0o002, 0, "other users must not write");
+        }
+    }
+}

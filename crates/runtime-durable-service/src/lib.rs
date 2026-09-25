@@ -284,6 +284,7 @@ mod stage8b_p1e_first_boot_source;
 mod stage8b_p1e_first_boot_transaction;
 mod stage8b_p1e_process;
 mod stage8b_p1e_schedule_source;
+mod stage8b_p1f_guardian;
 
 pub use recovery::{
     spawn_stage7b_supervised_task, P1SemanticPrepublicationPending, P1SemanticZeroIntentAckPending,
@@ -516,6 +517,17 @@ pub use stage8b_p1e_schedule_source::{
     Stage8bP1eScheduleBindingDecisionV1, Stage8bP1eScheduleLatchCheckpointV1,
     Stage8bP1eScheduleReadError, Stage8bP1eScheduleStopReceiptV1,
     Stage8bP1eVerifiedScheduleSnapshotV1,
+};
+pub use stage8b_p1f_guardian::{
+    execute_stage8b_p1f_permitted_restore_v1, Stage8bP1fActivationCertificateV1,
+    Stage8bP1fAuthorityErrorV1, Stage8bP1fAuthorityInspectionV1, Stage8bP1fAuthorityStoreV1,
+    Stage8bP1fClaimDispositionV1, Stage8bP1fClaimReceiptV1, Stage8bP1fDeadlineDecisionV1,
+    Stage8bP1fGenesisManifestV1, Stage8bP1fGenesisReceiptV1, Stage8bP1fMaterializedSetReceiptV1,
+    Stage8bP1fPhaseManifestV1, Stage8bP1fPhaseStateV1, Stage8bP1fPhaseV1,
+    Stage8bP1fQuarantineReceiptV1, Stage8bP1fRestorePlanV1, Stage8bP1fRunPermitV1,
+    Stage8bP1fTerminalReceiptV1, STAGE8B_P1F_AUTHORITY_CONTROL_ROOT,
+    STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION, STAGE8B_P1F_CONFIG_ROOT, STAGE8B_P1F_SERVICE_USER,
+    STAGE8B_P1F_SOURCE_SHA256_TEMPLATE_SENTINEL, STAGE8B_P1F_TARGET_HOST_ID,
 };
 
 use std::{
