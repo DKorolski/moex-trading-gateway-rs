@@ -5260,57 +5260,123 @@ mod tests {
         use crate::stage8b_p1f_local_supervision::test_support;
 
         const HELPER_ENV: &str = "STAGE8B_P1F_SIGNAL_REGISTRATION_HELPER";
-        const MARKER_ENV: &str = "STAGE8B_P1F_SIGNAL_REGISTRATION_MARKER";
-        const EXPECTED_ENV: &str = "STAGE8B_P1F_SIGNAL_REGISTRATION_EXPECTED";
-        if std::env::var(HELPER_ENV).as_deref() == Ok("1") {
-            let marker = PathBuf::from(std::env::var_os(MARKER_ENV).unwrap());
-            let expected = std::env::var(EXPECTED_ENV).unwrap();
+        const READY_ENV: &str = "STAGE8B_P1F_SIGNAL_REGISTRATION_READY";
+        const CHILD_ENV: &str = "STAGE8B_P1F_SIGNAL_REGISTRATION_CHILD";
+        if let Ok(mode) = std::env::var(HELPER_ENV) {
+            let ready = PathBuf::from(std::env::var_os(READY_ENV).unwrap());
+            let child_marker = PathBuf::from(std::env::var_os(CHILD_ENV).unwrap());
+            let setup = Setup::new_current();
+            let (_manifest_sha256, permit) = admitted_o3(&setup);
+            let child = test_support::shell(format!(
+                "trap 'exit 0' TERM INT; echo started > {}; while :; do sleep 0.02; done",
+                shell_path(&child_marker)
+            ));
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
                 .unwrap();
-            let observed = runtime
-                .block_on(test_support::registered_signal_during_sync_admission(
-                    &marker,
+            let result = runtime
+                .block_on(test_support::run_after_synchronous_startup(
+                    &setup.store,
+                    permit,
+                    child,
+                    test_support::policy(
+                        StdDuration::from_millis(5),
+                        StdDuration::from_millis(100),
+                    ),
+                    &ready,
                     StdDuration::from_millis(250),
                 ))
                 .unwrap();
+            let expected_starts = u32::from(mode == "CONTROL");
+            assert_eq!(result.child_starts, expected_starts);
+            assert_eq!(child_marker.exists(), mode == "CONTROL");
             assert_eq!(
-                observed,
-                if expected == "SIGTERM" {
-                    test_support::sigterm()
-                } else {
-                    test_support::sigint()
-                }
+                result.terminal_receipt.terminal_state,
+                Stage8bP1fPhaseStateV1::Completed
+            );
+            assert_eq!(
+                setup.store.inspect().unwrap().state,
+                Stage8bP1fPhaseStateV1::Completed
             );
             return;
         }
 
         let setup = Setup::new_current();
         for (name, signal) in [("SIGTERM", libc::SIGTERM), ("SIGINT", libc::SIGINT)] {
-            let marker = setup.root.join(format!("signal-registration-{name}"));
+            let ready = setup.root.join(format!("signal-registration-{name}-ready"));
+            let child_marker = setup.root.join(format!("signal-registration-{name}-child"));
             let mut helper = std::process::Command::new(std::env::current_exe().unwrap())
                 .arg("--exact")
                 .arg(
                     "stage8b_p1f_guardian::tests::production_signal_registration_precedes_synchronous_admission",
                 )
                 .arg("--nocapture")
-                .env(HELPER_ENV, "1")
-                .env(MARKER_ENV, &marker)
-                .env(EXPECTED_ENV, name)
+                .env(HELPER_ENV, name)
+                .env(READY_ENV, &ready)
+                .env(CHILD_ENV, &child_marker)
                 .spawn()
                 .unwrap();
             let deadline = Instant::now() + StdDuration::from_secs(5);
-            while !marker.exists() && Instant::now() < deadline {
+            while !ready.exists() && Instant::now() < deadline {
                 std::thread::sleep(StdDuration::from_millis(5));
             }
             assert!(
-                marker.exists(),
+                ready.exists(),
                 "{name} registration helper did not become ready"
             );
             assert_eq!(unsafe { libc::kill(helper.id() as i32, signal) }, 0);
-            assert!(helper.wait().unwrap().success(), "{name} was not retained");
+            let deadline = Instant::now() + StdDuration::from_secs(5);
+            let status = loop {
+                if let Some(status) = helper.try_wait().unwrap() {
+                    break status;
+                }
+                assert!(Instant::now() < deadline, "{name} helper timed out");
+                std::thread::sleep(StdDuration::from_millis(5));
+            };
+            assert!(status.success(), "{name} was not retained before spawn");
+            assert!(!child_marker.exists(), "{name} allowed a child spawn");
         }
+
+        let ready = setup.root.join("signal-registration-control-ready");
+        let child_marker = setup.root.join("signal-registration-control-child");
+        let mut helper = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg(
+                "stage8b_p1f_guardian::tests::production_signal_registration_precedes_synchronous_admission",
+            )
+            .arg("--nocapture")
+            .env(HELPER_ENV, "CONTROL")
+            .env(READY_ENV, &ready)
+            .env(CHILD_ENV, &child_marker)
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + StdDuration::from_secs(5);
+        while !ready.exists() && Instant::now() < deadline {
+            std::thread::sleep(StdDuration::from_millis(5));
+        }
+        assert!(
+            ready.exists(),
+            "control registration helper did not become ready"
+        );
+        let deadline = Instant::now() + StdDuration::from_secs(5);
+        while !child_marker.exists() && Instant::now() < deadline {
+            std::thread::sleep(StdDuration::from_millis(5));
+        }
+        assert!(
+            child_marker.exists(),
+            "no-signal control did not start its child"
+        );
+        assert_eq!(unsafe { libc::kill(helper.id() as i32, libc::SIGTERM) }, 0);
+        let deadline = Instant::now() + StdDuration::from_secs(5);
+        let status = loop {
+            if let Some(status) = helper.try_wait().unwrap() {
+                break status;
+            }
+            assert!(Instant::now() < deadline, "control helper timed out");
+            std::thread::sleep(StdDuration::from_millis(5));
+        };
+        assert!(status.success(), "no-signal positive control failed");
     }
 
     #[tokio::test(flavor = "current_thread")]

@@ -11,6 +11,10 @@ use std::{
     os::unix::process::{CommandExt, ExitStatusExt},
     path::PathBuf,
     process::{Child, Command, ExitStatus, Stdio},
+    sync::{
+        atomic::{AtomicU8, Ordering as AtomicOrdering},
+        Arc,
+    },
     time::{Duration as StdDuration, Instant},
 };
 
@@ -168,16 +172,90 @@ impl Stage8bP1fLocalSupervisionErrorV1 {
 
 type SignalBarrierSenderV1 = mpsc::UnboundedSender<oneshot::Sender<()>>;
 
+const NO_PRE_SPAWN_SIGNAL: u8 = 0;
+const PRE_SPAWN_SIGTERM: u8 = 1;
+const PRE_SPAWN_SIGINT: u8 = 2;
+
+#[derive(Clone)]
+struct PreSpawnSignalWitnessV1 {
+    observed: Arc<AtomicU8>,
+}
+
+impl PreSpawnSignalWitnessV1 {
+    fn signal(&self) -> Option<LocalSignalV1> {
+        match self.observed.load(AtomicOrdering::SeqCst) {
+            PRE_SPAWN_SIGTERM => Some(LocalSignalV1::Sigterm),
+            PRE_SPAWN_SIGINT => Some(LocalSignalV1::Sigint),
+            _ => None,
+        }
+    }
+}
+
+struct SignalHandlerRegistrationsV1 {
+    terminate: signal_hook_registry::SigId,
+    interrupt: signal_hook_registry::SigId,
+}
+
+impl Drop for SignalHandlerRegistrationsV1 {
+    fn drop(&mut self) {
+        let _ = signal_hook_registry::unregister(self.terminate);
+        let _ = signal_hook_registry::unregister(self.interrupt);
+    }
+}
+
 struct RegisteredUnixSignalsV1 {
     signal_receiver: mpsc::UnboundedReceiver<LocalSignalV1>,
     barrier_sender: SignalBarrierSenderV1,
+    pre_spawn_witness: PreSpawnSignalWitnessV1,
+    registrations: SignalHandlerRegistrationsV1,
     task: JoinHandle<()>,
 }
 
 async fn register_unix_signal_supervision(
 ) -> Result<RegisteredUnixSignalsV1, Stage8bP1fLocalSupervisionErrorV1> {
-    // These calls install Tokio's OS handlers synchronously, before any
-    // identity lookup, authority open or phase admission can run.
+    let observed = Arc::new(AtomicU8::new(NO_PRE_SPAWN_SIGNAL));
+    let term_observed = Arc::clone(&observed);
+    // SAFETY: the callback performs only a lock-free atomic compare/exchange;
+    // signal-hook-registry owns handler chaining and callback lifetime.
+    let terminate_registration = unsafe {
+        signal_hook_registry::register(libc::SIGTERM, move || {
+            let _ = term_observed.compare_exchange(
+                NO_PRE_SPAWN_SIGNAL,
+                PRE_SPAWN_SIGTERM,
+                AtomicOrdering::SeqCst,
+                AtomicOrdering::SeqCst,
+            );
+        })
+    }
+    .map_err(|_| Stage8bP1fLocalSupervisionErrorV1::SignalTask)?;
+    let int_observed = Arc::clone(&observed);
+    // SAFETY: identical to the SIGTERM callback above; the first observed
+    // operator stop wins and is visible without waiting for Tokio scheduling.
+    let interrupt_registration = match unsafe {
+        signal_hook_registry::register(libc::SIGINT, move || {
+            let _ = int_observed.compare_exchange(
+                NO_PRE_SPAWN_SIGNAL,
+                PRE_SPAWN_SIGINT,
+                AtomicOrdering::SeqCst,
+                AtomicOrdering::SeqCst,
+            );
+        })
+    } {
+        Ok(registration) => registration,
+        Err(_) => {
+            let _ = signal_hook_registry::unregister(terminate_registration);
+            return Err(Stage8bP1fLocalSupervisionErrorV1::SignalTask);
+        }
+    };
+    let registrations = SignalHandlerRegistrationsV1 {
+        terminate: terminate_registration,
+        interrupt: interrupt_registration,
+    };
+    let pre_spawn_witness = PreSpawnSignalWitnessV1 { observed };
+
+    // Tokio streams retain ordinary post-spawn supervision. They are also
+    // installed synchronously before identity/open/admission; pre-spawn safety
+    // does not depend on when Tokio's signal driver broadcasts to these streams.
     let terminate = unix_signal(SignalKind::terminate())
         .map_err(|_| Stage8bP1fLocalSupervisionErrorV1::SignalTask)?;
     let interrupt = unix_signal(SignalKind::interrupt())
@@ -198,6 +276,8 @@ async fn register_unix_signal_supervision(
     Ok(RegisteredUnixSignalsV1 {
         signal_receiver,
         barrier_sender,
+        pre_spawn_witness,
+        registrations,
         task,
     })
 }
@@ -329,6 +409,8 @@ pub async fn run_stage8b_p1f_local_supervisor_v1(
     let RegisteredUnixSignalsV1 {
         signal_receiver,
         barrier_sender,
+        pre_spawn_witness,
+        registrations: _signal_registrations,
         task: signal_task,
     } = register_unix_signal_supervision().await?;
     let result = async {
@@ -342,6 +424,7 @@ pub async fn run_stage8b_p1f_local_supervisor_v1(
                     FixedChildCommandV1::production(service_uid, service_gid),
                     signal_receiver,
                     Some(barrier_sender),
+                    Some(pre_spawn_witness),
                     LocalSupervisionPolicyV1::production(),
                 )
                 .await
@@ -452,7 +535,8 @@ async fn forward_unix_signals(
 
 async fn cross_signal_barrier(
     sender: Option<&SignalBarrierSenderV1>,
-) -> Result<(), Stage8bP1fLocalSupervisionErrorV1> {
+    pre_spawn_witness: Option<&PreSpawnSignalWitnessV1>,
+) -> Result<Option<LocalSignalV1>, Stage8bP1fLocalSupervisionErrorV1> {
     if let Some(sender) = sender {
         let (completed_sender, completed_receiver) = oneshot::channel();
         sender
@@ -464,7 +548,7 @@ async fn cross_signal_barrier(
     } else {
         tokio::task::yield_now().await;
     }
-    Ok(())
+    Ok(pre_spawn_witness.and_then(PreSpawnSignalWitnessV1::signal))
 }
 
 async fn supervise_admitted_child(
@@ -473,6 +557,7 @@ async fn supervise_admitted_child(
     child_spec: FixedChildCommandV1,
     mut signal_receiver: mpsc::UnboundedReceiver<LocalSignalV1>,
     signal_barrier: Option<SignalBarrierSenderV1>,
+    pre_spawn_witness: Option<PreSpawnSignalWitnessV1>,
     policy: LocalSupervisionPolicyV1,
 ) -> Result<Stage8bP1fLocalSupervisionResultV1, Stage8bP1fLocalSupervisionErrorV1> {
     let manifest_sha256 = permit.manifest_sha256().to_string();
@@ -493,13 +578,13 @@ async fn supervise_admitted_child(
     let mut child_starts = 0u32;
     let mut signal_channel_open = true;
     loop {
-        // The production signal actor acknowledges this barrier only after
-        // draining already-ready TERM/INT branches (the select is biased).
-        // Therefore a signal retained during synchronous admission is visible
-        // before this composition can create its first child.
-        cross_signal_barrier(signal_barrier.as_ref()).await?;
-        if signal_channel_open {
-            let queued = match signal_receiver.try_recv() {
+        // The direct handler witness is updated in signal context and does not
+        // depend on Tokio's driver or forwarding-task schedule. The actor
+        // barrier still proves that asynchronous supervision remains alive.
+        let mut queued =
+            cross_signal_barrier(signal_barrier.as_ref(), pre_spawn_witness.as_ref()).await?;
+        if queued.is_none() && signal_channel_open {
+            queued = match signal_receiver.try_recv() {
                 Ok(signal) => Some(signal),
                 Err(mpsc::error::TryRecvError::Empty) => None,
                 Err(mpsc::error::TryRecvError::Disconnected) => {
@@ -507,16 +592,15 @@ async fn supervise_admitted_child(
                     Some(LocalSignalV1::SignalTaskFailed)
                 }
             };
-            if let Some(signal) = queued {
-                let decision = permit.request_local_stop(signal.stop_cause(), Utc::now())?;
-                #[cfg(test)]
-                if let Some(grace) = policy.stop_grace_override {
-                    permit.shorten_stop_grace_for_test(grace);
-                }
-                let result =
-                    finish_without_child(store, &permit, child_starts, decision, Utc::now())?;
-                return settle_terminal_result(&permit, result);
+        }
+        if let Some(signal) = queued {
+            let decision = permit.request_local_stop(signal.stop_cause(), Utc::now())?;
+            #[cfg(test)]
+            if let Some(grace) = policy.stop_grace_override {
+                permit.shorten_stop_grace_for_test(grace);
             }
+            let result = finish_without_child(store, &permit, child_starts, decision, Utc::now())?;
+            return settle_terminal_result(&permit, result);
         }
         match poll_guardian(&mut permit, Utc::now())? {
             Stage8bP1fDeadlineDecisionV1::Continue => {}
@@ -1040,30 +1124,41 @@ pub(crate) mod test_support {
         signals: mpsc::UnboundedReceiver<LocalSignalV1>,
         policy: LocalSupervisionPolicyV1,
     ) -> Result<Stage8bP1fLocalSupervisionResultV1, Stage8bP1fLocalSupervisionErrorV1> {
-        supervise_admitted_child(store, permit, child, signals, None, policy).await
+        supervise_admitted_child(store, permit, child, signals, None, None, policy).await
     }
 
-    pub(crate) async fn registered_signal_during_sync_admission(
-        marker: &std::path::Path,
+    pub(crate) async fn run_after_synchronous_startup(
+        store: &Stage8bP1fAuthorityStoreV1,
+        permit: Stage8bP1fRunPermitV1,
+        child: FixedChildCommandV1,
+        policy: LocalSupervisionPolicyV1,
+        registration_marker: &std::path::Path,
         block_for: StdDuration,
-    ) -> Result<LocalSignalV1, Stage8bP1fLocalSupervisionErrorV1> {
+    ) -> Result<Stage8bP1fLocalSupervisionResultV1, Stage8bP1fLocalSupervisionErrorV1> {
         let RegisteredUnixSignalsV1 {
-            mut signal_receiver,
+            signal_receiver,
             barrier_sender,
+            pre_spawn_witness,
+            registrations: _signal_registrations,
             task,
         } = register_unix_signal_supervision().await?;
-        std::fs::write(marker, b"registered")
+        std::fs::write(registration_marker, b"registered")
             .map_err(|error| Stage8bP1fLocalSupervisionErrorV1::ChildProcess(error.kind()))?;
         // Model the synchronous identity/open/admission section of the real
         // entry while the already registered Tokio OS handlers retain signal.
         std::thread::sleep(block_for);
-        cross_signal_barrier(Some(&barrier_sender)).await?;
-        let signal = signal_receiver
-            .recv()
-            .await
-            .ok_or(Stage8bP1fLocalSupervisionErrorV1::SignalTask)?;
+        let result = supervise_admitted_child(
+            store,
+            permit,
+            child,
+            signal_receiver,
+            Some(barrier_sender),
+            Some(pre_spawn_witness),
+            policy,
+        )
+        .await;
         task.abort();
-        Ok(signal)
+        result
     }
 
     #[cfg(target_os = "linux")]

@@ -17,7 +17,7 @@ import stage8b_p1f_ib_handoff_safety_check as safety
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "reports/handoff"
 REVIEW_SOURCE = Path(
-    "/Users/denisq/Downloads/FINAM_P1F_IB_REVIEW_b45a11c_AND_LIGHT_IC_SCOPE_2026-09-25.md"
+    "/Users/denisq/Downloads/FINAM_P1F_IB_R1_REVIEW_9890d71_2026-09-25.md"
 )
 
 
@@ -98,7 +98,7 @@ def main() -> None:
 
     short = source_ref[:7]
     archive_name = (
-        f"moex-trading-project-{short}-stage8b-p1f-ib-correction-r1-review-package.zip"
+        f"moex-trading-project-{short}-stage8b-p1f-ib-correction-r2-review-package.zip"
     )
     archive_path = OUTPUT / archive_name
     manifest, entries = common.source_manifest(source_ref)
@@ -115,7 +115,7 @@ def main() -> None:
     evidence = {
         "schema_version": 1,
         "stage": safety.STAGE,
-        "status": "LOCAL_SUPERVISION_CORRECTION_R1_REVIEW_CANDIDATE_NO_ACTIVATION",
+        "status": "LOCAL_SUPERVISION_CORRECTION_R2_REVIEW_CANDIDATE_NO_ACTIVATION",
         "source_ref": source_ref,
         "source_parent": source_parent,
         "source_tree": source_tree,
@@ -125,13 +125,16 @@ def main() -> None:
         "accepted_guardian_review_sha256": source_check.REVIEW_SHA256,
         "reviewed_ib_ref": source_check.REVIEWED_IB,
         "ib_correction_review_sha256": source_check.CORRECTION_REVIEW_SHA256,
+        "reviewed_ib_r1_ref": source_check.REVIEWED_IB_R1,
+        "ib_r2_review_sha256": source_check.R2_REVIEW_SHA256,
         "changed_paths": sorted(changed),
         "manifest_sha256": sha256(manifest),
         "gate_sha256": sha256(gate),
         "linux_evidence_sha256": sha256(linux),
-        "source_negative_cases": 21,
+        "source_negative_cases": 25,
         "acceptance_scenarios": 20,
         "correction_controls": 5,
+        "real_os_signal_gate_cases": 3,
         "real_process_tests": 10,
         "closed_surfaces": closed_surfaces,
         "next_after_acceptance": (
@@ -147,6 +150,7 @@ def main() -> None:
         f"branch={branch}\n"
         f"accepted_guardian_ref={source_check.BASE}\n"
         f"reviewed_ib_ref={source_check.REVIEWED_IB}\n"
+        f"reviewed_ib_r1_ref={source_check.REVIEWED_IB_R1}\n"
         f"archive_name={archive_name}\n"
     ).encode()
     additions = {

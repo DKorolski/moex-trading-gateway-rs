@@ -14,6 +14,8 @@ import stage8b_p1f_ib_check as check
 
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED_PATHS = {
+    check.CARGO_LOCK,
+    check.CRATE_CARGO,
     check.GUARDIAN,
     check.SUPERVISION,
     check.BINARY,
@@ -209,6 +211,46 @@ def cases() -> list[tuple[str, str, Callable[[Path], None]]]:
                 check.SUPERVISION,
                 "if !forced && decision == Stage8bP1fDeadlineDecisionV1::ForceKill",
                 "if !forced && decision == Stage8bP1fDeadlineDecisionV1::BeginStopping",
+            ),
+        ),
+        (
+            "direct-signal-witness-dependency",
+            "signal",
+            lambda root: replace(
+                root,
+                check.CRATE_CARGO,
+                'signal-hook-registry = "1.4"\n',
+                "",
+            ),
+        ),
+        (
+            "direct-term-handler-witness",
+            "signal",
+            lambda root: replace(
+                root,
+                check.SUPERVISION,
+                "signal_hook_registry::register(libc::SIGTERM",
+                "signal_hook_registry::register(libc::SIGINT",
+            ),
+        ),
+        (
+            "pre-spawn-direct-witness-read",
+            "signal",
+            lambda root: replace(
+                root,
+                check.SUPERVISION,
+                "pre_spawn_witness.as_ref()",
+                "None",
+            ),
+        ),
+        (
+            "production-pre-spawn-composition-control",
+            "evidence",
+            lambda root: replace(
+                root,
+                check.SUPERVISION,
+                "pub(crate) async fn run_after_synchronous_startup(",
+                "pub(crate) async fn removed_run_after_synchronous_startup(",
             ),
         ),
         (

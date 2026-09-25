@@ -16,6 +16,10 @@ BASE = "9be356b04a38e627337ed148ccc9fbdaebae8d4a"
 REVIEW_SHA256 = "db684cb6ba10cb951801cc917c317d2817c99c3f10874d5a1d959c053f6ebb60"
 REVIEWED_IB = "b45a11cda0a564344fabcfea688bae06bd98ec17"
 CORRECTION_REVIEW_SHA256 = "3d4f97816ed5b392c7e49d4f61af191ef190b69c61a4cbdb32ba1967fb4654ac"
+REVIEWED_IB_R1 = "9890d713783a479ee08512b21647240eb222053d"
+R2_REVIEW_SHA256 = "8a7161d653dadcb5d3bfda88f628e3d0c139b927aedb6a9254e78842c8acc9df"
+CARGO_LOCK = "Cargo.lock"
+CRATE_CARGO = "crates/runtime-durable-service/Cargo.toml"
 GUARDIAN = "crates/runtime-durable-service/src/stage8b_p1f_guardian.rs"
 SUPERVISION = "crates/runtime-durable-service/src/stage8b_p1f_local_supervision.rs"
 BINARY = "crates/runtime-durable-service/src/bin/stage8b-p1f-local-supervisor.rs"
@@ -31,6 +35,8 @@ GATE = "scripts/stage8b_p1f_ib_gate.sh"
 SAFETY = "scripts/stage8b_p1f_ib_handoff_safety_check.py"
 BUILDER = "scripts/make_stage8b_p1f_ib_handoff.py"
 ALLOWED_CHANGES = {
+    CARGO_LOCK,
+    CRATE_CARGO,
     GUARDIAN,
     SUPERVISION,
     BINARY,
@@ -110,6 +116,8 @@ def validate_inventory(root: Path) -> None:
             "accepted_guardian_review_sha256",
             "reviewed_ib_commit",
             "ib_correction_review_sha256",
+            "reviewed_ib_r1_commit",
+            "ib_r2_review_sha256",
             "production_module",
             "entry",
             "child",
@@ -123,7 +131,7 @@ def validate_inventory(root: Path) -> None:
     require(value["schema_version"] == 1 and type(value["schema_version"]) is int, "schema drift")
     require(value["stage"] == "Stage 8B-P1-f Ib local supervision composition", "stage drift")
     require(
-        value["status"] == "REVIEW_CANDIDATE_CORRECTION_R1_LOCAL_SUPERVISION_ONLY",
+        value["status"] == "REVIEW_CANDIDATE_CORRECTION_R2_LOCAL_SUPERVISION_ONLY",
         "Ib correction self-accepted",
     )
     require(value["accepted_guardian_commit"] == BASE, "Ia commit binding drift")
@@ -133,6 +141,8 @@ def validate_inventory(root: Path) -> None:
         value["ib_correction_review_sha256"] == CORRECTION_REVIEW_SHA256,
         "Ib correction review binding drift",
     )
+    require(value["reviewed_ib_r1_commit"] == REVIEWED_IB_R1, "reviewed Ib R1 binding drift")
+    require(value["ib_r2_review_sha256"] == R2_REVIEW_SHA256, "Ib R2 review binding drift")
     require(value["production_module"] == SUPERVISION, "production module drift")
     require(
         value["entry"]
@@ -171,6 +181,7 @@ def validate_inventory(root: Path) -> None:
         "checker": CHECKER,
         "gate": GATE,
         "negative_harness": NEGATIVE,
+        "real_os_signal_gate_cases": 3,
         "real_process_tests": 10,
     }, "evidence inventory drift")
     closed = value["closed_surfaces"]
@@ -199,6 +210,14 @@ def validate_source(root: Path) -> None:
     source = (root / SUPERVISION).read_text()
     binary = (root / BINARY).read_text()
     library = (root / LIB).read_text()
+    crate_cargo = (root / CRATE_CARGO).read_text()
+    cargo_lock = (root / CARGO_LOCK).read_text()
+    require('signal-hook-registry = "1.4"' in crate_cargo, "direct signal witness dependency missing")
+    require(
+        cargo_lock.count('name = "signal-hook-registry"') == 1
+        and ' "signal-hook-registry",' in cargo_lock,
+        "signal witness lockfile binding missing",
+    )
     for fragment in (
         "pub(crate) fn request_local_stop(",
         "self.admitted_monotonic.elapsed()",
@@ -231,12 +250,17 @@ def validate_source(root: Path) -> None:
         "let interrupt = unix_signal(SignalKind::interrupt())",
         "ready_receiver",
         "biased;",
-        "cross_signal_barrier(signal_barrier.as_ref()).await?",
+        "cross_signal_barrier(signal_barrier.as_ref(), pre_spawn_witness.as_ref()).await?",
         "Err(Stage8bP1fAuthorityErrorV1::PendingRecoveryRequired)",
         "ChildExit(u8)",
         "Self::ChildExit(code) => *code",
         '"child-stop-failed"',
         "if !forced && decision == Stage8bP1fDeadlineDecisionV1::ForceKill",
+        "signal_hook_registry::register(libc::SIGTERM",
+        "signal_hook_registry::register(libc::SIGINT",
+        "compare_exchange(",
+        "pre_spawn_witness.as_ref()",
+        "pub(crate) async fn run_after_synchronous_startup(",
     ):
         require(fragment in source, f"Ib source contract missing: {fragment}")
     for forbidden in (
@@ -287,9 +311,10 @@ def validate_documents(root: Path) -> None:
     status = (root / STATUS).read_text()
     roadmap = (root / ROADMAP).read_text()
     for fragment in (
-        "REVIEW_CANDIDATE_CORRECTION_R1_LOCAL_SUPERVISION_ONLY",
+        "REVIEW_CANDIDATE_CORRECTION_R2_LOCAL_SUPERVISION_ONLY",
         BASE,
         REVIEWED_IB,
+        REVIEWED_IB_R1,
         "P1-IB01",
         "P1-IB03",
         "PR_SET_PDEATHSIG=SIGKILL",
@@ -301,6 +326,7 @@ def validate_documents(root: Path) -> None:
     for text, name in ((status, STATUS), (roadmap, ROADMAP)):
         require(BASE in text, f"{name}: accepted Ia ref missing")
         require(REVIEWED_IB in text, f"{name}: reviewed Ib ref missing")
+        require(REVIEWED_IB_R1 in text, f"{name}: reviewed Ib R1 ref missing")
         require("P1F-Ib" in text and "active source" in text, f"{name}: active Ib status missing")
         require("P1F-Ic" in text and "P1F-Ie" in text, f"{name}: remaining source sequence missing")
     require("P1F-O0 is not unlocked" in status, f"{STATUS}: operational boundary missing")
@@ -324,6 +350,7 @@ def main() -> int:
         return 1
     print(
         "PASS stage8b-p1f-ib-check scenarios=20 correction_controls=5 "
+        "real_os_signal_gate_cases=3 "
         "real_process_tests=10 operational=false"
     )
     return 0

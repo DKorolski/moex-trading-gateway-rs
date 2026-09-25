@@ -1,6 +1,6 @@
 # Stage 8B-P1-f Ib — fixed local guardian/I1 supervision
 
-Status: `REVIEW_CANDIDATE_CORRECTION_R1_LOCAL_SUPERVISION_ONLY`.
+Status: `REVIEW_CANDIDATE_CORRECTION_R2_LOCAL_SUPERVISION_ONLY`.
 
 Accepted predecessor: P1F-Ia guardian foundation at
 `9be356b04a38e627337ed148ccc9fbdaebae8d4a`. This slice composes that linear
@@ -11,6 +11,11 @@ The first Ib candidate at
 `b45a11cda0a564344fabcfea688bae06bd98ec17` was held by independent review.
 This correction closes exactly P1-IB01 through P1-IB03; it does not open Ic or
 any operational phase.
+
+Correction R1 at `9890d713783a479ee08512b21647240eb222053d` independently
+closed P1-IB02 and P1-IB03. Its forwarding-task barrier closed only the handler
+registration half of P1-IB01. R2 closes the remaining signal-driver scheduling
+gap without changing the accepted guardian, child or phase model.
 
 ## Fixed production boundary
 
@@ -35,11 +40,14 @@ execution flock.
 
 ## Process ownership and stop ordering
 
-SIGTERM and SIGINT streams are synchronously registered before identity lookup,
-authority open or admission. The forwarding actor acknowledges readiness before
-admission. After admission a biased signal/barrier handshake drains any retained
-TERM/INT before the first spawn; this is not inferred from `yield_now`. A signal
-retained before spawn commits Stopping and creates no child. Each admitted
+SIGTERM and SIGINT handlers and Tokio streams are synchronously registered
+before identity lookup, authority open or admission. A process-local first-wins
+atomic witness is written directly by the signal-hook-registry callback, so a
+signal received during synchronous admission is observable before spawn without
+waiting for Tokio's driver or forwarding-task schedule. The forwarding actor
+still acknowledges readiness and remains the ordinary post-spawn signal path.
+After admission the pre-spawn gate reads the direct witness; a retained
+TERM/INT commits Stopping and creates no child. Each admitted
 child becomes leader of a new Unix process group. The production launch drops
 supplementary groups and changes to the exact service GID/UID before exec. On
 Linux it also sets `PR_SET_PDEATHSIG=SIGKILL` and checks the parent identity,
@@ -95,8 +103,12 @@ replacement for the fixed I1 command. They prove:
 - on Linux, killing the guardian with SIGKILL triggers the child's parent-death
   SIGKILL.
 
-Correction controls additionally prove real SIGTERM and SIGINT retention while
-the current-thread runtime is inside its synchronous admission section, exact
+Correction controls additionally prove, through the actual production
+pre-spawn composition, real SIGTERM and SIGINT retention while the
+current-thread runtime is inside its synchronous admission section. Both cases
+produce `child_starts=0` and no child marker. A bounded no-signal control proves
+that the same path does start one child and then stops it normally. The controls
+also prove exact
 pending-stopping recovery with no child, rejection of a foreign selector,
 preservation of child exits 70/71/72, recovered external-stop failure and
 invalid-phase failure.

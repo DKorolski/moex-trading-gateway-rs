@@ -22,6 +22,7 @@ runtime-command-bridge = { path = "../runtime-command-bridge" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+signal-hook-registry = "1.4"
 strategy-runtime-core = { path = "../strategy-runtime-core" }
 thiserror.workspace = true
 tokio.workspace = true
