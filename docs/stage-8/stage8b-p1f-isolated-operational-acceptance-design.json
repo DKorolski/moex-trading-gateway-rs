@@ -1,7 +1,12 @@
 {
-  "schema_version": 1,
-  "stage": "Stage 8B-P1-f R0 isolated operational acceptance design",
-  "status": "DESIGN_REVIEW_CANDIDATE_NO_ACTIVATION",
+  "schema_version": 2,
+  "stage": "Stage 8B-P1-f R1 isolated operational acceptance design correction",
+  "status": "DESIGN_CORRECTION_REVIEW_CANDIDATE_NO_ACTIVATION",
+  "correction_parent": {
+    "commit": "58bb4cafd3eb80f43c8d0bfd182f7be18ea92d00",
+    "tree": "3c771d40df6303a10e19c9ed9ff652894075ac83",
+    "review_sha256": "ea5b184ad7c412e63229c8b98bacda895da151c09fc666057dc512968cc24ba5"
+  },
   "accepted_predecessor": {
     "commit": "3f171d997de5616cb9a07311d7776e446456c0c1",
     "tree": "12a13b9c3418ec844219f8f9130904896e7a622e",
@@ -9,6 +14,7 @@
     "aggregate_review_sha256": "c5be3e66cadd6c45f6678669afa3f9a194c31f6288aae1c3d29fa59aac47ca54"
   },
   "target_baseline": "docs/stage-8/stage8b-p1f-target-vps-baseline.json",
+  "model_fixtures": "docs/stage-8/stage8b-p1f-operational-model-fixtures.json",
   "isolation": {
     "p1_redis_database": 15,
     "p0_redis_database": 0,
@@ -22,70 +28,132 @@
     "non_loopback_redis_allowed": false
   },
   "phases": [
-    {"id": "P1F-I", "name": "source implementation", "remote_mutation": false, "service_start": false, "requires_prior_acceptance": "P1F-R0-design"},
-    {"id": "P1F-O0", "name": "immutable read-only target preflight", "remote_mutation": false, "service_start": false, "requires_prior_acceptance": "P1F-I-source"},
-    {"id": "P1F-O1", "name": "non-activating provisioning", "remote_mutation": true, "service_start": false, "requires_prior_acceptance": "P1F-O0-preflight"},
-    {"id": "P1F-O2", "name": "network-isolated one-shot bootstrap", "remote_mutation": true, "service_start": false, "requires_prior_acceptance": "P1F-O1-provisioning"},
-    {"id": "P1F-O3", "name": "bounded synthetic paper session and restart matrix", "remote_mutation": true, "service_start": true, "requires_prior_acceptance": "P1F-O2-bootstrap"},
-    {"id": "P1F-O4", "name": "bounded read-only FINAM bars paper session", "remote_mutation": true, "service_start": true, "requires_prior_acceptance": "P1F-O3-synthetic"},
-    {"id": "P1F-A", "name": "aggregate operational acceptance", "remote_mutation": false, "service_start": false, "requires_prior_acceptance": "P1F-O4-finam-bars"}
+    {"id":"P1F-I","name":"source implementation","remote_mutation":false,"service_start":false,"requires_prior_acceptance":"P1F-R1-design"},
+    {"id":"P1F-O0","name":"immutable read-only target preflight","remote_mutation":false,"service_start":false,"requires_prior_acceptance":"P1F-I-source"},
+    {"id":"P1F-O1","name":"non-activating provisioning","remote_mutation":true,"service_start":false,"requires_prior_acceptance":"P1F-O0-preflight"},
+    {"id":"P1F-O2","name":"fresh materialization then network-isolated one-shot bootstrap","remote_mutation":true,"service_start":false,"requires_prior_acceptance":"P1F-O1-provisioning"},
+    {"id":"P1F-O3","name":"bounded synthetic paper session and restart matrix","remote_mutation":true,"service_start":true,"requires_prior_acceptance":"P1F-O2-bootstrap"},
+    {"id":"P1F-O4","name":"bounded read-only FINAM bars paper session","remote_mutation":true,"service_start":true,"requires_prior_acceptance":"P1F-O3-synthetic"},
+    {"id":"P1F-A","name":"aggregate operational acceptance","remote_mutation":false,"service_start":false,"requires_prior_acceptance":"P1F-O4-finam-bars"}
+  ],
+  "freshness_contract": {
+    "first_boot_truth_max_age_seconds": 300,
+    "schedule_transport_max_age_ms": 5000,
+    "schedule_cross_source_max_skew_ms": 5000,
+    "o2_materialization": {
+      "subphase": "P1F-O2-M",
+      "authority": "same single-use O2 manifest before bootstrap effect",
+      "network_policy": "read-only FINAM GET only; no Redis and no order endpoint",
+      "output_binding": "exact source bytes and sha256 added to durable Active receipt",
+      "bootstrap_subphase": "P1F-O2-B",
+      "bootstrap_network_policy": "PrivateNetwork plus AF_UNIX only",
+      "stale_before_bootstrap": "fail phase without bootstrap mutation; retain receipt; require new manifest",
+      "review_wait_policy": "O1 artifacts are never reused as fresh F00 truth"
+    },
+    "schedule_supply": {
+      "publication_interval_max_ms": 2000,
+      "stage4_observation_refresh_max_ms": 30000,
+      "missing_or_stale_action": "fail closed and stop phase with source PEL retained",
+      "expired_stage4_action": "reject before callback or new source acquisition",
+      "synthetic_clock": "phase-start realtime bound to monotonic elapsed time; rollback or discontinuity fails closed",
+      "committed_v4_recovery": "marker-bound historical continuation only; no new fresh schedule admission"
+    }
+  },
+  "artifact_contracts": [
+    {"id":"phase-authority-manifest","producer":"offline operator phase authority","phase_authority":"one exact O1 O2 O3 or O4 phase","source_and_provenance":"accepted source tree plus reviewed phase plan","canonical_identity":"canonical JSON sha256 and Ed25519 signature","freshness":"not-before and absolute deadline validated before claim","signer_and_trust":"P1-f phase-authority key pinned by accepted P1F-I package","custody":"private key offline; public key root-owned on target","allowed_outputs":"one durable claim receipt only","restart_policy":"manifest cannot be claimed twice; Active receipt may resume before original deadline"},
+    {"id":"fresh-first-boot-source","producer":"P1F-O2-M read-only first-boot materializer","phase_authority":"claimed O2 manifest","source_and_provenance":"fresh FINAM read-only broker truth plus accepted history/riskgate source contract","canonical_identity":"exact source bundle sha256 operational identity account and instrument","freshness":"broker truth age at O2-B admission at most 300 seconds","signer_and_trust":"bundle sha256 bound into signed phase manifest receipt","custody":"root-owned 0400 phase input; never Git handoff or logs","allowed_outputs":"one AF_UNIX bootstrap input","restart_policy":"stale input fails O2; historical continuation is allowed only for an existing committed V4 marker"},
+    {"id":"synthetic-stage4-observation","producer":"P1F-O3 production synthetic observation producer","phase_authority":"claimed O3 manifest and accepted fixture digest","source_and_provenance":"explicit synthetic positions orders instruments and schedule observations","canonical_identity":"phase id fixture sha256 observation clock and Stage4 report sha256","freshness":"refreshed at most every 2000 ms with cross-source skew at most 5000 ms","signer_and_trust":"embedded only in generation-2 signed schedule envelope","custody":"durable publisher directory under P1 state root","allowed_outputs":"accepted Stage4 report and signed schedule input","restart_policy":"resume exact publisher high-water; no test constructor or sequence reset"},
+    {"id":"finam-stage4-observation","producer":"P1F-O4 dedicated read-only broker-truth observer","phase_authority":"claimed O4 manifest separate from bars feeder","source_and_provenance":"exact FINAM GET responses for required positions orders instruments and schedule sections","canonical_identity":"raw-response hashes report checked time account instrument and source sections","freshness":"refresh at most every 30000 ms; schedule and report observations within 5000 ms","signer_and_trust":"report embedded in generation-2 signed schedule envelope","custody":"read-only token in root credential; exact raw hashes retained without secret bytes","allowed_outputs":"Stage4 report only; no M10 and no order command","restart_policy":"resume from retained report identity; fetch fresh GET evidence before next publication"},
+    {"id":"signed-schedule-envelope","producer":"accepted production schedule normalizer and publisher","phase_authority":"claimed O3 or O4 manifest","source_and_provenance":"exact normalized schedule plus accepted Stage4 report","canonical_identity":"envelope sha256 publication sequence semantic revision and source generation","freshness":"published at most every 2000 ms; consumer transport age at most 5000 ms","signer_and_trust":"schedule-ed25519-v1 generation 2 through policy-constrained AF_UNIX signer","custody":"signing key outside process; durable Prepared or Published state under P1 state root","allowed_outputs":"DB15 market-schedule stream via XADD NOMKSTREAM MAXLEN exact 4096","restart_policy":"Prepared replay is byte-identical; Published resumes sequence plus one and never resets revision"},
+    {"id":"canonical-synthetic-m10","producer":"P1F-O3 production synthetic M10 feeder","phase_authority":"claimed O3 manifest","source_and_provenance":"accepted fixture digest and phase clock/session contract","canonical_identity":"exact canonical M10 bytes bar identity and fixture sha256","freshness":"only finalized boundaries within the active synthetic session","signer_and_trust":"phase receipt binding; production parser and no test-only constructor","custody":"fixture public; emitted records retained in DB15","allowed_outputs":"canonical M10 stream only","restart_policy":"last emitted bar identity persisted; equal replay idempotent and conflict fails closed"},
+    {"id":"canonical-finam-m10","producer":"P1F-O4 market-data-only M1 to M10 feeder","phase_authority":"claimed O4 manifest","source_and_provenance":"exact read-only FINAM M1 bars with gap-free aggregation proof","canonical_identity":"source M1 identity set aggregate hash and canonical M10 bytes","freshness":"finalized M10 only within signed open schedule","signer_and_trust":"read-only market-data token; no schedule-signing or account authority","custody":"token root credential; bar evidence redacted and retained","allowed_outputs":"canonical M10 stream only","restart_policy":"resume last finalized M1/M10 identity; no duplicate or gap synthesis"},
+    {"id":"phase-receipt-and-publisher-state","producer":"local phase guardian and schedule publisher","phase_authority":"claimed phase manifest","source_and_provenance":"manifest input config installation target and process identities","canonical_identity":"fsynced receipt sha256 plus publisher sequence revision and high-water","freshness":"absolute phase deadline is never extended","signer_and_trust":"manifest signature plus local fsync/reread verification","custody":"root-owned P1 durable state; retained after stop","allowed_outputs":"phase state audit journal and evidence package","restart_policy":"exact Active continuation only; terminal states cannot restart"}
   ],
   "operator_authority": {
     "one_signed_phase_manifest_per_operational_phase": true,
     "manifest_single_use": true,
-    "manifest_binds_source_tree_target_host_phase_and_deadline": true,
+    "manifest_binds_source_tree_target_host_phase_deadline_inputs_config_and_installation": true,
+    "durable_claim_before_first_effect": true,
+    "second_controller_rejected": true,
     "automatic_phase_escalation": false,
     "unattended_activation": false
   },
-  "session_policy": {
-    "readiness": "PaperReady",
-    "live_ready_forbidden": true,
-    "paper_only_required": true,
-    "synthetic_session_max_minutes": 30,
-    "finam_bars_session_max_minutes": 180,
-    "stop_and_disable_after_each_session": true,
-    "retain_db15_and_durable_state_for_review": true
+  "phase_lifecycle": {
+    "states": ["Unclaimed", "Active", "Stopping", "Completed", "Failed", "Expired"],
+    "claim": {
+      "operation": "create-new receipt then fsync file and parent directory before first effect",
+      "receipt_binds": ["manifest_sha256", "source_tree", "target_host_key", "phase_id", "input_sha256", "config_sha256", "installation_manifest_sha256", "started_at_utc", "deadline_utc", "controller_id"],
+      "crash_after_claim": "same local phase guardian may resume Active receipt before original deadline",
+      "second_controller": "reject without effect"
+    },
+    "deadline": {
+      "starts_at": "durable Active claim",
+      "restart_extends_deadline": false,
+      "synthetic_seconds": 1800,
+      "finam_bars_seconds": 10800,
+      "shutdown_grace_seconds": 30,
+      "local_enforcer_required": true,
+      "independent_of_ssh": true,
+      "clock_rollback_or_untrusted_time": "fail closed to Expired",
+      "reboot_policy": "no child autostart; expire stale Active receipt before any manual continuation"
+    },
+    "restart": {"allowed_state":"Active","requires_exact_receipt_and_identities":true,"before_deadline_only":true,"uses_original_deadline":true,"terminal_state_autorestart":false},
+    "terminal_action": {
+      "process_order": ["market-data feeder", "broker-truth observer", "schedule publisher", "signer", "supervisor"],
+      "force_kill_after_grace": true,
+      "retain_source_pel": true,
+      "retain_db15_and_durable_evidence": true,
+      "telemetry_failure": "persist local terminal receipt then stop; never XACK to report telemetry"
+    }
   },
-  "finam_bars_phase": {
-    "requires_separate_acceptance_after_synthetic": true,
-    "market_data_only": true,
-    "read_only_token_required": true,
-    "finam_order_http_allowed": false,
-    "command_consumer_allowed": false,
-    "broker_dispatch_allowed": false,
-    "main_supervisor_has_finam_dependency": false
+  "session_policy": {"readiness":"PaperReady","live_ready_forbidden":true,"paper_only_required":true,"synthetic_session_max_minutes":30,"finam_bars_session_max_minutes":180,"stop_and_disable_after_each_session":true,"retain_db15_and_durable_state_for_review":true},
+  "synthetic_phase": {"test_only_constructors_allowed":false,"production_verification_path_required":true,"fixture_digest_bound_to_manifest":true,"schedule_and_m10_clock_contract_shared":true,"publisher_refresh_continues_for_entire_session":true},
+  "finam_bars_phase": {"requires_separate_acceptance_after_synthetic":true,"bars_feeder_market_data_only":true,"broker_truth_observer_is_separate_role":true,"broker_truth_observer_get_only":true,"read_only_tokens_required":true,"finam_order_http_allowed":false,"command_consumer_allowed":false,"broker_dispatch_allowed":false,"main_supervisor_has_finam_dependency":false},
+  "publisher_continuity": {"source_generation":"1","schedule_key_generation":2,"o3_to_o4_uses_same_durable_high_water":true,"o4_requires_new_phase_manifest":true,"publication_sequence_strictly_increases":true,"semantic_revision_changes_only_with_semantic_identity":true,"consumer_v4_progression_retained":true,"missing_or_conflicting_state":"fail closed; no first-publication reset"},
+  "redis_capabilities": {
+    "enforcement": "production typed role adapters plus immutable command audit; no raw Redis connection escapes",
+    "mutating_roles_database": 15,
+    "mutating_roles_key_pattern": "finam_imoexf_paper:{finam-imoexf-p1}:*",
+    "global_forbidden_commands": ["FLUSHALL", "FLUSHDB", "CONFIG", "ACL", "MODULE", "DEBUG", "SHUTDOWN", "SAVE", "BGSAVE", "BGREWRITEAOF", "MIGRATE", "RESTORE", "MOVE", "SWAPDB", "RENAME", "RENAMENX", "DEL", "UNLINK", "XDEL", "XTRIM"],
+    "roles": [
+      {"role":"provisioner","db":15,"allowed":["PING","TYPE exact-key","GET deployment-manifest","SET deployment-manifest NX exact-canonical-bytes","EVAL pinned-namespace-initialization-script exact-M10-and-command-keys","XADD exact-nonconsumed-output-stream provisioning-marker once","XINFO exact-stream-or-group"],"writes":"exact manifest inventory only"},
+      {"role":"synthetic-m10-feeder","db":15,"allowed":["PING","TYPE canonical-m10","XADD canonical-m10 exact-payload"],"writes":"canonical M10 stream only"},
+      {"role":"finam-bars-feeder","db":15,"allowed":["PING","TYPE canonical-m10","XADD canonical-m10 exact-payload"],"writes":"canonical M10 stream only"},
+      {"role":"schedule-publisher","db":15,"allowed":["PING","TYPE market-schedule","XADD market-schedule NOMKSTREAM MAXLEN = 4096 payload"],"writes":"market-schedule stream only"},
+      {"role":"supervisor","db":15,"allowed":["PING","TYPE exact-key","GET exact-marker-or-manifest","SET exact-settlement-marker","XINFO exact-stream-or-group","XPENDING exact-M10-group","XAUTOCLAIM exact-M10-group bounded","XREADGROUP exact-M10-group bounded","XRANGE exact-lifecycle-stream bounded","XREVRANGE market-schedule COUNT 1","XADD exact-command-lifecycle-telemetry-stream NOMKSTREAM bounded","EVAL pinned-settlement-script exact-keys","XACK exact-source-group last"],"writes":"accepted P1 lifecycle only"},
+      {"role":"read-only-auditor","db":"0-and-15-read-only","allowed":["PING","INFO persistence-or-memory","TYPE","EXISTS","SCAN bounded","GET","XLEN","XRANGE bounded","XREVRANGE bounded","XINFO","XPENDING","PTTL","DUMP for hash only"],"writes":"none"},
+      {"role":"phase-guardian","db":"none","allowed":[],"writes":"local phase receipt and process control only"},
+      {"role":"broker-truth-observer","db":"none","allowed":[],"writes":"local exact-response hashes and Stage4 report only"}
+    ],
+    "p0_protection_evidence": {"unit_and_config_hashes_before_after":true,"p1_initiated_p0_service_actions_must_be_zero":true,"command_audit_proves_no_db0_write":true,"existing_nonprefix_p0_key_mutation_negative_control":true,"legitimate_p0_db0_change_positive_control":true,"full_db0_byte_equality_required":false},
+    "resource_limits": {"telemetry_and_schedule_stream_maxlen":4096,"total_pel_fail_stop_threshold":64,"db15_evidence_budget_bytes":536870912,"minimum_root_free_bytes":10737418240,"resource_poll_interval_seconds":5,"limit_action":"stop P1 phase only; never alter Redis process config or P0"}
   },
   "restart_scenarios": [
-    "clean-sigterm",
-    "sigkill-before-semantic-effect",
-    "stale-pel-reclaim",
-    "exact-duplicate-idempotence",
-    "conflicting-duplicate-fail-closed",
-    "paper-provider-uncertain-outcome-recovery"
+    {"id":"clean-sigterm","start_frontier":"PaperReady with zero unresolved lifecycle","fault_trigger":"SIGTERM to phase guardian","expected_exit":"clean stop within 30 seconds","counter_delta":"no new callback publication provider effect or XACK after stop latch","pel_final":"unchanged or already terminal","checkpoint":"Stopped telemetry plus terminal phase receipt"},
+    {"id":"sigkill-before-semantic-effect","start_frontier":"exact M10 pending before callback effect","fault_trigger":"SIGKILL supervisor","expected_exit":"systemd restart allowed only through Active receipt before deadline","counter_delta":"one callback and at most one command/provider effect total","pel_final":"reclaimed exact source then XACK-last only after truth","checkpoint":"same accepted lifecycle checkpoint after restart"},
+    {"id":"stale-pel-reclaim","start_frontier":"one stale exact M10 PEL owner and no fresh read","fault_trigger":"restart with new consumer identity","expected_exit":"one bounded XAUTOCLAIM before XREADGROUP","counter_delta":"zero duplicate callback before claim validation","pel_final":"exact owner transition then accepted resolution","checkpoint":"claim cursor and source identity retained"},
+    {"id":"exact-duplicate-idempotence","start_frontier":"terminal truth retained for exact source and payload","fault_trigger":"replay equal stream identity and bytes","expected_exit":"idempotent continuation","counter_delta":"zero additional callback publication or provider effect","pel_final":"already XACKed or exact terminal resolution","checkpoint":"unchanged truth checkpoint"},
+    {"id":"conflicting-duplicate-fail-closed","start_frontier":"identity retained for accepted source","fault_trigger":"same logical identity with different bytes","expected_exit":"nonzero fail-closed stop","counter_delta":"zero callback publication provider effect and XACK","pel_final":"source retained pending","checkpoint":"conflict evidence plus Failed phase receipt"},
+    {"id":"paper-provider-uncertain-outcome-recovery","start_frontier":"provider effect may exist but durable outcome is uncertain","fault_trigger":"SIGKILL after effect boundary before outcome commit","expected_exit":"reconcile exact provider idempotency key without repeating effect","counter_delta":"provider effect total at most one","pel_final":"XACK-last only after durable reconciled truth","checkpoint":"reconciled outcome and terminal lifecycle checkpoint"}
   ],
   "evidence": {
     "target_preflight": true,
     "installed_file_manifest": true,
     "systemd_security_and_activation_state": true,
-    "db15_exact_inventory_and_groups": true,
-    "db0_p1_namespace_absence": true,
+    "phase_manifest_claim_receipt_and_deadline": true,
+    "artifact_supply_chain_and_freshness": true,
+    "publisher_sequence_revision_and_consumer_highwater": true,
+    "redis_role_command_audit": true,
+    "db15_exact_inventory_groups_streams_and_pel": true,
+    "p0_unit_config_identity_and_no_p1_action": true,
+    "p0_nonprefix_negative_and_legitimate_change_controls": true,
     "durable_tree_metadata_and_hashes": true,
     "health_readiness_and_runtime_state": true,
     "m10_command_ack_order_trade_position_and_pel": true,
-    "process_exit_restart_and_network_endpoints": true,
+    "process_exit_restart_deadline_and_network_endpoints": true,
+    "resource_growth_and_disk_pressure": true,
     "redacted_logs_and_no_secret_scan": true,
     "pre_and_post_stop_state": true
   },
-  "closed_surfaces": {
-    "design_performs_remote_mutation": false,
-    "p1f_source_implementation_authorized": false,
-    "operational_installation_authorized": false,
-    "systemd_reload_enable_start_authorized": false,
-    "operational_redis_db15_authorized": false,
-    "operational_redis_db0_authorized": false,
-    "finam_post_delete_send_authorized": false,
-    "broker_dispatch_authorized": false,
-    "runtime_live_authorized": false,
-    "real_orders_authorized": false
-  }
+  "closed_surfaces": {"design_performs_remote_mutation":false,"p1f_source_implementation_authorized":false,"operational_installation_authorized":false,"systemd_reload_enable_start_authorized":false,"operational_redis_db15_authorized":false,"operational_redis_db0_authorized":false,"finam_post_delete_send_authorized":false,"broker_dispatch_authorized":false,"runtime_live_authorized":false,"real_orders_authorized":false}
 }

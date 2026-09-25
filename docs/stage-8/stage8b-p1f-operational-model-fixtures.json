@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "domain": "moex.stage8b.p1f.operational-model-fixtures.v1",
+  "status": "DESIGN_MODEL_ONLY_NO_OPERATION",
+  "cases": [
+    {"id":"P1F-M01","area":"freshness","given":"O1 accepted and 301 seconds pass before O2 materialization","event":"operator presents new O2 manifest","expected":"O2-M collects fresh truth; O1 bytes are not admitted as fresh"},
+    {"id":"P1F-M02","area":"freshness","given":"O2-M truth is 301 seconds old before O2-B","event":"bootstrap admission","expected":"phase Failed; zero bootstrap mutation; receipt retained; new manifest required"},
+    {"id":"P1F-M03","area":"freshness","given":"long independent-review delay after O1","event":"O2 starts","expected":"fresh O2-M is mandatory immediately before isolated O2-B"},
+    {"id":"P1F-M04","area":"schedule","given":"schedule publication missing or transport age exceeds 5000 ms","event":"fresh route admission","expected":"fail closed before callback or source acquisition; PEL retained"},
+    {"id":"P1F-M05","area":"schedule","given":"embedded Stage4 evidence expired","event":"fresh route admission","expected":"Stage4EvidenceBlocked and phase stop"},
+    {"id":"P1F-M06","area":"publisher","given":"Published state sequence 41 revision 7","event":"publisher restart with unchanged semantic identity","expected":"sequence 42 revision 7 using exact retained high-water"},
+    {"id":"P1F-M07","area":"publisher","given":"O3 accepted state sequence 52","event":"separately authorized O4 begins with changed evidence kind","expected":"same source generation and high-water; sequence 53; semantic revision increments exactly once"},
+    {"id":"P1F-M08","area":"recovery","given":"committed V4 marker and historical package","event":"restart recovery","expected":"marker-bound historical continuation; no new fresh schedule admission"},
+    {"id":"P1F-M09","area":"authority","given":"two controllers race on Unclaimed manifest","event":"durable exclusive claim","expected":"one Active receipt; loser rejected before effect"},
+    {"id":"P1F-M10","area":"authority","given":"Completed Failed or Expired receipt","event":"same manifest replay","expected":"reject permanently with zero effect"},
+    {"id":"P1F-M11","area":"authority","given":"crash after fsynced Active claim before first effect","event":"local guardian restart before deadline","expected":"resume same receipt and original deadline; do not claim manifest again"},
+    {"id":"P1F-M12","area":"deadline","given":"SSH controller disconnects during Active phase","event":"deadline arrives","expected":"local enforcer stops children and writes terminal receipt independently of SSH"},
+    {"id":"P1F-M13","area":"deadline","given":"Active receipt before deadline","event":"supervisor failure and systemd restart","expected":"restart only through exact receipt; original deadline unchanged"},
+    {"id":"P1F-M14","area":"deadline","given":"Active receipt after deadline","event":"restart attempt","expected":"transition Expired; no child start or autorestart"},
+    {"id":"P1F-M15","area":"deadline","given":"deadline expires while supervisor blocks on Redis","event":"local deadline cancellation","expected":"stop within 30-second grace; source PEL and evidence retained"},
+    {"id":"P1F-M16","area":"telemetry","given":"terminal transition and telemetry writer unavailable","event":"stop path","expected":"local durable terminal receipt; zero telemetry-driven XACK; children stopped"},
+    {"id":"P1F-M17","area":"p0-isolation","given":"existing DB0 P0 key without P1 prefix","event":"P1 mutating role attempts SET or DEL","expected":"typed capability rejects before Redis command and audit records denial"},
+    {"id":"P1F-M18","area":"p0-isolation","given":"P0 legitimately updates its DB0 key during P1 phase","event":"post-phase audit","expected":"no false incident from whole-DB equality; P0 identities and zero P1 DB0 writes remain proven"},
+    {"id":"P1F-M19","area":"redis-safety","given":"P1 fault scenario","event":"FLUSHDB CONFIG or Redis restart requested","expected":"forbidden before command; stop P1 only; P0 and Redis process untouched"},
+    {"id":"P1F-M20","area":"resources","given":"PEL exceeds 64 or DB15 evidence exceeds 512 MiB or free disk falls below 10 GiB","event":"five-second resource poll","expected":"fail-stop P1 phase; retain evidence; no trim delete or Redis reconfiguration"}
+  ]
+}

@@ -1,37 +1,65 @@
 id,area,requirement,status
-P1F-001,lineage,Design parent is the accepted I1 governance closure,REQUIRED
-P1F-002,scope,Design changes no Rust Cargo deploy config workflow or remote state,REQUIRED
-P1F-003,target,Target host identity and SSH host-key fingerprint are exact,REQUIRED
-P1F-004,target,Ubuntu systemd architecture CPU memory and disk floors are explicit,REQUIRED
-P1F-005,isolation,P1 owns DB15 and never mutates DB0,REQUIRED
-P1F-006,isolation,P1 namespace service identity config root state root and binary are distinct,REQUIRED
-P1F-007,coexistence,Existing P0 runtime and WS services remain unchanged,REQUIRED
-P1F-008,redis,Redis remains loopback-only protected AOF-enabled port 6379 with 16 databases,REQUIRED
-P1F-009,preflight,DB15 must be empty and all P1 paths absent before first provisioning,REQUIRED
-P1F-010,phases,Source implementation precedes every remote action,REQUIRED
-P1F-011,phases,Read-only immutable preflight precedes provisioning,REQUIRED
-P1F-012,phases,Provisioning cannot reload enable or start a service,REQUIRED
-P1F-013,phases,Network-isolated bootstrap precedes ordinary service start,REQUIRED
-P1F-014,phases,Synthetic acceptance precedes read-only FINAM-bar acceptance,REQUIRED
-P1F-015,authority,Every operational phase has a single-use signed bounded manifest,REQUIRED
-P1F-016,authority,Phase escalation and unattended activation are forbidden,REQUIRED
-P1F-017,session,Readiness is PaperReady and LiveReady is forbidden,REQUIRED
-P1F-018,session,Synthetic session is bounded to 30 minutes,REQUIRED
-P1F-019,session,Read-only FINAM-bars session is bounded to 180 minutes,REQUIRED
-P1F-020,session,Service is stopped and disabled after each session,REQUIRED
-P1F-021,state,DB15 and durable state are retained unchanged for review,REQUIRED
-P1F-022,restart,Clean SIGTERM is evidenced,REQUIRED
-P1F-023,restart,Pre-effect SIGKILL restart is evidenced,REQUIRED
-P1F-024,restart,Stale PEL reclaim is evidenced,REQUIRED
-P1F-025,restart,Exact duplicate is idempotent,REQUIRED
-P1F-026,restart,Conflicting duplicate fails closed,REQUIRED
-P1F-027,restart,Uncertain paper-provider outcome recovers without repeat effect,REQUIRED
-P1F-028,finam,FINAM phase uses market-data-only read-only credentials,REQUIRED
-P1F-029,finam,Supervisor has no FINAM dependency and no order HTTP or command consumer,REQUIRED
-P1F-030,evidence,Installed files systemd security and activation state are retained,REQUIRED
-P1F-031,evidence,DB15 inventory groups lifecycle streams and PEL are retained,REQUIRED
-P1F-032,evidence,DB0 has no P1 namespace before and after every phase,REQUIRED
-P1F-033,evidence,Durable hashes telemetry runtime state and lifecycle projections are retained,REQUIRED
-P1F-034,evidence,Logs and process network evidence are redacted and secret-scanned,REQUIRED
-P1F-035,stop,Any identity scope namespace readiness or lifecycle mismatch stops the phase,REQUIRED
-P1F-036,closed,Installation Redis FINAM dispatch runtime-live and real orders remain unauthorized by design,REQUIRED
+P1F-R1-001,lineage,Correction parent and independent R0 review digest are exact,REQUIRED
+P1F-R1-002,scope,Correction changes no Rust Cargo deploy config workflow or remote state,REQUIRED
+P1F-R1-003,schema,Isolation object rejects missing extra renamed and mistyped fields,REQUIRED
+P1F-R1-004,schema,Config root is exactly /etc/moex-finam-p1-paper,REQUIRED
+P1F-R1-005,schema,State root is exactly /var/lib/moex-finam-p1-paper/state,REQUIRED
+P1F-R1-006,schema,Binary is exactly the accepted libexec path,REQUIRED
+P1F-R1-007,schema,Evidence inventory has exact names strict booleans and no extras,REQUIRED
+P1F-R1-008,target,Target host identity SSH fingerprint and platform are exact,REQUIRED
+P1F-R1-009,isolation,P1 mutating roles are exact DB15 and P1 namespace only,REQUIRED
+P1F-R1-010,coexistence,P0 units and configs remain outside P1 control,REQUIRED
+P1F-R1-011,phases,Seven phases remain ordered with separate acceptance,REQUIRED
+P1F-R1-012,o2,O1 output is never reused as fresh F00 truth,REQUIRED
+P1F-R1-013,o2,O2-M read-only materialization precedes isolated O2-B,REQUIRED
+P1F-R1-014,o2,O2-B is PrivateNetwork AF_UNIX only and no Redis,REQUIRED
+P1F-R1-015,o2,F00 truth older than 300 seconds fails without bootstrap mutation,REQUIRED
+P1F-R1-016,recovery,Committed V4 recovery uses marker-bound historical continuation only,REQUIRED
+P1F-R1-017,o3,Synthetic schedule and M10 use production verification paths,REQUIRED
+P1F-R1-018,o3,Test constructors fixture keys and bypass capabilities are forbidden,REQUIRED
+P1F-R1-019,o3,Synthetic clock binds realtime to monotonic elapsed time,REQUIRED
+P1F-R1-020,o4,Bars feeder is market-data only,REQUIRED
+P1F-R1-021,o4,Broker-truth observer is a separate GET-only role,REQUIRED
+P1F-R1-022,o4,Observer emits Stage4 report only and no M10 or command,REQUIRED
+P1F-R1-023,schedule,Publisher interval is at most 2000 ms,REQUIRED
+P1F-R1-024,schedule,Stage4 observations refresh at most every 30000 ms,REQUIRED
+P1F-R1-025,schedule,Cross-source skew is at most 5000 ms,REQUIRED
+P1F-R1-026,schedule,Missing stale or expired evidence blocks before callback acquisition,REQUIRED
+P1F-R1-027,publisher,Prepared replay is byte-exact,REQUIRED
+P1F-R1-028,publisher,Published restart advances sequence without revision reset,REQUIRED
+P1F-R1-029,publisher,O3 to O4 retains publisher and consumer high-water,REQUIRED
+P1F-R1-030,publisher,O4 requires a new phase manifest but not first-publication authority,REQUIRED
+P1F-R1-031,artifacts,Every produced artifact declares producer and phase authority,REQUIRED
+P1F-R1-032,artifacts,Every produced artifact declares provenance and canonical identity,REQUIRED
+P1F-R1-033,artifacts,Every produced artifact declares freshness signer and custody,REQUIRED
+P1F-R1-034,artifacts,Every produced artifact declares allowed outputs and restart policy,REQUIRED
+P1F-R1-035,authority,Manifest binds source target phase deadline inputs config and installation,REQUIRED
+P1F-R1-036,authority,Durable exclusive claim precedes first effect,REQUIRED
+P1F-R1-037,authority,Second controller and terminal manifest replay are rejected,REQUIRED
+P1F-R1-038,authority,Crash after claim resumes the same Active receipt only,REQUIRED
+P1F-R1-039,deadline,Deadline starts at claim and restart never extends it,REQUIRED
+P1F-R1-040,deadline,Local deadline enforcement is independent of SSH,REQUIRED
+P1F-R1-041,deadline,Restart after expiry and terminal autorestart are forbidden,REQUIRED
+P1F-R1-042,deadline,Shutdown grace is exactly 30 seconds then force kill,REQUIRED
+P1F-R1-043,deadline,Expiry during Redis wait retains source PEL and evidence,REQUIRED
+P1F-R1-044,telemetry,Telemetry failure persists local receipt and cannot drive XACK,REQUIRED
+P1F-R1-045,redis,Each role has exact command key DB and output capability,REQUIRED
+P1F-R1-046,redis,Raw Redis connection cannot escape production role adapters,REQUIRED
+P1F-R1-047,redis,Global destructive administrative and shared-policy commands are forbidden,REQUIRED
+P1F-R1-048,redis,Fault injection may stop P1 only and never Redis or P0,REQUIRED
+P1F-R1-049,p0,P0 unit and config hashes are retained before and after,REQUIRED
+P1F-R1-050,p0,P1 initiated P0 service actions and DB0 writes are zero,REQUIRED
+P1F-R1-051,p0,Existing nonprefix P0 key mutation is rejected before Redis,REQUIRED
+P1F-R1-052,p0,Legitimate P0 DB0 change does not trigger whole-DB false failure,REQUIRED
+P1F-R1-053,resources,PEL above 64 causes P1 fail-stop,REQUIRED
+P1F-R1-054,resources,DB15 evidence above 512 MiB causes P1 fail-stop,REQUIRED
+P1F-R1-055,resources,Free root below 10 GiB causes P1 fail-stop,REQUIRED
+P1F-R1-056,resources,Limit handling never trims deletes or reconfigures Redis,REQUIRED
+P1F-R1-057,restart,Six scenarios freeze start fault exit counter PEL and checkpoint,REQUIRED
+P1F-R1-058,restart,SIGKILL continuation uses original phase receipt and deadline,REQUIRED
+P1F-R1-059,restart,Conflicting duplicate retains source and performs zero XACK,REQUIRED
+P1F-R1-060,restart,Uncertain provider recovery performs at most one provider effect,REQUIRED
+P1F-R1-061,models,Twenty model cases cover freshness authority deadline P0 and resources,REQUIRED
+P1F-R1-062,models,No-op mutation cannot count as a rejected negative case,REQUIRED
+P1F-R1-063,evidence,Evidence key inventory and P0 role-command proof are exact,REQUIRED
+P1F-R1-064,closed,Acceptance opens only P1F-I and no operational surface,REQUIRED
