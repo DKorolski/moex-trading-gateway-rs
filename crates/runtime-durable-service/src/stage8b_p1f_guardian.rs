@@ -330,6 +330,7 @@ pub struct Stage8bP1fRunPermitV1 {
     stopping_started_at: Option<DateTime<Utc>>,
     force_kill_at: Option<DateTime<Utc>>,
     force_kill_after_elapsed: Option<StdDuration>,
+    stopping_reason_code: Option<String>,
     last_trusted_wall: DateTime<Utc>,
 }
 
@@ -338,6 +339,23 @@ pub enum Stage8bP1fDeadlineDecisionV1 {
     Continue,
     BeginStopping,
     ForceKill,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage8bP1fLocalStopCauseV1 {
+    Sigterm,
+    Sigint,
+    SupervisionFailure,
+}
+
+impl Stage8bP1fLocalStopCauseV1 {
+    const fn reason_code(self) -> &'static str {
+        match self {
+            Self::Sigterm => "external-sigterm",
+            Self::Sigint => "external-sigint",
+            Self::SupervisionFailure => "supervision-failure",
+        }
+    }
 }
 
 impl Stage8bP1fRunPermitV1 {
@@ -360,6 +378,56 @@ impl Stage8bP1fRunPermitV1 {
         trusted_wall_now: DateTime<Utc>,
     ) -> Result<Stage8bP1fDeadlineDecisionV1, Stage8bP1fAuthorityErrorV1> {
         self.poll_deadline_at_elapsed(trusted_wall_now, self.admitted_monotonic.elapsed())
+    }
+
+    pub(crate) fn request_local_stop(
+        &mut self,
+        cause: Stage8bP1fLocalStopCauseV1,
+        trusted_wall_now: DateTime<Utc>,
+    ) -> Result<Stage8bP1fDeadlineDecisionV1, Stage8bP1fAuthorityErrorV1> {
+        let elapsed = self.admitted_monotonic.elapsed();
+        if self.stopping_started_at.is_some() {
+            return self.poll_deadline_at_elapsed(trusted_wall_now, elapsed);
+        }
+
+        let expected_wall = self.admitted_wall
+            + chrono::Duration::from_std(elapsed).unwrap_or(chrono::Duration::MAX);
+        let clock_untrusted = trusted_wall_now + chrono::Duration::seconds(1) < expected_wall
+            || trusted_wall_now < self.claimed_at
+            || trusted_wall_now < self.last_trusted_wall;
+        if trusted_wall_now >= self.deadline || clock_untrusted {
+            return self.poll_deadline_at_elapsed(trusted_wall_now, elapsed);
+        }
+
+        let force_kill_at = trusted_wall_now + chrono::Duration::seconds(30);
+        let reason_code = cause.reason_code();
+        let store = Stage8bP1fAuthorityStoreV1::open_at(
+            &self.authority_root,
+            self.expected_uid,
+            self.service_gid,
+        )?;
+        let receipt = store.begin_stopping_phase(
+            &self.manifest_sha256,
+            reason_code,
+            trusted_wall_now,
+            force_kill_at,
+            &self.boot_id,
+        )?;
+        self.stopping_started_at = Some(parse_timestamp(&receipt.stopping_started_at_utc)?);
+        self.force_kill_at = Some(parse_timestamp(&receipt.force_kill_at_utc)?);
+        self.force_kill_after_elapsed = elapsed.checked_add(StdDuration::from_secs(30));
+        self.stopping_reason_code = Some(reason_code.to_string());
+        self.last_trusted_wall = trusted_wall_now;
+        Ok(Stage8bP1fDeadlineDecisionV1::BeginStopping)
+    }
+
+    pub(crate) fn stopping_reason_code(&self) -> Option<&str> {
+        self.stopping_reason_code.as_deref()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn shorten_stop_grace_for_test(&mut self, grace: StdDuration) {
+        self.force_kill_after_elapsed = Some(self.admitted_monotonic.elapsed() + grace);
     }
 
     fn poll_deadline_at_elapsed(
@@ -420,6 +488,7 @@ impl Stage8bP1fRunPermitV1 {
         self.stopping_started_at = Some(parse_timestamp(&receipt.stopping_started_at_utc)?);
         self.force_kill_at = Some(parse_timestamp(&receipt.force_kill_at_utc)?);
         self.force_kill_after_elapsed = elapsed.checked_add(StdDuration::from_secs(30));
+        self.stopping_reason_code = Some(receipt.reason_code);
         self.last_trusted_wall = trusted_wall_now;
         Ok(Stage8bP1fDeadlineDecisionV1::BeginStopping)
     }
@@ -1241,6 +1310,7 @@ impl Stage8bP1fAuthorityStoreV1 {
             stopping_started_at: None,
             force_kill_at: None,
             force_kill_after_elapsed: None,
+            stopping_reason_code: None,
             last_trusted_wall: trusted_now,
         })
     }
@@ -1787,6 +1857,7 @@ impl Stage8bP1fAuthorityStoreV1 {
             stopping_started_at: Some(stopping_started_at),
             force_kill_at: Some(force_kill_at),
             force_kill_after_elapsed: Some(force_kill_after_elapsed),
+            stopping_reason_code: Some(receipt.reason_code),
             last_trusted_wall: trusted_now,
         })
     }
@@ -3459,6 +3530,12 @@ mod tests {
             }
         }
 
+        fn new_current() -> Self {
+            let mut setup = Self::new();
+            setup.now = Utc::now();
+            setup
+        }
+
         fn public_key_hex(&self) -> String {
             lower_hex(self.signing.verifying_key().as_bytes())
         }
@@ -4873,6 +4950,357 @@ mod tests {
                 .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
                 .unwrap_err(),
             Stage8bP1fAuthorityErrorV1::Quarantined
+        );
+    }
+
+    fn admitted_o3(setup: &Setup) -> (String, Stage8bP1fRunPermitV1) {
+        let head = setup.initialize_and_activate();
+        let phase = setup.phase(&head, Stage8bP1fPhaseV1::O3SyntheticPaper);
+        let manifest_sha256 = sha256_hex(&phase);
+        setup
+            .store
+            .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+            .unwrap();
+        let permit = setup
+            .store
+            .admit_active_phase_at(
+                &manifest_sha256,
+                setup.now + Duration::milliseconds(1),
+                None,
+            )
+            .unwrap();
+        (manifest_sha256, permit)
+    }
+
+    async fn wait_for_file(path: &Path) {
+        let deadline = Instant::now() + StdDuration::from_secs(3);
+        while !path.exists() {
+            assert!(Instant::now() < deadline, "child marker was not created");
+            tokio::time::sleep(StdDuration::from_millis(5)).await;
+        }
+    }
+
+    fn shell_path(path: &Path) -> String {
+        format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn local_supervision_starts_after_admission_and_stops_on_sigterm() {
+        use crate::stage8b_p1f_local_supervision::test_support;
+
+        let setup = Setup::new_current();
+        let (manifest_sha256, permit) = admitted_o3(&setup);
+        let started = setup.root.join("sigterm-child-started");
+        let child = test_support::shell(format!(
+            "trap 'exit 0' TERM INT; echo started > {}; while :; do sleep 0.02; done",
+            shell_path(&started)
+        ));
+        let (sender, receiver) = test_support::signals();
+        let runner = test_support::run(
+            &setup.store,
+            permit,
+            child,
+            receiver,
+            test_support::policy(StdDuration::from_millis(10), StdDuration::from_millis(100)),
+        );
+        let trigger = async {
+            wait_for_file(&started).await;
+            sender.send(test_support::sigterm()).unwrap();
+        };
+        let (result, ()) = tokio::join!(runner, trigger);
+        let result = result.unwrap();
+        assert_eq!(result.manifest_sha256, manifest_sha256);
+        assert_eq!(result.child_starts, 1);
+        assert!(!result.force_killed);
+        assert_eq!(
+            result.disposition,
+            crate::Stage8bP1fLocalSupervisionDispositionV1::GracefulStop
+        );
+        assert_eq!(
+            setup.store.inspect().unwrap().state,
+            Stage8bP1fPhaseStateV1::Completed
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn retained_pre_spawn_signal_prevents_child_start() {
+        use crate::stage8b_p1f_local_supervision::test_support;
+
+        let setup = Setup::new_current();
+        let (_manifest_sha256, permit) = admitted_o3(&setup);
+        let forbidden = setup.root.join("pre-signal-child-must-not-start");
+        let child = test_support::shell(format!("echo started > {}", shell_path(&forbidden)));
+        let (sender, receiver) = test_support::signals();
+        sender.send(test_support::sigterm()).unwrap();
+        let result = test_support::run(
+            &setup.store,
+            permit,
+            child,
+            receiver,
+            test_support::policy(StdDuration::from_millis(10), StdDuration::from_millis(100)),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.child_starts, 0);
+        assert!(!forbidden.exists());
+        assert_eq!(
+            result.disposition,
+            crate::Stage8bP1fLocalSupervisionDispositionV1::GracefulStop
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn local_supervision_restarts_child_under_same_permit_then_handles_sigint() {
+        use crate::stage8b_p1f_local_supervision::test_support;
+
+        let setup = Setup::new_current();
+        let (_manifest_sha256, permit) = admitted_o3(&setup);
+        let count = setup.root.join("restart-count");
+        let ready = setup.root.join("restart-ready");
+        let child = test_support::shell(format!(
+            "count=0; test ! -f {count} || count=$(cat {count}); count=$((count+1)); echo $count > {count}; if test $count -eq 1; then exit 67; fi; trap 'exit 0' TERM INT; echo ready > {ready}; while :; do sleep 0.02; done",
+            count = shell_path(&count),
+            ready = shell_path(&ready),
+        ));
+        let (sender, receiver) = test_support::signals();
+        let runner = test_support::run(
+            &setup.store,
+            permit,
+            child,
+            receiver,
+            test_support::policy(StdDuration::from_millis(10), StdDuration::from_millis(100)),
+        );
+        let trigger = async {
+            wait_for_file(&ready).await;
+            sender.send(test_support::sigint()).unwrap();
+        };
+        let (result, ()) = tokio::join!(runner, trigger);
+        let result = result.unwrap();
+        assert_eq!(result.child_starts, 2);
+        assert_eq!(fs::read_to_string(count).unwrap().trim(), "2");
+        assert_eq!(
+            result.disposition,
+            crate::Stage8bP1fLocalSupervisionDispositionV1::GracefulStop
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn local_supervision_force_kills_noncooperative_process_group() {
+        use crate::stage8b_p1f_local_supervision::{
+            test_support, Stage8bP1fLocalSupervisionErrorV1,
+        };
+
+        let setup = Setup::new_current();
+        let (_manifest_sha256, permit) = admitted_o3(&setup);
+        let parent_pid = setup.root.join("force-parent-pid");
+        let child_pid = setup.root.join("force-child-pid");
+        let child = test_support::shell(format!(
+            "trap '' TERM INT; (trap '' TERM INT; while :; do sleep 1; done) & echo $! > {child}; echo $$ > {parent}; while :; do sleep 1; done",
+            child = shell_path(&child_pid),
+            parent = shell_path(&parent_pid),
+        ));
+        let (sender, receiver) = test_support::signals();
+        let runner = test_support::run(
+            &setup.store,
+            permit,
+            child,
+            receiver,
+            test_support::force_policy(),
+        );
+        let trigger = async {
+            wait_for_file(&parent_pid).await;
+            wait_for_file(&child_pid).await;
+            sender.send(test_support::sigterm()).unwrap();
+        };
+        let (result, ()) = tokio::join!(runner, trigger);
+        assert!(matches!(
+            result.unwrap_err(),
+            Stage8bP1fLocalSupervisionErrorV1::ForceKilled
+        ));
+        assert_eq!(
+            setup.store.inspect().unwrap().state,
+            Stage8bP1fPhaseStateV1::Failed
+        );
+        for path in [&parent_pid, &child_pid] {
+            let pid = fs::read_to_string(path)
+                .unwrap()
+                .trim()
+                .parse::<i32>()
+                .unwrap();
+            let deadline = Instant::now() + StdDuration::from_secs(2);
+            while unsafe { libc::kill(pid, 0) } == 0 && Instant::now() < deadline {
+                tokio::time::sleep(StdDuration::from_millis(10)).await;
+            }
+            assert_ne!(unsafe { libc::kill(pid, 0) }, 0, "process {pid} survived");
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn recovered_guardian_never_starts_a_new_child() {
+        use crate::stage8b_p1f_local_supervision::{
+            test_support, PreparedRunV1, Stage8bP1fLocalSupervisionErrorV1,
+        };
+
+        let setup = Setup::new_current();
+        let (manifest_sha256, permit) = admitted_o3(&setup);
+        drop(permit);
+        let recovered = test_support::prepare(
+            &setup.store,
+            &manifest_sha256,
+            setup.now + Duration::seconds(1),
+        )
+        .unwrap();
+        let permit = match recovered {
+            PreparedRunV1::Permit(permit) => permit,
+            PreparedRunV1::Expired(_) => panic!("retained owner must enter stopping recovery"),
+        };
+        let forbidden = setup.root.join("recovered-child-must-not-start");
+        let child = test_support::shell(format!("echo started > {}", shell_path(&forbidden)));
+        let (_sender, receiver) = test_support::signals();
+        let error = test_support::run(
+            &setup.store,
+            permit,
+            child,
+            receiver,
+            test_support::policy(StdDuration::from_millis(10), StdDuration::from_millis(50)),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            Stage8bP1fLocalSupervisionErrorV1::RecoveryTerminated
+        ));
+        assert!(!forbidden.exists());
+        assert_eq!(
+            setup.store.inspect().unwrap().state,
+            Stage8bP1fPhaseStateV1::Failed
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn signal_supervision_loss_is_nonzero_and_leaves_no_child() {
+        use crate::stage8b_p1f_local_supervision::{
+            test_support, Stage8bP1fLocalSupervisionErrorV1,
+        };
+
+        let setup = Setup::new_current();
+        let (_manifest_sha256, permit) = admitted_o3(&setup);
+        let started = setup.root.join("signal-loss-child-started");
+        let pid_path = setup.root.join("signal-loss-child-pid");
+        let child = test_support::shell(format!(
+            "trap 'exit 0' TERM INT; echo $$ > {pid}; echo started > {started}; while :; do sleep 0.02; done",
+            pid = shell_path(&pid_path),
+            started = shell_path(&started),
+        ));
+        let (sender, receiver) = test_support::signals();
+        let runner = test_support::run(
+            &setup.store,
+            permit,
+            child,
+            receiver,
+            test_support::policy(StdDuration::from_millis(10), StdDuration::from_millis(100)),
+        );
+        let trigger = async {
+            wait_for_file(&started).await;
+            drop(sender);
+        };
+        let (result, ()) = tokio::join!(runner, trigger);
+        assert!(matches!(
+            result.unwrap_err(),
+            Stage8bP1fLocalSupervisionErrorV1::SignalTask
+        ));
+        assert_eq!(
+            setup.store.inspect().unwrap().state,
+            Stage8bP1fPhaseStateV1::Failed
+        );
+        let pid = fs::read_to_string(pid_path)
+            .unwrap()
+            .trim()
+            .parse::<i32>()
+            .unwrap();
+        assert_ne!(unsafe { libc::kill(pid, 0) }, 0);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn child_restart_budget_is_bounded_without_readmission() {
+        use crate::stage8b_p1f_local_supervision::{
+            test_support, Stage8bP1fLocalSupervisionErrorV1,
+        };
+
+        let setup = Setup::new_current();
+        let (_manifest_sha256, permit) = admitted_o3(&setup);
+        let count = setup.root.join("restart-budget-count");
+        let child = test_support::shell(format!(
+            "count=0; test ! -f {count} || count=$(cat {count}); count=$((count+1)); echo $count > {count}; exit 67",
+            count = shell_path(&count),
+        ));
+        let (_sender, receiver) = test_support::signals();
+        let error = test_support::run(
+            &setup.store,
+            permit,
+            child,
+            receiver,
+            test_support::policy(StdDuration::from_millis(5), StdDuration::from_millis(50)),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            Stage8bP1fLocalSupervisionErrorV1::RestartExhausted
+        ));
+        assert_eq!(fs::read_to_string(count).unwrap().trim(), "5");
+        assert_eq!(
+            setup.store.inspect().unwrap().state,
+            Stage8bP1fPhaseStateV1::Failed
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_guardian_death_signal_kills_child() {
+        use crate::stage8b_p1f_local_supervision::test_support;
+
+        const HELPER_ENV: &str = "STAGE8B_P1F_PDEATH_HELPER";
+        const MARKER_ENV: &str = "STAGE8B_P1F_PDEATH_MARKER";
+        const PID_ENV: &str = "STAGE8B_P1F_PDEATH_PID";
+        if std::env::var(HELPER_ENV).as_deref() == Ok("1") {
+            let marker = PathBuf::from(std::env::var_os(MARKER_ENV).unwrap());
+            let pid = PathBuf::from(std::env::var_os(PID_ENV).unwrap());
+            test_support::hold_pdeath_child(&marker, &pid);
+        }
+
+        let setup = Setup::new_current();
+        let marker = setup.root.join("pdeath-helper-ready");
+        let pid_path = setup.root.join("pdeath-child-pid");
+        let mut helper = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg("stage8b_p1f_guardian::tests::linux_guardian_death_signal_kills_child")
+            .arg("--nocapture")
+            .env(HELPER_ENV, "1")
+            .env(MARKER_ENV, &marker)
+            .env(PID_ENV, &pid_path)
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + StdDuration::from_secs(5);
+        while (!marker.exists() || !pid_path.exists()) && Instant::now() < deadline {
+            std::thread::sleep(StdDuration::from_millis(10));
+        }
+        assert!(marker.exists() && pid_path.exists());
+        let child_pid = fs::read_to_string(&pid_path)
+            .unwrap()
+            .trim()
+            .parse::<i32>()
+            .unwrap();
+        assert_eq!(unsafe { libc::kill(helper.id() as i32, libc::SIGKILL) }, 0);
+        helper.wait().unwrap();
+        let deadline = Instant::now() + StdDuration::from_secs(5);
+        while unsafe { libc::kill(child_pid, 0) } == 0 && Instant::now() < deadline {
+            std::thread::sleep(StdDuration::from_millis(10));
+        }
+        assert_ne!(
+            unsafe { libc::kill(child_pid, 0) },
+            0,
+            "parent-death child survived guardian SIGKILL"
         );
     }
 

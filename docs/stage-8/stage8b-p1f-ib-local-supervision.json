@@ -1,0 +1,54 @@
+{
+  "accepted_guardian_commit": "9be356b04a38e627337ed148ccc9fbdaebae8d4a",
+  "accepted_guardian_review_sha256": "db684cb6ba10cb951801cc917c317d2817c99c3f10874d5a1d959c053f6ebb60",
+  "child": {
+    "args": [
+      "run",
+      "/etc/moex-finam-p1-paper/supervisor.json"
+    ],
+    "binary": "/usr/local/libexec/moex/stage8b-p1-paper-supervisor",
+    "linux_parent_death_signal": "SIGKILL",
+    "max_starts_per_600_seconds": 5,
+    "process_group": "dedicated",
+    "restart_delay_seconds": 5,
+    "user_group": "moex-p1-paper:moex-p1-paper"
+  },
+  "closed_surfaces": {
+    "broker_dispatch": false,
+    "finam_attachment_or_write": false,
+    "operational_install_or_service_start": false,
+    "paper_provider_execution": false,
+    "real_orders": false,
+    "redis_db15_or_db0_activation": false,
+    "runtime_live": false,
+    "vps_mutation": false
+  },
+  "entry": {
+    "binary": "stage8b-p1f-local-supervisor",
+    "grammar": "run MANIFEST_SHA256",
+    "permitted_phases": [
+      "O3_SYNTHETIC_PAPER",
+      "O4_FINAM_READ_ONLY"
+    ]
+  },
+  "evidence": {
+    "checker": "scripts/stage8b_p1f_ib_check.py",
+    "gate": "scripts/stage8b_p1f_ib_gate.sh",
+    "negative_harness": "scripts/stage8b_p1f_ib_negative_harness.py",
+    "real_process_tests": 8
+  },
+  "next_after_acceptance": "P1F-Ic fixed producers and retained high-water; P1F-O0 remains closed",
+  "production_module": "crates/runtime-durable-service/src/stage8b_p1f_local_supervision.rs",
+  "schema_version": 1,
+  "stage": "Stage 8B-P1-f Ib local supervision composition",
+  "status": "REVIEW_CANDIDATE_LOCAL_SUPERVISION_ONLY",
+  "stop_contract": {
+    "force_kill_scope": "entire child process group",
+    "grace_seconds": 30,
+    "monotonic_witness": "original linear Ia run permit",
+    "signals": [
+      "SIGTERM",
+      "SIGINT"
+    ]
+  }
+}

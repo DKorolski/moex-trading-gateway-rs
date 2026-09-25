@@ -402,10 +402,14 @@ operational provider/Redis/VPS surface.
 
 P1-f R0 through R3 were held by independent review. P1-f R4 at
 `5d81b8e212300858246237a227a95d115dd67c2d` is independently design-accepted.
-P1F-Ia guardian foundation correction R3 is the active review candidate. P1F-Ib
-local supervision, P1F-Ic producer/high-water composition, P1F-Id eight role
-adapters/resource polling/command audit and P1F-Ie aggregate source closure
-remain required; P1F-O0 stays closed until P1F-Ie acceptance. The remaining sequence is:
+P1F-Ia guardian foundation correction R3 is independently accepted at
+`9be356b04a38e627337ed148ccc9fbdaebae8d4a`. P1F-Ib fixed local supervision is
+the active source review candidate: it composes the accepted guardian permit
+with the fixed I1 child process group and proves bounded TERM/INT, restart,
+ForceKill and lost-witness behavior locally. P1F-Ic producer/high-water
+composition, P1F-Id eight role adapters/resource polling/command audit and
+P1F-Ie aggregate source closure remain required; P1F-O0 stays closed until
+P1F-Ie acceptance. The remaining sequence is:
 guardian foundation, remaining source composition, immutable read-only target preflight, non-activating
 provisioning, one-shot network-isolated bootstrap, bounded synthetic paper
 session/restart acceptance, separately authorized read-only FINAM-bar session,

@@ -285,6 +285,7 @@ mod stage8b_p1e_first_boot_transaction;
 mod stage8b_p1e_process;
 mod stage8b_p1e_schedule_source;
 mod stage8b_p1f_guardian;
+mod stage8b_p1f_local_supervision;
 
 pub use recovery::{
     spawn_stage7b_supervised_task, P1SemanticPrepublicationPending, P1SemanticZeroIntentAckPending,
@@ -529,6 +530,11 @@ pub use stage8b_p1f_guardian::{
     STAGE8B_P1F_AUTHORITY_CONTROL_ROOT, STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
     STAGE8B_P1F_CONFIG_ROOT, STAGE8B_P1F_SERVICE_USER, STAGE8B_P1F_SOURCE_SHA256_TEMPLATE_SENTINEL,
     STAGE8B_P1F_TARGET_HOST_ID,
+};
+pub use stage8b_p1f_local_supervision::{
+    run_stage8b_p1f_local_supervisor_v1, Stage8bP1fLocalSupervisionDispositionV1,
+    Stage8bP1fLocalSupervisionErrorV1, Stage8bP1fLocalSupervisionResultV1,
+    STAGE8B_P1F_I1_BINARY_PATH,
 };
 
 use std::{
