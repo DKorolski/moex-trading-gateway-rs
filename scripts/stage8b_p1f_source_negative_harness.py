@@ -24,6 +24,8 @@ REQUIRED_PATHS = {
     check.STATUS,
     check.ROADMAP,
     check.MULTI_UID,
+    check.REDIS_SOURCE,
+    check.STALE_DELETE_LUA,
     *check.DESIGN_HASHES.keys(),
 }
 
@@ -51,33 +53,55 @@ def copy_inputs(root: Path) -> None:
         shutil.copy2(source, target)
 
 
-def cases() -> list[tuple[str, Callable[[Path], None]]]:
+def cases() -> list[tuple[str, str, Callable[[Path], None]]]:
     return [
-        ("control-root", lambda root: replace(root, check.SOURCE, "/var/lib/moex-finam-p1-paper-control", "/tmp/p1f-control")),
-        ("production-root-check", lambda root: replace(root, check.SOURCE, "if unsafe { libc::geteuid() } != 0", "if false")),
-        ("transition-uid-check", lambda root: replace(root, check.SOURCE, "if unsafe { libc::geteuid() } != self.expected_uid", "if false")),
-        ("nofollow", lambda root: replace(root, check.SOURCE, "libc::O_NOFOLLOW | libc::O_CLOEXEC", "libc::O_CLOEXEC")),
-        ("explicit-file-custody", lambda root: replace(root, check.SOURCE, "libc::fchown", "libc::fchmod")),
-        ("exclusive-lock", lambda root: replace(root, check.SOURCE, "libc::LOCK_EX | libc::LOCK_NB", "libc::LOCK_EX")),
-        ("cloneable-permit", lambda root: replace(root, check.SOURCE, "#[derive(Debug)]\npub struct Stage8bP1fRunPermitV1", "#[derive(Debug, Clone)]\npub struct Stage8bP1fRunPermitV1")),
-        ("phase-domain", lambda root: replace(root, check.SOURCE, "SIGNED_PHASE_DOMAIN", "UNSIGNED_PHASE_DOMAIN")),
-        ("claim-transaction", lambda root: replace(root, check.SOURCE, "PENDING_CLAIM_FILE", "REMOVED_CLAIM_FILE")),
-        ("materialization-transaction", lambda root: replace(root, check.SOURCE, "PENDING_MATERIALIZATION_FILE", "REMOVED_MATERIALIZATION_FILE")),
-        ("terminal-transaction", lambda root: replace(root, check.SOURCE, "PENDING_TERMINAL_FILE", "REMOVED_TERMINAL_FILE")),
-        ("retained-manifest-binding", lambda root: replace(root, check.SOURCE, "sha256_hex(&retained_manifest_bytes) != event.manifest_sha256", "false")),
-        ("freshness-301", lambda root: replace(root, check.SOURCE, "!(0..=300).contains(&age)", "!(0..=301).contains(&age)")),
-        ("force-kill-grace", lambda root: replace(root, check.SOURCE, "StdDuration::from_secs(30)", "StdDuration::from_secs(60)")),
-        ("redis-client", lambda root: (root / check.SOURCE).write_text((root / check.SOURCE).read_text() + "\n// redis::Client\n")),
-        ("multi-uid-unlink", lambda root: replace(root, check.MULTI_UID, "unlink-authority", "unlink-removed")),
-        ("opened-surface", lambda root: mutate_json(root, lambda value: value["closed_surfaces"].__setitem__("runtime_live", True))),
-        ("design-freeze", lambda root: replace(root, check.r4.INVENTORY, '"mutating_roles_database": 15', '"mutating_roles_database": 0')),
-        ("matrix-removal", lambda root: replace(root, check.MATRIX, "P1FI-030,closed,O0 through O4 P1F-A Redis FINAM runtime-live and real orders remain closed,REQUIRED\n", "")),
+        ("control-root", "source", lambda root: replace(root, check.SOURCE, "/var/lib/moex-finam-p1-paper-control", "/tmp/p1f-control")),
+        ("production-root-check", "source", lambda root: replace(root, check.SOURCE, "if unsafe { libc::geteuid() } != 0", "if false")),
+        ("transition-uid-check", "source", lambda root: replace(root, check.SOURCE, "if unsafe { libc::geteuid() } != self.expected_uid", "if false")),
+        ("nofollow", "source", lambda root: replace(root, check.SOURCE, "libc::O_NOFOLLOW | libc::O_CLOEXEC", "libc::O_CLOEXEC")),
+        ("explicit-file-custody", "source", lambda root: replace(root, check.SOURCE, "libc::fchown", "libc::fchmod")),
+        ("exclusive-lock", "source", lambda root: replace(root, check.SOURCE, "libc::LOCK_EX | libc::LOCK_NB", "libc::LOCK_EX")),
+        ("cloneable-permit", "source", lambda root: replace(root, check.SOURCE, "#[derive(Debug)]\npub struct Stage8bP1fRunPermitV1", "#[derive(Debug, Clone)]\npub struct Stage8bP1fRunPermitV1")),
+        ("phase-domain", "source", lambda root: replace(root, check.SOURCE, "SIGNED_PHASE_DOMAIN", "UNSIGNED_PHASE_DOMAIN")),
+        ("claim-transaction", "source", lambda root: replace(root, check.SOURCE, "PENDING_CLAIM_FILE", "REMOVED_CLAIM_FILE")),
+        ("materialization-transaction", "source", lambda root: replace(root, check.SOURCE, "PENDING_MATERIALIZATION_FILE", "REMOVED_MATERIALIZATION_FILE")),
+        ("terminal-transaction", "source", lambda root: replace(root, check.SOURCE, "PENDING_TERMINAL_FILE", "REMOVED_TERMINAL_FILE")),
+        ("retained-manifest-binding", "source", lambda root: replace(root, check.SOURCE, "sha256_hex(&retained_manifest_bytes) != event.manifest_sha256", "false")),
+        ("freshness-301", "source", lambda root: replace(root, check.SOURCE, "!(0..=300).contains(&age)", "!(0..=301).contains(&age)")),
+        ("force-kill-grace", "source", lambda root: replace(root, check.SOURCE, "force_kill_at = stopping_started_at + chrono::Duration::seconds(30)", "force_kill_at = stopping_started_at + chrono::Duration::seconds(60)")),
+        ("redis-client", "source", lambda root: (root / check.SOURCE).write_text((root / check.SOURCE).read_text() + "\n// redis::Client\n")),
+        ("multi-uid-unlink", "evidence", lambda root: replace(root, check.MULTI_UID, "unlink-authority", "unlink-removed")),
+        ("opened-surface", "inventory", lambda root: mutate_json(root, lambda value: value["closed_surfaces"].__setitem__("runtime_live", True))),
+        ("design-freeze", "design", lambda root: replace(root, check.r4.INVENTORY, '"mutating_roles_database": 15', '"mutating_roles_database": 0')),
+        ("matrix-removal", "matrix", lambda root: replace(root, check.MATRIX, "P1FI-030,closed,P1F-Ib through Ie O0 through O4 P1F-A Redis FINAM runtime-live and real orders remain closed,REQUIRED\n", "")),
     ]
 
 
 def main() -> int:
+    with tempfile.TemporaryDirectory(prefix="stage8b-p1f-source-positive-") as directory:
+        baseline = Path(directory)
+        copy_inputs(baseline)
+        missing = [path for path in REQUIRED_PATHS if not (baseline / path).is_file()]
+        if missing:
+            print(f"FAIL infrastructure missing-inputs={missing}")
+            return 1
+        try:
+            check.validate(baseline, verify_lineage=False)
+        except Exception as error:
+            print(f"FAIL positive-control category=infrastructure error={error}")
+            return 1
+        source = baseline / check.SOURCE
+        source.write_text(source.read_text() + "\n// nonsemantic control accepted\n")
+        try:
+            check.validate(baseline, verify_lineage=False)
+        except Exception as error:
+            print(f"FAIL nonsemantic-control category=false-positive error={error}")
+            return 1
+        print("PASS positive-control")
+        print("PASS nonsemantic-control")
+
     passed = 0
-    for name, mutate in cases():
+    for name, category, mutate in cases():
         with tempfile.TemporaryDirectory(prefix="stage8b-p1f-source-negative-") as directory:
             root = Path(directory)
             copy_inputs(root)
@@ -89,10 +113,13 @@ def main() -> int:
                 return 1
             try:
                 check.validate(root, verify_lineage=False)
-            except (check.CheckFailure, check.r4.CheckFailure, OSError, UnicodeDecodeError):
-                print(f"PASS {name}")
+            except (check.CheckFailure, check.r4.CheckFailure) as error:
+                print(f"PASS {name} category={category} rejection={error}")
                 passed += 1
                 continue
+            except (OSError, UnicodeDecodeError) as error:
+                print(f"FAIL {name}: infrastructure failure was not a semantic rejection: {error}")
+                return 1
             print(f"FAIL {name}: checker accepted mutation")
             return 1
     print(f"PASS stage8b-p1f-source-negative-harness {passed}/{len(cases())}")

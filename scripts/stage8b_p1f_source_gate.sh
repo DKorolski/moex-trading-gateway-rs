@@ -21,4 +21,4 @@ else
   multi_uid="separate-evidence-required"
 fi
 
-echo "PASS stage8b-p1f-source-gate guardian=true inherited=true negatives=19 multi_uid=$multi_uid operational=false"
+echo "PASS stage8b-p1f-source-gate boundary=P1F-Ia guardian=true inherited=true negatives=19 multi_uid=$multi_uid operational=false"

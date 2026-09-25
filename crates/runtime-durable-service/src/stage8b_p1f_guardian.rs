@@ -18,7 +18,7 @@ use std::{
         },
     },
     path::{Component, Path, PathBuf},
-    time::{Duration as StdDuration, Instant},
+    time::Instant,
 };
 
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -26,6 +26,29 @@ use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+
+#[cfg(test)]
+use std::sync::atomic::{AtomicU8, Ordering as AtomicOrdering};
+
+#[cfg(test)]
+static P1F_TEST_FAULT_POINT: AtomicU8 = AtomicU8::new(0);
+
+#[cfg(test)]
+fn inject_test_fault(point: u8) -> Result<(), Stage8bP1fAuthorityErrorV1> {
+    if P1F_TEST_FAULT_POINT
+        .compare_exchange(point, 0, AtomicOrdering::SeqCst, AtomicOrdering::SeqCst)
+        .is_ok()
+    {
+        return Err(Stage8bP1fAuthorityErrorV1::Io(ErrorKind::Interrupted));
+    }
+    Ok(())
+}
+
+#[cfg(not(test))]
+#[inline]
+fn inject_test_fault(_point: u8) -> Result<(), Stage8bP1fAuthorityErrorV1> {
+    Ok(())
+}
 
 pub const STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION: u16 = 1;
 pub const STAGE8B_P1F_AUTHORITY_CONTROL_ROOT: &str = "/var/lib/moex-finam-p1-paper-control";
@@ -42,6 +65,7 @@ const AUTHORITY_DIRECTORY: &str = "authority";
 const EVENTS_DIRECTORY: &str = "events";
 const MANIFESTS_DIRECTORY: &str = "manifests";
 const LOCK_FILE: &str = ".guardian.lock";
+const EXECUTION_LOCK_FILE: &str = ".execution.lock";
 const GENESIS_TRANSACTION_FILE: &str = "genesis-transaction.json";
 const GENESIS_MANIFEST_FILE: &str = "genesis-manifest.json";
 const GENESIS_RECEIPT_FILE: &str = "genesis-receipt.json";
@@ -49,8 +73,10 @@ const ACTIVATION_CERTIFICATE_FILE: &str = "activation-certificate.json";
 const HISTORY_HEAD_FILE: &str = "history-head.json";
 const PENDING_CLAIM_FILE: &str = "pending-claim.json";
 const PENDING_TERMINAL_FILE: &str = "pending-terminal.json";
+const PENDING_STOPPING_FILE: &str = "pending-stopping.json";
 const PENDING_MATERIALIZATION_FILE: &str = "pending-materialization.json";
 const MATERIALIZED_SET_RECEIPT_FILE: &str = "materialized-set-receipt.json";
+const EXECUTION_OWNER_FILE: &str = "execution-owner.json";
 const QUARANTINE_FILE: &str = "restore-quarantine.json";
 const ZERO_SHA256: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 const GENESIS_DOMAIN: &[u8] = b"moex.stage8b.p1f.authority-genesis.v1\0";
@@ -95,6 +121,10 @@ pub enum Stage8bP1fAuthorityErrorV1 {
     RestoreOverlapsControlRoot,
     #[error("P1-f guardian lock is already held")]
     ConcurrentGuardian,
+    #[error("P1-f phase execution is already owned")]
+    ConcurrentExecution,
+    #[error("P1-f pending transaction requires exact recovery")]
+    PendingRecoveryRequired,
     #[error("P1-f authority I/O failed: {0:?}")]
     Io(ErrorKind),
 }
@@ -233,6 +263,20 @@ pub struct Stage8bP1fTerminalReceiptV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct Stage8bP1fStoppingReceiptV1 {
+    pub schema_version: u16,
+    pub domain: String,
+    pub manifest_sha256: String,
+    pub authority_generation: u64,
+    pub authority_sequence: u64,
+    pub predecessor_event_sha256: String,
+    pub reason_code: String,
+    pub stopping_started_at_utc: String,
+    pub force_kill_at_utc: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Stage8bP1fMaterializedSetReceiptV1 {
     pub schema_version: u16,
     pub domain: String,
@@ -265,6 +309,7 @@ pub struct Stage8bP1fAuthorityInspectionV1 {
     pub state: Stage8bP1fPhaseStateV1,
     pub active_manifest_sha256: Option<String>,
     pub deadline_utc: Option<String>,
+    pub force_kill_at_utc: Option<String>,
 }
 
 /// Linear local admission to one already claimed phase.  It grants no Redis,
@@ -277,7 +322,13 @@ pub struct Stage8bP1fRunPermitV1 {
     deadline: DateTime<Utc>,
     admitted_wall: DateTime<Utc>,
     admitted_monotonic: Instant,
-    stopping_started: Option<Instant>,
+    authority_root: PathBuf,
+    expected_uid: u32,
+    service_gid: u32,
+    execution_lock: File,
+    boot_id: String,
+    stopping_started_at: Option<DateTime<Utc>>,
+    force_kill_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -305,25 +356,51 @@ impl Stage8bP1fRunPermitV1 {
     pub fn poll_deadline(
         &mut self,
         trusted_wall_now: DateTime<Utc>,
-    ) -> Stage8bP1fDeadlineDecisionV1 {
+    ) -> Result<Stage8bP1fDeadlineDecisionV1, Stage8bP1fAuthorityErrorV1> {
+        let _ = self.execution_lock.metadata()?;
+        if let (Some(started), Some(force_kill_at)) = (self.stopping_started_at, self.force_kill_at)
+        {
+            return Ok(
+                if trusted_wall_now < started || trusted_wall_now >= force_kill_at {
+                    Stage8bP1fDeadlineDecisionV1::ForceKill
+                } else {
+                    Stage8bP1fDeadlineDecisionV1::BeginStopping
+                },
+            );
+        }
         let elapsed = self.admitted_monotonic.elapsed();
         let expected_wall = self.admitted_wall
             + chrono::Duration::from_std(elapsed).unwrap_or(chrono::Duration::MAX);
         let clock_untrusted = trusted_wall_now + chrono::Duration::seconds(1) < expected_wall
             || trusted_wall_now < self.claimed_at;
-        if self.stopping_started.is_none() && trusted_wall_now < self.deadline && !clock_untrusted {
-            return Stage8bP1fDeadlineDecisionV1::Continue;
+        if trusted_wall_now < self.deadline && !clock_untrusted {
+            return Ok(Stage8bP1fDeadlineDecisionV1::Continue);
         }
-        match self.stopping_started {
-            None => {
-                self.stopping_started = Some(Instant::now());
-                Stage8bP1fDeadlineDecisionV1::BeginStopping
-            }
-            Some(started) if started.elapsed() < StdDuration::from_secs(30) => {
-                Stage8bP1fDeadlineDecisionV1::BeginStopping
-            }
-            Some(_) => Stage8bP1fDeadlineDecisionV1::ForceKill,
-        }
+        let stopping_started_at = if clock_untrusted {
+            self.admitted_wall
+        } else {
+            trusted_wall_now
+        };
+        let force_kill_at = stopping_started_at + chrono::Duration::seconds(30);
+        let store = Stage8bP1fAuthorityStoreV1::open_at(
+            &self.authority_root,
+            self.expected_uid,
+            self.service_gid,
+        )?;
+        let receipt = store.begin_stopping_phase(
+            &self.manifest_sha256,
+            if clock_untrusted {
+                "clock-untrusted"
+            } else {
+                "deadline-reached"
+            },
+            stopping_started_at,
+            force_kill_at,
+            &self.boot_id,
+        )?;
+        self.stopping_started_at = Some(parse_timestamp(&receipt.stopping_started_at_utc)?);
+        self.force_kill_at = Some(parse_timestamp(&receipt.force_kill_at_utc)?);
+        Ok(Stage8bP1fDeadlineDecisionV1::BeginStopping)
     }
 }
 
@@ -382,6 +459,21 @@ struct PendingTerminalV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct PendingStoppingV1 {
+    schema_version: u16,
+    domain: String,
+    manifest_sha256: String,
+    authority_generation: u64,
+    authority_sequence: u64,
+    predecessor_event_sha256: String,
+    reason_code: String,
+    stopping_started_at_utc: String,
+    force_kill_at_utc: String,
+    boot_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct PendingMaterializationV1 {
     schema_version: u16,
     domain: String,
@@ -397,6 +489,17 @@ struct PendingMaterializationV1 {
     claim_receipt_sha256: String,
     broker_truth_checked_at_utc: String,
     ready_at_utc: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExecutionOwnerV1 {
+    schema_version: u16,
+    domain: String,
+    manifest_sha256: String,
+    boot_id: String,
+    admitted_at_utc: String,
+    phase_deadline_utc: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -425,6 +528,8 @@ struct HistoryHeadV1 {
     state: Stage8bP1fPhaseStateV1,
     active_manifest_sha256: Option<String>,
     deadline_utc: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    force_kill_at_utc: Option<String>,
 }
 
 /// Root guardian bound to one retained control-root inode and exact custody.
@@ -524,6 +629,61 @@ impl Stage8bP1fAuthorityStoreV1 {
             committed_at_utc: canonical_timestamp(trusted_now),
         };
 
+        if authority.exists() && !authority.join(GENESIS_TRANSACTION_FILE).exists() {
+            self.validate_directory(&authority)?;
+            self.validate_directory(&authority.join(EVENTS_DIRECTORY))?;
+            self.validate_directory(&authority.join(MANIFESTS_DIRECTORY))?;
+            let prepared_transaction =
+                authority.join(format!(".{GENESIS_TRANSACTION_FILE}.p1f-create"));
+            let names = fs::read_dir(&authority)?
+                .map(|entry| {
+                    entry
+                        .map_err(Stage8bP1fAuthorityErrorV1::from)
+                        .and_then(|entry| {
+                            entry
+                                .file_name()
+                                .into_string()
+                                .map_err(|_| Stage8bP1fAuthorityErrorV1::HistoryConflict)
+                        })
+                })
+                .collect::<Result<BTreeSet<_>, _>>()?;
+            let expected = BTreeSet::from([
+                EVENTS_DIRECTORY.to_string(),
+                MANIFESTS_DIRECTORY.to_string(),
+            ]);
+            let mut expected_with_prepared_temp = expected.clone();
+            expected_with_prepared_temp.insert(format!(".{GENESIS_TRANSACTION_FILE}.p1f-create"));
+            if (names != expected && names != expected_with_prepared_temp)
+                || fs::read_dir(authority.join(EVENTS_DIRECTORY))?
+                    .next()
+                    .is_some()
+                || fs::read_dir(authority.join(MANIFESTS_DIRECTORY))?
+                    .next()
+                    .is_some()
+            {
+                return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+            }
+            if prepared_transaction.exists() {
+                let retained: GenesisTransactionV1 =
+                    self.read_authority_file(&prepared_transaction, 0o440)?;
+                if retained.schema_version != transaction.schema_version
+                    || retained.domain != transaction.domain
+                    || retained.genesis_manifest_sha256 != transaction.genesis_manifest_sha256
+                    || retained.authority_generation != transaction.authority_generation
+                    || retained.ceremony_nonce_sha256 != transaction.ceremony_nonce_sha256
+                    || parse_timestamp(&retained.committed_at_utc).is_err()
+                {
+                    return Err(Stage8bP1fAuthorityErrorV1::GenerationConflict);
+                }
+                transaction = retained;
+            }
+            self.write_create_new(
+                &authority.join(GENESIS_TRANSACTION_FILE),
+                &canonical_json(&transaction)?,
+                0o440,
+            )?;
+        }
+
         if authority.exists() {
             let retained: GenesisTransactionV1 =
                 self.read_authority_file(&authority.join(GENESIS_TRANSACTION_FILE), 0o440)?;
@@ -546,6 +706,7 @@ impl Stage8bP1fAuthorityStoreV1 {
             self.create_authority_directory(&authority.join(MANIFESTS_DIRECTORY), 0o750)?;
             sync_directory(&authority)?;
             sync_directory(&self.root)?;
+            inject_test_fault(1)?;
             self.write_create_new(
                 &authority.join(GENESIS_TRANSACTION_FILE),
                 &canonical_json(&transaction)?,
@@ -597,6 +758,7 @@ impl Stage8bP1fAuthorityStoreV1 {
             state: Stage8bP1fPhaseStateV1::GenesisPrepared,
             active_manifest_sha256: None,
             deadline_utc: None,
+            force_kill_at_utc: None,
         };
         self.write_or_require_exact(
             &authority.join(HISTORY_HEAD_FILE),
@@ -865,6 +1027,7 @@ impl Stage8bP1fAuthorityStoreV1 {
             state: Stage8bP1fPhaseStateV1::Active,
             active_manifest_sha256: Some(manifest_sha256.to_string()),
             deadline_utc: Some(receipt.deadline_utc.clone()),
+            force_kill_at_utc: None,
         };
         self.replace_exact(
             &authority.join(HISTORY_HEAD_FILE),
@@ -900,7 +1063,7 @@ impl Stage8bP1fAuthorityStoreV1 {
         trusted_now: DateTime<Utc>,
         config_root: Option<&Path>,
     ) -> Result<Stage8bP1fRunPermitV1, Stage8bP1fAuthorityErrorV1> {
-        let _lease = self.acquire_lease()?;
+        let lease = self.acquire_lease()?;
         self.reject_quarantine()?;
         let inspection = self.validate_history(true)?;
         if inspection.state != Stage8bP1fPhaseStateV1::Active
@@ -908,6 +1071,7 @@ impl Stage8bP1fAuthorityStoreV1 {
         {
             return Err(Stage8bP1fAuthorityErrorV1::ActiveConflict);
         }
+        let execution_lock = self.acquire_execution_lock()?;
         let manifest_path = self
             .root
             .join(AUTHORITY_DIRECTORY)
@@ -942,9 +1106,33 @@ impl Stage8bP1fAuthorityStoreV1 {
                     .num_seconds();
                 if receipt.state != "ReadyForBootstrap"
                     || receipt.manifest_sha256 != manifest_sha256
-                    || !(0..=300).contains(&age)
                 {
                     return Err(Stage8bP1fAuthorityErrorV1::InvalidValidityWindow);
+                }
+                if !(0..=300).contains(&age) {
+                    drop(lease);
+                    drop(execution_lock);
+                    self.finish_phase(
+                        manifest_sha256,
+                        Stage8bP1fPhaseStateV1::Failed,
+                        "o2-broker-truth-stale",
+                        trusted_now,
+                    )?;
+                    return Err(Stage8bP1fAuthorityErrorV1::InvalidValidityWindow);
+                }
+                let authority = self.root.join(AUTHORITY_DIRECTORY);
+                let event_bytes = self.read_authority_bytes(
+                    &event_path(&authority, receipt.authority_sequence),
+                    0o440,
+                )?;
+                let event: AuthorityEventV1 = parse_canonical(&event_bytes)?;
+                if event.event_kind != "O2_MATERIALIZED"
+                    || event.manifest_sha256 != manifest_sha256
+                    || event.receipt_sha256 != sha256_hex(&canonical_json(&receipt)?)
+                    || event.state != Stage8bP1fPhaseStateV1::Active
+                    || inspection.latest_sequence < receipt.authority_sequence
+                {
+                    return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
                 }
                 let config_root = config_root.ok_or(Stage8bP1fAuthorityErrorV1::InvalidPath)?;
                 if sha256_hex(
@@ -965,14 +1153,61 @@ impl Stage8bP1fAuthorityStoreV1 {
             }
             Stage8bP1fPhaseV1::O3SyntheticPaper | Stage8bP1fPhaseV1::O4FinamReadOnly => {}
         }
+        let boot_id = current_boot_id()?;
+        let manifest_directory = manifest_path
+            .parent()
+            .ok_or(Stage8bP1fAuthorityErrorV1::InvalidPath)?;
+        let owner_path = manifest_directory.join(EXECUTION_OWNER_FILE);
+        let owner = if owner_path.exists() {
+            let retained: ExecutionOwnerV1 = self.read_authority_file(&owner_path, 0o440)?;
+            if retained.schema_version != STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION
+                || retained.domain != "stage8b-p1f-execution-owner-v1"
+                || retained.manifest_sha256 != manifest_sha256
+                || retained.phase_deadline_utc != claim.deadline_utc
+                || parse_timestamp(&retained.admitted_at_utc).is_err()
+                || !canonical_token(&retained.boot_id)
+            {
+                return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+            }
+            if retained.boot_id != boot_id {
+                drop(lease);
+                drop(execution_lock);
+                self.begin_stopping_phase(
+                    manifest_sha256,
+                    "boot-identity-changed",
+                    trusted_now,
+                    trusted_now + chrono::Duration::seconds(30),
+                    &boot_id,
+                )?;
+                return Err(Stage8bP1fAuthorityErrorV1::DeadlineExpired);
+            }
+            retained
+        } else {
+            let owner = ExecutionOwnerV1 {
+                schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+                domain: "stage8b-p1f-execution-owner-v1".to_string(),
+                manifest_sha256: manifest_sha256.to_string(),
+                boot_id: boot_id.clone(),
+                admitted_at_utc: canonical_timestamp(trusted_now),
+                phase_deadline_utc: claim.deadline_utc.clone(),
+            };
+            self.write_create_new(&owner_path, &canonical_json(&owner)?, 0o440)?;
+            owner
+        };
         Ok(Stage8bP1fRunPermitV1 {
             manifest_sha256: manifest_sha256.to_string(),
             phase: manifest.phase,
             claimed_at,
             deadline,
-            admitted_wall: trusted_now,
+            admitted_wall: parse_timestamp(&owner.admitted_at_utc)?,
             admitted_monotonic: Instant::now(),
-            stopping_started: None,
+            authority_root: self.root.clone(),
+            expected_uid: self.expected_uid,
+            service_gid: self.service_gid,
+            execution_lock,
+            boot_id,
+            stopping_started_at: None,
+            force_kill_at: None,
         })
     }
 
@@ -1264,6 +1499,7 @@ impl Stage8bP1fAuthorityStoreV1 {
             &receipt_bytes,
             0o440,
         )?;
+        inject_test_fault(4)?;
         self.write_or_require_exact(
             &event_path(&authority, pending.authority_sequence),
             &event_bytes,
@@ -1279,6 +1515,7 @@ impl Stage8bP1fAuthorityStoreV1 {
                 state: Stage8bP1fPhaseStateV1::Active,
                 active_manifest_sha256: Some(pending.manifest_sha256.clone()),
                 deadline_utc: head.deadline_utc,
+                force_kill_at_utc: None,
             };
             self.replace_exact(
                 &authority.join(HISTORY_HEAD_FILE),
@@ -1301,6 +1538,192 @@ impl Stage8bP1fAuthorityStoreV1 {
             return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
         }
         Ok(receipt)
+    }
+
+    fn begin_stopping_phase(
+        &self,
+        manifest_sha256: &str,
+        reason_code: &str,
+        stopping_started_at: DateTime<Utc>,
+        force_kill_at: DateTime<Utc>,
+        boot_id: &str,
+    ) -> Result<Stage8bP1fStoppingReceiptV1, Stage8bP1fAuthorityErrorV1> {
+        let _lease = self.acquire_lease()?;
+        self.reject_quarantine()?;
+        if !valid_sha256(manifest_sha256)
+            || !canonical_token(reason_code)
+            || !canonical_token(boot_id)
+            || force_kill_at - stopping_started_at != chrono::Duration::seconds(30)
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        let authority = self.root.join(AUTHORITY_DIRECTORY);
+        let pending_path = authority.join(PENDING_STOPPING_FILE);
+        let pending = if pending_path.exists() {
+            let retained: PendingStoppingV1 = self.read_authority_file(&pending_path, 0o440)?;
+            if retained.schema_version != STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION
+                || retained.domain != "stage8b-p1f-pending-stopping-v1"
+                || retained.manifest_sha256 != manifest_sha256
+                || retained.reason_code != reason_code
+                || retained.stopping_started_at_utc != canonical_timestamp(stopping_started_at)
+                || retained.force_kill_at_utc != canonical_timestamp(force_kill_at)
+                || retained.boot_id != boot_id
+            {
+                return Err(Stage8bP1fAuthorityErrorV1::PendingRecoveryRequired);
+            }
+            retained
+        } else {
+            let inspection = self.validate_history(true)?;
+            if inspection.state != Stage8bP1fPhaseStateV1::Active
+                || inspection.active_manifest_sha256.as_deref() != Some(manifest_sha256)
+            {
+                return Err(Stage8bP1fAuthorityErrorV1::ActiveConflict);
+            }
+            let pending = PendingStoppingV1 {
+                schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+                domain: "stage8b-p1f-pending-stopping-v1".to_string(),
+                manifest_sha256: manifest_sha256.to_string(),
+                authority_generation: inspection.authority_generation,
+                authority_sequence: inspection.latest_sequence + 1,
+                predecessor_event_sha256: inspection.latest_event_sha256,
+                reason_code: reason_code.to_string(),
+                stopping_started_at_utc: canonical_timestamp(stopping_started_at),
+                force_kill_at_utc: canonical_timestamp(force_kill_at),
+                boot_id: boot_id.to_string(),
+            };
+            self.write_create_new(&pending_path, &canonical_json(&pending)?, 0o440)?;
+            pending
+        };
+        self.continue_stopping_transaction(&pending)
+    }
+
+    fn continue_stopping_transaction(
+        &self,
+        pending: &PendingStoppingV1,
+    ) -> Result<Stage8bP1fStoppingReceiptV1, Stage8bP1fAuthorityErrorV1> {
+        let authority = self.root.join(AUTHORITY_DIRECTORY);
+        let manifest_directory = authority
+            .join(MANIFESTS_DIRECTORY)
+            .join(&pending.manifest_sha256);
+        let receipt_path = manifest_directory.join(format!(
+            "stopping-receipt-{:020}.json",
+            pending.authority_sequence
+        ));
+        let receipt = Stage8bP1fStoppingReceiptV1 {
+            schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+            domain: "stage8b-p1f-stopping-receipt-v1".to_string(),
+            manifest_sha256: pending.manifest_sha256.clone(),
+            authority_generation: pending.authority_generation,
+            authority_sequence: pending.authority_sequence,
+            predecessor_event_sha256: pending.predecessor_event_sha256.clone(),
+            reason_code: pending.reason_code.clone(),
+            stopping_started_at_utc: pending.stopping_started_at_utc.clone(),
+            force_kill_at_utc: pending.force_kill_at_utc.clone(),
+        };
+        let receipt_bytes = canonical_json(&receipt)?;
+        let event = AuthorityEventV1 {
+            schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+            domain: "stage8b-p1f-authority-event-v1".to_string(),
+            authority_generation: pending.authority_generation,
+            authority_sequence: pending.authority_sequence,
+            predecessor_event_sha256: pending.predecessor_event_sha256.clone(),
+            event_kind: "PHASE_STOPPING".to_string(),
+            state: Stage8bP1fPhaseStateV1::Stopping,
+            manifest_sha256: pending.manifest_sha256.clone(),
+            receipt_sha256: sha256_hex(&receipt_bytes),
+            recorded_at_utc: pending.stopping_started_at_utc.clone(),
+        };
+        let event_bytes = canonical_json(&event)?;
+        let event_sha256 = event_digest(&event_bytes);
+        let head: HistoryHeadV1 =
+            self.read_authority_file(&authority.join(HISTORY_HEAD_FILE), 0o440)?;
+        if head.latest_sequence == pending.authority_sequence {
+            if head.latest_event_sha256 != event_sha256
+                || head.state != Stage8bP1fPhaseStateV1::Stopping
+                || head.active_manifest_sha256.as_deref() != Some(pending.manifest_sha256.as_str())
+                || head.force_kill_at_utc.as_deref() != Some(&pending.force_kill_at_utc)
+            {
+                return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+            }
+        } else {
+            if head.latest_sequence + 1 != pending.authority_sequence
+                || head.latest_event_sha256 != pending.predecessor_event_sha256
+                || head.state != Stage8bP1fPhaseStateV1::Active
+                || head.active_manifest_sha256.as_deref() != Some(pending.manifest_sha256.as_str())
+            {
+                return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+            }
+            self.validate_history_with_pending(true, None, Some(pending.authority_sequence))?;
+            self.write_or_require_exact(&receipt_path, &receipt_bytes, 0o440)?;
+            self.write_or_require_exact(
+                &event_path(&authority, pending.authority_sequence),
+                &event_bytes,
+                0o440,
+            )?;
+            let stopping_head = HistoryHeadV1 {
+                schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
+                domain: "stage8b-p1f-history-head-v1".to_string(),
+                authority_generation: pending.authority_generation,
+                latest_sequence: pending.authority_sequence,
+                latest_event_sha256: event_sha256,
+                state: Stage8bP1fPhaseStateV1::Stopping,
+                active_manifest_sha256: Some(pending.manifest_sha256.clone()),
+                deadline_utc: head.deadline_utc,
+                force_kill_at_utc: Some(pending.force_kill_at_utc.clone()),
+            };
+            self.replace_exact(
+                &authority.join(HISTORY_HEAD_FILE),
+                &canonical_json(&stopping_head)?,
+                0o440,
+            )?;
+        }
+        fs::remove_file(authority.join(PENDING_STOPPING_FILE))?;
+        sync_directory(&authority)?;
+        self.validate_history(true)?;
+        Ok(receipt)
+    }
+
+    pub fn resume_stopping_phase(
+        &self,
+        manifest_sha256: &str,
+        trusted_now: DateTime<Utc>,
+    ) -> Result<Stage8bP1fRunPermitV1, Stage8bP1fAuthorityErrorV1> {
+        let _lease = self.acquire_lease()?;
+        let inspection = self.validate_history(true)?;
+        if inspection.state != Stage8bP1fPhaseStateV1::Stopping
+            || inspection.active_manifest_sha256.as_deref() != Some(manifest_sha256)
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::ActiveConflict);
+        }
+        let receipt: Stage8bP1fStoppingReceiptV1 = self.read_authority_file(
+            &self
+                .root
+                .join(AUTHORITY_DIRECTORY)
+                .join(MANIFESTS_DIRECTORY)
+                .join(manifest_sha256)
+                .join(format!(
+                    "stopping-receipt-{:020}.json",
+                    inspection.latest_sequence
+                )),
+            0o440,
+        )?;
+        let execution_lock = self.acquire_execution_lock()?;
+        let claim = self.read_claim_receipt(manifest_sha256)?;
+        Ok(Stage8bP1fRunPermitV1 {
+            manifest_sha256: manifest_sha256.to_string(),
+            phase: claim.phase,
+            claimed_at: parse_timestamp(&claim.claimed_at_utc)?,
+            deadline: parse_timestamp(&claim.deadline_utc)?,
+            admitted_wall: trusted_now,
+            admitted_monotonic: Instant::now(),
+            authority_root: self.root.clone(),
+            expected_uid: self.expected_uid,
+            service_gid: self.service_gid,
+            execution_lock,
+            boot_id: current_boot_id()?,
+            stopping_started_at: Some(parse_timestamp(&receipt.stopping_started_at_utc)?),
+            force_kill_at: Some(parse_timestamp(&receipt.force_kill_at_utc)?),
+        })
     }
 
     /// Commits one terminal transition for the exact active manifest.  The
@@ -1341,8 +1764,10 @@ impl Stage8bP1fAuthorityStoreV1 {
             retained
         } else {
             let inspection = self.validate_history(true)?;
-            if inspection.state != Stage8bP1fPhaseStateV1::Active
-                || inspection.active_manifest_sha256.as_deref() != Some(manifest_sha256)
+            if !matches!(
+                inspection.state,
+                Stage8bP1fPhaseStateV1::Active | Stage8bP1fPhaseStateV1::Stopping
+            ) || inspection.active_manifest_sha256.as_deref() != Some(manifest_sha256)
             {
                 return Err(Stage8bP1fAuthorityErrorV1::ActiveConflict);
             }
@@ -1425,7 +1850,10 @@ impl Stage8bP1fAuthorityStoreV1 {
         } else {
             if head.latest_sequence + 1 != pending.authority_sequence
                 || head.latest_event_sha256 != pending.predecessor_event_sha256
-                || head.state != Stage8bP1fPhaseStateV1::Active
+                || !matches!(
+                    head.state,
+                    Stage8bP1fPhaseStateV1::Active | Stage8bP1fPhaseStateV1::Stopping
+                )
                 || head.active_manifest_sha256.as_deref() != Some(pending.manifest_sha256.as_str())
             {
                 return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
@@ -1446,6 +1874,7 @@ impl Stage8bP1fAuthorityStoreV1 {
                 state: pending.terminal_state,
                 active_manifest_sha256: None,
                 deadline_utc: None,
+                force_kill_at_utc: None,
             };
             self.replace_exact(
                 &authority.join(HISTORY_HEAD_FILE),
@@ -1546,6 +1975,50 @@ impl Stage8bP1fAuthorityStoreV1 {
         self.validate_directory(&authority)?;
         self.validate_directory(&authority.join(EVENTS_DIRECTORY))?;
         self.validate_directory(&authority.join(MANIFESTS_DIRECTORY))?;
+        let mut present_pending = [
+            PENDING_CLAIM_FILE,
+            PENDING_STOPPING_FILE,
+            PENDING_TERMINAL_FILE,
+        ]
+        .iter()
+        .filter_map(|name| {
+            let path = authority.join(name);
+            path.exists().then(|| ((*name).to_string(), path))
+        })
+        .collect::<Vec<_>>();
+        for entry in fs::read_dir(authority.join(MANIFESTS_DIRECTORY))? {
+            let path = entry?.path().join(PENDING_MATERIALIZATION_FILE);
+            if path.exists() {
+                present_pending.push((PENDING_MATERIALIZATION_FILE.to_string(), path));
+            }
+        }
+        match (pending, trailing_event_sequence) {
+            (Some(expected), None) => {
+                if present_pending.len() != 1 || present_pending[0].0 != PENDING_CLAIM_FILE {
+                    return Err(Stage8bP1fAuthorityErrorV1::PendingRecoveryRequired);
+                }
+                let retained: PendingClaimV1 =
+                    self.read_authority_file(&present_pending[0].1, 0o440)?;
+                if &retained != expected {
+                    return Err(Stage8bP1fAuthorityErrorV1::PendingRecoveryRequired);
+                }
+            }
+            (None, Some(sequence)) => {
+                if present_pending.len() != 1 || present_pending[0].0 == PENDING_CLAIM_FILE {
+                    return Err(Stage8bP1fAuthorityErrorV1::PendingRecoveryRequired);
+                }
+                let bytes = self.read_authority_bytes(&present_pending[0].1, 0o440)?;
+                let value: Value = serde_json::from_slice(&bytes)
+                    .map_err(|_| Stage8bP1fAuthorityErrorV1::InvalidDocument)?;
+                if value.get("authority_sequence").and_then(Value::as_u64) != Some(sequence) {
+                    return Err(Stage8bP1fAuthorityErrorV1::PendingRecoveryRequired);
+                }
+            }
+            (None, None) if !present_pending.is_empty() => {
+                return Err(Stage8bP1fAuthorityErrorV1::PendingRecoveryRequired)
+            }
+            _ => {}
+        }
         let transaction: GenesisTransactionV1 =
             self.read_authority_file(&authority.join(GENESIS_TRANSACTION_FILE), 0o440)?;
         let manifest: Stage8bP1fGenesisManifestV1 =
@@ -1623,6 +2096,18 @@ impl Stage8bP1fAuthorityStoreV1 {
         let mut predecessor = ZERO_SHA256.to_string();
         let mut manifests = BTreeSet::new();
         let mut latest_hash = String::new();
+        let mut projected_state = if activated
+            || (!require_activation
+                && head.latest_sequence == 0
+                && head.state == Stage8bP1fPhaseStateV1::GenesisActivated)
+        {
+            Stage8bP1fPhaseStateV1::GenesisActivated
+        } else {
+            Stage8bP1fPhaseStateV1::GenesisPrepared
+        };
+        let mut projected_active: Option<String> = None;
+        let mut projected_deadline: Option<String> = None;
+        let mut projected_force_kill: Option<String> = None;
         for sequence in 0..=head.latest_sequence {
             let bytes = self.read_authority_bytes(&event_path(&authority, sequence), 0o440)?;
             let event: AuthorityEventV1 = parse_canonical(&bytes)?;
@@ -1638,6 +2123,13 @@ impl Stage8bP1fAuthorityStoreV1 {
                 return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
             }
             if event.event_kind == "PHASE_CLAIMED" {
+                if matches!(
+                    projected_state,
+                    Stage8bP1fPhaseStateV1::Active | Stage8bP1fPhaseStateV1::Stopping
+                ) || event.state != Stage8bP1fPhaseStateV1::Active
+                {
+                    return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+                }
                 manifests.insert(event.manifest_sha256.clone());
                 let retained_manifest_path = authority
                     .join(MANIFESTS_DIRECTORY)
@@ -1664,6 +2156,11 @@ impl Stage8bP1fAuthorityStoreV1 {
                     || retained_manifest.authority_sequence != sequence
                     || retained_manifest.predecessor_event_sha256 != predecessor
                     || retained_manifest.phase != claim.phase
+                    || retained_manifest.controller_id != claim.controller_id
+                    || retained_manifest.deadline_utc != claim.deadline_utc
+                    || retained_manifest.target_host_id != STAGE8B_P1F_TARGET_HOST_ID
+                    || retained_manifest.target_host_ssh_ed25519_sha256
+                        != STAGE8B_P1F_TARGET_HOST_SSH_ED25519_SHA256
                     || claim.manifest_sha256 != event.manifest_sha256
                     || claim.authority_generation != event.authority_generation
                     || claim.authority_sequence != sequence
@@ -1672,7 +2169,16 @@ impl Stage8bP1fAuthorityStoreV1 {
                 {
                     return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
                 }
+                projected_state = Stage8bP1fPhaseStateV1::Active;
+                projected_active = Some(event.manifest_sha256.clone());
+                projected_deadline = Some(claim.deadline_utc.clone());
+                projected_force_kill = None;
             } else if event.event_kind == "O2_MATERIALIZED" {
+                if projected_state != Stage8bP1fPhaseStateV1::Active
+                    || projected_active.as_deref() != Some(event.manifest_sha256.as_str())
+                {
+                    return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+                }
                 let materialized_path = authority
                     .join(MANIFESTS_DIRECTORY)
                     .join(&event.manifest_sha256)
@@ -1693,7 +2199,68 @@ impl Stage8bP1fAuthorityStoreV1 {
                 {
                     return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
                 }
+                let retained_manifest: Stage8bP1fPhaseManifestV1 = self.read_authority_file(
+                    &authority
+                        .join(MANIFESTS_DIRECTORY)
+                        .join(&event.manifest_sha256)
+                        .join("phase-manifest.json"),
+                    0o440,
+                )?;
+                let claim_bytes = self.read_authority_bytes(
+                    &authority
+                        .join(MANIFESTS_DIRECTORY)
+                        .join(&event.manifest_sha256)
+                        .join("claim-receipt.json"),
+                    0o440,
+                )?;
+                if retained_manifest.phase != Stage8bP1fPhaseV1::O2MaterializeBootstrap
+                    || materialized.materialization_policy_sha256
+                        != retained_manifest.materialization_policy_sha256
+                    || materialized.config_template_sha256
+                        != retained_manifest.config_template_sha256
+                    || materialized.installation_sha256 != retained_manifest.installation_sha256
+                    || materialized.claim_receipt_sha256 != sha256_hex(&claim_bytes)
+                {
+                    return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+                }
+            } else if event.event_kind == "PHASE_STOPPING" {
+                if projected_state != Stage8bP1fPhaseStateV1::Active
+                    || projected_active.as_deref() != Some(event.manifest_sha256.as_str())
+                    || event.state != Stage8bP1fPhaseStateV1::Stopping
+                {
+                    return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+                }
+                let stopping: Stage8bP1fStoppingReceiptV1 = self.read_authority_file(
+                    &authority
+                        .join(MANIFESTS_DIRECTORY)
+                        .join(&event.manifest_sha256)
+                        .join(format!("stopping-receipt-{sequence:020}.json")),
+                    0o440,
+                )?;
+                let started = parse_timestamp(&stopping.stopping_started_at_utc)?;
+                let force = parse_timestamp(&stopping.force_kill_at_utc)?;
+                if stopping.schema_version != STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION
+                    || stopping.domain != "stage8b-p1f-stopping-receipt-v1"
+                    || stopping.authority_generation != event.authority_generation
+                    || stopping.authority_sequence != sequence
+                    || stopping.predecessor_event_sha256 != predecessor
+                    || stopping.manifest_sha256 != event.manifest_sha256
+                    || !canonical_token(&stopping.reason_code)
+                    || force - started != chrono::Duration::seconds(30)
+                    || event.receipt_sha256 != sha256_hex(&canonical_json(&stopping)?)
+                {
+                    return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+                }
+                projected_state = Stage8bP1fPhaseStateV1::Stopping;
+                projected_force_kill = Some(stopping.force_kill_at_utc);
             } else if event.event_kind == "PHASE_TERMINAL" {
+                if !matches!(
+                    projected_state,
+                    Stage8bP1fPhaseStateV1::Active | Stage8bP1fPhaseStateV1::Stopping
+                ) || projected_active.as_deref() != Some(event.manifest_sha256.as_str())
+                {
+                    return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+                }
                 let terminal_path = authority
                     .join(MANIFESTS_DIRECTORY)
                     .join(&event.manifest_sha256)
@@ -1712,6 +2279,10 @@ impl Stage8bP1fAuthorityStoreV1 {
                 {
                     return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
                 }
+                projected_state = event.state;
+                projected_active = None;
+                projected_deadline = None;
+                projected_force_kill = None;
             } else if event.event_kind == "GENESIS_PREPARED" && sequence == 0 {
                 if event.state != Stage8bP1fPhaseStateV1::GenesisPrepared
                     || event.manifest_sha256 != transaction.genesis_manifest_sha256
@@ -1726,6 +2297,13 @@ impl Stage8bP1fAuthorityStoreV1 {
             predecessor = latest_hash.clone();
         }
         if latest_hash != head.latest_event_sha256 {
+            return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+        }
+        if head.state != projected_state
+            || head.active_manifest_sha256 != projected_active
+            || head.deadline_utc != projected_deadline
+            || head.force_kill_at_utc != projected_force_kill
+        {
             return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
         }
         let manifest_root = authority.join(MANIFESTS_DIRECTORY);
@@ -1752,15 +2330,25 @@ impl Stage8bP1fAuthorityStoreV1 {
         if actual_manifests != manifests {
             return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
         }
-        if head.state == Stage8bP1fPhaseStateV1::Active {
+        if matches!(
+            head.state,
+            Stage8bP1fPhaseStateV1::Active | Stage8bP1fPhaseStateV1::Stopping
+        ) {
             let active = head
                 .active_manifest_sha256
                 .as_ref()
                 .ok_or(Stage8bP1fAuthorityErrorV1::HistoryConflict)?;
-            if !manifests.contains(active) || head.deadline_utc.is_none() {
+            if !manifests.contains(active)
+                || head.deadline_utc.is_none()
+                || (head.state == Stage8bP1fPhaseStateV1::Stopping)
+                    != head.force_kill_at_utc.is_some()
+            {
                 return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
             }
-        } else if head.active_manifest_sha256.is_some() || head.deadline_utc.is_some() {
+        } else if head.active_manifest_sha256.is_some()
+            || head.deadline_utc.is_some()
+            || head.force_kill_at_utc.is_some()
+        {
             return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
         }
         Ok(Stage8bP1fAuthorityInspectionV1 {
@@ -1770,6 +2358,7 @@ impl Stage8bP1fAuthorityStoreV1 {
             state: head.state,
             active_manifest_sha256: head.active_manifest_sha256,
             deadline_utc: head.deadline_utc,
+            force_kill_at_utc: head.force_kill_at_utc,
         })
     }
 
@@ -1818,6 +2407,38 @@ impl Stage8bP1fAuthorityStoreV1 {
             return Err(error.into());
         }
         Ok(GuardianLease { store: self, lock })
+    }
+
+    fn acquire_execution_lock(&self) -> Result<File, Stage8bP1fAuthorityErrorV1> {
+        if unsafe { libc::geteuid() } != self.expected_uid {
+            return Err(Stage8bP1fAuthorityErrorV1::RootRequired);
+        }
+        self.validate_root_identity()?;
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(self.root.join(EXECUTION_LOCK_FILE))?;
+        let metadata = lock.metadata()?;
+        if !metadata.file_type().is_file()
+            || metadata.nlink() != 1
+            || metadata.uid() != self.expected_uid
+            || metadata.permissions().mode() & 0o777 != 0o600
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidCustody);
+        }
+        let result = unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        if result != 0 {
+            let error = std::io::Error::last_os_error();
+            if matches!(error.raw_os_error(), Some(code) if code == libc::EWOULDBLOCK || code == libc::EAGAIN)
+            {
+                return Err(Stage8bP1fAuthorityErrorV1::ConcurrentExecution);
+            }
+            return Err(error.into());
+        }
+        Ok(lock)
     }
 
     fn validate_root_identity(&self) -> Result<(), Stage8bP1fAuthorityErrorV1> {
@@ -1939,6 +2560,18 @@ impl Stage8bP1fAuthorityStoreV1 {
             .and_then(|value| value.to_str())
             .ok_or(Stage8bP1fAuthorityErrorV1::InvalidPath)?;
         let temporary = parent.join(format!(".{name}.p1f-next"));
+        if temporary.exists() {
+            if self.read_external_bytes(&temporary, maximum_bytes)? != bytes || path.exists() {
+                return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+            }
+            fs::rename(&temporary, path)?;
+            sync_directory(parent)?;
+            return if self.read_external_bytes(path, maximum_bytes)? == bytes {
+                Ok(())
+            } else {
+                Err(Stage8bP1fAuthorityErrorV1::HistoryConflict)
+            };
+        }
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -1950,6 +2583,7 @@ impl Stage8bP1fAuthorityStoreV1 {
         }
         file.write_all(bytes)?;
         file.sync_all()?;
+        inject_test_fault(3)?;
         validate_file_metadata(
             &file.metadata()?,
             self.expected_uid,
@@ -2014,22 +2648,47 @@ impl Stage8bP1fAuthorityStoreV1 {
         if bytes.len() as u64 > STAGE8B_P1F_MAX_AUTHORITY_BYTES {
             return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
         }
+        match fs::symlink_metadata(path) {
+            Ok(_) if self.read_authority_bytes(path, mode)? == bytes => return Ok(()),
+            Ok(_) => return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict),
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+        let parent = path
+            .parent()
+            .ok_or(Stage8bP1fAuthorityErrorV1::InvalidPath)?;
+        let name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .ok_or(Stage8bP1fAuthorityErrorV1::InvalidPath)?;
+        let temporary = parent.join(format!(".{name}.p1f-create"));
+        if temporary.exists() {
+            if self.read_authority_bytes(&temporary, mode)? != bytes || path.exists() {
+                return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+            }
+            fs::rename(&temporary, path)?;
+            sync_directory(parent)?;
+            return if self.read_authority_bytes(path, mode)? == bytes {
+                Ok(())
+            } else {
+                Err(Stage8bP1fAuthorityErrorV1::HistoryConflict)
+            };
+        }
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
             .mode(mode)
             .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-            .open(path)?;
+            .open(&temporary)?;
         if unsafe { libc::fchown(file.as_raw_fd(), self.expected_uid, self.service_gid) } != 0 {
             return Err(std::io::Error::last_os_error().into());
         }
         file.write_all(bytes)?;
         file.sync_all()?;
+        inject_test_fault(2)?;
         validate_file_metadata(&file.metadata()?, self.expected_uid, self.service_gid, mode)?;
-        sync_directory(
-            path.parent()
-                .ok_or(Stage8bP1fAuthorityErrorV1::InvalidPath)?,
-        )?;
+        fs::rename(&temporary, path)?;
+        sync_directory(parent)?;
         if self.read_authority_bytes(path, mode)? != bytes {
             return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
         }
@@ -2067,9 +2726,12 @@ impl Stage8bP1fAuthorityStoreV1 {
             .ok_or(Stage8bP1fAuthorityErrorV1::InvalidPath)?;
         let temp = parent.join(format!(".{name}.next"));
         if temp.exists() {
-            return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+            if self.read_authority_bytes(&temp, mode)? != bytes {
+                return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+            }
+        } else {
+            self.write_create_new(&temp, bytes, mode)?;
         }
-        self.write_create_new(&temp, bytes, mode)?;
         fs::rename(&temp, path)?;
         sync_directory(parent)?;
         if self.read_authority_bytes(path, mode)? != bytes {
@@ -2097,6 +2759,7 @@ where
     F: FnOnce() -> Result<T, Stage8bP1fAuthorityErrorV1>,
 {
     let control = normalize_absolute(Path::new(STAGE8B_P1F_AUTHORITY_CONTROL_ROOT))?;
+    let mut guards = Vec::new();
     for path in plan
         .source_roots
         .iter()
@@ -2107,8 +2770,74 @@ where
         if candidate.starts_with(&control) || control.starts_with(&candidate) {
             return Err(Stage8bP1fAuthorityErrorV1::RestoreOverlapsControlRoot);
         }
+        guards.extend(verify_restore_selector(&candidate, &control)?);
     }
-    mutation()
+    let result = mutation()?;
+    for guard in guards {
+        let named = fs::symlink_metadata(&guard.path)?;
+        let opened = guard.file.metadata()?;
+        if named.file_type().is_symlink()
+            || named.dev() != guard.dev
+            || named.ino() != guard.ino
+            || opened.dev() != guard.dev
+            || opened.ino() != guard.ino
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidCustody);
+        }
+    }
+    Ok(result)
+}
+
+struct RestorePathGuard {
+    path: PathBuf,
+    file: File,
+    dev: u64,
+    ino: u64,
+}
+
+fn verify_restore_selector(
+    candidate: &Path,
+    control: &Path,
+) -> Result<Vec<RestorePathGuard>, Stage8bP1fAuthorityErrorV1> {
+    let mut guards = Vec::new();
+    let mut current = PathBuf::from("/");
+    let components = candidate
+        .components()
+        .filter_map(|component| match component {
+            Component::Normal(value) => Some(value.to_os_string()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    for (index, component) in components.iter().enumerate() {
+        current.push(component);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink() {
+                    return Err(Stage8bP1fAuthorityErrorV1::RestoreOverlapsControlRoot);
+                }
+                let canonical = fs::canonicalize(&current)?;
+                if canonical.starts_with(control) || control.starts_with(&canonical) {
+                    return Err(Stage8bP1fAuthorityErrorV1::RestoreOverlapsControlRoot);
+                }
+                if metadata.is_dir() && index + 1 < components.len() {
+                    let file = open_directory(&current)?;
+                    let opened = file.metadata()?;
+                    if opened.dev() != metadata.dev() || opened.ino() != metadata.ino() {
+                        return Err(Stage8bP1fAuthorityErrorV1::InvalidCustody);
+                    }
+                    guards.push(RestorePathGuard {
+                        path: current.clone(),
+                        file,
+                        dev: metadata.dev(),
+                        ino: metadata.ino(),
+                    });
+                }
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => break,
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(guards)
 }
 
 fn normalize_absolute(path: &Path) -> Result<PathBuf, Stage8bP1fAuthorityErrorV1> {
@@ -2126,6 +2855,30 @@ fn normalize_absolute(path: &Path) -> Result<PathBuf, Stage8bP1fAuthorityErrorV1
         }
     }
     Ok(normalized)
+}
+
+fn current_boot_id() -> Result<String, Stage8bP1fAuthorityErrorV1> {
+    match fs::read_to_string("/proc/sys/kernel/random/boot_id") {
+        Ok(value) => {
+            let value = value.trim().to_string();
+            if canonical_token(&value) {
+                Ok(value)
+            } else {
+                Err(Stage8bP1fAuthorityErrorV1::InvalidDocument)
+            }
+        }
+        Err(error) => {
+            #[cfg(test)]
+            {
+                let _ = error;
+                Ok("test-boot-id".to_string())
+            }
+            #[cfg(not(test))]
+            {
+                Err(error.into())
+            }
+        }
+    }
 }
 
 fn read_signed_document<T, U, K, S, C>(
@@ -2627,16 +3380,21 @@ mod tests {
         assert_eq!(permit.manifest_sha256(), manifest_sha256);
         assert_eq!(permit.phase(), Stage8bP1fPhaseV1::O3SyntheticPaper);
         assert_eq!(
-            permit.poll_deadline(setup.now + Duration::seconds(2)),
+            permit
+                .poll_deadline(setup.now + Duration::seconds(2))
+                .unwrap(),
             Stage8bP1fDeadlineDecisionV1::Continue
         );
         assert_eq!(
-            permit.poll_deadline(setup.now - Duration::seconds(1)),
+            permit
+                .poll_deadline(setup.now - Duration::seconds(1))
+                .unwrap(),
             Stage8bP1fDeadlineDecisionV1::BeginStopping
         );
-        permit.stopping_started = Some(Instant::now() - StdDuration::from_secs(31));
         assert_eq!(
-            permit.poll_deadline(setup.now + Duration::seconds(2)),
+            permit
+                .poll_deadline(setup.now + Duration::seconds(32))
+                .unwrap(),
             Stage8bP1fDeadlineDecisionV1::ForceKill
         );
 
@@ -2645,7 +3403,7 @@ mod tests {
                 .store
                 .admit_active_phase_at(&manifest_sha256, setup.now + Duration::seconds(1_800), None)
                 .unwrap_err(),
-            Stage8bP1fAuthorityErrorV1::DeadlineExpired
+            Stage8bP1fAuthorityErrorV1::ActiveConflict
         );
     }
 
@@ -2931,6 +3689,29 @@ mod tests {
             .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
             .unwrap();
         let manifest_sha256 = sha256_hex(&phase);
+        P1F_TEST_FAULT_POINT.store(4, AtomicOrdering::SeqCst);
+        assert_eq!(
+            setup
+                .store
+                .materialize_o2_at(
+                    &config_root,
+                    &manifest_sha256,
+                    &policy,
+                    &template,
+                    &source,
+                    &checked_at,
+                    trusted_now,
+                )
+                .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::Io(ErrorKind::Interrupted)
+        );
+        assert_eq!(
+            setup
+                .store
+                .admit_active_phase_at(&manifest_sha256, trusted_now, Some(&config_root))
+                .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::PendingRecoveryRequired
+        );
         let first = setup
             .store
             .materialize_o2_at(
@@ -2979,6 +3760,7 @@ mod tests {
             .admit_active_phase_at(&manifest_sha256, trusted_now, Some(&config_root))
             .unwrap();
         assert_eq!(permit.phase(), Stage8bP1fPhaseV1::O2MaterializeBootstrap);
+        drop(permit);
         assert_eq!(
             setup
                 .store
@@ -2989,6 +3771,10 @@ mod tests {
                 )
                 .unwrap_err(),
             Stage8bP1fAuthorityErrorV1::InvalidValidityWindow
+        );
+        assert_eq!(
+            setup.store.inspect().unwrap().state,
+            Stage8bP1fPhaseStateV1::Failed
         );
         fs::remove_dir_all(config_root).unwrap();
         fs::remove_dir_all(durable_parent).unwrap();
@@ -3022,6 +3808,7 @@ mod tests {
             state: Stage8bP1fPhaseStateV1::GenesisPrepared,
             active_manifest_sha256: None,
             deadline_utc: None,
+            force_kill_at_utc: None,
         };
         let phase = setup.phase(&fake, Stage8bP1fPhaseV1::O1Provision);
         assert_eq!(
@@ -3148,6 +3935,327 @@ mod tests {
     }
 
     #[test]
+    fn replay_projection_rejects_terminal_head_relabelled_active() {
+        let setup = Setup::new();
+        let head = setup.initialize_and_activate();
+        let phase = setup.phase(&head, Stage8bP1fPhaseV1::O3SyntheticPaper);
+        let manifest_sha256 = sha256_hex(&phase);
+        setup
+            .store
+            .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+            .unwrap();
+        let claim = setup.store.read_claim_receipt(&manifest_sha256).unwrap();
+        setup
+            .store
+            .finish_phase(
+                &manifest_sha256,
+                Stage8bP1fPhaseStateV1::Completed,
+                "bounded-session-complete",
+                setup.now + Duration::seconds(2),
+            )
+            .unwrap();
+        let head_path = setup.root.join(AUTHORITY_DIRECTORY).join(HISTORY_HEAD_FILE);
+        let mut forged: HistoryHeadV1 = setup.store.read_authority_file(&head_path, 0o440).unwrap();
+        forged.state = Stage8bP1fPhaseStateV1::Active;
+        forged.active_manifest_sha256 = Some(manifest_sha256);
+        forged.deadline_utc = Some(claim.deadline_utc);
+        setup
+            .store
+            .replace_exact(&head_path, &canonical_json(&forged).unwrap(), 0o440)
+            .unwrap();
+        assert_eq!(
+            setup.store.inspect().unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::HistoryConflict
+        );
+    }
+
+    #[test]
+    fn pending_transactions_block_ordinary_admission() {
+        let setup = Setup::new();
+        let head = setup.initialize_and_activate();
+        let phase = setup.phase(&head, Stage8bP1fPhaseV1::O3SyntheticPaper);
+        let manifest_sha256 = sha256_hex(&phase);
+        setup
+            .store
+            .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+            .unwrap();
+        let active = setup.store.inspect().unwrap();
+        let pending = PendingTerminalV1 {
+            schema_version: 1,
+            domain: "stage8b-p1f-pending-terminal-v1".into(),
+            manifest_sha256: manifest_sha256.clone(),
+            authority_generation: active.authority_generation,
+            authority_sequence: active.latest_sequence + 1,
+            predecessor_event_sha256: active.latest_event_sha256,
+            terminal_state: Stage8bP1fPhaseStateV1::Completed,
+            reason_code: "pending-terminal".into(),
+            recorded_at_utc: canonical_timestamp(setup.now + Duration::seconds(1)),
+        };
+        setup
+            .store
+            .write_create_new(
+                &setup
+                    .root
+                    .join(AUTHORITY_DIRECTORY)
+                    .join(PENDING_TERMINAL_FILE),
+                &canonical_json(&pending).unwrap(),
+                0o440,
+            )
+            .unwrap();
+        assert_eq!(
+            setup
+                .store
+                .admit_active_phase_at(&manifest_sha256, setup.now, None)
+                .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::PendingRecoveryRequired
+        );
+    }
+
+    #[test]
+    fn execution_owner_is_unique_and_stopping_resumes_without_grace_extension() {
+        let setup = Setup::new();
+        let head = setup.initialize_and_activate();
+        let phase = setup.phase(&head, Stage8bP1fPhaseV1::O3SyntheticPaper);
+        let manifest_sha256 = sha256_hex(&phase);
+        setup
+            .store
+            .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+            .unwrap();
+        let mut first = setup
+            .store
+            .admit_active_phase_at(&manifest_sha256, setup.now, None)
+            .unwrap();
+        assert_eq!(
+            setup
+                .store
+                .admit_active_phase_at(&manifest_sha256, setup.now, None)
+                .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::ConcurrentExecution
+        );
+        assert_eq!(
+            first
+                .poll_deadline(setup.now - Duration::seconds(1))
+                .unwrap(),
+            Stage8bP1fDeadlineDecisionV1::BeginStopping
+        );
+        drop(first);
+        assert_eq!(
+            setup
+                .store
+                .admit_active_phase_at(&manifest_sha256, setup.now, None)
+                .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::ActiveConflict
+        );
+        let mut resumed = setup
+            .store
+            .resume_stopping_phase(&manifest_sha256, setup.now + Duration::seconds(10))
+            .unwrap();
+        assert_eq!(
+            resumed
+                .poll_deadline(setup.now + Duration::seconds(20))
+                .unwrap(),
+            Stage8bP1fDeadlineDecisionV1::BeginStopping
+        );
+        assert_eq!(
+            resumed
+                .poll_deadline(setup.now + Duration::seconds(31))
+                .unwrap(),
+            Stage8bP1fDeadlineDecisionV1::ForceKill
+        );
+    }
+
+    #[test]
+    fn changed_boot_identity_cannot_readmit_active_phase() {
+        let setup = Setup::new();
+        let head = setup.initialize_and_activate();
+        let phase = setup.phase(&head, Stage8bP1fPhaseV1::O3SyntheticPaper);
+        let manifest_sha256 = sha256_hex(&phase);
+        setup
+            .store
+            .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+            .unwrap();
+        let permit = setup
+            .store
+            .admit_active_phase_at(&manifest_sha256, setup.now, None)
+            .unwrap();
+        drop(permit);
+        let owner_path = setup
+            .root
+            .join(AUTHORITY_DIRECTORY)
+            .join(MANIFESTS_DIRECTORY)
+            .join(&manifest_sha256)
+            .join(EXECUTION_OWNER_FILE);
+        let mut owner: ExecutionOwnerV1 =
+            setup.store.read_authority_file(&owner_path, 0o440).unwrap();
+        owner.boot_id = "previous-boot-id".into();
+        setup
+            .store
+            .replace_exact(&owner_path, &canonical_json(&owner).unwrap(), 0o440)
+            .unwrap();
+        assert_eq!(
+            setup
+                .store
+                .admit_active_phase_at(&manifest_sha256, setup.now + Duration::seconds(1), None)
+                .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::DeadlineExpired
+        );
+        assert_eq!(
+            setup.store.inspect().unwrap().state,
+            Stage8bP1fPhaseStateV1::Stopping
+        );
+    }
+
+    #[test]
+    fn directory_only_and_exact_temp_crash_frontiers_recover() {
+        let setup = Setup::new();
+        let authority = setup.root.join(AUTHORITY_DIRECTORY);
+        let genesis = setup.genesis();
+        P1F_TEST_FAULT_POINT.store(1, AtomicOrdering::SeqCst);
+        assert_eq!(
+            setup
+                .store
+                .initialize_authority(
+                    &genesis,
+                    &setup.public_key_hex(),
+                    "p1f-offline-1",
+                    setup.now,
+                )
+                .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::Io(ErrorKind::Interrupted)
+        );
+        setup
+            .store
+            .initialize_authority(
+                &genesis,
+                &setup.public_key_hex(),
+                "p1f-offline-1",
+                setup.now,
+            )
+            .unwrap();
+
+        let head_path = authority.join(HISTORY_HEAD_FILE);
+        let head_bytes = setup.store.read_authority_bytes(&head_path, 0o440).unwrap();
+        P1F_TEST_FAULT_POINT.store(2, AtomicOrdering::SeqCst);
+        assert_eq!(
+            setup
+                .store
+                .replace_exact(&head_path, &head_bytes, 0o440)
+                .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::Io(ErrorKind::Interrupted)
+        );
+        setup
+            .store
+            .replace_exact(&head_path, &head_bytes, 0o440)
+            .unwrap();
+        assert!(!authority.join(".history-head.json.next").exists());
+
+        let prepared = Setup::new();
+        let prepared_genesis = prepared.genesis();
+        P1F_TEST_FAULT_POINT.store(2, AtomicOrdering::SeqCst);
+        assert_eq!(
+            prepared
+                .store
+                .initialize_authority(
+                    &prepared_genesis,
+                    &prepared.public_key_hex(),
+                    "p1f-offline-1",
+                    prepared.now,
+                )
+                .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::Io(ErrorKind::Interrupted)
+        );
+        let resumed = prepared
+            .store
+            .initialize_authority(
+                &prepared_genesis,
+                &prepared.public_key_hex(),
+                "p1f-offline-1",
+                prepared.now + Duration::seconds(5),
+            )
+            .unwrap();
+        assert_eq!(resumed.committed_at_utc, canonical_timestamp(prepared.now));
+
+        let external_parent = setup.root.with_extension("external");
+        fs::DirBuilder::new()
+            .mode(0o750)
+            .create(&external_parent)
+            .unwrap();
+        let final_path = external_parent.join("supervisor.json");
+        P1F_TEST_FAULT_POINT.store(3, AtomicOrdering::SeqCst);
+        assert_eq!(
+            setup
+                .store
+                .write_external_or_require_exact(&final_path, b"exact", 64)
+                .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::Io(ErrorKind::Interrupted)
+        );
+        setup
+            .store
+            .write_external_or_require_exact(&final_path, b"exact", 64)
+            .unwrap();
+        assert_eq!(fs::read(&final_path).unwrap(), b"exact");
+        let conflict_path = external_parent.join("conflict.json");
+        let conflict_temp = external_parent.join(".conflict.json.p1f-next");
+        setup
+            .store
+            .write_create_new(&conflict_temp, b"partial", 0o440)
+            .unwrap();
+        assert_eq!(
+            setup
+                .store
+                .write_external_or_require_exact(&conflict_path, b"expected", 64)
+                .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::HistoryConflict
+        );
+        fs::remove_dir_all(external_parent).unwrap();
+    }
+
+    #[test]
+    fn restore_symlink_alias_is_rejected_before_mutation() {
+        let root = std::env::temp_dir().join(format!("p1f-restore-alias-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        let alias = root.join("control-alias");
+        std::os::unix::fs::symlink(STAGE8B_P1F_AUTHORITY_CONTROL_ROOT, &alias).unwrap();
+        let called = AtomicBool::new(false);
+        let plan = Stage8bP1fRestorePlanV1 {
+            source_roots: vec![],
+            target_roots: vec![alias.join("authority")],
+            selected_paths: vec![],
+        };
+        assert_eq!(
+            execute_stage8b_p1f_permitted_restore_v1(&plan, || {
+                called.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+            .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::RestoreOverlapsControlRoot
+        );
+        assert!(!called.load(Ordering::SeqCst));
+        fs::remove_file(alias).unwrap();
+        let real_parent = root.join("real-parent");
+        fs::create_dir(&real_parent).unwrap();
+        let parent_alias = root.join("parent-alias");
+        std::os::unix::fs::symlink(&real_parent, &parent_alias).unwrap();
+        let parent_plan = Stage8bP1fRestorePlanV1 {
+            source_roots: vec![],
+            target_roots: vec![],
+            selected_paths: vec![parent_alias.join("future-target")],
+        };
+        assert_eq!(
+            execute_stage8b_p1f_permitted_restore_v1(&parent_plan, || {
+                called.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+            .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::RestoreOverlapsControlRoot
+        );
+        assert!(!called.load(Ordering::SeqCst));
+        fs::remove_file(parent_alias).unwrap();
+        fs::remove_dir(real_parent).unwrap();
+        fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
     fn declared_coherent_restore_incident_quarantines_all_ordinary_use() {
         let setup = Setup::new();
         let head = setup.initialize_and_activate();
@@ -3176,5 +4284,42 @@ mod tests {
             assert_eq!(mode & 0o020, 0, "service group must not write");
             assert_eq!(mode & 0o002, 0, "other users must not write");
         }
+    }
+
+    #[test]
+    #[ignore = "executed only by the root Linux multi-UID evidence harness"]
+    fn multi_uid_root_transition_source_probe() {
+        let root = PathBuf::from(
+            std::env::var("STAGE8B_P1F_MULTI_UID_EVIDENCE_ROOT")
+                .expect("evidence root must be provided"),
+        );
+        let service_gid = std::env::var("STAGE8B_P1F_MULTI_UID_SERVICE_GID")
+            .expect("service gid must be provided")
+            .parse::<u32>()
+            .expect("service gid must be numeric");
+        fs::DirBuilder::new().mode(0o750).create(&root).unwrap();
+        let root_c = CString::new(root.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::chown(root_c.as_ptr(), 0, service_gid) }, 0);
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o750)).unwrap();
+        let store = Stage8bP1fAuthorityStoreV1::open_at(&root, 0, service_gid).unwrap();
+        let setup = Setup {
+            root,
+            store,
+            signing: SigningKey::from_bytes(&[7u8; 32]),
+            now: DateTime::parse_from_rfc3339("2026-09-25T12:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+        };
+        let head = setup.initialize_and_activate();
+        let phase = setup.phase(&head, Stage8bP1fPhaseV1::O3SyntheticPaper);
+        setup
+            .store
+            .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+            .unwrap();
+        assert_eq!(
+            setup.store.inspect().unwrap().state,
+            Stage8bP1fPhaseStateV1::Active
+        );
+        std::mem::forget(setup);
     }
 }

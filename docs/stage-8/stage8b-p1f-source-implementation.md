@@ -1,10 +1,11 @@
-# Stage 8B-P1-f I — source implementation
+# Stage 8B-P1-f Ia — guardian foundation correction
 
-Status: `REVIEW_CANDIDATE_SOURCE_ONLY_NO_ACTIVATION`.
+Status: `REVIEW_CANDIDATE_GUARDIAN_FOUNDATION_ONLY`.
 
 Accepted predecessor: P1-f R4 design at
 `5d81b8e212300858246237a227a95d115dd67c2d`. This slice implements the
-local root-guardian authority and its executable proofs. It does not install
+local root-guardian foundation and its executable proofs. It does not close
+the full P1F-I composition or install
 files, start a service, connect to Redis or FINAM, dispatch broker commands, or
 authorize paper/live execution.
 
@@ -42,12 +43,15 @@ Ordinary claim cannot create or reconstruct missing genesis state.
 Each phase manifest is canonical JSON with Ed25519 domain separation. Its hash
 names a retained manifest directory and is bound into a strictly increasing
 event chain. Every history read validates schema/domain, sequence,
-predecessor, event hash, receipt hash, retained manifest bytes, manifest
-inventory and head. A duplicate active request returns the original receipt
+predecessor, event hash, receipt hash, retained manifest bytes and manifest
+inventory. Head state, active manifest, original deadline and stopping
+deadline are replayed from retained events and compared exactly. Pending
+transactions close ordinary admission and permit only exact recovery. A
+duplicate active request returns the original receipt
 and deadline. A different active request, spent manifest, head rollback,
 missing claim directory or modified retained manifest fails closed.
 
-Create-once pending markers make claim, O2 materialization and terminal
+Create-once pending markers make claim, O2 materialization, durable stopping and terminal
 transitions resumable only as the same transaction. Terminal evidence and all
 consumed manifest directories are retained.
 
@@ -66,18 +70,20 @@ bound into `materialized-set-receipt.json` plus the authority event chain.
 Admission requires exact reread of both files and broker truth age in
 `0..=300` seconds. Stale truth cannot mint a run permit.
 
-`Stage8bP1fRunPermitV1` is linear: it is neither cloneable nor serializable.
-It binds one active manifest, original claim/deadline and monotonic admission
-instant. Wall-clock rollback starts ordered stop. Deadline or clock failure
-never returns to Continue; after exactly 30 seconds the decision is
-`ForceKill`. The permit grants no Redis, FINAM, broker or process-launch
-capability.
+`Stage8bP1fRunPermitV1` is linear and owns a nonblocking process-lifetime
+execution lock. A second process cannot admit the same Active phase. Admission
+retains boot identity. Deadline, clock rollback or changed boot identity
+commits a hash-chained `Stopping` transition with an immutable 30-second
+force-kill deadline. Restart uses a dedicated stopping-continuation API and
+cannot reset that deadline. `ForceKill` is a required decision for the future
+supervision composition; this foundation does not claim to launch or kill a
+child process.
 
 ## Restore boundary
 
 `execute_stage8b_p1f_permitted_restore_v1` normalizes every source, target and
-selected path and rejects equality, ancestor or descendant overlap with the
-trusted control root before invoking the mutation callback. A declared or
+selected path, rejects equality/ancestor/descendant overlap, rejects symlink
+components and retains opened ancestor descriptors across the callback. A declared or
 suspected coherent whole-host/control-root restore writes a permanent
 quarantine receipt. No clear/rebind API exists in this source slice. Hidden
 coherent rollback is deliberately not claimed locally detectable.
@@ -94,8 +100,10 @@ The source gate runs:
   container.
 
 The immutable handoff records the exact source commit, tree, gate log and
-multi-UID log. Operational P1F-O0 through O4 and aggregate P1F-A remain
-separate review boundaries.
+multi-UID log. This package asks only for P1F-Ia guardian-foundation acceptance.
+P1F-Ib local supervision composition, P1F-Ic producer/high-water composition,
+P1F-Id eight role adapters/resource polling/command audit and P1F-Ie aggregate
+source closure remain open. P1F-O0 through O4 and aggregate P1F-A remain closed.
 
 ## Closed surfaces
 

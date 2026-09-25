@@ -402,9 +402,11 @@ operational provider/Redis/VPS surface.
 
 P1-f R0 through R3 were held by independent review. P1-f R4 at
 `5d81b8e212300858246237a227a95d115dd67c2d` is independently design-accepted.
-P1F-I source implementation is the active review candidate; P1F-O0 remains
-closed until independent P1F-I source acceptance. The remaining sequence is:
-source implementation, immutable read-only target preflight, non-activating
+P1F-Ia guardian foundation correction is the active review candidate. P1F-Ib
+local supervision, P1F-Ic producer/high-water composition, P1F-Id eight role
+adapters/resource polling/command audit and P1F-Ie aggregate source closure
+remain required; P1F-O0 stays closed until P1F-Ie acceptance. The remaining sequence is:
+guardian foundation, remaining source composition, immutable read-only target preflight, non-activating
 provisioning, one-shot network-isolated bootstrap, bounded synthetic paper
 session/restart acceptance, separately authorized read-only FINAM-bar session,
 then aggregate P1 acceptance. Each operational transition remains fail closed

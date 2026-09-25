@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "stage": "Stage 8B-P1-f I source implementation",
-  "status": "REVIEW_CANDIDATE_SOURCE_ONLY_NO_ACTIVATION",
+  "stage": "Stage 8B-P1-f Ia guardian foundation correction",
+  "status": "REVIEW_CANDIDATE_GUARDIAN_FOUNDATION_ONLY",
   "accepted_design_commit": "5d81b8e212300858246237a227a95d115dd67c2d",
   "production_module": "crates/runtime-durable-service/src/stage8b_p1f_guardian.rs",
   "authority_control_root": "/var/lib/moex-finam-p1-paper-control",
@@ -10,11 +10,11 @@
     "root-and-service-uid-custody",
     "one-time-signed-genesis-and-activation",
     "single-use-phase-claim-hash-chain",
-    "same-active-exact-deadline-continuation",
-    "crash-resumable-claim-materialization-terminal-transactions",
+    "replay-derived-head-and-pending-recovery-exclusion",
+    "crash-resumable-claim-materialization-stopping-terminal-transactions",
     "o2-exact-source-config-materialized-receipt",
-    "linear-run-permit-monotonic-deadline",
-    "restore-preflight-and-permanent-quarantine"
+    "process-owned-run-permit-and-durable-stopping",
+    "filesystem-aware-restore-preflight-and-permanent-quarantine"
   ],
   "inherited_contracts": {
     "first_boot_recovery": "V5",
@@ -40,5 +40,11 @@
     "real_orders": false,
     "authority_rebind": false
   },
-  "next_after_independent_source_acceptance": "P1F-O0 immutable read-only target preflight"
+  "remaining_p1fi_milestones": [
+    "P1F-Ib local deadline and child supervision composition",
+    "P1F-Ic phase-gated bootstrap synthetic and GET-only observer producers with retained high-water",
+    "P1F-Id eight role adapters resource polling and command audit",
+    "P1F-Ie aggregate source closure"
+  ],
+  "next_after_independent_source_acceptance": "P1F-Ib local supervision composition; P1F-O0 remains closed"
 }

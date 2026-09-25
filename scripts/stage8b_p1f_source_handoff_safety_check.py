@@ -13,10 +13,10 @@ import stage8b_p1e_i1a_handoff_safety_check as common
 import stage8b_p1f_source_check as source_check
 
 
-STAGE = "Stage 8B-P1-f I source implementation"
-PARENT = source_check.BASE
+STAGE = "Stage 8B-P1-f Ia guardian foundation correction"
+PARENT = "abc686fef583e92de346aed400ddbc3ec49fb84c"
 BRANCH = "stage8b-paper-shadow-resumption"
-REVIEW_SHA256 = "4f1229807296dcbafe43440140b6c375123a634135a9fe5a6a3d6567bfd003ba"
+REVIEW_SHA256 = "79ad70826c63d3601ffc513a47097b33b98f16d4b4196593ed2ccde025454948"
 PREFIX = "handoff-evidence/"
 MARKER = "handoff-commit.txt"
 MANIFEST = PREFIX + "source-tree-manifest.json"
@@ -24,7 +24,7 @@ COMMIT_RAW = PREFIX + "source-commit.raw"
 EVIDENCE = PREFIX + "stage8b-p1f-source-evidence.json"
 GATE = PREFIX + "stage8b-p1f-source-gate.txt"
 MULTI_UID = PREFIX + "stage8b-p1f-multi-uid-custody.txt"
-REVIEW = PREFIX + "reviews/FINAM_P1F_R4_DESIGN_REVIEW_5d81b8e_2026-09-25.md"
+REVIEW = PREFIX + "reviews/FINAM_P1FI_SOURCE_REVIEW_abc686f_2026-09-25.md"
 GENERATED = {MARKER, MANIFEST, COMMIT_RAW, EVIDENCE, GATE, MULTI_UID, REVIEW}
 REQUIRED = GENERATED | source_check.ALLOWED_CHANGES
 
@@ -70,7 +70,7 @@ def check(path: str) -> dict[str, object]:
         require(marker["stage"] == STAGE, "stage mismatch")
         require(marker["archive_name"] == PurePosixPath(path).name, "archive-name mismatch")
         require(marker["source_parent"] == PARENT, "source parent mismatch")
-        require(marker["accepted_design_ref"] == PARENT, "accepted design mismatch")
+        require(marker["accepted_design_ref"] == source_check.BASE, "accepted design mismatch")
         require(marker["branch"] == BRANCH, "branch mismatch")
         require(marker["source_ref"].startswith(marker["source_short_ref"]), "short ref mismatch")
 
@@ -104,10 +104,10 @@ def check(path: str) -> dict[str, object]:
         require(evidence["source_ref"] == marker["source_ref"], "evidence source mismatch")
         require(evidence["source_parent"] == PARENT, "evidence parent mismatch")
         require(evidence["source_tree"] == marker["source_tree"], "evidence tree mismatch")
-        require(evidence["status"] == "SOURCE_REVIEW_CANDIDATE_NO_ACTIVATION", "evidence status mismatch")
+        require(evidence["status"] == "GUARDIAN_FOUNDATION_CORRECTION_NO_ACTIVATION", "evidence status mismatch")
         require(evidence["changed_paths"] == sorted(source_check.ALLOWED_CHANGES), "changed path drift")
         require(evidence["source_negative_cases"] == 19, "negative count mismatch")
-        require(evidence["guardian_tests"] >= 13, "guardian test count mismatch")
+        require(evidence["guardian_tests"] >= 19, "guardian test count mismatch")
         require(all(flag is False for flag in evidence["closed_surfaces"].values()), "closed surface opened")
         require(evidence["gate_sha256"] == sha256(files[GATE]), "gate digest mismatch")
         require(evidence["multi_uid_sha256"] == sha256(files[MULTI_UID]), "multi-UID digest mismatch")
@@ -117,6 +117,8 @@ def check(path: str) -> dict[str, object]:
         for expected in (
             b"PASS stage8b-p1f-source-check",
             b"PASS stage8b-p1f-source-negative-harness 19/19",
+            b"PASS positive-control",
+            b"PASS nonsemantic-control",
             b"test result: ok.",
             b"PASS stage8b-p1f-source-gate",
         ):
@@ -125,6 +127,7 @@ def check(path: str) -> dict[str, object]:
             b"case=unlink-authority",
             b"case=rename-authority",
             b"case=parent-substitution",
+            b"case=source-transition-positive-read",
             b"root-transition-and-custody",
         ):
             require(expected in files[MULTI_UID], f"multi-UID marker missing: {expected!r}")

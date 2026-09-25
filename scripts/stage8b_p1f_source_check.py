@@ -26,6 +26,8 @@ MATRIX = "docs/stage-8/stage8b-p1f-source-acceptance-matrix.csv"
 STATUS = "docs/current-status.md"
 ROADMAP = "docs/roadmap.md"
 MULTI_UID = "scripts/stage8b_p1f_multi_uid_custody_harness.sh"
+REDIS_SOURCE = "crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs"
+STALE_DELETE_LUA = "docs/stage-8/stage8b-p1e-atomic-stale-consumer-delete-v1.lua"
 
 DESIGN_HASHES = {
     r4.DOCUMENT: "e67f6be9c36caed6975c131a01356062d8eb52fc7a66e4f24256c6b05232b990",
@@ -132,13 +134,14 @@ def validate_inventory(root: Path) -> None:
             "inherited_contracts",
             "executable_evidence",
             "closed_surfaces",
+            "remaining_p1fi_milestones",
             "next_after_independent_source_acceptance",
         },
         "source inventory key set drift",
     )
     require(value["schema_version"] == 1 and type(value["schema_version"]) is int, "schema drift")
-    require(value["stage"] == "Stage 8B-P1-f I source implementation", "stage drift")
-    require(value["status"] == "REVIEW_CANDIDATE_SOURCE_ONLY_NO_ACTIVATION", "source self-accepted")
+    require(value["stage"] == "Stage 8B-P1-f Ia guardian foundation correction", "stage drift")
+    require(value["status"] == "REVIEW_CANDIDATE_GUARDIAN_FOUNDATION_ONLY", "source self-accepted")
     require(value["accepted_design_commit"] == BASE, "accepted design binding drift")
     require(value["production_module"] == SOURCE, "production module drift")
     require(value["authority_control_root"] == "/var/lib/moex-finam-p1-paper-control", "control root drift")
@@ -160,9 +163,15 @@ def validate_inventory(root: Path) -> None:
     closed = value["closed_surfaces"]
     require(type(closed) is dict and len(closed) == 9, "closed surface inventory drift")
     require(all(flag is False for flag in closed.values()), "operational surface opened")
+    require(value["remaining_p1fi_milestones"] == [
+        "P1F-Ib local deadline and child supervision composition",
+        "P1F-Ic phase-gated bootstrap synthetic and GET-only observer producers with retained high-water",
+        "P1F-Id eight role adapters resource polling and command audit",
+        "P1F-Ie aggregate source closure",
+    ], "remaining P1F-I milestones drift")
     require(
         value["next_after_independent_source_acceptance"]
-        == "P1F-O0 immutable read-only target preflight",
+        == "P1F-Ib local supervision composition; P1F-O0 remains closed",
         "next boundary drift",
     )
 
@@ -198,13 +207,21 @@ def validate_source(root: Path) -> None:
         "PENDING_CLAIM_FILE",
         "PENDING_MATERIALIZATION_FILE",
         "PENDING_TERMINAL_FILE",
+        "PENDING_STOPPING_FILE",
+        'event.event_kind == "PHASE_STOPPING"',
+        "head.state != projected_state",
+        "PendingRecoveryRequired",
+        "acquire_execution_lock",
+        "resume_stopping_phase",
+        "current_boot_id",
+        "force_kill_at = stopping_started_at + chrono::Duration::seconds(30)",
         "sha256_hex(&retained_manifest_bytes) != event.manifest_sha256",
         "Stage8bP1fClaimDispositionV1::ContinuedExisting",
         "!(0..=300).contains(&age)",
         "parse_stage8b_p1e_first_boot_source_v1",
         "Stage8bP1fDeadlineDecisionV1::ForceKill",
-        "StdDuration::from_secs(30)",
         "RestoreOverlapsControlRoot",
+        "verify_restore_selector",
         "rebind_authorized: false",
     )
     for fragment in required:
@@ -213,6 +230,30 @@ def validate_source(root: Path) -> None:
     require("#[derive(Debug)]\npub struct Stage8bP1fAuthorityStoreV1" not in source, "authority store derivation drift")
     for forbidden in ("redis::Client", "reqwest::", "std::process::Command", "tokio::process", "clear_quarantine", "rebind_authority"):
         require(forbidden not in source, f"forbidden operational or rebind surface: {forbidden}")
+    for forbidden in (
+        "UNSIGNED_PHASE_DOMAIN",
+        "REMOVED_CLAIM_FILE",
+        "REMOVED_MATERIALIZATION_FILE",
+        "REMOVED_TERMINAL_FILE",
+        "libc::fchmod",
+        "!(0..=301).contains(&age)",
+    ):
+        require(forbidden not in source, f"mutated source primitive present: {forbidden}")
+    require(source.count("custom_flags(libc::O_CLOEXEC)") == 0,
+            "authority open lost O_NOFOLLOW")
+    require(source.count("libc::LOCK_EX | libc::LOCK_NB") >= 2,
+            "guardian or execution lock lost nonblocking exclusivity")
+    for fragment, minimum in {
+        "if unsafe { libc::geteuid() } != self.expected_uid": 2,
+        "libc::fchown": 2,
+        "SIGNED_PHASE_DOMAIN": 3,
+        "PENDING_CLAIM_FILE": 9,
+        "PENDING_MATERIALIZATION_FILE": 5,
+        "PENDING_TERMINAL_FILE": 6,
+        "!(0..=300).contains(&age)": 2,
+    }.items():
+        require(source.count(fragment) >= minimum,
+                f"source structural coverage reduced: {fragment}")
     require("mod stage8b_p1f_guardian;" in library and "Stage8bP1fRunPermitV1" in library, "library export drift")
     dependencies = cargo.split("[dev-dependencies]", 1)[0]
     require("ed25519-dalek.workspace = true" in dependencies, "production signature dependency missing")
@@ -223,6 +264,8 @@ def validate_source(root: Path) -> None:
         "create-authority",
         "parent-substitution",
         "guardian-lock-read",
+        "source-transition-positive-read",
+        "multi_uid_root_transition_source_probe",
         "runuser -u",
     ):
         require(fragment in harness, f"multi-UID case missing: {fragment}")
@@ -233,17 +276,17 @@ def validate_documents(root: Path) -> None:
     status = (root / STATUS).read_text()
     roadmap = (root / ROADMAP).read_text()
     for fragment in (
-        "REVIEW_CANDIDATE_SOURCE_ONLY_NO_ACTIVATION",
+        "REVIEW_CANDIDATE_GUARDIAN_FOUNDATION_ONLY",
         BASE,
-        "same transaction",
+        "exact recovery",
         "0..=300",
-        "exactly 30 seconds",
+        "30-second",
         "No clear/rebind API exists",
-        "P1F-O0 through O4 and aggregate P1F-A remain",
+        "P1F-Ib local supervision composition",
     ):
         require(fragment in document, f"source document fragment missing: {fragment}")
-    require("P1F-I source implementation review candidate" in status, "current status source boundary missing")
-    require("P1F-I source implementation is the active review candidate" in roadmap, "roadmap source boundary missing")
+    require("P1F-Ia guardian-foundation correction candidate" in status, "current status source boundary missing")
+    require("P1F-Ia guardian foundation correction is the active review candidate" in roadmap, "roadmap source boundary missing")
 
 
 def validate(root: Path = ROOT, *, verify_lineage: bool = True) -> None:
@@ -262,7 +305,7 @@ def main() -> int:
     except (CheckFailure, r4.CheckFailure, OSError, UnicodeDecodeError) as error:
         print(f"stage8b-p1f-source-check: FAIL {error}")
         return 1
-    print("PASS stage8b-p1f-source-check rows=30 guardian=true genesis=true history=true o2=true deadline=true restore=true operational=false")
+    print("PASS stage8b-p1f-source-check boundary=P1F-Ia rows=30 guardian=true genesis=true replay=true pending=true o2=true durable_stop=true restore=true operational=false")
     return 0
 
 

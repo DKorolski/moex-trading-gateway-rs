@@ -13,19 +13,19 @@ P1FI-011,genesis,Repeated genesis after activation is rejected,REQUIRED
 P1FI-012,history,Events are generation sequence predecessor and receipt-hash chained,REQUIRED
 P1FI-013,history,Retained phase manifest bytes must equal the hash bound by claim event,REQUIRED
 P1FI-014,history,Head rollback claim-directory loss and retained-manifest tamper fail closed,REQUIRED
-P1FI-015,history,Same Active restart preserves exact original receipt and deadline,REQUIRED
-P1FI-016,transactions,Pending claim materialization and terminal markers resume only the same transaction,REQUIRED
+P1FI-015,history,Head state active identity deadlines and stopping state equal the event-replayed projection,REQUIRED
+P1FI-016,transactions,Pending claim materialization stopping and terminal markers block admission and resume only the same transaction,REQUIRED
 P1FI-017,o2,O2 policy template installation source config and claim identities are exact,REQUIRED
 P1FI-018,o2,Only first_boot_source_bundle_sha256 is finalized from the signed template,REQUIRED
-P1FI-019,o2,Source and config are fsynced atomically installed reread and receipt-bound,REQUIRED
-P1FI-020,o2,Broker truth age above 300 seconds rejects admission,REQUIRED
+P1FI-019,o2,Source and config exact temp crash cuts recover and committed receipt event head binding precedes admission,REQUIRED
+P1FI-020,o2,Broker truth age above 300 seconds commits Failed and rejects admission,REQUIRED
 P1FI-021,recovery,Accepted V5 first-boot recovery remains separate from V4 committed schedule continuation,REQUIRED
-P1FI-022,deadline,Linear run permit binds exact active manifest original deadline and monotonic instant,REQUIRED
-P1FI-023,deadline,Clock rollback begins stop and stop cannot return to Continue,REQUIRED
-P1FI-024,deadline,Exact 30-second grace ends in ForceKill independent of SSH,REQUIRED
-P1FI-025,restore,Every restore selector is rejected before mutation when overlapping control root,REQUIRED
+P1FI-022,deadline,Run permit owns an exclusive process-lifetime execution lock and exact boot identity,REQUIRED
+P1FI-023,deadline,Clock rollback deadline or reboot commits durable Stopping and closes ordinary admission,REQUIRED
+P1FI-024,deadline,Restart continuation preserves the exact 30-second force-kill deadline without extension,REQUIRED
+P1FI-025,restore,Restore selectors reject lexical overlap symlink aliases and parent substitution before mutation,REQUIRED
 P1FI-026,restore,Declared coherent restore permanently quarantines ordinary use,REQUIRED
 P1FI-027,restore,No authority clear or rebind API exists,REQUIRED
 P1FI-028,inheritance,Exact accepted Redis trace capability and P0 isolation sources are unchanged,REQUIRED
-P1FI-029,evidence,Checker negative harness Rust tests Clippy and real multi-UID log are immutable handoff evidence,REQUIRED
-P1FI-030,closed,O0 through O4 P1F-A Redis FINAM runtime-live and real orders remain closed,REQUIRED
+P1FI-029,evidence,Positive control categorized mutations nonsemantic control Rust tests Clippy and source-backed multi-UID log are immutable evidence,REQUIRED
+P1FI-030,closed,P1F-Ib through Ie O0 through O4 P1F-A Redis FINAM runtime-live and real orders remain closed,REQUIRED

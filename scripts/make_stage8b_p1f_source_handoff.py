@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create immutable Stage 8B-P1-f I source review handoff."""
+"""Create immutable Stage 8B-P1-f Ia guardian correction handoff."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ import stage8b_p1f_source_handoff_safety_check as safety
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "reports/handoff"
-REVIEW_SOURCE = Path("/Users/denisq/Downloads/FINAM_P1F_R4_DESIGN_REVIEW_5d81b8e_2026-09-25.md")
+REVIEW_SOURCE = Path("/Users/denisq/Downloads/FINAM_P1FI_SOURCE_REVIEW_abc686f_2026-09-25.md")
 
 
 def git(*args: str) -> bytes:
@@ -46,24 +46,24 @@ def main() -> None:
     source_tree = git("rev-parse", "HEAD^{tree}").decode().strip()
     if source_parent != safety.PARENT:
         raise SystemExit("stage8b-p1f-source-handoff: FAIL source parent drift")
-    changed = set(git("diff", "--name-only", safety.PARENT, source_ref, "--").decode().splitlines())
+    changed = set(git("diff", "--name-only", source_check.BASE, source_ref, "--").decode().splitlines())
     if changed != source_check.ALLOWED_CHANGES:
         raise SystemExit(f"stage8b-p1f-source-handoff: FAIL changed paths {sorted(changed ^ source_check.ALLOWED_CHANGES)}")
     review = REVIEW_SOURCE.read_bytes()
     if sha256(review) != safety.REVIEW_SHA256:
-        raise SystemExit("stage8b-p1f-source-handoff: FAIL R4 review digest")
+        raise SystemExit("stage8b-p1f-source-handoff: FAIL correction review digest")
 
     gate = run_capture(["bash", "scripts/stage8b_p1f_source_gate.sh"])
     multi_uid = run_capture([
         "docker", "run", "--rm", "--platform", "linux/arm64",
         "-v", f"{ROOT}:/workspace:ro", "-w", "/workspace",
-        "debian:bookworm-slim", "bash", "scripts/stage8b_p1f_multi_uid_custody_harness.sh",
+        "rust:1.90-bookworm", "bash", "scripts/stage8b_p1f_multi_uid_custody_harness.sh",
     ])
     if git("rev-parse", "HEAD").decode().strip() != source_ref or git("status", "--porcelain", "--untracked-files=all").decode().strip():
         raise SystemExit("stage8b-p1f-source-handoff: FAIL source changed during evidence run")
 
     short = source_ref[:7]
-    archive_name = f"moex-trading-project-{short}-stage8b-p1f-source-review-package.zip"
+    archive_name = f"moex-trading-project-{short}-stage8b-p1f-ia-correction-review-package.zip"
     archive_path = OUTPUT / archive_name
     manifest, entries = common.source_manifest(source_ref)
     closed_surfaces = {
@@ -80,7 +80,7 @@ def main() -> None:
     evidence = {
         "schema_version": 1,
         "stage": safety.STAGE,
-        "status": "SOURCE_REVIEW_CANDIDATE_NO_ACTIVATION",
+        "status": "GUARDIAN_FOUNDATION_CORRECTION_NO_ACTIVATION",
         "source_ref": source_ref,
         "source_parent": source_parent,
         "source_tree": source_tree,
@@ -91,14 +91,14 @@ def main() -> None:
         "gate_sha256": sha256(gate),
         "multi_uid_sha256": sha256(multi_uid),
         "source_negative_cases": 19,
-        "guardian_tests": 13,
+        "guardian_tests": 19,
         "closed_surfaces": closed_surfaces,
-        "next_after_acceptance": "P1F-O0 immutable read-only target preflight",
+        "next_after_acceptance": "P1F-Ib local supervision composition; P1F-O0 remains closed",
     }
     marker = (
         f"stage={safety.STAGE}\nsource_short_ref={short}\nsource_ref={source_ref}\n"
         f"source_parent={source_parent}\nsource_tree={source_tree}\nbranch={branch}\n"
-        f"accepted_design_ref={safety.PARENT}\narchive_name={archive_name}\n"
+        f"accepted_design_ref={source_check.BASE}\narchive_name={archive_name}\n"
     ).encode()
     additions = {
         safety.MARKER: marker,

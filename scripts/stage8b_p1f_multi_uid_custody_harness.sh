@@ -27,14 +27,18 @@ cleanup() {
 trap cleanup EXIT
 
 chmod 0755 "$scratch"
-install -d -o root -g "$service_gid" -m 0750 "$control_root"
-install -d -o root -g "$service_gid" -m 0750 "$control_root/authority"
-install -o root -g "$service_gid" -m 0440 /dev/null "$control_root/authority/history-head.json"
-install -o root -g root -m 0600 /dev/null "$control_root/.guardian.lock"
-printf '%s\n' '{"state":"GENESIS_ACTIVATED"}' > "$control_root/authority/.history-head.next"
-chown root:"$service_gid" "$control_root/authority/.history-head.next"
-chmod 0440 "$control_root/authority/.history-head.next"
-mv "$control_root/authority/.history-head.next" "$control_root/authority/history-head.json"
+STAGE8B_P1F_MULTI_UID_EVIDENCE_ROOT="$control_root" \
+STAGE8B_P1F_MULTI_UID_SERVICE_GID="$service_gid" \
+CARGO_TARGET_DIR="$scratch/target" \
+cargo test -q -p runtime-durable-service --lib \
+  stage8b_p1f_guardian::tests::multi_uid_root_transition_source_probe \
+  --all-features -- --ignored --exact --test-threads=1
+
+claim_receipt="$(find "$control_root/authority/manifests" -type f -name claim-receipt.json -print -quit)"
+if [[ -z "$claim_receipt" ]]; then
+  echo "FAIL stage8b-p1f-multi-uid reason=source-transition-missing" >&2
+  exit 1
+fi
 
 run_as_service() {
   runuser -u "$service_user" -- "$@"
@@ -51,6 +55,8 @@ expect_denied() {
 }
 
 run_as_service test -r "$control_root/authority/history-head.json"
+run_as_service test -r "$claim_receipt"
+echo "PASS stage8b-p1f-multi-uid case=source-transition-positive-read"
 expect_denied unlink-authority rm -f "$control_root/authority/history-head.json"
 expect_denied rename-authority mv "$control_root/authority/history-head.json" "$control_root/authority/head.moved"
 expect_denied mutate-authority chmod 0640 "$control_root/authority/history-head.json"
