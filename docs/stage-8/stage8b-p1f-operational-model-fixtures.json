@@ -1,6 +1,6 @@
 {
-  "schema_version": 2,
-  "domain": "moex.stage8b.p1f.operational-model-fixtures.v2",
+  "schema_version": 3,
+  "domain": "moex.stage8b.p1f.operational-model-fixtures.v3",
   "status": "DESIGN_MODEL_ONLY_NO_OPERATION",
   "cases": [
     {"id":"P1F-M01","area":"o2-freshness","given":"O1 accepted and review delay exceeds 300 seconds","event":"new O2 manifest is claimed","expected":"O2-M collects new exact source bytes; no O1 bytes receive fresh authority"},
@@ -32,6 +32,15 @@
     {"id":"P1F-M27","area":"deadline","given":"child remains after ordered stop","event":"30-second grace expires","expected":"force kill remaining child; retain PEL DB15 and durable evidence"},
     {"id":"P1F-M28","area":"p0-isolation","given":"existing DB0 P0 key and legitimate concurrent P0 change","event":"P1 run and post-audit","expected":"P1 write rejected before Redis; legitimate P0 change causes no whole-DB false incident"},
     {"id":"P1F-M29","area":"redis-safety","given":"P1 fault scenario","event":"wrong DB key script argv count FLUSHDB CONFIG or Redis restart requested","expected":"typed capability rejects before command and stops P1 only; P0 and Redis process untouched"},
-    {"id":"P1F-M30","area":"resources","given":"PEL exceeds 64 or DB15 evidence exceeds 512 MiB or free root falls below 10 GiB","event":"five-second resource poll","expected":"fail-stop P1 phase; retain evidence; no trim delete Redis reconfiguration or P0 action"}
+    {"id":"P1F-M30","area":"resources","given":"PEL exceeds 64 or DB15 evidence exceeds 512 MiB or free root falls below 10 GiB","event":"five-second resource poll","expected":"fail-stop P1 phase; retain evidence; no trim delete Redis reconfiguration or P0 action"},
+    {"id":"P1F-M31","area":"redis-provisioning","given":"provisioner has both pinned initialization and verification capabilities","event":"public initialize_stage8b_p1_redis_namespace runs","expected":"namespace-initialization-v1 then namespace-verify-v1 execute with the same exact two keys and group argv; success returns only after exact frontiers"},
+    {"id":"P1F-M32","area":"redis-provisioning","given":"initializer response is lost after namespace creation","event":"public initializer is retried","expected":"the complete ordered initialization plus verification trace repeats; idempotent_fresh and exact verified frontiers are required"},
+    {"id":"P1F-M33","area":"redis-provisioning","given":"provisioner lacks namespace-verify-v1 capability","event":"public initializer reaches its second step","expected":"typed role adapter rejects; operation cannot report success or silently bypass verification"},
+    {"id":"P1F-M34","area":"redis-generated-market","given":"reserved generated-Market publication binds predecessor command-stream id","event":"p1d4-command-publication-v1 evaluates a new publication","expected":"XINFO STREAM exact command stream yields last-generated-id equal predecessor before one reserved-id XADD"},
+    {"id":"P1F-M35","area":"redis-generated-market","given":"nested XINFO STREAM authority is absent wrong-key or predecessor differs","event":"reserved generated-Market publication is attempted","expected":"typed capability or pinned script fails closed before XADD and source remains pending"},
+    {"id":"P1F-M36","area":"authority-custody","given":"authority is below root-owned sibling control root and runtime state remains service-owned","event":"service UID attempts unlink rename parent substitution or receipt recreation","expected":"filesystem denies every mutation; retained authority bytes and history head remain unchanged"},
+    {"id":"P1F-M37","area":"authority-history","given":"manifest was consumed but claim event head or manifest directory is missing corrupt substituted or rolled back","event":"guardian receives the same or a new claim","expected":"fail closed without reconstructing Unclaimed or starting a child; separate reviewed administrative recovery required"},
+    {"id":"P1F-M38","area":"authority-history","given":"same Active manifest directory exact current head and original deadline are intact","event":"guardian restarts before deadline","expected":"resume the existing claim only; preserve authority sequence and original deadline; create no second claim"},
+    {"id":"P1F-M39","area":"authority-history","given":"prior manifest has a retained terminal event and two guardians race with one newly signed next-sequence manifest","event":"exclusive claim transaction executes","expected":"one root guardian commits the new manifest directory and successor head; loser fails before effect and all prior evidence remains byte-exact"}
   ]
 }

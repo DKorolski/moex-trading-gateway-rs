@@ -1,65 +1,73 @@
 id,area,requirement,status
-P1F-R2-001,lineage,R1 correction parent tree and independent R1 review digest are exact,REQUIRED
-P1F-R2-002,scope,Correction changes no Rust Cargo deploy config workflow or remote state,REQUIRED
-P1F-R2-003,schema,Isolation object rejects missing extra renamed and mistyped fields,REQUIRED
-P1F-R2-004,schema,Config root is exactly /etc/moex-finam-p1-paper,REQUIRED
-P1F-R2-005,schema,State root is exactly /var/lib/moex-finam-p1-paper/state,REQUIRED
-P1F-R2-006,schema,Binary is exactly the accepted libexec path,REQUIRED
-P1F-R2-007,schema,Evidence inventory has exact names strict booleans and no extras,REQUIRED
-P1F-R2-008,target,Target host identity SSH fingerprint and platform are exact,REQUIRED
-P1F-R2-009,isolation,P1 mutating roles are exact DB15 and P1 namespace only,REQUIRED
-P1F-R2-010,coexistence,P0 units and configs remain outside P1 control,REQUIRED
-P1F-R2-011,phases,Seven phases remain ordered with separate acceptance,REQUIRED
-P1F-R2-012,o2,O1 output is never reused as fresh F00 truth,REQUIRED
-P1F-R2-013,o2,Signed policy and template permit only source-hash config finalization,REQUIRED
-P1F-R2-014,o2,O2-B requires exact ReadyForBootstrap receipt and PrivateNetwork AF_UNIX only,REQUIRED
-P1F-R2-015,o2,F00 truth older than 300 seconds fails without bootstrap mutation,REQUIRED
-P1F-R2-016,recovery,V5 F00 and administrative recovery are distinct from committed schedule V4 continuation,REQUIRED
-P1F-R2-017,o3,Synthetic schedule and M10 use production verification paths,REQUIRED
-P1F-R2-018,o3,Test constructors fixture keys and bypass capabilities are forbidden,REQUIRED
-P1F-R2-019,o3,Synthetic clock binds realtime to monotonic elapsed time,REQUIRED
-P1F-R2-020,o4,Bars feeder is market-data only,REQUIRED
-P1F-R2-021,o4,Broker-truth observer is a separate GET-only role,REQUIRED
-P1F-R2-022,o4,Observer emits Stage4 report only and no M10 or command,REQUIRED
-P1F-R2-023,schedule,Publisher interval is at most 2000 ms,REQUIRED
-P1F-R2-024,schedule,Stage4 observations refresh at most every 30000 ms,REQUIRED
-P1F-R2-025,schedule,Cross-source skew is at most 5000 ms,REQUIRED
-P1F-R2-026,schedule,Missing stale or expired evidence preserves each accepted route-specific owner and PEL frontier,REQUIRED
-P1F-R2-027,publisher,Prepared replay is byte-exact,REQUIRED
-P1F-R2-028,publisher,Published restart advances sequence without revision reset,REQUIRED
-P1F-R2-029,publisher,O3 to O4 retains publisher and consumer high-water,REQUIRED
-P1F-R2-030,publisher,O4 requires a new phase manifest but not first-publication authority,REQUIRED
-P1F-R2-031,artifacts,Every produced artifact declares producer and phase authority,REQUIRED
-P1F-R2-032,artifacts,Every produced artifact declares provenance and canonical identity,REQUIRED
-P1F-R2-033,artifacts,Every produced artifact declares freshness signer and custody,REQUIRED
-P1F-R2-034,artifacts,Every produced artifact declares allowed outputs and restart policy,REQUIRED
-P1F-R2-035,authority,Manifest binds policy template source target phase deadline and installation before materialization,REQUIRED
-P1F-R2-036,authority,Durable exclusive claim precedes first effect,REQUIRED
-P1F-R2-037,authority,Second controller and terminal manifest replay are rejected,REQUIRED
-P1F-R2-038,authority,Crash between source config and receipt commits resumes deterministic same-claim materialization only,REQUIRED
-P1F-R2-039,deadline,Deadline starts at claim and restart never extends it,REQUIRED
-P1F-R2-040,deadline,Local deadline enforcement is independent of SSH,REQUIRED
-P1F-R2-041,deadline,Restart after expiry and terminal autorestart are forbidden,REQUIRED
-P1F-R2-042,deadline,Shutdown grace is exactly 30 seconds then force kill,REQUIRED
-P1F-R2-043,deadline,Expiry during Redis wait retains source PEL and evidence,REQUIRED
-P1F-R2-044,telemetry,Telemetry failure persists local receipt and cannot drive XACK,REQUIRED
-P1F-R2-045,redis,Each accepted public operation maps to exact DB key command script hash arguments and response-loss behavior,REQUIRED
-P1F-R2-046,redis,Raw Redis connection cannot escape production role adapters,REQUIRED
-P1F-R2-047,redis,Global destructive administrative and shared-policy commands are forbidden,REQUIRED
-P1F-R2-048,redis,Fault injection may stop P1 only and never Redis or P0,REQUIRED
-P1F-R2-049,p0,P0 unit and config hashes are retained before and after,REQUIRED
-P1F-R2-050,p0,P1 initiated P0 service actions and DB0 writes are zero,REQUIRED
-P1F-R2-051,p0,Existing nonprefix P0 key mutation is rejected before Redis,REQUIRED
-P1F-R2-052,p0,Legitimate P0 DB0 change does not trigger whole-DB false failure,REQUIRED
-P1F-R2-053,resources,PEL above 64 causes P1 fail-stop,REQUIRED
-P1F-R2-054,resources,DB15 evidence above 512 MiB causes P1 fail-stop,REQUIRED
-P1F-R2-055,resources,Free root below 10 GiB causes P1 fail-stop,REQUIRED
-P1F-R2-056,resources,Limit handling never trims deletes or reconfigures Redis,REQUIRED
-P1F-R2-057,restart,Six scenarios freeze start fault exit counter PEL and checkpoint,REQUIRED
-P1F-R2-058,restart,SIGKILL continuation uses original phase receipt and deadline,REQUIRED
-P1F-R2-059,restart,Conflicting duplicate retains source and performs zero XACK,REQUIRED
-P1F-R2-060,restart,Uncertain provider recovery performs at most one provider effect,REQUIRED
-P1F-R2-061,models,Thirty model cases cover O2 Redis route frontiers authority deadline P0 and resources,REQUIRED
-P1F-R2-062,models,No-op mutation cannot count as a rejected negative case,REQUIRED
-P1F-R2-063,evidence,Evidence key inventory and P0 role-command proof are exact,REQUIRED
-P1F-R2-064,closed,Acceptance opens only P1F-I and no operational surface,REQUIRED
+P1F-R3-001,lineage,R1 correction parent tree and independent R1 review digest are exact,REQUIRED
+P1F-R3-002,scope,Correction changes no Rust Cargo deploy config workflow or remote state,REQUIRED
+P1F-R3-003,schema,Isolation object rejects missing extra renamed and mistyped fields,REQUIRED
+P1F-R3-004,schema,Config root is exactly /etc/moex-finam-p1-paper,REQUIRED
+P1F-R3-005,schema,State root is exactly /var/lib/moex-finam-p1-paper/state,REQUIRED
+P1F-R3-006,schema,Binary is exactly the accepted libexec path,REQUIRED
+P1F-R3-007,schema,Evidence inventory has exact names strict booleans and no extras,REQUIRED
+P1F-R3-008,target,Target host identity SSH fingerprint and platform are exact,REQUIRED
+P1F-R3-009,isolation,P1 mutating roles are exact DB15 and P1 namespace only,REQUIRED
+P1F-R3-010,coexistence,P0 units and configs remain outside P1 control,REQUIRED
+P1F-R3-011,phases,Seven phases remain ordered with separate acceptance,REQUIRED
+P1F-R3-012,o2,O1 output is never reused as fresh F00 truth,REQUIRED
+P1F-R3-013,o2,Signed policy and template permit only source-hash config finalization,REQUIRED
+P1F-R3-014,o2,O2-B requires exact ReadyForBootstrap receipt and PrivateNetwork AF_UNIX only,REQUIRED
+P1F-R3-015,o2,F00 truth older than 300 seconds fails without bootstrap mutation,REQUIRED
+P1F-R3-016,recovery,V5 F00 and administrative recovery are distinct from committed schedule V4 continuation,REQUIRED
+P1F-R3-017,o3,Synthetic schedule and M10 use production verification paths,REQUIRED
+P1F-R3-018,o3,Test constructors fixture keys and bypass capabilities are forbidden,REQUIRED
+P1F-R3-019,o3,Synthetic clock binds realtime to monotonic elapsed time,REQUIRED
+P1F-R3-020,o4,Bars feeder is market-data only,REQUIRED
+P1F-R3-021,o4,Broker-truth observer is a separate GET-only role,REQUIRED
+P1F-R3-022,o4,Observer emits Stage4 report only and no M10 or command,REQUIRED
+P1F-R3-023,schedule,Publisher interval is at most 2000 ms,REQUIRED
+P1F-R3-024,schedule,Stage4 observations refresh at most every 30000 ms,REQUIRED
+P1F-R3-025,schedule,Cross-source skew is at most 5000 ms,REQUIRED
+P1F-R3-026,schedule,Missing stale or expired evidence preserves each accepted route-specific owner and PEL frontier,REQUIRED
+P1F-R3-027,publisher,Prepared replay is byte-exact,REQUIRED
+P1F-R3-028,publisher,Published restart advances sequence without revision reset,REQUIRED
+P1F-R3-029,publisher,O3 to O4 retains publisher and consumer high-water,REQUIRED
+P1F-R3-030,publisher,O4 requires a new phase manifest but not first-publication authority,REQUIRED
+P1F-R3-031,artifacts,Every produced artifact declares producer and phase authority,REQUIRED
+P1F-R3-032,artifacts,Every produced artifact declares provenance and canonical identity,REQUIRED
+P1F-R3-033,artifacts,Every produced artifact declares freshness signer and custody,REQUIRED
+P1F-R3-034,artifacts,Every produced artifact declares allowed outputs and restart policy,REQUIRED
+P1F-R3-035,authority,Manifest binds policy template source target phase deadline and installation before materialization,REQUIRED
+P1F-R3-036,authority,Durable exclusive claim precedes first effect,REQUIRED
+P1F-R3-037,authority,Second controller and terminal manifest replay are rejected,REQUIRED
+P1F-R3-038,authority,Crash between source config and receipt commits resumes deterministic same-claim materialization only,REQUIRED
+P1F-R3-039,deadline,Deadline starts at claim and restart never extends it,REQUIRED
+P1F-R3-040,deadline,Local deadline enforcement is independent of SSH,REQUIRED
+P1F-R3-041,deadline,Restart after expiry and terminal autorestart are forbidden,REQUIRED
+P1F-R3-042,deadline,Shutdown grace is exactly 30 seconds then force kill,REQUIRED
+P1F-R3-043,deadline,Expiry during Redis wait retains source PEL and evidence,REQUIRED
+P1F-R3-044,telemetry,Telemetry failure persists local receipt and cannot drive XACK,REQUIRED
+P1F-R3-045,redis,Each accepted public operation maps to exact DB key command script hash arguments and response-loss behavior,REQUIRED
+P1F-R3-046,redis,Raw Redis connection cannot escape production role adapters,REQUIRED
+P1F-R3-047,redis,Global destructive administrative and shared-policy commands are forbidden,REQUIRED
+P1F-R3-048,redis,Fault injection may stop P1 only and never Redis or P0,REQUIRED
+P1F-R3-049,p0,P0 unit and config hashes are retained before and after,REQUIRED
+P1F-R3-050,p0,P1 initiated P0 service actions and DB0 writes are zero,REQUIRED
+P1F-R3-051,p0,Existing nonprefix P0 key mutation is rejected before Redis,REQUIRED
+P1F-R3-052,p0,Legitimate P0 DB0 change does not trigger whole-DB false failure,REQUIRED
+P1F-R3-053,resources,PEL above 64 causes P1 fail-stop,REQUIRED
+P1F-R3-054,resources,DB15 evidence above 512 MiB causes P1 fail-stop,REQUIRED
+P1F-R3-055,resources,Free root below 10 GiB causes P1 fail-stop,REQUIRED
+P1F-R3-056,resources,Limit handling never trims deletes or reconfigures Redis,REQUIRED
+P1F-R3-057,restart,Six scenarios freeze start fault exit counter PEL and checkpoint,REQUIRED
+P1F-R3-058,restart,SIGKILL continuation uses original phase receipt and deadline,REQUIRED
+P1F-R3-059,restart,Conflicting duplicate retains source and performs zero XACK,REQUIRED
+P1F-R3-060,restart,Uncertain provider recovery performs at most one provider effect,REQUIRED
+P1F-R3-061,models,Thirty model cases cover O2 Redis route frontiers authority deadline P0 and resources,REQUIRED
+P1F-R3-062,models,No-op mutation cannot count as a rejected negative case,REQUIRED
+P1F-R3-063,evidence,Evidence key inventory and P0 role-command proof are exact,REQUIRED
+P1F-R3-064,closed,Acceptance opens only P1F-I and no operational surface,REQUIRED
+P1F-R3-065,redis,Public namespace initializer has both ordered pinned initialization and verification capabilities,REQUIRED
+P1F-R3-066,redis,Initializer response-loss retry repeats the full trace and succeeds only after exact verified frontiers,REQUIRED
+P1F-R3-067,redis,Reserved generated-Market publication inventory includes exact command-stream XINFO STREAM predecessor check,REQUIRED
+P1F-R3-068,custody,Authority control root and every authority parent are root-owned and non-writable by the service UID,REQUIRED
+P1F-R3-069,custody,Root guardian is the only writer and manifest history is sequence and predecessor hash chained,REQUIRED
+P1F-R3-070,custody,Missing corrupt substituted or rolled-back history fails closed without reconstructing Unclaimed,REQUIRED
+P1F-R3-071,custody,Same Active restart retains original claim and deadline while a new manifest preserves prior terminal evidence,REQUIRED
+P1F-R3-072,evidence,P1F-I must include real multi-UID unlink rename substitution root-transition and concurrent-claim tests,REQUIRED

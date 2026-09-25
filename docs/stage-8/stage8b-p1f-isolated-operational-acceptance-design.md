@@ -1,16 +1,16 @@
-# Stage 8B-P1-f R2 isolated operational acceptance design correction
+# Stage 8B-P1-f R3 isolated operational acceptance design correction
 
 Status: **DESIGN CORRECTION REVIEW CANDIDATE — NO ACTIVATION**.
 
-Correction parent: `8feedfb3e1d6e4d0f24148abdbbb25bf8d90b0ed`.
-The independent R1 review is bound by SHA-256
-`163f57e6f524356b5ca57c645b0a28f5c334d369c83a31c75a7d2d910df2ad82`.
+Correction parent: `eeac091635f102fa5b7dc9db3564c214e2efefe0`.
+The independent R2 review is bound by SHA-256
+`cdb156224dc76349b20a710d043bbf069c5a38e4231546e831f723cf105a2fb6`.
 Stage 8B-P1-e I1 remains CLOSED / ACCEPTED at governance closure
 `3f171d997de5616cb9a07311d7776e446456c0c1`.
 
 This correction changes design, model fixtures and fail-closed review tooling
 only. It performs no SSH mutation, installation, Redis command, systemd action,
-FINAM request or process start. The 64 matrix rows below are design obligations,
+FINAM request or process start. The 72 matrix rows below are design obligations,
 not completed operational scenarios.
 
 ## 1. Goal and unchanged phase boundary
@@ -77,10 +77,10 @@ deadline before collection. Materialization then advances monotonically:
 
 | State | Exact path | Identity and commit |
 | --- | --- | --- |
-| `Claimed` | `/var/lib/moex-finam-p1-paper/state/p1f-o2-active-receipt.json` | manifest/policy/template/install/deadline/controller hashes; create-new, fsync file+parent, reread |
+| `Claimed` | `/var/lib/moex-finam-p1-paper-control/authority/manifests/{manifest_sha256}/claim-receipt.json` | manifest/policy/template/install/deadline/controller plus authority sequence and predecessor head; root-guardian create-new, fsync, hash-chain head commit and reread |
 | `SourceCommitted` | `/etc/moex-finam-p1-paper/bootstrap/stage8b-p1-first-boot-source-v1.json` | SHA-256 of exact F00 bytes; temp+fsync+rename+parent-fsync+reread |
 | `ConfigCommitted` | `/etc/moex-finam-p1-paper/supervisor.json` | canonical final config whose sole dynamic field is the exact source SHA; temp+fsync+rename+parent-fsync+reread |
-| `ReadyForBootstrap` | `/var/lib/moex-finam-p1-paper/state/p1f-o2-materialized-set-receipt.json` | hash of policy, source, final config, install and claim identities; create-new, fsync file+parent, reread and cross-validate |
+| `ReadyForBootstrap` | `/var/lib/moex-finam-p1-paper-control/authority/manifests/{manifest_sha256}/materialized-set-receipt.json` | hash of policy, source, final config, install, claim and authority history; root-guardian create-new, fsync, append event, reread and cross-validate |
 
 The fixed source and final config are `root:moex-p1-paper 0440`; both parent
 directories are `root:moex-p1-paper 0750`. This is readable by the accepted
@@ -88,6 +88,30 @@ nonroot service while remaining read-only to it. A stop between source,
 config and receipt commits may only finish the deterministic next step under
 the same Active claim. It cannot enter O2-B before the final receipt. Any byte,
 hash, owner, mode, template or receipt conflict fails closed.
+
+Phase authority is never stored below the accepted service-writable `state`
+directory. Its exact sibling control root is
+`/var/lib/moex-finam-p1-paper-control`, owned `root:moex-p1-paper 0750` below
+`/var/lib root:root 0755`. The `authority`, `events` and `manifests`
+directories retain the same root-owned/group-non-writable custody. Authority
+receipts are `root:moex-p1-paper 0440`. The runtime UID may read/traverse the
+minimum required identities but cannot create, unlink, rename or substitute
+any authority directory entry. The existing
+`/var/lib/moex-finam-p1-paper/state` remains service-owned `0700` and carries
+no phase authority.
+
+The root P1-f guardian is the sole writer. Every signed manifest binds an
+authority generation, the next sequence and the exact predecessor event hash.
+Under one root-owned exclusive lock the guardian creates the manifest-scoped
+directory and claim event, fsyncs files and parents, commits and rereads the
+hash-chained `history-head.json`, and only then permits a first effect. The
+manifest directory plus its claim/terminal chain is the durable spent-manifest
+registry. Missing, corrupt, substituted or rolled-back history fails closed;
+it never reconstructs `Unclaimed` and requires separately reviewed
+administrative recovery. An Active restart must match the exact history head
+and original deadline. A newly authorized manifest binds the retained terminal
+head and next sequence and creates a distinct directory without deleting old
+evidence.
 
 Fresh admission retains the accepted 300-second maximum broker-truth age. If
 the source is 301 seconds old before O2-B, the phase becomes `Failed`, bootstrap
@@ -194,11 +218,21 @@ cause XACK: a local terminal receipt is persisted and children stop.
 All production Redis access is through typed role adapters; no raw Redis
 connection escapes. Mutating roles use DB15 and the exact P1 prefix. The
 machine-readable inventory maps every accepted public operation to its real
-command, key/argument constraints and response-loss behavior. It pins eight
+command, key/argument constraints, required role capabilities and response-loss
+behavior. The checker proves all ten source operations are reachable through
+their exact role capabilities. It pins eight
 Lua programs by SHA-256: namespace initialization and verify-only attach, M10
 publication, two ordinary command publication/revalidation scripts, two P1-d4
 reserved publication/revalidation scripts and atomic stale-consumer cleanup.
 Arbitrary `EVAL` is never allowed.
+
+The public fresh-namespace trace is exact and two-step: the provisioner invokes
+`namespace-initialization-v1` and then `namespace-verify-v1` over the same two
+keys and group arguments. Its role therefore has both pinned capabilities.
+Response-loss retry repeats the complete ordered trace and succeeds only after
+the verifier returns exact frontiers. The reserved generated-Market trace also
+records the `XINFO STREAM` nested authority used to compare the command
+stream's `last-generated-id` with the bound predecessor before `XADD`.
 
 The real source semantics are retained: verify-only attach runs the pinned
 namespace verifier; canonical M10 publication runs the pinned group-checking
@@ -254,12 +288,15 @@ test-only authority or replace the production callback/provider path.
 
 ## 9. Model fixtures and evidence
 
-The checked model file contains 30 positive/fail-closed cases. It adds O2
+The checked model file contains 39 positive/fail-closed cases. It adds O2
 source/config/receipt crash cuts, byte/hash conflict, separate V5 source and
 administrative recovery, distinct V4 schedule continuation, exact Redis attach,
 M10 publication/response-loss, COUNT 64 schedule read, stale-consumer cleanup,
 retention and all six route-specific schedule frontiers to the existing
-authority/deadline/P0/resource cases.
+authority/deadline/P0/resource cases. R3 additionally proves the complete
+initializer trace, reserved-publication `XINFO STREAM` authority, protected
+multi-UID custody, consumed-manifest rollback refusal and preserved history
+across a newly authorized manifest.
 
 Evidence inventory is exact: target and installed identities, systemd state,
 phase claim/deadline, artifact freshness, publisher/consumer high-water,
@@ -269,7 +306,7 @@ network facts, resource growth and redacted secret-free logs.
 
 ## 10. What acceptance opens
 
-Independent acceptance of this R2 correction opens only `P1F-I` source
+Independent acceptance of this R3 correction opens only `P1F-I` source
 implementation. It does not authorize SSH mutation, installation, systemd
 reload/enable/start, DB15 provisioning, bootstrap, FINAM attachment, paper
 provider operation, broker dispatch, runtime-live or real orders.
