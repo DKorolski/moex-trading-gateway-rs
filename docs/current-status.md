@@ -30,14 +30,17 @@ implementation and operational gates explicitly authorize them. Historical
 candidate descriptions below are retained as lineage and are not the active
 project status.
 
-The active P1-f R1 design-correction candidate closes the R0 checker,
-freshness/schedule-supply, phase-lifecycle and P0-isolation findings. It binds
+The active P1-f R2 design/checker correction candidate follows the independent
+HOLD of R1 `8feedfb3e1d6e4d0f24148abdbbb25bf8d90b0ed`. It preserves the
+closed R0 findings and addresses only P1-F02/P1-F05/P1-F06: source-exact O2
+materialization and V5 recovery, accepted-I1 Redis capability conformance, and
+fail-closed lifecycle/deadline validation. It binds
 the already-paid isolated VPS as a coexistence target: existing P0 services
 remain outside P1 control in DB0 while typed P1 roles are restricted to DB15
-and exact paths. It adds fresh O2 materialization, durable single-use claims,
-an absolute non-extending deadline, publisher/high-water continuity, exact
-Redis capabilities, resource limits and 20 model cases. It performs none of
-those actions and grants no operational authority.
+and exact paths. It adds a policy-bound source/config/materialized-receipt
+identity chain, exact hashes for eight production Lua scripts, ten accepted
+source-operation mappings, six route-specific schedule frontiers and 30 model
+cases. It performs none of those actions and grants no operational authority.
 
 ## Current accepted boundary
 

@@ -1,10 +1,10 @@
-# Stage 8B-P1-f R1 isolated operational acceptance design correction
+# Stage 8B-P1-f R2 isolated operational acceptance design correction
 
 Status: **DESIGN CORRECTION REVIEW CANDIDATE — NO ACTIVATION**.
 
-Correction parent: `58bb4cafd3eb80f43c8d0bfd182f7be18ea92d00`.
-The independent R0 review is bound by SHA-256
-`ea5b184ad7c412e63229c8b98bacda895da151c09fc666057dc512968cc24ba5`.
+Correction parent: `8feedfb3e1d6e4d0f24148abdbbb25bf8d90b0ed`.
+The independent R1 review is bound by SHA-256
+`163f57e6f524356b5ca57c645b0a28f5c334d369c83a31c75a7d2d910df2ad82`.
 Stage 8B-P1-e I1 remains CLOSED / ACCEPTED at governance closure
 `3f171d997de5616cb9a07311d7776e446456c0c1`.
 
@@ -63,18 +63,42 @@ O1 never prepares reusable "fresh" F00 truth. O2 has two subphases under the
 same newly issued O2 manifest:
 
 - `P1F-O2-M` may perform only read-only FINAM GET materialization. It cannot
-  contact Redis or any order endpoint. Exact source bytes and SHA-256 are
-  added to the already durable Active phase receipt.
+  contact Redis or any order endpoint. The signed manifest binds a
+  materialization policy, immutable supervisor-config template and exact
+  paths; only `first_boot_source_bundle_sha256` may be finalized from the
+  collected bytes.
 - `P1F-O2-B` revokes network access and performs the accepted bootstrap through
-  AF_UNIX with `PrivateNetwork=yes`.
+  AF_UNIX with `PrivateNetwork=yes`. It starts only from a durable
+  `ReadyForBootstrap` materialized-set receipt.
+
+The claim identity and materialized identity are intentionally distinct. The
+durable Active claim binds the signed policy/template, installation and
+deadline before collection. Materialization then advances monotonically:
+
+| State | Exact path | Identity and commit |
+| --- | --- | --- |
+| `Claimed` | `/var/lib/moex-finam-p1-paper/state/p1f-o2-active-receipt.json` | manifest/policy/template/install/deadline/controller hashes; create-new, fsync file+parent, reread |
+| `SourceCommitted` | `/etc/moex-finam-p1-paper/bootstrap/stage8b-p1-first-boot-source-v1.json` | SHA-256 of exact F00 bytes; temp+fsync+rename+parent-fsync+reread |
+| `ConfigCommitted` | `/etc/moex-finam-p1-paper/supervisor.json` | canonical final config whose sole dynamic field is the exact source SHA; temp+fsync+rename+parent-fsync+reread |
+| `ReadyForBootstrap` | `/var/lib/moex-finam-p1-paper/state/p1f-o2-materialized-set-receipt.json` | hash of policy, source, final config, install and claim identities; create-new, fsync file+parent, reread and cross-validate |
+
+The fixed source and final config are `root:moex-p1-paper 0440`; both parent
+directories are `root:moex-p1-paper 0750`. This is readable by the accepted
+nonroot service while remaining read-only to it. A stop between source,
+config and receipt commits may only finish the deterministic next step under
+the same Active claim. It cannot enter O2-B before the final receipt. Any byte,
+hash, owner, mode, template or receipt conflict fails closed.
 
 Fresh admission retains the accepted 300-second maximum broker-truth age. If
 the source is 301 seconds old before O2-B, the phase becomes `Failed`, bootstrap
 performs no mutation, evidence is retained and a new manifest is required.
 A long review delay after O1 therefore causes fresh O2-M collection, never a
-freshness exception. Marker-bound historical continuation remains available
-only for an already committed V4 transaction and does not perform new schedule
-admission.
+freshness exception. Recovery is split into two independent accepted
+mechanisms. A pre-seal V5 first-boot marker authenticates the exact historical
+F00 bytes and allows their continuation after the live freshness window; V5
+administrative actions do not read F00. A committed schedule V4 continues its
+already-bound effect without a new schedule read. V4 never substitutes for V5
+first-boot recovery.
 
 ### O3 synthetic supply
 
@@ -98,16 +122,26 @@ refresh at most every 30 seconds. This explicit role does not add account API
 authority to the bars feeder.
 
 The schedule publisher emits at most every two seconds, so transport age stays
-within the accepted five-second bound. Missing/stale schedule or expired Stage4
-evidence blocks fresh admission before callback/source acquisition and retains
-the PEL.
+within the accepted five-second bound. A phase-start health gate may prevent
+children from starting, but it is not lifecycle authority. Once I1 is active,
+schedule failure is route-specific and preserves accepted predecessor effects:
+
+| Route | Schedule-read frontier | Failure disposition |
+| --- | --- | --- |
+| Market / generated Market / initial LIMIT / CANCEL | exact `CommandPublished*` owner; callback and command publication may already exist | retain exact published owner and M10 PEL; no provider/truth/XACK |
+| Ready Working LIMIT | routed continuation with broker truth and schedule high-water already durable | retain routed owner; no new callback/command/truth/XACK |
+| Ready Day expiry | source-free Ready owner after timer due and high-water restore | retain Ready owner; no cancel/expiry/source/XACK |
+
+The design does not claim a universal pre-callback schedule check and does not
+alter accepted I1 route ordering.
 
 ## 4. Produced artifact contract
 
 | Artifact | Producer / authority | Provenance and identity | Freshness / signer / custody | Output and restart |
 | --- | --- | --- | --- | --- |
-| phase manifest | offline operator; one O1–O4 phase | accepted tree, target, phase, inputs/config/install identities; canonical SHA-256 | not-before/deadline; pinned P1-f Ed25519 public key; private key offline | one durable claim; manifest cannot be claimed twice |
-| fresh first-boot source | O2-M under claimed O2 manifest | exact FINAM read-only truth plus accepted history/riskgate; source SHA and operational/account/instrument identity | at most 300 seconds; hash bound to signed receipt; root 0400 | one O2-B input; stale input fails the phase |
+| phase manifest | offline operator; one O1–O4 phase | accepted tree, target, phase, policy/template/install identities; canonical SHA-256 | not-before/deadline; pinned P1-f Ed25519 public key; private key offline | one durable claim; manifest cannot be claimed twice |
+| fresh first-boot source | O2-M under claimed O2 manifest and policy | exact FINAM read-only truth plus accepted history/riskgate; source SHA and operational/account/instrument identity | at most 300 seconds; root:moex-p1-paper 0440 under 0750 parents | deterministic final config input only; same-claim incomplete materialization may continue |
+| O2 materialized-set receipt | deterministic O2-M finalizer | policy/template, exact source, final config, install and claim hashes | create-new; fsync file+parent; reread and cross-validate | sole O2-B admission token; partial commits are never bootstrap-ready |
 | synthetic Stage4 report | O3 production observation producer | fixture/phase/clock/report hashes | refresh <=2 seconds; embedded in generation-2 envelope | report/schedule input; resume exact high-water |
 | FINAM Stage4 report | O4 dedicated GET-only observer | raw-response hashes, checked time, account/instrument and exact sections | refresh <=30 seconds and cross-source skew <=5 seconds; token in root credential | Stage4 report only; refresh after restart |
 | signed schedule | accepted normalizer/publisher | envelope hash, source generation, sequence and semantic revision | publish <=2 seconds; `schedule-ed25519-v1` generation 2 via constrained AF_UNIX signer | DB15 schedule stream; Prepared replays exact bytes, Published advances sequence |
@@ -136,10 +170,12 @@ The lifecycle is:
 
 Before the first effect, the guardian creates a receipt with create-new
 semantics, writes and fsyncs it, fsyncs the parent directory, rereads it and
-binds manifest hash, source tree, host key, phase, inputs, config, installation,
-start/deadline and controller identity. A concurrent controller loses before
-effect. A crash after claim may resume only the same `Active` receipt before
-the original deadline; this is continuation, not reuse of the manifest.
+binds manifest hash, source tree, host key, phase, materialization-policy hash,
+config-template hash, installation, start/deadline and controller identity. A
+concurrent controller loses before effect. O2 source/final-config hashes are
+added only through the materialized-set receipt. A crash after claim may resume
+only the same `Active` receipt before the original deadline; this is
+continuation, not reuse of the manifest.
 
 The deadline begins at durable claim: 1800 seconds for O3 and 10800 seconds for
 O4. Restart never extends it. A local guardian/deadline enforcer operates
@@ -153,15 +189,31 @@ and supervisor, then force-kills after a 30-second grace. It preserves DB15,
 PEL and durable evidence. Telemetry failure cannot keep a phase running or
 cause XACK: a local terminal receipt is persisted and children stop.
 
-## 7. Exact Redis role capabilities and P0 protection
+## 7. Source-exact Redis role capabilities and P0 protection
 
 All production Redis access is through typed role adapters; no raw Redis
 connection escapes. Mutating roles use DB15 and the exact P1 prefix. The
-machine-readable role list freezes command forms and keys for provisioner,
-synthetic feeder, FINAM bars feeder, schedule publisher and supervisor. The
-provisioner uses the accepted pinned namespace-initialization Lua for the M10
-and command streams/groups; only non-consumed output streams may carry one
-retained provisioning marker. It cannot substitute ad-hoc group creation. The
+machine-readable inventory maps every accepted public operation to its real
+command, key/argument constraints and response-loss behavior. It pins eight
+Lua programs by SHA-256: namespace initialization and verify-only attach, M10
+publication, two ordinary command publication/revalidation scripts, two P1-d4
+reserved publication/revalidation scripts and atomic stale-consumer cleanup.
+Arbitrary `EVAL` is never allowed.
+
+The real source semantics are retained: verify-only attach runs the pinned
+namespace verifier; canonical M10 publication runs the pinned group-checking
+script and resolves response loss with exact-id `XRANGE`; retention admission
+uses `XLEN`; the schedule reader performs `XREVRANGE + - COUNT 64` and validates
+newest plus bounded progression; stale-consumer cleanup first discovers at
+most 64 consumers, examines at most 16 and then atomically rechecks pending=0
+and idle>=86400000 before `XGROUP DELCONSUMER`. Source acquisition remains
+bounded `XPENDING`/exact `XAUTOCLAIM` before fresh `XREADGROUP`, and source
+`XACK` remains last after durable truth. The conformance fixtures include
+positive publish/duplicate/response-loss, attach, schedule, hygiene and
+recovery traces plus wrong DB/key/script/argument/count failures.
+
+The provisioner alone holds namespace-initialization authority. Only
+non-consumed output streams may carry one retained provisioning marker. The
 auditor has bounded read-only DB0/DB15 access. Guardian and broker-truth
 observer have no Redis capability.
 
@@ -202,12 +254,12 @@ test-only authority or replace the production callback/provider path.
 
 ## 9. Model fixtures and evidence
 
-The checked model file contains 20 positive/fail-closed cases for: 301-second
-F00 expiry, long review wait, stale/missing schedule, expired Stage4 evidence,
-publisher restart, O3-to-O4 continuity, committed V4 continuation, two
-controllers, manifest replay, crash after claim, SSH loss, restart before/after
-deadline, expiry during Redis wait, telemetry failure, P0 negative/positive
-controls, forbidden Redis administration and resource pressure.
+The checked model file contains 30 positive/fail-closed cases. It adds O2
+source/config/receipt crash cuts, byte/hash conflict, separate V5 source and
+administrative recovery, distinct V4 schedule continuation, exact Redis attach,
+M10 publication/response-loss, COUNT 64 schedule read, stale-consumer cleanup,
+retention and all six route-specific schedule frontiers to the existing
+authority/deadline/P0/resource cases.
 
 Evidence inventory is exact: target and installed identities, systemd state,
 phase claim/deadline, artifact freshness, publisher/consumer high-water,
@@ -217,7 +269,7 @@ network facts, resource growth and redacted secret-free logs.
 
 ## 10. What acceptance opens
 
-Independent acceptance of this R1 correction opens only `P1F-I` source
+Independent acceptance of this R2 correction opens only `P1F-I` source
 implementation. It does not authorize SSH mutation, installation, systemd
 reload/enable/start, DB15 provisioning, bootstrap, FINAM attachment, paper
 provider operation, broker dispatch, runtime-live or real orders.

@@ -1,11 +1,11 @@
 {
-  "schema_version": 2,
-  "stage": "Stage 8B-P1-f R1 isolated operational acceptance design correction",
+  "schema_version": 3,
+  "stage": "Stage 8B-P1-f R2 isolated operational acceptance design correction",
   "status": "DESIGN_CORRECTION_REVIEW_CANDIDATE_NO_ACTIVATION",
   "correction_parent": {
-    "commit": "58bb4cafd3eb80f43c8d0bfd182f7be18ea92d00",
-    "tree": "3c771d40df6303a10e19c9ed9ff652894075ac83",
-    "review_sha256": "ea5b184ad7c412e63229c8b98bacda895da151c09fc666057dc512968cc24ba5"
+    "commit": "8feedfb3e1d6e4d0f24148abdbbb25bf8d90b0ed",
+    "tree": "4e03628f0bf5c732c7529f3fa64925a2934a8430",
+    "review_sha256": "163f57e6f524356b5ca57c645b0a28f5c334d369c83a31c75a7d2d910df2ad82"
   },
   "accepted_predecessor": {
     "commit": "3f171d997de5616cb9a07311d7776e446456c0c1",
@@ -28,7 +28,7 @@
     "non_loopback_redis_allowed": false
   },
   "phases": [
-    {"id":"P1F-I","name":"source implementation","remote_mutation":false,"service_start":false,"requires_prior_acceptance":"P1F-R1-design"},
+    {"id":"P1F-I","name":"source implementation","remote_mutation":false,"service_start":false,"requires_prior_acceptance":"P1F-R2-design"},
     {"id":"P1F-O0","name":"immutable read-only target preflight","remote_mutation":false,"service_start":false,"requires_prior_acceptance":"P1F-I-source"},
     {"id":"P1F-O1","name":"non-activating provisioning","remote_mutation":true,"service_start":false,"requires_prior_acceptance":"P1F-O0-preflight"},
     {"id":"P1F-O2","name":"fresh materialization then network-isolated one-shot bootstrap","remote_mutation":true,"service_start":false,"requires_prior_acceptance":"P1F-O1-provisioning"},
@@ -42,26 +42,46 @@
     "schedule_cross_source_max_skew_ms": 5000,
     "o2_materialization": {
       "subphase": "P1F-O2-M",
-      "authority": "same single-use O2 manifest before bootstrap effect",
+      "authority": "same single-use O2 manifest binds signed materialization policy and immutable config template before any effect",
       "network_policy": "read-only FINAM GET only; no Redis and no order endpoint",
-      "output_binding": "exact source bytes and sha256 added to durable Active receipt",
+      "output_binding": "exact source bytes determine first_boot_source_bundle_sha256; deterministic final config and materialized-set receipt bind one final identity",
       "bootstrap_subphase": "P1F-O2-B",
       "bootstrap_network_policy": "PrivateNetwork plus AF_UNIX only",
+      "materialization_states": ["Claimed", "SourceCommitted", "ConfigCommitted", "ReadyForBootstrap"],
+      "signed_policy": {
+        "domain": "moex.stage8b.p1f.o2-materialization-policy.v1",
+        "binds": ["source_tree", "target_host_key", "phase_id", "installation_manifest_sha256", "config_template_sha256", "immutable_config_fields_sha256", "source_path", "config_path", "receipt_path"],
+        "only_finalizable_config_field": "first_boot_source_bundle_sha256",
+        "finalizer": "canonical supervisor JSON with source sha256 substituted into the signed template"
+      },
+      "identity_chain": [
+        {"state":"Claimed","path":"/var/lib/moex-finam-p1-paper/state/p1f-o2-active-receipt.json","identity":"claim_receipt_sha256 binds manifest policy template installation deadline controller","commit":"create-new write fsync parent-fsync reread"},
+        {"state":"SourceCommitted","path":"/etc/moex-finam-p1-paper/bootstrap/stage8b-p1-first-boot-source-v1.json","identity":"source_sha256 over exact bytes","commit":"temp write fsync atomic rename parent-fsync reread; root:moex-p1-paper 0440"},
+        {"state":"ConfigCommitted","path":"/etc/moex-finam-p1-paper/supervisor.json","identity":"final_config_sha256 over canonical JSON containing the exact source_sha256","commit":"deterministic temp write fsync atomic rename parent-fsync reread; root:moex-p1-paper 0440"},
+        {"state":"ReadyForBootstrap","path":"/var/lib/moex-finam-p1-paper/state/p1f-o2-materialized-set-receipt.json","identity":"materialized_set_sha256 over policy source config installation and claim hashes","commit":"create-new write fsync parent-fsync reread and cross-validate all exact bytes"}
+      ],
+      "source_custody": "source root:moex-p1-paper 0440; config root:moex-p1-paper 0440; parent directories root:moex-p1-paper 0750",
+      "final_identity": "sha256(policy_sha256 || source_sha256 || final_config_sha256 || installation_manifest_sha256 || claim_receipt_sha256)",
+      "bootstrap_admission": "requires ReadyForBootstrap receipt fsync plus reread and exact source/config/receipt cross-validation",
       "stale_before_bootstrap": "fail phase without bootstrap mutation; retain receipt; require new manifest",
-      "review_wait_policy": "O1 artifacts are never reused as fresh F00 truth"
+      "review_wait_policy": "O1 artifacts are never reused as fresh F00 truth",
+      "new_admission_recovery": "resume only deterministic incomplete materialization under same Active claim; never bootstrap before ReadyForBootstrap",
+      "historical_v5_recovery": "authenticated V5 marker binds byte-exact historical F00 continuation independently of schedule V4",
+      "administrative_v5_recovery": "authenticated V5 administrative actions never read F00"
     },
     "schedule_supply": {
       "publication_interval_max_ms": 2000,
       "stage4_observation_refresh_max_ms": 30000,
-      "missing_or_stale_action": "fail closed and stop phase with source PEL retained",
-      "expired_stage4_action": "reject before callback or new source acquisition",
+      "missing_or_stale_action": "route-specific fail closed; retain exact linear owner and any existing source PEL; never provider truth or XACK",
+      "expired_stage4_action": "phase-start admission may block child start; active I1 routes preserve their accepted predecessor effects and typed owner",
       "synthetic_clock": "phase-start realtime bound to monotonic elapsed time; rollback or discontinuity fails closed",
-      "committed_v4_recovery": "marker-bound historical continuation only; no new fresh schedule admission"
+      "committed_v4_recovery": "schedule-bound effect continuation only; no fresh schedule read; distinct from V5 first-boot recovery"
     }
   },
   "artifact_contracts": [
-    {"id":"phase-authority-manifest","producer":"offline operator phase authority","phase_authority":"one exact O1 O2 O3 or O4 phase","source_and_provenance":"accepted source tree plus reviewed phase plan","canonical_identity":"canonical JSON sha256 and Ed25519 signature","freshness":"not-before and absolute deadline validated before claim","signer_and_trust":"P1-f phase-authority key pinned by accepted P1F-I package","custody":"private key offline; public key root-owned on target","allowed_outputs":"one durable claim receipt only","restart_policy":"manifest cannot be claimed twice; Active receipt may resume before original deadline"},
-    {"id":"fresh-first-boot-source","producer":"P1F-O2-M read-only first-boot materializer","phase_authority":"claimed O2 manifest","source_and_provenance":"fresh FINAM read-only broker truth plus accepted history/riskgate source contract","canonical_identity":"exact source bundle sha256 operational identity account and instrument","freshness":"broker truth age at O2-B admission at most 300 seconds","signer_and_trust":"bundle sha256 bound into signed phase manifest receipt","custody":"root-owned 0400 phase input; never Git handoff or logs","allowed_outputs":"one AF_UNIX bootstrap input","restart_policy":"stale input fails O2; historical continuation is allowed only for an existing committed V4 marker"},
+    {"id":"phase-authority-manifest","producer":"offline operator phase authority","phase_authority":"one exact O1 O2 O3 or O4 phase","source_and_provenance":"accepted source tree plus reviewed phase plan and O2 policy/template where applicable","canonical_identity":"canonical JSON sha256 and Ed25519 signature","freshness":"not-before and absolute deadline validated before claim","signer_and_trust":"P1-f phase-authority key pinned by accepted P1F-I package","custody":"private key offline; public key root-owned on target","allowed_outputs":"one durable claim receipt only","restart_policy":"manifest cannot be claimed twice; Active receipt may resume before original deadline"},
+    {"id":"fresh-first-boot-source","producer":"P1F-O2-M read-only first-boot materializer","phase_authority":"claimed O2 manifest and signed materialization policy","source_and_provenance":"fresh FINAM read-only broker truth plus accepted history/riskgate source contract","canonical_identity":"exact source bytes sha256 operational identity account and instrument","freshness":"broker truth age at O2-B admission at most 300 seconds","signer_and_trust":"source hash is the sole permitted dynamic finalization input under signed policy","custody":"root:moex-p1-paper 0440 at fixed accepted path; parents root:moex-p1-paper 0750; never Git handoff or logs","allowed_outputs":"deterministic final supervisor config input only","restart_policy":"same claim may finish incomplete materialization; V5 marker-bound historical continuation is separate from schedule V4"},
+    {"id":"o2-materialized-set-receipt","producer":"P1F-O2-M deterministic finalizer","phase_authority":"same Active O2 claim and signed policy","source_and_provenance":"policy template source final config installation and claim receipt hashes","canonical_identity":"materialized-set sha256 over the exact final identity tuple","freshness":"source remains at most 300 seconds at O2-B admission","signer_and_trust":"signed policy permits only first_boot_source_bundle_sha256 finalization","custody":"root-owned durable state; fsync file and parent then reread","allowed_outputs":"ReadyForBootstrap admission token only","restart_policy":"partial source or config commits are not bootstrap-ready; exact deterministic completion or fail closed"},
     {"id":"synthetic-stage4-observation","producer":"P1F-O3 production synthetic observation producer","phase_authority":"claimed O3 manifest and accepted fixture digest","source_and_provenance":"explicit synthetic positions orders instruments and schedule observations","canonical_identity":"phase id fixture sha256 observation clock and Stage4 report sha256","freshness":"refreshed at most every 2000 ms with cross-source skew at most 5000 ms","signer_and_trust":"embedded only in generation-2 signed schedule envelope","custody":"durable publisher directory under P1 state root","allowed_outputs":"accepted Stage4 report and signed schedule input","restart_policy":"resume exact publisher high-water; no test constructor or sequence reset"},
     {"id":"finam-stage4-observation","producer":"P1F-O4 dedicated read-only broker-truth observer","phase_authority":"claimed O4 manifest separate from bars feeder","source_and_provenance":"exact FINAM GET responses for required positions orders instruments and schedule sections","canonical_identity":"raw-response hashes report checked time account instrument and source sections","freshness":"refresh at most every 30000 ms; schedule and report observations within 5000 ms","signer_and_trust":"report embedded in generation-2 signed schedule envelope","custody":"read-only token in root credential; exact raw hashes retained without secret bytes","allowed_outputs":"Stage4 report only; no M10 and no order command","restart_policy":"resume from retained report identity; fetch fresh GET evidence before next publication"},
     {"id":"signed-schedule-envelope","producer":"accepted production schedule normalizer and publisher","phase_authority":"claimed O3 or O4 manifest","source_and_provenance":"exact normalized schedule plus accepted Stage4 report","canonical_identity":"envelope sha256 publication sequence semantic revision and source generation","freshness":"published at most every 2000 ms; consumer transport age at most 5000 ms","signer_and_trust":"schedule-ed25519-v1 generation 2 through policy-constrained AF_UNIX signer","custody":"signing key outside process; durable Prepared or Published state under P1 state root","allowed_outputs":"DB15 market-schedule stream via XADD NOMKSTREAM MAXLEN exact 4096","restart_policy":"Prepared replay is byte-identical; Published resumes sequence plus one and never resets revision"},
@@ -72,7 +92,9 @@
   "operator_authority": {
     "one_signed_phase_manifest_per_operational_phase": true,
     "manifest_single_use": true,
-    "manifest_binds_source_tree_target_host_phase_deadline_inputs_config_and_installation": true,
+    "manifest_binds_source_tree_target_host_phase_deadline_policy_template_and_installation": true,
+    "o2_manifest_binds_policy_template_not_dynamic_source_or_final_config": true,
+    "o2_materialized_receipt_binds_source_final_config_and_claim": true,
     "durable_claim_before_first_effect": true,
     "second_controller_rejected": true,
     "automatic_phase_escalation": false,
@@ -82,7 +104,7 @@
     "states": ["Unclaimed", "Active", "Stopping", "Completed", "Failed", "Expired"],
     "claim": {
       "operation": "create-new receipt then fsync file and parent directory before first effect",
-      "receipt_binds": ["manifest_sha256", "source_tree", "target_host_key", "phase_id", "input_sha256", "config_sha256", "installation_manifest_sha256", "started_at_utc", "deadline_utc", "controller_id"],
+      "receipt_binds": ["manifest_sha256", "source_tree", "target_host_key", "phase_id", "materialization_policy_sha256", "config_template_sha256", "installation_manifest_sha256", "started_at_utc", "deadline_utc", "controller_id"],
       "crash_after_claim": "same local phase guardian may resume Active receipt before original deadline",
       "second_controller": "reject without effect"
     },
@@ -115,12 +137,42 @@
     "mutating_roles_database": 15,
     "mutating_roles_key_pattern": "finam_imoexf_paper:{finam-imoexf-p1}:*",
     "global_forbidden_commands": ["FLUSHALL", "FLUSHDB", "CONFIG", "ACL", "MODULE", "DEBUG", "SHUTDOWN", "SAVE", "BGSAVE", "BGREWRITEAOF", "MIGRATE", "RESTORE", "MOVE", "SWAPDB", "RENAME", "RENAMENX", "DEL", "UNLINK", "XDEL", "XTRIM"],
+    "scripts": [
+      {"id":"namespace-initialization-v1","sha256":"c7db9e1660bb6519ab7502b63cc695ce6d3a5f453be248b4aaad4ddbc614dd3e","keys":"2 exact P1 M10 and command streams","argv":"exact M10 and Stage7 command group names","nested_commands":["TYPE","XINFO GROUPS","XLEN","XGROUP CREATE MKSTREAM"],"effect":"fresh namespace initialization or byte-stable idempotent classification"},
+      {"id":"namespace-verify-v1","sha256":"de29c3ca22ec8eb16925a48ada22bf1dd4fd5b6bd7fa58a0438000a0923e7d49","keys":"2 exact P1 M10 and command streams","argv":"exact M10 and Stage7 command group names","nested_commands":["TYPE","XINFO GROUPS"],"effect":"read-only exact group frontier verification"},
+      {"id":"m10-publication-v1","sha256":"ecf60a82c8efdb92c2b4a13a86cd607dee46a216bdbf3c7207ea3208989baf54","keys":"1 exact canonical M10 stream","argv":"exact M10 group redis-id and canonical payload","nested_commands":["XINFO GROUPS","XADD exact-id payload"],"effect":"one canonical M10 publication"},
+      {"id":"command-publication-v1","sha256":"0c5b4d4cfbbe8615ed863e00bfdd3a3325e028f9fba78ee1bf2e5bb819346ce1","keys":"exact source stream command stream and request marker","argv":"13 exact source command envelope seal schema domain and group values","nested_commands":["TYPE","XINFO GROUPS","XRANGE exact-id","XPENDING exact-id","GET","XADD","SET"],"effect":"atomic existing-or-published command classification"},
+      {"id":"command-publication-revalidate-v1","sha256":"f0c37828d3057d77243506c2eee21e9c12f8e67a8489c42071580ba378f71993","keys":"exact source stream command stream and request marker","argv":"13 exact source command envelope seal schema domain and group values","nested_commands":["TYPE","XINFO GROUPS","GET","XRANGE exact-id","XPENDING exact-id"],"effect":"read-only existing publication revalidation"},
+      {"id":"p1d4-command-publication-v1","sha256":"ec80534b837877db2dc992ffda1803f47ad8569c966d399edc3265fbc21b51c6","keys":"exact source stream command stream and request marker","argv":"exact reserved successor source payload group envelope and marker","nested_commands":["TYPE","XINFO GROUPS","XRANGE exact-id","XPENDING exact-id","GET","XADD reserved-id","SET"],"effect":"atomic reserved generated-market publication"},
+      {"id":"p1d4-command-publication-revalidate-v1","sha256":"f15f0f0ef1ad1397cceaf1158e421f49bbdd8d0ad956a97ae3fe46c947108358","keys":"exact source stream command stream and request marker","argv":"exact source group reserved id envelope marker and pending policy","nested_commands":["TYPE","XINFO GROUPS","GET","XRANGE exact-id","XPENDING exact-id"],"effect":"read-only reserved publication revalidation"},
+      {"id":"atomic-stale-consumer-delete-v1","sha256":"cfabc24e0563c490e9950e250fdb146f992403394d48953a1b5eb2a2ffd09b6b","keys":"1 exact canonical M10 stream","argv":"exact group consumer and minimum idle 86400000","nested_commands":["XINFO CONSUMERS","XGROUP DELCONSUMER"],"effect":"delete only the same zero-pending stale consumer after atomic recheck"}
+    ],
+    "source_operations": [
+      {"id":"fresh-namespace","role":"provisioner","source":"Stage8bP1RedisBackend::initialize_fresh_namespace","command":"EVAL namespace-initialization-v1 with exact 2 keys and 2 argv","response_loss":"rerun returns idempotent_fresh only for exact empty streams and groups"},
+      {"id":"verify-only-attach","role":"supervisor","source":"Stage8bP1RedisBackend::verify_groups","command":"EVAL namespace-verify-v1 with exact 2 keys and 2 argv","response_loss":"safe read-only retry; no initialization authority"},
+      {"id":"m10-publish","role":"synthetic-m10-feeder-or-finam-bars-feeder","source":"Stage8bP1RedisBackend::publish_canonical_m10","command":"EVAL m10-publication-v1 with exact 1 key and 3 argv","response_loss":"XRANGE exact redis-id; equal payload is idempotent existing; absent or conflict fails"},
+      {"id":"retention-admission","role":"supervisor","source":"Stage8bP1RedisBackend::retained_m10_count","command":"XLEN exact canonical M10 stream","response_loss":"read-only retry"},
+      {"id":"schedule-read","role":"supervisor","source":"Stage8bP1eRedisScheduleReader::read_newest_with_timeout","command":"XREVRANGE exact market-schedule + - COUNT 64","response_loss":"bounded retry revalidates newest and retained progression"},
+      {"id":"stale-consumer-discovery","role":"supervisor","source":"Stage8bP1eRedisControlV1::clean_stale_zero_pending_consumers","command":"XINFO CONSUMERS exact M10 stream/group; inventory <=64 examine <=16","response_loss":"repeat discovery then atomic recheck"},
+      {"id":"stale-consumer-cleanup","role":"supervisor","source":"Stage8bP1eRedisControlV1::clean_stale_zero_pending_consumers","command":"EVAL atomic-stale-consumer-delete-v1 with exact 1 key and 3 argv","response_loss":"repeat discovery; script permits only zero-pending idle target"},
+      {"id":"source-acquire-and-reclaim","role":"supervisor","source":"Stage8bP1RedisBackend acquisition methods","command":"XPENDING bounded then XAUTOCLAIM exact id before XREADGROUP bounded","response_loss":"exact PEL/source identity is revalidated"},
+      {"id":"command-publication","role":"supervisor","source":"Stage8bP1RedisBackend publish/revalidate methods","command":"only the four pinned command publication scripts above","response_loss":"exact marker plus exact command XRANGE revalidation; no second command effect"},
+      {"id":"source-xack-last","role":"supervisor","source":"Stage8bP1RedisBackend acknowledge_exact","command":"XACK exact source stream group and id","response_loss":"exact terminal truth is reread before already-XACKed classification"}
+    ],
+    "schedule_route_frontiers": [
+      {"route":"PlainMarket","start_frontier":"CommandPublishedMarket","allowed_predecessor_effects":"source acquired callback committed command published","failure_disposition":"AwaitingSchedule retains exact published owner and source PEL; no provider truth or XACK"},
+      {"route":"GeneratedMarket","start_frontier":"CommandPublishedGeneratedMarket with reservation binding","allowed_predecessor_effects":"source acquired callback committed reserved command published","failure_disposition":"AwaitingSchedule retains exact published owner reservation and PEL; no provider truth or XACK"},
+      {"route":"InitialLimit","start_frontier":"CommandPublishedInitialLimit","allowed_predecessor_effects":"source acquired callback committed limit command published","failure_disposition":"AwaitingSchedule retains exact published owner and source PEL; no ACK truth or XACK"},
+      {"route":"Cancel","start_frontier":"CommandPublishedCancel","allowed_predecessor_effects":"working lifecycle retained callback committed cancel command published","failure_disposition":"AwaitingSchedule retains exact published cancel owner and source PEL; no cancel truth or XACK"},
+      {"route":"ReadyWorkingLimit","start_frontier":"RoutedContinuation ReadyWorkingLimit","allowed_predecessor_effects":"working broker truth already committed and durable schedule high-water restored","failure_disposition":"AwaitingSchedule retains exact routed owner; no new callback command truth or XACK"},
+      {"route":"ReadyDayExpiry","start_frontier":"source-free ReadyDayExpiry","allowed_predecessor_effects":"day timer due and durable schedule high-water restored","failure_disposition":"AwaitingSchedule retains exact Ready owner; no cancel expiry source acquisition or XACK"}
+    ],
     "roles": [
       {"role":"provisioner","db":15,"allowed":["PING","TYPE exact-key","GET deployment-manifest","SET deployment-manifest NX exact-canonical-bytes","EVAL pinned-namespace-initialization-script exact-M10-and-command-keys","XADD exact-nonconsumed-output-stream provisioning-marker once","XINFO exact-stream-or-group"],"writes":"exact manifest inventory only"},
-      {"role":"synthetic-m10-feeder","db":15,"allowed":["PING","TYPE canonical-m10","XADD canonical-m10 exact-payload"],"writes":"canonical M10 stream only"},
-      {"role":"finam-bars-feeder","db":15,"allowed":["PING","TYPE canonical-m10","XADD canonical-m10 exact-payload"],"writes":"canonical M10 stream only"},
+      {"role":"synthetic-m10-feeder","db":15,"allowed":["PING","EVAL namespace-verify-v1 exact-keys-argv","EVAL m10-publication-v1 exact-key-argv","XRANGE canonical-m10 exact-id exact-id","XLEN canonical-m10"],"writes":"canonical M10 stream only through pinned script"},
+      {"role":"finam-bars-feeder","db":15,"allowed":["PING","EVAL namespace-verify-v1 exact-keys-argv","EVAL m10-publication-v1 exact-key-argv","XRANGE canonical-m10 exact-id exact-id","XLEN canonical-m10"],"writes":"canonical M10 stream only through pinned script"},
       {"role":"schedule-publisher","db":15,"allowed":["PING","TYPE market-schedule","XADD market-schedule NOMKSTREAM MAXLEN = 4096 payload"],"writes":"market-schedule stream only"},
-      {"role":"supervisor","db":15,"allowed":["PING","TYPE exact-key","GET exact-marker-or-manifest","SET exact-settlement-marker","XINFO exact-stream-or-group","XPENDING exact-M10-group","XAUTOCLAIM exact-M10-group bounded","XREADGROUP exact-M10-group bounded","XRANGE exact-lifecycle-stream bounded","XREVRANGE market-schedule COUNT 1","XADD exact-command-lifecycle-telemetry-stream NOMKSTREAM bounded","EVAL pinned-settlement-script exact-keys","XACK exact-source-group last"],"writes":"accepted P1 lifecycle only"},
+      {"role":"supervisor","db":15,"allowed":["PING","TYPE exact-key","GET exact-marker-or-manifest","SET exact-settlement-marker","XINFO exact-stream-group-or-consumer bounded","XPENDING exact-M10-group bounded","XAUTOCLAIM exact-M10-group exact-id bounded","XREADGROUP exact-M10-group bounded","XRANGE exact-source-lifecycle-or-command id-bounded","XREVRANGE market-schedule + - COUNT 64","XLEN canonical-m10","XADD exact-command-lifecycle-telemetry-stream NOMKSTREAM bounded","EVAL namespace-verify-v1 exact-keys-argv","EVAL one-of-four-command-publication-scripts exact-keys-argv","EVAL atomic-stale-consumer-delete-v1 exact-key-argv","XACK exact-source-group last"],"writes":"accepted P1 lifecycle only; schedule failure follows route-specific frontier"},
       {"role":"read-only-auditor","db":"0-and-15-read-only","allowed":["PING","INFO persistence-or-memory","TYPE","EXISTS","SCAN bounded","GET","XLEN","XRANGE bounded","XREVRANGE bounded","XINFO","XPENDING","PTTL","DUMP for hash only"],"writes":"none"},
       {"role":"phase-guardian","db":"none","allowed":[],"writes":"local phase receipt and process control only"},
       {"role":"broker-truth-observer","db":"none","allowed":[],"writes":"local exact-response hashes and Stage4 report only"}
