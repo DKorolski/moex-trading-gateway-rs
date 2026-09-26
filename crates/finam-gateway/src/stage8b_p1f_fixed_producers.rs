@@ -13,6 +13,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+use async_trait::async_trait;
 use broker_core::{event::Bar, CanonicalBarAggregator, MarketDataSourceKind};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -64,6 +65,8 @@ pub enum Stage8bP1fProducerErrorV1 {
     Schedule(#[from] Stage8bP1eSchedulePublisherError),
     #[error("accepted canonical M10 contract rejected the input: {0}")]
     CanonicalM10(#[from] runtime_durable_service::Stage8bP1CanonicalM10Error),
+    #[error("fixed Redis role rejected publication: {0}")]
+    RedisRole(#[from] runtime_durable_service::Stage8bP1fRedisRoleErrorV1),
 }
 
 impl From<std::io::Error> for Stage8bP1fProducerErrorV1 {
@@ -178,6 +181,10 @@ impl Stage8bP1fM10ProducerStateV1 {
 
     pub fn schedule_envelope_sha256(&self) -> &str {
         &self.schedule_envelope_sha256
+    }
+
+    pub fn operational_identity_sha256(&self) -> &str {
+        &self.operational_identity_sha256
     }
 
     pub fn exact_canonical_m10_bytes(&self) -> Result<Vec<u8>, Stage8bP1fProducerErrorV1> {
@@ -536,6 +543,84 @@ pub fn persist_stage8b_p1f_m10_producer_state(
         return Err(Stage8bP1fProducerErrorV1::DurableStateConflict);
     }
     Ok(())
+}
+
+/// Closed publication seam used by Id. Implementations must publish the exact
+/// retained Prepared bytes and return proof of an exact Redis reread.
+#[async_trait]
+pub trait Stage8bP1fM10PublicationPortV1 {
+    async fn publish_and_reread_exact_m10(
+        &mut self,
+        redis_id: &str,
+        canonical_bytes: &[u8],
+        operational_identity_sha256: &str,
+    ) -> Result<
+        runtime_durable_service::Stage8bP1fM10RedisPublicationReceiptV1,
+        Stage8bP1fProducerErrorV1,
+    >;
+}
+
+#[async_trait]
+impl Stage8bP1fM10PublicationPortV1 for runtime_durable_service::Stage8bP1fM10FeederRedisV1 {
+    async fn publish_and_reread_exact_m10(
+        &mut self,
+        redis_id: &str,
+        canonical_bytes: &[u8],
+        operational_identity_sha256: &str,
+    ) -> Result<
+        runtime_durable_service::Stage8bP1fM10RedisPublicationReceiptV1,
+        Stage8bP1fProducerErrorV1,
+    > {
+        Ok(
+            runtime_durable_service::Stage8bP1fM10FeederRedisV1::publish_and_reread_exact_m10(
+                self,
+                redis_id,
+                canonical_bytes,
+                operational_identity_sha256,
+            )
+            .await?,
+        )
+    }
+}
+
+/// Persists Prepared before the Redis effect, publishes only those retained
+/// exact bytes, requires exact-reread proof, and then persists Published.  If
+/// the call or response is lost, the durable state remains Prepared and the
+/// next process invocation reuses the same bytes and deterministic Redis ID.
+pub async fn publish_stage8b_p1f_prepared_m10(
+    path: &Path,
+    prepared: Stage8bP1fM10ProducerStateV1,
+    publisher: &mut impl Stage8bP1fM10PublicationPortV1,
+) -> Result<Stage8bP1fM10ProducerStateV1, Stage8bP1fProducerErrorV1> {
+    prepared.validate()?;
+    if prepared.phase() != Stage8bP1fM10ProducerPhaseV1::Prepared {
+        return Err(Stage8bP1fProducerErrorV1::DurableStateConflict);
+    }
+    persist_stage8b_p1f_m10_producer_state(path, &prepared)?;
+    let redis_id = prepared.canonical_m10_redis_id().to_string();
+    let exact_bytes = prepared.exact_canonical_m10_bytes()?;
+    let receipt = publisher
+        .publish_and_reread_exact_m10(
+            &redis_id,
+            &exact_bytes,
+            prepared.operational_identity_sha256(),
+        )
+        .await?;
+    if receipt.schema_version != 1
+        || !matches!(
+            receipt.role,
+            runtime_durable_service::Stage8bP1fRedisRoleV1::SyntheticM10Feeder
+                | runtime_durable_service::Stage8bP1fRedisRoleV1::FinamBarsFeeder
+        )
+        || receipt.redis_id != redis_id
+        || receipt.canonical_bytes_sha256 != sha256_hex(&exact_bytes)
+        || !receipt.exact_reread
+    {
+        return Err(Stage8bP1fProducerErrorV1::DurableStateConflict);
+    }
+    let published = mark_stage8b_p1f_m10_published(prepared, &redis_id, &exact_bytes)?;
+    persist_stage8b_p1f_m10_producer_state(path, &published)?;
+    Ok(published)
 }
 
 struct M10Candidate {
@@ -941,6 +1026,50 @@ mod tests {
     use chrono::{Duration, TimeZone};
     use rust_decimal::Decimal;
 
+    #[derive(Default)]
+    struct FixtureM10PublicationPort {
+        fail_next: bool,
+        corrupt_receipt: bool,
+        calls: Vec<(String, Vec<u8>, String)>,
+    }
+
+    #[async_trait]
+    impl Stage8bP1fM10PublicationPortV1 for FixtureM10PublicationPort {
+        async fn publish_and_reread_exact_m10(
+            &mut self,
+            redis_id: &str,
+            canonical_bytes: &[u8],
+            operational_identity_sha256: &str,
+        ) -> Result<
+            runtime_durable_service::Stage8bP1fM10RedisPublicationReceiptV1,
+            Stage8bP1fProducerErrorV1,
+        > {
+            self.calls.push((
+                redis_id.to_string(),
+                canonical_bytes.to_vec(),
+                operational_identity_sha256.to_string(),
+            ));
+            if std::mem::take(&mut self.fail_next) {
+                return Err(Stage8bP1fProducerErrorV1::DurableStateConflict);
+            }
+            Ok(
+                runtime_durable_service::Stage8bP1fM10RedisPublicationReceiptV1 {
+                    schema_version: 1,
+                    role: runtime_durable_service::Stage8bP1fRedisRoleV1::SyntheticM10Feeder,
+                    redis_id: redis_id.to_string(),
+                    canonical_bytes_sha256: if self.corrupt_receipt {
+                        "0".repeat(64)
+                    } else {
+                        sha256_hex(canonical_bytes)
+                    },
+                    disposition:
+                        runtime_durable_service::Stage8bP1RedisM10PublishDisposition::Published,
+                    exact_reread: true,
+                },
+            )
+        }
+    }
+
     fn timestamp(hour: u32, minute: u32, second: u32) -> DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 9, 14, hour, minute, second)
             .single()
@@ -1231,6 +1360,96 @@ mod tests {
             }
             _ => panic!("restart after publication must retain exact Published high-water"),
         }
+    }
+
+    #[tokio::test]
+    async fn id_publication_replays_retained_prepared_bytes_after_response_loss() {
+        let signer = FixtureSigner::new(102);
+        let now = timestamp(12, 10, 0);
+        let schedule = o3_published_schedule(now, &signer).await;
+        let first = authorize_stage8b_p1f_first_m10(FIRST_M10_CONFIRMATION).unwrap();
+        let prepared_state = prepared(
+            fixture_prepare_m10(
+                &signer,
+                o3_batch(
+                    observations(
+                        timestamp(12, 0, 0),
+                        now,
+                        MarketDataSourceKind::ReadOnlyPoll,
+                        0,
+                    ),
+                    now,
+                ),
+                &"4".repeat(64),
+                &schedule,
+                Stage8bP1fM10ProducerLineageV1::First(first),
+            )
+            .unwrap(),
+        );
+        let path = state_path("id-response-loss");
+        let mut port = FixtureM10PublicationPort {
+            fail_next: true,
+            ..FixtureM10PublicationPort::default()
+        };
+        assert!(
+            publish_stage8b_p1f_prepared_m10(&path, prepared_state.clone(), &mut port)
+                .await
+                .is_err()
+        );
+        let retained = load_stage8b_p1f_m10_producer_state(&path).unwrap();
+        assert_eq!(retained, prepared_state);
+        assert_eq!(retained.phase(), Stage8bP1fM10ProducerPhaseV1::Prepared);
+
+        let published = publish_stage8b_p1f_prepared_m10(&path, retained, &mut port)
+            .await
+            .unwrap();
+        assert_eq!(published.phase(), Stage8bP1fM10ProducerPhaseV1::Published);
+        assert_eq!(port.calls.len(), 2);
+        assert_eq!(port.calls[0], port.calls[1]);
+        assert_eq!(
+            load_stage8b_p1f_m10_producer_state(&path).unwrap(),
+            published
+        );
+    }
+
+    #[tokio::test]
+    async fn id_publication_refuses_unproven_exact_reread() {
+        let signer = FixtureSigner::new(103);
+        let now = timestamp(12, 10, 0);
+        let schedule = o3_published_schedule(now, &signer).await;
+        let first = authorize_stage8b_p1f_first_m10(FIRST_M10_CONFIRMATION).unwrap();
+        let prepared_state = prepared(
+            fixture_prepare_m10(
+                &signer,
+                o3_batch(
+                    observations(
+                        timestamp(12, 0, 0),
+                        now,
+                        MarketDataSourceKind::ReadOnlyPoll,
+                        0,
+                    ),
+                    now,
+                ),
+                &"4".repeat(64),
+                &schedule,
+                Stage8bP1fM10ProducerLineageV1::First(first),
+            )
+            .unwrap(),
+        );
+        let path = state_path("id-reread-conflict");
+        let mut port = FixtureM10PublicationPort {
+            corrupt_receipt: true,
+            ..FixtureM10PublicationPort::default()
+        };
+        assert!(
+            publish_stage8b_p1f_prepared_m10(&path, prepared_state.clone(), &mut port)
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            load_stage8b_p1f_m10_producer_state(&path).unwrap(),
+            prepared_state
+        );
     }
 
     #[tokio::test]

@@ -79,11 +79,13 @@ exit `0` is the only successful operator stop; I1 exits 70/71/72, recovered
 stops and invalid phases remain nonzero. Real OS TERM/INT startup tests use the
 production pre-spawn composition, assert zero child starts and no marker, and
 retain a no-signal child-start control. It performs no operational action and grants no
-operational authority. The active P1F-Ic candidate uses the accepted P1-e
-schedule publisher and canonical M10 contracts, retains exact state across
-restart and O3-to-O4, and adds no network or Redis client. P1F-Id role
-adapters/resource polling/command audit and P1F-Ie aggregate source closure
-remain open. P1F-O0 is not unlocked by P1F-Ic implementation or review.
+operational authority. P1F-Ic fixed producers and retained high-water are
+independently accepted at `5c2656fbe8691da256b5380dd16ce6f6b6aa1fa8`.
+The active source candidate is P1F-Id fixed Redis composition: eight closed
+roles, ten accepted operations, exact Prepared/publication/reread/Published
+ordering, bounded resource polling and hash-only command audit. P1F-Ie remains
+the next aggregate source closure. P1F-Id is source-only and does not activate
+DB15, VPS services or provider execution. P1F-O0 remains closed.
 
 ## Current accepted boundary
 

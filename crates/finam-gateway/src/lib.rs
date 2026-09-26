@@ -67,17 +67,18 @@ pub use stage8b_p1e_schedule_publisher::{
     Stage8bP1eRedisScheduleStreamWriter, Stage8bP1eSchedulePublisherError,
     Stage8bP1eSchedulePublisherInputV1, Stage8bP1eSchedulePublisherLineage,
     Stage8bP1eSchedulePublisherPhaseV1, Stage8bP1eSchedulePublisherStateV1,
-    Stage8bP1eScheduleSigner, Stage8bP1eScheduleStreamWriter,
+    Stage8bP1eScheduleSigner, Stage8bP1eScheduleStreamWriter, Stage8bP1fSchedulePublisherRedisV1,
 };
 pub use stage8b_p1f_fixed_producers::{
     authorize_stage8b_p1f_first_m10, load_stage8b_p1f_m10_producer_state,
     mark_stage8b_p1f_m10_published, persist_stage8b_p1f_m10_producer_state,
     prepare_stage8b_p1f_m10, prepare_stage8b_p1f_o3_synthetic_schedule,
-    prepare_stage8b_p1f_o4_readonly_schedule, stage8b_p1f_synthetic_m10_fixture_sha256,
-    stage8b_p1f_synthetic_schedule_fixture_sha256, Stage8bP1fExactM1ObservationV1,
-    Stage8bP1fFirstM10AuthorizationV1, Stage8bP1fM10BatchV1, Stage8bP1fM10PrepareOutcomeV1,
-    Stage8bP1fM10ProducerLineageV1, Stage8bP1fM10ProducerPhaseV1, Stage8bP1fM10ProducerStateV1,
-    Stage8bP1fO3ScheduleInputV1, Stage8bP1fProducerErrorV1, Stage8bP1fProducerPhaseV1,
+    prepare_stage8b_p1f_o4_readonly_schedule, publish_stage8b_p1f_prepared_m10,
+    stage8b_p1f_synthetic_m10_fixture_sha256, stage8b_p1f_synthetic_schedule_fixture_sha256,
+    Stage8bP1fExactM1ObservationV1, Stage8bP1fFirstM10AuthorizationV1, Stage8bP1fM10BatchV1,
+    Stage8bP1fM10PrepareOutcomeV1, Stage8bP1fM10ProducerLineageV1, Stage8bP1fM10ProducerPhaseV1,
+    Stage8bP1fM10ProducerStateV1, Stage8bP1fM10PublicationPortV1, Stage8bP1fO3ScheduleInputV1,
+    Stage8bP1fProducerErrorV1, Stage8bP1fProducerPhaseV1,
 };
 #[cfg(feature = "stage8b-r2a7-source-adapter")]
 pub use stage8b_r2a7_source_adapter::{

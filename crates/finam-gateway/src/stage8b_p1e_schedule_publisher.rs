@@ -783,6 +783,72 @@ pub struct Stage8bP1eRedisScheduleStreamWriter {
     connection: ConnectionManager,
 }
 
+/// Fixed P1F schedule-publisher role. It accepts only the exact DB15 endpoint,
+/// stream and MAXLEN contract and retains a hash-only bounded command audit.
+pub struct Stage8bP1fSchedulePublisherRedisV1 {
+    writer: Stage8bP1eRedisScheduleStreamWriter,
+    audit: runtime_durable_service::Stage8bP1fRedisCommandAuditV1,
+}
+
+impl Stage8bP1fSchedulePublisherRedisV1 {
+    pub async fn connect(redis_url: &str) -> Result<Self, Stage8bP1eSchedulePublisherError> {
+        if !matches!(
+            redis_url,
+            runtime_durable_service::STAGE8B_P1E_REDIS_URL_IPV4
+                | runtime_durable_service::STAGE8B_P1E_REDIS_URL_IPV6
+        ) {
+            return Err(Stage8bP1eSchedulePublisherError::DurableStateConflict);
+        }
+        Ok(Self {
+            writer: Stage8bP1eRedisScheduleStreamWriter::connect(redis_url).await?,
+            audit: runtime_durable_service::Stage8bP1fRedisCommandAuditV1::default(),
+        })
+    }
+
+    pub fn audit_records(
+        &self,
+    ) -> &std::collections::VecDeque<runtime_durable_service::Stage8bP1fRedisCommandAuditRecordV1>
+    {
+        self.audit.records()
+    }
+}
+
+#[async_trait]
+impl Stage8bP1eScheduleStreamWriter for Stage8bP1fSchedulePublisherRedisV1 {
+    async fn xadd_nomkstream_maxlen_exact(
+        &mut self,
+        stream: &str,
+        maxlen: usize,
+        payload: &[u8],
+    ) -> Result<String, Stage8bP1eSchedulePublisherError> {
+        if stream != STAGE8B_P1E_SCHEDULE_STREAM || maxlen != MAXLEN {
+            return Err(Stage8bP1eSchedulePublisherError::DurableStateConflict);
+        }
+        let result = self
+            .writer
+            .xadd_nomkstream_maxlen_exact(stream, maxlen, payload)
+            .await;
+        self.audit
+            .record_auxiliary(
+                runtime_durable_service::Stage8bP1fRedisRoleV1::SchedulePublisher,
+                runtime_durable_service::Stage8bP1fRedisAuxiliaryOperationV1::SchedulePublication,
+                None,
+                format!(
+                    "stream={stream};maxlen={maxlen};payload_sha256={}",
+                    encode_lower_hex(&Sha256::digest(payload))
+                )
+                .as_bytes(),
+                if result.is_ok() {
+                    runtime_durable_service::Stage8bP1fRedisAuditResultV1::Succeeded
+                } else {
+                    runtime_durable_service::Stage8bP1fRedisAuditResultV1::Failed
+                },
+            )
+            .map_err(|_| Stage8bP1eSchedulePublisherError::DurableStateConflict)?;
+        result
+    }
+}
+
 impl Stage8bP1eRedisScheduleStreamWriter {
     pub async fn connect(redis_url: &str) -> Result<Self, Stage8bP1eSchedulePublisherError> {
         let client = redis::Client::open(redis_url)?;
@@ -960,6 +1026,14 @@ pub(crate) mod tests {
     };
     use ed25519_dalek::{Signer, SigningKey};
     use rust_decimal::Decimal;
+
+    #[tokio::test]
+    async fn id_fixed_schedule_role_rejects_non_db15_endpoint_before_connect() {
+        assert!(matches!(
+            Stage8bP1fSchedulePublisherRedisV1::connect("redis://127.0.0.1:6379/0").await,
+            Err(Stage8bP1eSchedulePublisherError::DurableStateConflict)
+        ));
+    }
 
     pub(crate) struct FixtureSigner {
         key: SigningKey,

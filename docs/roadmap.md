@@ -405,12 +405,13 @@ P1-f R0 through R3 were held by independent review. P1-f R4 at
 P1F-Ia guardian foundation correction R3 is independently accepted at
 `9be356b04a38e627337ed148ccc9fbdaebae8d4a`. P1F-Ib correction R2 is
 independently source-accepted at
-`7c481bc60699b514b016e8dffe62eb9ca462a100`. P1F-Ic is the active source
-candidate: fixed O3 synthetic and O4 GET/read-only schedule/M10 producers over
-the accepted O2 materialization, P1-e publisher and canonical M10 contracts,
-with one crash-safe high-water across restart and O3-to-O4. P1F-Id eight role
-adapters/resource polling/command audit and P1F-Ie aggregate source closure
-remain required; P1F-O0 stays closed until P1F-Ie acceptance. The remaining sequence is:
+`7c481bc60699b514b016e8dffe62eb9ca462a100`. P1F-Ic fixed O3 synthetic and O4
+GET/read-only producers are independently accepted at
+`5c2656fbe8691da256b5380dd16ce6f6b6aa1fa8`. P1F-Id is the active source
+candidate: eight fixed Redis roles, ten accepted operations, exact retained
+M10 publication/reread, bounded resource polling and hash-only command audit.
+P1F-Ie aggregate source closure remains required; P1F-O0 stays closed until
+P1F-Ie acceptance. The remaining sequence is:
 guardian foundation, remaining source composition, immutable read-only target preflight, non-activating
 provisioning, one-shot network-isolated bootstrap, bounded synthetic paper
 session/restart acceptance, separately authorized read-only FINAM-bar session,

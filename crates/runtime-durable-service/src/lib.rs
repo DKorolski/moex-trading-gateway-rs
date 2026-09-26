@@ -284,6 +284,7 @@ mod stage8b_p1e_first_boot_source;
 mod stage8b_p1e_first_boot_transaction;
 mod stage8b_p1e_process;
 mod stage8b_p1e_schedule_source;
+mod stage8b_p1f_fixed_redis;
 mod stage8b_p1f_guardian;
 mod stage8b_p1f_local_supervision;
 
@@ -518,6 +519,24 @@ pub use stage8b_p1e_schedule_source::{
     Stage8bP1eScheduleBindingDecisionV1, Stage8bP1eScheduleLatchCheckpointV1,
     Stage8bP1eScheduleReadError, Stage8bP1eScheduleStopReceiptV1,
     Stage8bP1eVerifiedScheduleSnapshotV1,
+};
+pub use stage8b_p1f_fixed_redis::{
+    authorize_stage8b_p1f_redis_operation, coordinate_stage8b_p1f_resource_sample_v1,
+    evaluate_stage8b_p1f_resource_sample_v1, provision_stage8b_p1f_fresh_namespace_v1,
+    stage8b_p1f_redis_role_contract_v1, stage8b_p1f_redis_source_operation_contract_v1,
+    Stage8bP1fM10FeederRedisV1, Stage8bP1fM10RedisPublicationReceiptV1,
+    Stage8bP1fRedisAuditResultV1, Stage8bP1fRedisAuditedOperationV1,
+    Stage8bP1fRedisAuxiliaryOperationV1, Stage8bP1fRedisCommandAuditRecordV1,
+    Stage8bP1fRedisCommandAuditV1, Stage8bP1fRedisDatabaseScopeV1, Stage8bP1fRedisRoleContractV1,
+    Stage8bP1fRedisRoleErrorV1, Stage8bP1fRedisRoleV1, Stage8bP1fRedisScriptV1,
+    Stage8bP1fRedisSourceOperationContractV1, Stage8bP1fRedisSourceOperationV1,
+    Stage8bP1fResourceDispositionV1, Stage8bP1fResourceProbeV1, Stage8bP1fResourceSampleV1,
+    Stage8bP1fResourceStopReasonV1, STAGE8B_P1F_COMMAND_AUDIT_CAPACITY,
+    STAGE8B_P1F_DB15_EVIDENCE_BUDGET_BYTES, STAGE8B_P1F_MINIMUM_ROOT_FREE_BYTES,
+    STAGE8B_P1F_REDIS_DATABASE, STAGE8B_P1F_REDIS_ROLES, STAGE8B_P1F_REDIS_ROLE_COUNT,
+    STAGE8B_P1F_REDIS_SCRIPTS, STAGE8B_P1F_REDIS_SCRIPT_COUNT, STAGE8B_P1F_REDIS_SOURCE_OPERATIONS,
+    STAGE8B_P1F_REDIS_SOURCE_OPERATION_COUNT, STAGE8B_P1F_RESOURCE_POLL_INTERVAL_SECONDS,
+    STAGE8B_P1F_TOTAL_PEL_FAIL_STOP_THRESHOLD,
 };
 pub use stage8b_p1f_guardian::{
     execute_stage8b_p1f_permitted_restore_v1, Stage8bP1fActivationCertificateV1,

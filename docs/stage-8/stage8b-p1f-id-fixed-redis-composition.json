@@ -1,0 +1,64 @@
+{
+  "accepted_ic_commit": "5c2656fbe8691da256b5380dd16ce6f6b6aa1fa8",
+  "accepted_ic_review_sha256": "ee69d58bc70288f447a9ab880d2a2eec01fefdfe6f86ce3be603eb7f5a1b30b3",
+  "audit": {
+    "capacity": 4096,
+    "fields": ["sequence", "role", "operation", "database", "script_sha256", "command_fingerprint_sha256", "result"],
+    "raw_command_material_retained": false,
+    "secrets_retained": false
+  },
+  "closed_surfaces": {
+    "broker_dispatch": false,
+    "finam_post_or_delete": false,
+    "operational_db0_or_db15": false,
+    "operational_install_or_service_start": false,
+    "paper_provider_execution": false,
+    "real_orders": false,
+    "runtime_live": false,
+    "vps_mutation": false
+  },
+  "evidence": {
+    "checker": "scripts/stage8b_p1f_id_check.py",
+    "full_regression": "runtime-durable-service all-features; finam-gateway default feature set; both all-features doctests and strict all-targets clippy",
+    "gate": "scripts/stage8b_p1f_id_gate.sh",
+    "id_specific_rust_tests": 12,
+    "negative_harness": "scripts/stage8b_p1f_id_negative_harness.py",
+    "producer_publication_tests": 2,
+    "redis_role_tests": 9,
+    "schedule_role_tests": 1
+  },
+  "next_after_acceptance": "P1F-Ie aggregate source closure; P1F-O0 remains closed",
+  "publication": {
+    "effect_order": ["persist_prepared", "publish_exact_retained_bytes", "exact_id_reread", "validate_receipt", "persist_published"],
+    "fresh_candidate_rebuild_on_restart": false,
+    "response_loss": "retain Prepared and retry identical bytes and deterministic Redis ID",
+    "success_proof": "matching Redis ID, canonical bytes SHA-256 and exact_reread=true"
+  },
+  "redis": {
+    "database": 15,
+    "production_endpoints": ["redis://127.0.0.1:6379/15", "redis://[::1]:6379/15"],
+    "raw_connection_exposed": false,
+    "roles": ["provisioner", "synthetic-m10-feeder", "finam-bars-feeder", "schedule-publisher", "supervisor", "read-only-auditor", "phase-guardian", "broker-truth-observer"],
+    "scripts": {
+      "atomic-stale-consumer-delete-v1": "cfabc24e0563c490e9950e250fdb146f992403394d48953a1b5eb2a2ffd09b6b",
+      "command-publication-revalidate-v1": "f0c37828d3057d77243506c2eee21e9c12f8e67a8489c42071580ba378f71993",
+      "command-publication-v1": "0c5b4d4cfbbe8615ed863e00bfdd3a3325e028f9fba78ee1bf2e5bb819346ce1",
+      "m10-publication-v1": "ecf60a82c8efdb92c2b4a13a86cd607dee46a216bdbf3c7207ea3208989baf54",
+      "namespace-initialization-v1": "c7db9e1660bb6519ab7502b63cc695ce6d3a5f453be248b4aaad4ddbc614dd3e",
+      "namespace-verify-v1": "de29c3ca22ec8eb16925a48ada22bf1dd4fd5b6bd7fa58a0438000a0923e7d49",
+      "p1d4-command-publication-revalidate-v1": "f15f0f0ef1ad1397cceaf1158e421f49bbdd8d0ad956a97ae3fe46c947108358",
+      "p1d4-command-publication-v1": "ec80534b837877db2dc992ffda1803f47ad8569c966d399edc3265fbc21b51c6"
+    },
+    "source_operations": ["fresh-namespace", "verify-only-attach", "m10-publish", "retention-admission", "schedule-read", "stale-consumer-discovery", "stale-consumer-cleanup", "source-acquire-and-reclaim", "command-publication", "source-xack-last"]
+  },
+  "resources": {
+    "db15_evidence_budget_bytes": 536870912,
+    "minimum_root_free_bytes": 10737418240,
+    "poll_interval_seconds": 5,
+    "stop_action": "existing RedisLifecycleFailed terminal path; P1 only",
+    "total_pel_fail_stop_threshold": 64
+  },
+  "schema_version": 1,
+  "stage": "Stage 8B-P1-f Id fixed Redis composition",
+  "status": "REVIEW_CANDIDATE_SOURCE_ONLY_NO_ACTIVATION"
+}

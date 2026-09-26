@@ -1006,7 +1006,8 @@ impl Stage8bP1RedisConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Stage8bP1RedisM10PublishDisposition {
     Published,
     IdempotentExisting,
@@ -1214,6 +1215,28 @@ impl Stage8bP1RedisSemanticCompositionTransport {
 
     pub async fn retained_m10_count(&mut self) -> Result<usize, Stage8bP1RedisSemanticError> {
         self.backend.retained_m10_count().await
+    }
+
+    /// Re-reads one deterministic canonical M10 entry and proves that Redis
+    /// retained the exact bytes supplied by the producer.  This deliberately
+    /// exposes neither an arbitrary XRANGE nor the underlying connection.
+    pub async fn verify_exact_canonical_m10(
+        &mut self,
+        redis_id: &str,
+        canonical_bytes: &[u8],
+        expected_operational_identity_sha256: &str,
+    ) -> Result<(), Stage8bP1RedisSemanticError> {
+        let parsed =
+            parse_stage8b_p1_canonical_m10(canonical_bytes, expected_operational_identity_sha256)?;
+        if parsed.redis_id() != redis_id {
+            return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
+        }
+        let payload = std::str::from_utf8(parsed.canonical_bytes())
+            .map_err(|_| Stage8bP1RedisSemanticError::InvalidRedisReply)?;
+        if self.backend.exact_stream_entry(redis_id).await?.as_deref() != Some(payload) {
+            return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
+        }
+        Ok(())
     }
 }
 
