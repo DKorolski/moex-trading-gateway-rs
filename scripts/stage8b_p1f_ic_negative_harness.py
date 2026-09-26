@@ -43,6 +43,10 @@ CASES = (
     ("roadmap-boundary", check.ROADMAP, "P1F-Ic is the active source\ncandidate", "P1F-O0 is the active source\ncandidate"),
     ("module", check.LIB, "mod stage8b_p1f_fixed_producers;", "pub mod stage8b_p1f_fixed_producers;"),
     ("publisher-seam", check.PUBLISHER, "#[cfg(test)]\npub(crate) fn test_prepare_stage8b_p1e_schedule_publication_with_key", "pub(crate) fn test_prepare_stage8b_p1e_schedule_publication_with_key"),
+    ("fresh-signed-verifier", check.PUBLISHER, "verify_stage8b_p1e_schedule_envelope_v3(&envelope, &context)", "authenticate_stage8b_p1e_schedule_observation_v3(&envelope, &context)"),
+    ("verified-envelope-hash", check.PRODUCER, "let schedule_envelope_sha256 = sha256_hex(&verified_schedule);", "let schedule_envelope_sha256 = schedule.envelope_sha256().to_string();"),
+    ("o4-receipt-order", check.PRODUCER, "observation.observed_at_utc < previous", "observation.observed_at_utc > previous"),
+    ("o4-completion-age", check.PRODUCER, "nonnegative_age_ms(batch.trusted_now_utc, latest)? > O4_OBSERVATION_MAX_AGE_MS", "false"),
 )
 
 

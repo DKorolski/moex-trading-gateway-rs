@@ -374,7 +374,32 @@ pub fn prepare_stage8b_p1f_m10(
     schedule: &Stage8bP1eSchedulePublisherStateV1,
     lineage: Stage8bP1fM10ProducerLineageV1<'_>,
 ) -> Result<Stage8bP1fM10PrepareOutcomeV1, Stage8bP1fProducerErrorV1> {
-    let candidate = build_m10_candidate(&batch, operational_identity_sha256, schedule)?;
+    prepare_stage8b_p1f_m10_with_schedule_verifier(
+        batch,
+        operational_identity_sha256,
+        schedule,
+        lineage,
+        &|state, identity, trusted_now| state.verify_fresh_envelope(identity, trusted_now),
+    )
+}
+
+fn prepare_stage8b_p1f_m10_with_schedule_verifier(
+    batch: Stage8bP1fM10BatchV1,
+    operational_identity_sha256: &str,
+    schedule: &Stage8bP1eSchedulePublisherStateV1,
+    lineage: Stage8bP1fM10ProducerLineageV1<'_>,
+    verify_schedule: &impl Fn(
+        &Stage8bP1eSchedulePublisherStateV1,
+        &str,
+        DateTime<Utc>,
+    ) -> Result<Vec<u8>, Stage8bP1eSchedulePublisherError>,
+) -> Result<Stage8bP1fM10PrepareOutcomeV1, Stage8bP1fProducerErrorV1> {
+    let candidate = build_m10_candidate(
+        &batch,
+        operational_identity_sha256,
+        schedule,
+        verify_schedule,
+    )?;
     let publication_sequence = match lineage {
         Stage8bP1fM10ProducerLineageV1::First(_) => {
             if batch.phase != Stage8bP1fProducerPhaseV1::O3Synthetic {
@@ -428,7 +453,7 @@ pub fn prepare_stage8b_p1f_m10(
         source_generation: "1".to_string(),
         publication_sequence: publication_sequence.to_string(),
         operational_identity_sha256: operational_identity_sha256.to_string(),
-        schedule_envelope_sha256: schedule.envelope_sha256().to_string(),
+        schedule_envelope_sha256: candidate.schedule_envelope_sha256,
         source_batch_sha256: candidate.source_batch_sha256,
         canonical_m10_redis_id: candidate.redis_id,
         canonical_m10_semantic_id_sha256: candidate.semantic_id_sha256,
@@ -519,6 +544,7 @@ struct M10Candidate {
     payload_sha256: String,
     canonical_sha256: String,
     source_batch_sha256: String,
+    schedule_envelope_sha256: String,
     canonical_bytes: Vec<u8>,
 }
 
@@ -526,6 +552,11 @@ fn build_m10_candidate(
     batch: &Stage8bP1fM10BatchV1,
     operational_identity_sha256: &str,
     schedule: &Stage8bP1eSchedulePublisherStateV1,
+    verify_schedule: &impl Fn(
+        &Stage8bP1eSchedulePublisherStateV1,
+        &str,
+        DateTime<Utc>,
+    ) -> Result<Vec<u8>, Stage8bP1eSchedulePublisherError>,
 ) -> Result<M10Candidate, Stage8bP1fProducerErrorV1> {
     if !valid_phase_id(&batch.phase_id)
         || !valid_sha256(operational_identity_sha256)
@@ -554,23 +585,38 @@ fn build_m10_candidate(
         }
     }
 
-    let max_age = match batch.phase {
-        Stage8bP1fProducerPhaseV1::O3Synthetic => O3_OBSERVATION_MAX_AGE_MS,
-        Stage8bP1fProducerPhaseV1::O4FinamReadOnly => O4_OBSERVATION_MAX_AGE_MS,
-    };
+    let verified_schedule =
+        verify_schedule(schedule, operational_identity_sha256, batch.trusted_now_utc)?;
+    let schedule_envelope_sha256 = sha256_hex(&verified_schedule);
     let mut earliest = batch.observations[0].observed_at_utc;
     let mut latest = earliest;
+    let mut previous_observed_at = None;
     let mut exact_bars = Vec::with_capacity(10);
     for observation in &batch.observations {
-        if nonnegative_age_ms(batch.trusted_now_utc, observation.observed_at_utc)? > max_age {
+        let age = nonnegative_age_ms(batch.trusted_now_utc, observation.observed_at_utc)?;
+        if batch.phase == Stage8bP1fProducerPhaseV1::O3Synthetic && age > O3_OBSERVATION_MAX_AGE_MS
+        {
             return Err(Stage8bP1fProducerErrorV1::Freshness);
         }
+        if previous_observed_at.is_some_and(|previous| observation.observed_at_utc < previous) {
+            return Err(Stage8bP1fProducerErrorV1::Freshness);
+        }
+        previous_observed_at = Some(observation.observed_at_utc);
         earliest = earliest.min(observation.observed_at_utc);
         latest = latest.max(observation.observed_at_utc);
         exact_bars.push(canonical_exact_bar(observation)?);
     }
-    if (latest - earliest).num_milliseconds() > CROSS_SOURCE_SKEW_MAX_MS {
-        return Err(Stage8bP1fProducerErrorV1::Freshness);
+    match batch.phase {
+        Stage8bP1fProducerPhaseV1::O3Synthetic => {
+            if (latest - earliest).num_milliseconds() > CROSS_SOURCE_SKEW_MAX_MS {
+                return Err(Stage8bP1fProducerErrorV1::Freshness);
+            }
+        }
+        Stage8bP1fProducerPhaseV1::O4FinamReadOnly => {
+            if nonnegative_age_ms(batch.trusted_now_utc, latest)? > O4_OBSERVATION_MAX_AGE_MS {
+                return Err(Stage8bP1fProducerErrorV1::Freshness);
+            }
+        }
     }
 
     let mut aggregator = CanonicalBarAggregator::new(M10_TIMEFRAME_SECONDS);
@@ -598,7 +644,7 @@ fn build_m10_candidate(
     }
     let emitted = emitted.ok_or(Stage8bP1fProducerErrorV1::InvalidInput)?;
     validate_schedule_window(
-        schedule,
+        &verified_schedule,
         operational_identity_sha256,
         emitted.open_ts,
         emitted.close_ts,
@@ -642,6 +688,7 @@ fn build_m10_candidate(
         payload_sha256: parsed.payload_sha256().to_string(),
         canonical_sha256: sha256_hex(&canonical_bytes),
         source_batch_sha256,
+        schedule_envelope_sha256,
         canonical_bytes,
     })
 }
@@ -685,14 +732,13 @@ fn exact_imoexf_m1(bar: &Bar) -> bool {
 }
 
 fn validate_schedule_window(
-    schedule: &Stage8bP1eSchedulePublisherStateV1,
+    verified_schedule: &[u8],
     operational_identity_sha256: &str,
     open: DateTime<Utc>,
     close: DateTime<Utc>,
     trusted_now: DateTime<Utc>,
 ) -> Result<(), Stage8bP1fProducerErrorV1> {
-    let bytes = schedule.exact_envelope_bytes()?;
-    let envelope: Stage8bP1eScheduleEnvelopeV3 = serde_json::from_slice(&bytes)
+    let envelope: Stage8bP1eScheduleEnvelopeV3 = serde_json::from_slice(verified_schedule)
         .map_err(|_| Stage8bP1fProducerErrorV1::DurableStateConflict)?;
     let published_at = parse_timestamp(&envelope.published_at_utc)?;
     if envelope.operational_identity_sha256 != operational_identity_sha256
@@ -924,6 +970,28 @@ mod tests {
         )
     }
 
+    fn fixture_prepare_m10(
+        signer: &FixtureSigner,
+        batch: Stage8bP1fM10BatchV1,
+        operational_identity_sha256: &str,
+        schedule: &Stage8bP1eSchedulePublisherStateV1,
+        lineage: Stage8bP1fM10ProducerLineageV1<'_>,
+    ) -> Result<Stage8bP1fM10PrepareOutcomeV1, Stage8bP1fProducerErrorV1> {
+        prepare_stage8b_p1f_m10_with_schedule_verifier(
+            batch,
+            operational_identity_sha256,
+            schedule,
+            lineage,
+            &|state, identity, trusted_now| {
+                state.test_verify_fresh_envelope_with_key(
+                    identity,
+                    trusted_now,
+                    signer.public_key_ed25519_hex(),
+                )
+            },
+        )
+    }
+
     async fn o3_published_schedule(
         now: DateTime<Utc>,
         signer: &FixtureSigner,
@@ -993,6 +1061,38 @@ mod tests {
                 }
             })
             .collect()
+    }
+
+    fn streaming_observations(bucket_open: DateTime<Utc>) -> Vec<Stage8bP1fExactM1ObservationV1> {
+        let mut values = observations(
+            bucket_open,
+            bucket_open + Duration::minutes(10),
+            MarketDataSourceKind::LiveStream,
+            0,
+        );
+        for (index, observation) in values.iter_mut().enumerate() {
+            observation.observed_at_utc = bucket_open
+                + Duration::minutes(index as i64 + 1)
+                + Duration::seconds(1 + (index as i64 % 2));
+        }
+        values
+    }
+
+    fn mutate_published_schedule(
+        schedule: &Stage8bP1eSchedulePublisherStateV1,
+        mutation: impl FnOnce(&mut Stage8bP1eScheduleEnvelopeV3),
+        rebind_state_hash: bool,
+    ) -> Stage8bP1eSchedulePublisherStateV1 {
+        let mut envelope: Stage8bP1eScheduleEnvelopeV3 =
+            serde_json::from_slice(&schedule.exact_envelope_bytes().unwrap()).unwrap();
+        mutation(&mut envelope);
+        let exact_envelope = stage8b_p1e_canonical_json(&envelope).unwrap();
+        let mut state = serde_json::to_value(schedule).unwrap();
+        state["exact_envelope_hex"] = serde_json::Value::String(encode_lower_hex(&exact_envelope));
+        if rebind_state_hash {
+            state["envelope_sha256"] = serde_json::Value::String(sha256_hex(&exact_envelope));
+        }
+        serde_json::from_value(state).unwrap()
     }
 
     fn o3_batch(
@@ -1087,7 +1187,8 @@ mod tests {
         );
         let first = authorize_stage8b_p1f_first_m10(FIRST_M10_CONFIRMATION).unwrap();
         let prepared_state = prepared(
-            prepare_stage8b_p1f_m10(
+            fixture_prepare_m10(
+                &signer,
                 batch.clone(),
                 &"4".repeat(64),
                 &schedule,
@@ -1098,7 +1199,8 @@ mod tests {
         let path = state_path("m10-prepared");
         persist_stage8b_p1f_m10_producer_state(&path, &prepared_state).unwrap();
         let restarted = load_stage8b_p1f_m10_producer_state(&path).unwrap();
-        match prepare_stage8b_p1f_m10(
+        match fixture_prepare_m10(
+            &signer,
             batch.clone(),
             &"4".repeat(64),
             &schedule,
@@ -1115,7 +1217,8 @@ mod tests {
         let published = publish(restarted);
         persist_stage8b_p1f_m10_producer_state(&path, &published).unwrap();
         let restarted = load_stage8b_p1f_m10_producer_state(&path).unwrap();
-        match prepare_stage8b_p1f_m10(
+        match fixture_prepare_m10(
+            &signer,
             batch,
             &"4".repeat(64),
             &schedule,
@@ -1143,7 +1246,8 @@ mod tests {
         );
         let first = authorize_stage8b_p1f_first_m10(FIRST_M10_CONFIRMATION).unwrap();
         let o3 = publish(prepared(
-            prepare_stage8b_p1f_m10(
+            fixture_prepare_m10(
+                &signer,
                 o3_batch(o3_observations.clone(), o3_now),
                 &"4".repeat(64),
                 &o3_schedule,
@@ -1162,7 +1266,8 @@ mod tests {
             o3_now,
         );
         assert!(matches!(
-            prepare_stage8b_p1f_m10(
+            fixture_prepare_m10(
+                &signer,
                 conflict,
                 &"4".repeat(64),
                 &o3_schedule,
@@ -1178,7 +1283,8 @@ mod tests {
             0,
         );
         assert!(matches!(
-            prepare_stage8b_p1f_m10(
+            fixture_prepare_m10(
+                &signer,
                 o3_batch(stale_observations, o3_now),
                 &"4".repeat(64),
                 &o3_schedule,
@@ -1213,7 +1319,8 @@ mod tests {
             0,
         );
         let o4_prepared = prepared(
-            prepare_stage8b_p1f_m10(
+            fixture_prepare_m10(
+                &signer,
                 o4_batch(o4_observations.clone(), o4_now),
                 &"4".repeat(64),
                 &o4_schedule,
@@ -1229,7 +1336,8 @@ mod tests {
 
         let unauthorized_first = authorize_stage8b_p1f_first_m10(FIRST_M10_CONFIRMATION).unwrap();
         assert!(matches!(
-            prepare_stage8b_p1f_m10(
+            fixture_prepare_m10(
+                &signer,
                 o4_batch(o4_observations, o4_now),
                 &"4".repeat(64),
                 &o4_schedule,
@@ -1246,7 +1354,8 @@ mod tests {
         let schedule = o3_published_schedule(first_now, &signer).await;
         let first = authorize_stage8b_p1f_first_m10(FIRST_M10_CONFIRMATION).unwrap();
         let pending = prepared(
-            prepare_stage8b_p1f_m10(
+            fixture_prepare_m10(
+                &signer,
                 o3_batch(
                     observations(
                         timestamp(12, 0, 0),
@@ -1282,7 +1391,8 @@ mod tests {
         .await
         .unwrap();
         assert!(matches!(
-            prepare_stage8b_p1f_m10(
+            fixture_prepare_m10(
+                &signer,
                 o4_batch(
                     observations(
                         timestamp(12, 10, 0),
@@ -1298,5 +1408,240 @@ mod tests {
             ),
             Err(Stage8bP1fProducerErrorV1::PreparedPublicationPending)
         ));
+    }
+
+    #[tokio::test]
+    async fn o4_streaming_receipts_use_completed_m10_freshness() {
+        let signer = FixtureSigner::new(95);
+        let o3_now = timestamp(12, 10, 0);
+        let o3_schedule = o3_published_schedule(o3_now, &signer).await;
+        let first = authorize_stage8b_p1f_first_m10(FIRST_M10_CONFIRMATION).unwrap();
+        let o3 = publish(prepared(
+            fixture_prepare_m10(
+                &signer,
+                o3_batch(
+                    observations(
+                        timestamp(12, 0, 0),
+                        o3_now,
+                        MarketDataSourceKind::ReadOnlyPoll,
+                        0,
+                    ),
+                    o3_now,
+                ),
+                &"4".repeat(64),
+                &o3_schedule,
+                Stage8bP1fM10ProducerLineageV1::First(first),
+            )
+            .unwrap(),
+        ));
+
+        let o4_now = timestamp(12, 20, 2);
+        let o4_prepared_schedule = prepare_stage8b_p1f_o4_readonly_schedule_with(
+            fixture_adapter_input(o4_now),
+            &o3_schedule,
+            &signer,
+            o4_now,
+            fixture_prepare,
+        )
+        .unwrap();
+        let schedule_path = state_path("streaming-o4-schedule");
+        let mut writer = FixtureWriter::default();
+        let o4_schedule = test_publish_stage8b_p1e_prepared_schedule_with_key(
+            &schedule_path,
+            o4_prepared_schedule,
+            &mut writer,
+            signer.public_key_ed25519_hex(),
+        )
+        .await
+        .unwrap();
+
+        let streaming = streaming_observations(timestamp(12, 10, 0));
+        let accepted = prepared(
+            fixture_prepare_m10(
+                &signer,
+                o4_batch(streaming.clone(), o4_now),
+                &"4".repeat(64),
+                &o4_schedule,
+                Stage8bP1fM10ProducerLineageV1::Resume(&o3),
+            )
+            .unwrap(),
+        );
+        assert_eq!(accepted.publication_sequence(), 2);
+
+        let mut future = streaming.clone();
+        future[9].observed_at_utc = o4_now + Duration::milliseconds(1);
+        assert!(matches!(
+            fixture_prepare_m10(
+                &signer,
+                o4_batch(future, o4_now),
+                &"4".repeat(64),
+                &o4_schedule,
+                Stage8bP1fM10ProducerLineageV1::Resume(&o3),
+            ),
+            Err(Stage8bP1fProducerErrorV1::Freshness)
+        ));
+
+        let stale_now = o4_now + Duration::seconds(31);
+        let stale_schedule_input = fixture_adapter_input(stale_now);
+        let stale_schedule = prepare_stage8b_p1f_o4_readonly_schedule_with(
+            stale_schedule_input,
+            &o3_schedule,
+            &signer,
+            stale_now,
+            fixture_prepare,
+        )
+        .unwrap();
+        let stale_path = state_path("stale-o4-schedule");
+        let mut writer = FixtureWriter::default();
+        let stale_schedule = test_publish_stage8b_p1e_prepared_schedule_with_key(
+            &stale_path,
+            stale_schedule,
+            &mut writer,
+            signer.public_key_ed25519_hex(),
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            fixture_prepare_m10(
+                &signer,
+                o4_batch(streaming.clone(), stale_now),
+                &"4".repeat(64),
+                &stale_schedule,
+                Stage8bP1fM10ProducerLineageV1::Resume(&o3),
+            ),
+            Err(Stage8bP1fProducerErrorV1::Freshness)
+        ));
+
+        let mut non_monotonic = streaming;
+        non_monotonic[8].observed_at_utc = non_monotonic[7].observed_at_utc - Duration::seconds(1);
+        assert!(matches!(
+            fixture_prepare_m10(
+                &signer,
+                o4_batch(non_monotonic, o4_now),
+                &"4".repeat(64),
+                &o4_schedule,
+                Stage8bP1fM10ProducerLineageV1::Resume(&o3),
+            ),
+            Err(Stage8bP1fProducerErrorV1::Freshness)
+        ));
+    }
+
+    #[tokio::test]
+    async fn m10_admission_requires_fresh_signed_schedule_authority() {
+        let signer = FixtureSigner::new(96);
+        let now = timestamp(12, 10, 0);
+        let schedule = o3_published_schedule(now, &signer).await;
+        let batch = o3_batch(
+            observations(
+                timestamp(12, 0, 0),
+                now,
+                MarketDataSourceKind::ReadOnlyPoll,
+                0,
+            ),
+            now,
+        );
+
+        let bad_signature = mutate_published_schedule(
+            &schedule,
+            |envelope| envelope.signature_ed25519_hex = "0".repeat(128),
+            true,
+        );
+        let first = authorize_stage8b_p1f_first_m10(FIRST_M10_CONFIRMATION).unwrap();
+        assert!(fixture_prepare_m10(
+            &signer,
+            batch.clone(),
+            &"4".repeat(64),
+            &bad_signature,
+            Stage8bP1fM10ProducerLineageV1::First(first),
+        )
+        .is_err());
+
+        let bad_payload = mutate_published_schedule(
+            &schedule,
+            |envelope| {
+                envelope.payload.normalized_schedule.sessions[0].end_utc =
+                    "2026-09-14T15:40:00.000000Z".to_string()
+            },
+            true,
+        );
+        let first = authorize_stage8b_p1f_first_m10(FIRST_M10_CONFIRMATION).unwrap();
+        assert!(fixture_prepare_m10(
+            &signer,
+            batch.clone(),
+            &"4".repeat(64),
+            &bad_payload,
+            Stage8bP1fM10ProducerLineageV1::First(first),
+        )
+        .is_err());
+
+        let bad_state_hash = mutate_published_schedule(&schedule, |_| {}, false);
+        let mut bad_state_hash_value = serde_json::to_value(bad_state_hash).unwrap();
+        bad_state_hash_value["envelope_sha256"] = serde_json::Value::String("9".repeat(64));
+        let bad_state_hash: Stage8bP1eSchedulePublisherStateV1 =
+            serde_json::from_value(bad_state_hash_value).unwrap();
+        let first = authorize_stage8b_p1f_first_m10(FIRST_M10_CONFIRMATION).unwrap();
+        assert!(fixture_prepare_m10(
+            &signer,
+            batch.clone(),
+            &"4".repeat(64),
+            &bad_state_hash,
+            Stage8bP1fM10ProducerLineageV1::First(first),
+        )
+        .is_err());
+
+        let first = authorize_stage8b_p1f_first_m10(FIRST_M10_CONFIRMATION).unwrap();
+        assert!(fixture_prepare_m10(
+            &signer,
+            batch,
+            &"8".repeat(64),
+            &schedule,
+            Stage8bP1fM10ProducerLineageV1::First(first),
+        )
+        .is_err());
+
+        let mut expired_input = fixture_input(now, "2026-09-14T15:50:00.000000Z");
+        expired_input
+            .payload
+            .normalized_schedule
+            .source_expires_at_utc = (now + Duration::milliseconds(500))
+            .to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+        let first_schedule =
+            authorize_stage8b_p1e_first_publication("AUTHORIZE-STAGE8B-P1E-FIRST-PUBLICATION")
+                .unwrap();
+        let expired_prepared = fixture_prepare(
+            expired_input,
+            Stage8bP1eSchedulePublisherLineage::First(first_schedule),
+            &signer,
+        )
+        .unwrap();
+        let expired_path = state_path("expired-signed-schedule");
+        let mut writer = FixtureWriter::default();
+        let expired_schedule = test_publish_stage8b_p1e_prepared_schedule_with_key(
+            &expired_path,
+            expired_prepared,
+            &mut writer,
+            signer.public_key_ed25519_hex(),
+        )
+        .await
+        .unwrap();
+        let admission_now = now + Duration::seconds(1);
+        let expired_batch = o3_batch(
+            observations(
+                timestamp(12, 0, 0),
+                now,
+                MarketDataSourceKind::ReadOnlyPoll,
+                0,
+            ),
+            admission_now,
+        );
+        let first = authorize_stage8b_p1f_first_m10(FIRST_M10_CONFIRMATION).unwrap();
+        assert!(fixture_prepare_m10(
+            &signer,
+            expired_batch,
+            &"4".repeat(64),
+            &expired_schedule,
+            Stage8bP1fM10ProducerLineageV1::First(first),
+        )
+        .is_err());
     }
 }

@@ -17,7 +17,7 @@ import stage8b_p1f_ic_handoff_safety_check as safety
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "reports/handoff"
 REVIEW_SOURCE = Path(
-    "/Users/denisq/Downloads/FINAM_P1F_IB_R2_SOURCE_ACCEPT_7c481bc_2026-09-25.md"
+    "/Users/denisq/Downloads/FINAM_P1F_IC_REVIEW_33c82e6_AND_LIGHT_ID_SCOPE_2026-09-26.md"
 )
 
 
@@ -52,8 +52,8 @@ def main() -> None:
     source_ref = git("rev-parse", "HEAD").decode().strip()
     source_parent = git("rev-parse", "HEAD^").decode().strip()
     source_tree = git("rev-parse", "HEAD^{tree}").decode().strip()
-    if source_parent != source_check.BASE:
-        raise SystemExit("stage8b-p1f-ic-handoff: FAIL source parent drift")
+    if source_parent != source_check.CANDIDATE:
+        raise SystemExit("stage8b-p1f-ic-handoff: FAIL correction parent drift")
     changed = set(
         git("diff", "--name-only", source_check.BASE, source_ref, "--")
         .decode()
@@ -65,8 +65,8 @@ def main() -> None:
             f"{sorted(changed ^ source_check.ALLOWED_CHANGES)}"
         )
     review = REVIEW_SOURCE.read_bytes()
-    if sha256(review) != source_check.REVIEW_SHA256:
-        raise SystemExit("stage8b-p1f-ic-handoff: FAIL accepted review digest")
+    if sha256(review) != source_check.CORRECTION_REVIEW_SHA256:
+        raise SystemExit("stage8b-p1f-ic-handoff: FAIL correction review digest")
 
     gate = run_capture(["bash", "scripts/stage8b_p1f_ic_gate.sh"])
     if (
@@ -76,7 +76,7 @@ def main() -> None:
         raise SystemExit("stage8b-p1f-ic-handoff: FAIL source changed during evidence run")
 
     short = source_ref[:7]
-    archive_name = f"moex-trading-project-{short}-stage8b-p1f-ic-review-package.zip"
+    archive_name = f"moex-trading-project-{short}-stage8b-p1f-ic-correction-review-package.zip"
     archive_path = OUTPUT / archive_name
     manifest, entries = common.source_manifest(source_ref)
     closed_surfaces = {
@@ -92,7 +92,7 @@ def main() -> None:
     evidence = {
         "schema_version": 1,
         "stage": safety.STAGE,
-        "status": "FIXED_PRODUCERS_REVIEW_CANDIDATE_NO_ACTIVATION",
+        "status": "FIXED_PRODUCERS_CORRECTION_REVIEW_CANDIDATE_NO_ACTIVATION",
         "source_ref": source_ref,
         "source_parent": source_parent,
         "source_tree": source_tree,
@@ -100,12 +100,14 @@ def main() -> None:
         "archive_name": archive_name,
         "accepted_ib_ref": source_check.BASE,
         "accepted_ib_review_sha256": source_check.REVIEW_SHA256,
+        "reviewed_ic_candidate_ref": source_check.CANDIDATE,
+        "correction_review_sha256": source_check.CORRECTION_REVIEW_SHA256,
         "changed_paths": sorted(changed),
         "manifest_sha256": sha256(manifest),
         "gate_sha256": sha256(gate),
-        "source_negative_cases": 24,
+        "source_negative_cases": 28,
         "acceptance_scenarios": 24,
-        "targeted_rust_tests": 4,
+        "targeted_rust_tests": 6,
         "closed_surfaces": closed_surfaces,
         "next_after_acceptance": (
             "P1F-Id fixed Redis roles, resource polling and command audit; "

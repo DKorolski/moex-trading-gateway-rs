@@ -16,13 +16,14 @@
     "checker": "scripts/stage8b_p1f_ic_check.py",
     "gate": "scripts/stage8b_p1f_ic_gate.sh",
     "negative_harness": "scripts/stage8b_p1f_ic_negative_harness.py",
-    "targeted_rust_tests": 4
+    "targeted_rust_tests": 6
   },
   "m10_contract": {
     "aggregation": "existing CanonicalBarAggregator over exactly ten canonical final IMOEXF M1 bars",
     "first_authority": "typed explicit authorization valid only for O3",
     "o3_source": "ReadOnlyPoll plus phase-pinned public fixture digest",
     "o4_source": "LiveStream with no synthetic fixture digest",
+    "o4_receipts": "retain ten monotonic per-minute receipts; freshness applies to the final M1 receipt completing M10",
     "publication_phases": [
       "Prepared",
       "Published"
@@ -45,7 +46,7 @@
   "schedule_contract": {
     "o3": "manifest-pinned synthetic semantic fixture; freshness 2 seconds; skew 5 seconds",
     "o4": "accepted typed GET/read-only FINAM adapter; freshness 30 seconds; skew 5 seconds; retained Published lineage required",
-    "publisher": "accepted P1-e verifier/normalizer/generation-2 signer/publisher",
+    "publisher": "accepted P1-e verifier/normalizer/generation-2 signer/publisher; M10 admission verifies signature, exact state/envelope hash, expected operational identity and current source expiry",
     "signed_schedule_max_age_ms_at_m10": 2000
   },
   "schema_version": 1,

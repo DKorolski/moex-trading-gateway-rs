@@ -21,7 +21,7 @@ MANIFEST = PREFIX + "source-tree-manifest.json"
 COMMIT_RAW = PREFIX + "source-commit.raw"
 EVIDENCE = PREFIX + "stage8b-p1f-ic-evidence.json"
 GATE = PREFIX + "stage8b-p1f-ic-gate.txt"
-REVIEW = PREFIX + "reviews/FINAM_P1F_IB_R2_SOURCE_ACCEPT_7c481bc_2026-09-25.md"
+REVIEW = PREFIX + "reviews/FINAM_P1F_IC_REVIEW_33c82e6_AND_LIGHT_ID_SCOPE_2026-09-26.md"
 GENERATED = {MARKER, MANIFEST, COMMIT_RAW, EVIDENCE, GATE, REVIEW}
 REQUIRED = GENERATED | source_check.ALLOWED_CHANGES
 
@@ -76,7 +76,7 @@ def check(path: str) -> dict[str, object]:
         marker = parse_marker(files[MARKER])
         require(marker["stage"] == STAGE, "stage mismatch")
         require(marker["archive_name"] == PurePosixPath(path).name, "archive-name mismatch")
-        require(marker["source_parent"] == source_check.BASE, "source parent mismatch")
+        require(marker["source_parent"] == source_check.CANDIDATE, "source parent mismatch")
         require(marker["accepted_ib_ref"] == source_check.BASE, "accepted Ib ref mismatch")
         require(marker["branch"] == BRANCH, "branch mismatch")
         require(marker["source_ref"].startswith(marker["source_short_ref"]), "short ref mismatch")
@@ -85,7 +85,7 @@ def check(path: str) -> dict[str, object]:
         require(common.git_object_id("commit", commit_raw) == marker["source_ref"], "commit mismatch")
         commit_lines = commit_raw.decode().splitlines()
         require(commit_lines[0] == f"tree {marker['source_tree']}", "commit tree mismatch")
-        require(f"parent {source_check.BASE}" in commit_lines, "commit parent mismatch")
+        require(f"parent {source_check.CANDIDATE}" in commit_lines, "commit parent mismatch")
 
         manifest = json.loads(files[MANIFEST])
         require(manifest["schema_version"] == 2, "manifest schema mismatch")
@@ -109,21 +109,23 @@ def check(path: str) -> dict[str, object]:
 
         evidence = json.loads(files[EVIDENCE])
         require(evidence["source_ref"] == marker["source_ref"], "evidence source mismatch")
-        require(evidence["source_parent"] == source_check.BASE, "evidence parent mismatch")
+        require(evidence["source_parent"] == source_check.CANDIDATE, "evidence parent mismatch")
         require(evidence["source_tree"] == marker["source_tree"], "evidence tree mismatch")
-        require(evidence["status"] == "FIXED_PRODUCERS_REVIEW_CANDIDATE_NO_ACTIVATION", "evidence status mismatch")
+        require(evidence["status"] == "FIXED_PRODUCERS_CORRECTION_REVIEW_CANDIDATE_NO_ACTIVATION", "evidence status mismatch")
+        require(evidence["reviewed_ic_candidate_ref"] == source_check.CANDIDATE, "reviewed candidate mismatch")
+        require(evidence["correction_review_sha256"] == source_check.CORRECTION_REVIEW_SHA256, "correction review binding mismatch")
         require(evidence["changed_paths"] == sorted(source_check.ALLOWED_CHANGES), "changed path drift")
-        require(evidence["source_negative_cases"] == 24, "negative count mismatch")
+        require(evidence["source_negative_cases"] == 28, "negative count mismatch")
         require(evidence["acceptance_scenarios"] == 24, "scenario count mismatch")
-        require(evidence["targeted_rust_tests"] == 4, "test count mismatch")
+        require(evidence["targeted_rust_tests"] == 6, "test count mismatch")
         require(all(flag is False for flag in evidence["closed_surfaces"].values()), "surface opened")
         require(evidence["gate_sha256"] == sha256(files[GATE]), "gate digest mismatch")
         require(evidence["manifest_sha256"] == sha256(files[MANIFEST]), "manifest digest mismatch")
-        require(sha256(files[REVIEW]) == source_check.REVIEW_SHA256, "accepted review digest mismatch")
+        require(sha256(files[REVIEW]) == source_check.CORRECTION_REVIEW_SHA256, "correction review digest mismatch")
 
         for expected in (
             b"PASS stage8b-p1f-ic-check",
-            b"PASS stage8b-p1f-ic-negative-harness 24/24",
+            b"PASS stage8b-p1f-ic-negative-harness 28/28",
             b"PASS positive-control",
             b"PASS nonsemantic-control",
             b"test result: ok.",

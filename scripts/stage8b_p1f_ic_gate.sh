@@ -18,4 +18,4 @@ cargo test -p finam-gateway --doc --all-features
 cargo clippy -p finam-gateway --all-targets --all-features -- -D warnings
 git diff --check 7c481bc60699b514b016e8dffe62eb9ca462a100 --
 
-echo "PASS stage8b-p1f-ic-gate boundary=P1F-Ic scenarios=24 negatives=24 targeted_tests=4 operational=false"
+echo "PASS stage8b-p1f-ic-gate boundary=P1F-Ic scenarios=24 negatives=28 targeted_tests=6 operational=false"

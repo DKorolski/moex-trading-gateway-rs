@@ -14,6 +14,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 BASE = "7c481bc60699b514b016e8dffe62eb9ca462a100"
 REVIEW_SHA256 = "098a24fc87871968bc6e7b0a77deefffd403bc56d997d21af18e1869750acf7e"
+CANDIDATE = "33c82e6b3beff400a187d3d17c8d97e6151c2495"
+CORRECTION_REVIEW_SHA256 = "42dee90288167fa9969edd0b5c244ab0445b048841468fccf84e5b4ad9bb3800"
 PRODUCER = "crates/finam-gateway/src/stage8b_p1f_fixed_producers.rs"
 PUBLISHER = "crates/finam-gateway/src/stage8b_p1e_schedule_publisher.rs"
 LIB = "crates/finam-gateway/src/lib.rs"
@@ -145,7 +147,7 @@ def validate_inventory(root: Path) -> None:
             "checker": CHECKER,
             "gate": GATE,
             "negative_harness": NEGATIVE,
-            "targeted_rust_tests": 4,
+            "targeted_rust_tests": 6,
         },
         "evidence inventory drift",
     )
@@ -188,6 +190,10 @@ def validate_source(root: Path) -> None:
         "MarketDataSourceKind::ReadOnlyPoll",
         "MarketDataSourceKind::LiveStream",
         "CanonicalBarAggregator::new(M10_TIMEFRAME_SECONDS)",
+        "state.verify_fresh_envelope(identity, trusted_now)",
+        "let schedule_envelope_sha256 = sha256_hex(&verified_schedule);",
+        "observation.observed_at_utc < previous",
+        "nonnegative_age_ms(batch.trusted_now_utc, latest)? > O4_OBSERVATION_MAX_AGE_MS",
         "build_stage8b_p1_canonical_m10(",
         "parse_stage8b_p1_canonical_m10(",
         "Stage8bP1fM10ProducerLineageV1::First(_) =>",
@@ -205,6 +211,8 @@ def validate_source(root: Path) -> None:
         "prepared_and_published_m10_restart_preserve_exact_high_water",
         "o3_to_o4_m10_continuity_rejects_reset_stale_and_conflict",
         "newer_candidate_waits_for_exact_prepared_publication",
+        "o4_streaming_receipts_use_completed_m10_freshness",
+        "m10_admission_requires_fresh_signed_schedule_authority",
     ):
         require(fragment in source, f"Ic source contract missing: {fragment}")
     for forbidden in (
@@ -222,6 +230,8 @@ def validate_source(root: Path) -> None:
     )
     require("pub use stage8b_p1f_fixed_producers::{" in library, "Ic typed API not exported")
     require("#[cfg(test)]\npub(crate) fn test_prepare_stage8b_p1e_schedule_publication_with_key" in publisher, "test-only publisher seam missing")
+    require("verify_stage8b_p1e_schedule_envelope_v3(&envelope, &context)" in publisher, "fresh production verifier missing")
+    require("pub(crate) fn test_verify_fresh_envelope_with_key" in publisher, "fresh fixture verifier seam missing")
     require("#[cfg(test)]\npub(crate) mod tests" in publisher, "publisher test fixture visibility drift")
 
 

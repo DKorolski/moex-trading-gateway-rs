@@ -17,10 +17,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use strategy_runtime_core::{
     authenticate_stage8b_p1e_schedule_observation_v3, stage8b_p1e_canonical_json,
     stage8b_p1e_schedule_payload_sha256, stage8b_p1e_schedule_semantic_sha256,
-    stage8b_p1e_schedule_unsigned_signature_sha256, Stage8bP1eScheduleEnvelopeV3,
-    Stage8bP1eSchedulePayloadV2, Stage8bP1eScheduleSemanticIdentityV1,
-    Stage8bP1eScheduleVerificationContextV1, Stage8bP1eStage4SemanticStateV1,
-    STAGE8B_P1E_SCHEDULE_PUBLIC_KEY_ED25519_HEX, STAGE8B_P1E_SCHEDULE_STREAM,
+    stage8b_p1e_schedule_unsigned_signature_sha256, verify_stage8b_p1e_schedule_envelope_v3,
+    Stage8bP1eScheduleEnvelopeV3, Stage8bP1eSchedulePayloadV2,
+    Stage8bP1eScheduleSemanticIdentityV1, Stage8bP1eScheduleVerificationContextV1,
+    Stage8bP1eStage4SemanticStateV1, STAGE8B_P1E_SCHEDULE_PUBLIC_KEY_ED25519_HEX,
+    STAGE8B_P1E_SCHEDULE_STREAM,
 };
 
 const ENVELOPE_DOMAIN: &str = "moex.stage8b.p1e.schedule-envelope.v3";
@@ -473,6 +474,56 @@ impl Stage8bP1eSchedulePublisherStateV1 {
             trusted_now: published_at,
         };
         Ok((envelope, context))
+    }
+
+    /// Verifies the retained publisher state as fresh route authority at the
+    /// caller's admission instant. Unlike `validate`, this uses the accepted
+    /// fresh verifier rather than authenticating a historical observation at
+    /// its original publication instant.
+    pub(crate) fn verify_fresh_envelope(
+        &self,
+        expected_operational_identity_sha256: &str,
+        trusted_now: DateTime<Utc>,
+    ) -> Result<Vec<u8>, Stage8bP1eSchedulePublisherError> {
+        let (envelope, mut context) = self.validate_structural_state()?;
+        if self.phase != Stage8bP1eSchedulePublisherPhaseV1::Published {
+            return Err(Stage8bP1eSchedulePublisherError::DurableStateConflict);
+        }
+        context.expected_operational_identity_sha256 =
+            expected_operational_identity_sha256.to_string();
+        context.trusted_now = trusted_now;
+        verify_stage8b_p1e_schedule_envelope_v3(&envelope, &context)
+            .map_err(|_| Stage8bP1eSchedulePublisherError::DurableStateConflict)?;
+        Ok(envelope)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_verify_fresh_envelope_with_key(
+        &self,
+        expected_operational_identity_sha256: &str,
+        trusted_now: DateTime<Utc>,
+        public_key_hex: &str,
+    ) -> Result<Vec<u8>, Stage8bP1eSchedulePublisherError> {
+        let (envelope, mut context) = self.validate_structural_state()?;
+        if self.phase != Stage8bP1eSchedulePublisherPhaseV1::Published {
+            return Err(Stage8bP1eSchedulePublisherError::DurableStateConflict);
+        }
+        context.expected_operational_identity_sha256 =
+            expected_operational_identity_sha256.to_string();
+        context.trusted_now = trusted_now;
+        strategy_runtime_core::stage8b_p1e_test_verify_schedule_envelope_with_key(
+            &envelope,
+            &context,
+            public_key_hex,
+            DateTime::parse_from_rfc3339("2026-01-01T00:00:00.000000Z")
+                .expect("fixed fixture trust start")
+                .with_timezone(&Utc),
+            DateTime::parse_from_rfc3339("2027-01-01T00:00:00.000000Z")
+                .expect("fixed fixture trust end")
+                .with_timezone(&Utc),
+        )
+        .map_err(|_| Stage8bP1eSchedulePublisherError::DurableStateConflict)?;
+        Ok(envelope)
     }
 
     #[cfg(test)]

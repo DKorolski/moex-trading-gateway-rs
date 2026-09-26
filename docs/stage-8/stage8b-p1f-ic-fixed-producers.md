@@ -35,14 +35,23 @@ typed adapter boundary; operational network attachment remains a later phase.
 Each candidate consists of exactly ten canonical broker-neutral final IMOEXF
 M1 bars. O3 accepts only `ReadOnlyPoll` bars and requires the phase-pinned
 fixture digest. O4 accepts only `LiveStream` bars and forbids a synthetic
-fixture digest. Receipt timestamps must be after each source close and within
-the phase freshness bound.
+fixture digest. O3 is a fresh bounded batch: every receipt is at most two
+seconds old and the batch spans at most five seconds. O4 retains the actual
+streaming receipt for every minute: receipts must be monotonic and no earlier
+than their source close, while freshness is evaluated against the final M1
+receipt that completes the M10. The completed O4 M10 is rejected when that
+last receipt is future-dated or older than 30 seconds; earlier timely minute
+receipts are not rewritten to the aggregation instant.
 
 The existing `CanonicalBarAggregator` creates one 600-second bar. The result is
 accepted only when its complete interval is inside a fresh signed
-`TradableOpen` schedule. The existing Stage 8B-P1 canonical M10 builder and
-parser produce and cross-check the Redis identity, semantic identity, payload
-hash and exact canonical bytes.
+`TradableOpen` schedule. M10 admission runs the accepted P1-e signature and
+freshness verifier at the current trusted instant, binds the verified exact
+envelope bytes back to the retained publisher-state hash, and checks the
+expected operational identity and current source expiry before creating
+`Prepared`. The existing Stage 8B-P1 canonical M10 builder and parser produce
+and cross-check the Redis identity, semantic identity, payload hash and exact
+canonical bytes.
 
 ## Retained high-water and restart
 
@@ -74,8 +83,11 @@ role and publish/reread operation belong to P1F-Id.
 Local tests cover the O3/O4 schedule sequence and semantic revision,
 Prepared/Published restart, exact duplicate replay, same-close conflict, stale
 input, prohibited O4 genesis, unresolved-Prepared blocking and O3-to-O4 M10
-continuity. The Ic gate also retains the accepted schedule-publisher and O2/Ia
-tests.
+continuity. Dedicated controls cover ten sequential O4 receipt timestamps,
+future/stale/non-monotonic completion, forged signature, changed schedule
+payload, publisher-state/envelope hash mismatch, operational-identity mismatch
+and signed-but-expired source evidence. The Ic gate also retains the accepted
+schedule-publisher and O2/Ia tests.
 
 P1F-Id fixed Redis roles, resource polling and command audit and P1F-Ie
 aggregate source closure remain open. P1F-O0 through O4 and P1F-A remain
