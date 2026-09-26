@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import os
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -19,27 +21,68 @@ def replace(root: Path, relative: str, old: str, new: str) -> None:
 
 
 CASES = (
-    ("self-accept", check.INVENTORY, "REVIEW_CANDIDATE_AGGREGATE_SOURCE_CLOSURE_NO_ACTIVATION", "ACCEPTED"),
+    ("self-accept", check.INVENTORY, "REVIEW_CANDIDATE_LINKED_COMPOSITION_CORRECTION_NO_ACTIVATION", "ACCEPTED"),
     ("ia-commit", check.INVENTORY, check.ACCEPTED_SOURCES[0]["commit"], "0" * 40),
     ("ib-commit", check.INVENTORY, check.ACCEPTED_SOURCES[1]["commit"], "1" * 40),
     ("ic-commit", check.INVENTORY, check.ACCEPTED_SOURCES[2]["commit"], "2" * 40),
     ("id-commit", check.INVENTORY, check.ACCEPTED_SOURCES[3]["commit"], "3" * 40),
     ("ia-review", check.INVENTORY, check.ACCEPTED_SOURCES[0]["review_sha256"], "4" * 64),
     ("id-review", check.INVENTORY, check.ACCEPTED_SOURCES[3]["review_sha256"], "5" * 64),
-    ("fixture-count", check.INVENTORY, '"existing_fixture_count": 9', '"existing_fixture_count": 8'),
+    ("correction-review", check.INVENTORY, check.CORRECTION_REVIEW["sha256"], "6" * 64),
+    ("fixture-count", check.INVENTORY, '"aggregate_regression_fixture_count": 9', '"aggregate_regression_fixture_count": 8'),
     ("production-change", check.INVENTORY, '"new_production_rust_files": 0', '"new_production_rust_files": 1'),
     ("cargo-change", check.INVENTORY, '"new_cargo_changes": 0', '"new_cargo_changes": 1'),
     ("operational-redis", check.INVENTORY, '"operational_redis_db15_or_db0": false', '"operational_redis_db15_or_db0": true'),
     ("next-boundary", check.INVENTORY, "P1F-O0 immutable read-only target preflight; operational activation remains closed", "P1F-O0 activated"),
-    ("matrix-row", check.MATRIX, "P1FIE-020,roadmap,Only independently accepted Ie may unlock separate O0 read-only target preflight,REQUIRED\n", ""),
+    ("matrix-row", check.MATRIX, "P1FIE-024,roadmap,Only independently accepted Ie may unlock separate O0 read-only target preflight,REQUIRED\n", ""),
     ("o2-link", check.LINKED, "o2_materialization_finalizes_only_source_hash_and_replays_exactly", "removed_o2_materialization_link"),
     ("supervision-link", check.LINKED, "local_supervision_starts_after_admission_and_stops_on_sigterm", "removed_local_supervision_link"),
     ("producer-link", check.LINKED, "id_linked_real_redis_response_loss_restarts_prepared_without_duplicate", "removed_producer_redis_link"),
     ("resource-link", check.LINKED, "resource_probe_uses_real_bounded_redis_reads_and_hash_only_audit", "removed_resource_audit_link"),
     ("runtime-link", check.LINKED, "production_v5_bootstrap_runs_continuous_market_lifecycle_and_readmits_exactly", "removed_runtime_link"),
-    ("status", check.STATUS, "The active source candidate is now P1F-Ie aggregate source closure", "The active source candidate is now P1F-O0"),
+    ("linked-witness", check.WITNESS, check.WITNESS_SELECTOR, "removed_linked_composition_witness"),
+    (
+        "qualified-selector",
+        check.LINKED,
+        "stage8b_p1f_guardian::tests::o2_materialization_finalizes_only_source_hash_and_replays_exactly",
+        "wrong_module::tests::o2_materialization_finalizes_only_source_hash_and_replays_exactly",
+    ),
+    ("exact-selection-guard", check.EXACT_RUNNER, 'grep -Foc "$selector"', 'grep -Foc "running 1 test"'),
+    ("status", check.STATUS, "The active source candidate is now the P1F-Ie linked-composition correction", "The active source candidate is now P1F-O0"),
     ("roadmap", check.ROADMAP, "P1F-O0 stays closed", "P1F-O0 is open"),
 )
+
+
+def zero_selection_guard() -> None:
+    with tempfile.TemporaryDirectory(prefix="stage8b-p1f-ie-zero-selection-") as raw:
+        fake_bin = Path(raw)
+        cargo = fake_bin / "cargo"
+        cargo.write_text(
+            "#!/usr/bin/env bash\n"
+            "echo 'running 0 tests'\n"
+            "echo 'test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out'\n"
+            "exit 0\n"
+        )
+        cargo.chmod(0o755)
+        environment = os.environ.copy()
+        environment["PATH"] = str(fake_bin) + os.pathsep + environment["PATH"]
+        result = subprocess.run(
+            [
+                "bash",
+                str(check.ROOT / check.EXACT_RUNNER),
+                "runtime-durable-service",
+                check.RUNTIME_REGRESSIONS[0],
+            ],
+            cwd=check.ROOT,
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            raise SystemExit("FAIL zero-selection exact runner returned success")
+        print("PASS zero-selection-exact-runner-rejected")
 
 
 def copy_contract(root: Path) -> None:
@@ -60,6 +103,7 @@ def main() -> None:
         document.write_text(document.read_text() + "\n")
         check.validate(root, check_lineage=False)
         print("PASS nonsemantic-control")
+    zero_selection_guard()
     for name, relative, old, new in CASES:
         with tempfile.TemporaryDirectory(prefix=f"stage8b-p1f-ie-{name}-") as raw:
             root = Path(raw)

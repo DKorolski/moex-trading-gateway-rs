@@ -20,6 +20,10 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+use serde::{Deserialize, Serialize};
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+use sha2::{Digest, Sha256};
 use strategy_runtime_core::Stage5gLifecycleCommitmentKey;
 
 use crate::stage8b_p1_semantic::{
@@ -6043,6 +6047,387 @@ fn read_boot_id(path: &Path) -> Result<[u8; 16], Stage8bP1eProcessErrorV1> {
         return Err(Stage8bP1eProcessErrorV1::BootIdentity);
     }
     Ok(*uuid.as_bytes())
+}
+
+/// Exact cross-crate inputs for the isolated P1F-Ie composition witness.
+/// This seam is feature-gated, carries no credentials and cannot select an
+/// operational endpoint by itself.
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stage8bP1fIeCompositionInputV1 {
+    pub supervisor_path: std::path::PathBuf,
+    pub source_path: std::path::PathBuf,
+    pub expected_config_sha256: String,
+    pub expected_source_sha256: String,
+    pub expected_operational_identity_sha256: String,
+    pub expected_runtime_config_fingerprint_sha256: String,
+    pub redis_url: String,
+    pub decision_redis_id: String,
+    pub successor_redis_id: String,
+    pub successor_close_ts_utc_ms: i64,
+    pub schedule_redis_id: String,
+    pub schedule_public_key_hex: String,
+    pub schedule_key_valid_from_ms: i64,
+    pub schedule_key_valid_until_ms: i64,
+    pub schedule_registry_version: String,
+    pub schedule_registry_identity_sha256: String,
+}
+
+/// Redacted evidence emitted by the supervised child after durable truth,
+/// source XACK and exact readmission have all succeeded.
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stage8bP1fIeCompositionEvidenceV1 {
+    pub schema_version: u16,
+    pub operational_identity_sha256: String,
+    pub runtime_config_fingerprint_sha256: String,
+    pub config_sha256: String,
+    pub source_sha256: String,
+    pub decision_redis_id: String,
+    pub successor_redis_id: String,
+    pub schedule_redis_id: String,
+    pub command_stream_length_before_restart: u64,
+    pub command_stream_length_after_restart: u64,
+    pub retained_m10_stream_length: u64,
+    pub final_m10_pel_count: u64,
+    pub resource_poll_m10_pel_count: u64,
+    pub resource_poll_command_pel_count: u64,
+    pub audit_record_count: u64,
+    pub bytes_mismatch_rejected: bool,
+    pub durable_truth_committed: bool,
+    pub source_xack_last: bool,
+    pub readmission_already_acknowledged: bool,
+    pub duplicate_command_absent: bool,
+}
+
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+fn stage8b_p1f_ie_sha256(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+fn stage8b_p1f_ie_bootstrap(
+    supervisor_bytes: &[u8],
+) -> Result<crate::Stage8bP1ValidatedBootstrapConfig, String> {
+    let raw = crate::parse_stage8b_p1e_supervisor_config_v1(supervisor_bytes)
+        .map_err(|error| format!("parse supervisor: {error}"))?;
+    crate::validate_stage8b_p1_bootstrap_config(raw.bootstrap)
+        .map_err(|error| format!("validate bootstrap: {error}"))
+}
+
+/// Runs one linked O2 -> fixed Redis -> paper lifecycle -> readmission proof.
+/// The caller has already created the isolated Redis namespace and published
+/// schedule/M10 bytes through the accepted fixed producers.
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+pub async fn stage8b_p1f_ie_run_linked_composition_v1(
+    input: Stage8bP1fIeCompositionInputV1,
+) -> Result<Stage8bP1fIeCompositionEvidenceV1, String> {
+    let supervisor_bytes = fs::read(&input.supervisor_path)
+        .map_err(|error| format!("read materialized supervisor: {error}"))?;
+    let source_bytes = fs::read(&input.source_path)
+        .map_err(|error| format!("read materialized source: {error}"))?;
+    let config_sha256 = stage8b_p1f_ie_sha256(&supervisor_bytes);
+    let source_sha256 = stage8b_p1f_ie_sha256(&source_bytes);
+    if config_sha256 != input.expected_config_sha256
+        || source_sha256 != input.expected_source_sha256
+    {
+        return Err("materialized O2 bytes do not match parent evidence".into());
+    }
+
+    let trusted_first_boot = DateTime::<Utc>::from_timestamp_millis(
+        input
+            .successor_close_ts_utc_ms
+            .checked_sub(629_000)
+            .ok_or("invalid linked first-boot instant")?,
+    )
+    .ok_or("invalid linked first-boot timestamp")?;
+    let mut mismatched_source = source_bytes.clone();
+    let last = mismatched_source
+        .len()
+        .checked_sub(2)
+        .ok_or("empty materialized source")?;
+    mismatched_source[last] ^= 1;
+    let bytes_mismatch_rejected =
+        crate::stage8b_p1e_first_boot_source::stage8b_p1f_ie_prepare_materialized_o2_v1(
+            &supervisor_bytes,
+            &mismatched_source,
+            trusted_first_boot,
+        )
+        .is_err();
+    if !bytes_mismatch_rejected {
+        return Err("negative O2 bytes-binding control was accepted".into());
+    }
+
+    let (prepared, admin, commitment_key, operational_identity_sha256) =
+        crate::stage8b_p1e_first_boot_source::stage8b_p1f_ie_prepare_materialized_o2_v1(
+            &supervisor_bytes,
+            &source_bytes,
+            trusted_first_boot,
+        )
+        .map_err(|error| format!("prepare materialized O2: {error}"))?;
+    if operational_identity_sha256 != input.expected_operational_identity_sha256 {
+        return Err("materialized O2 operational identity drifted".into());
+    }
+    let adopted = crate::first_boot_stage8b_p1e_transaction_v5(prepared, admin, 1, &commitment_key)
+        .map_err(|error| format!("first boot transaction: {error}"))?;
+    drop(adopted);
+
+    let (fresh_runtime, runtime_config_fingerprint_sha256) =
+        crate::Stage8bP1RuntimeProfileV1::build_hybrid_runtime()
+            .map_err(|error| format!("build runtime profile: {error}"))?;
+    if runtime_config_fingerprint_sha256 != input.expected_runtime_config_fingerprint_sha256 {
+        return Err("runtime fingerprint drifted from O2 materialization".into());
+    }
+    let first_admission = crate::admit_stage8b_p1e_ordinary_run_v1(
+        stage8b_p1f_ie_bootstrap(&supervisor_bytes)?,
+        &commitment_key,
+        fresh_runtime.clone(),
+    )
+    .map_err(|error| format!("first ordinary admission: {error}"))?;
+    let Stage7bRestartOutcome::Ready(owner) = first_admission else {
+        return Err("fresh O2 root did not admit as Ready".into());
+    };
+    let expected_decision_close = owner
+        .stage8b_p1e_test_continuation_checkpoint_ts_utc_ms()
+        .ok_or("fresh O2 owner has no continuation checkpoint")?
+        .checked_add(11_400_000)
+        .ok_or("linked decision timestamp overflow")?;
+    if input.decision_redis_id != format!("{expected_decision_close}-0") {
+        return Err(format!(
+            "fixed producer decision {} does not match runtime continuation {}-0",
+            input.decision_redis_id, expected_decision_close
+        ));
+    }
+
+    let mut reclaim = crate::Stage8bP1RedisConfig::paper_default_auto();
+    reclaim.claim_idle_ms = 1;
+    let transport = crate::attach_stage8b_p1_redis(&input.redis_url, reclaim)
+        .await
+        .map_err(|error| format!("attach producer Redis: {error}"))?;
+    let outcome = Stage8bP1RedisSemanticCompositionOwner::new(*owner, transport)
+        .process_next(&commitment_key)
+        .await
+        .map_err(|error| format!("consume fixed decision M10: {error:?}"))?;
+    let Stage8bP1RedisSemanticOutcome::Prepublication(pending) = outcome else {
+        return Err("fixed decision M10 did not produce one Market intent".into());
+    };
+    if pending.pending_m10_redis_id() != input.decision_redis_id {
+        return Err("runtime consumed a different M10 than the fixed producer emitted".into());
+    }
+    let published = pending
+        .publish_exact_command()
+        .await
+        .map_err(|error| format!("publish exact paper command: {error}"))?;
+
+    let audit = Stage8bP1fRedisCommandAuditHandleV1::default();
+    let mut resource_probe =
+        Stage8bP1fResourceProbeV1::connect_with_audit(&input.redis_url, audit.clone())
+            .await
+            .map_err(|error| format!("attach resource probe: {error}"))?;
+    let resource_sample = resource_probe
+        .poll()
+        .await
+        .map_err(|error| format!("resource poll: {error}"))?;
+
+    let key_valid_from = DateTime::<Utc>::from_timestamp_millis(input.schedule_key_valid_from_ms)
+        .ok_or("invalid schedule trust start")?;
+    let key_valid_until = DateTime::<Utc>::from_timestamp_millis(input.schedule_key_valid_until_ms)
+        .ok_or("invalid schedule trust end")?;
+    let trusted_schedule = DateTime::<Utc>::from_timestamp_millis(input.successor_close_ts_utc_ms)
+        .ok_or("invalid successor timestamp")?;
+    let mut schedule_reader =
+        crate::Stage8bP1eRedisScheduleReader::stage8b_p1f_ie_connect_with_fixture_trust_and_audit(
+            &input.redis_url,
+            input.schedule_public_key_hex.clone(),
+            key_valid_from,
+            key_valid_until,
+            audit.clone(),
+        )
+        .await
+        .map_err(|error| format!("attach linked schedule reader: {error}"))?;
+    let context = strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1 {
+        expected_instrument_map_fingerprint_sha256:
+            crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+        expected_operational_identity_sha256: operational_identity_sha256.clone(),
+        expected_registry_identity_sha256: input.schedule_registry_identity_sha256.clone(),
+        expected_registry_version: input.schedule_registry_version.clone(),
+        expected_runtime_config_fingerprint_sha256: runtime_config_fingerprint_sha256.clone(),
+        high_water: None,
+        trusted_now: trusted_schedule,
+    };
+    let snapshot = match schedule_reader
+        .read_newest_guarded(&context, &Stage8bP1eShutdownLatchV1::new())
+        .await
+        .map_err(|error| format!("read fixed schedule: {error}"))?
+    {
+        crate::Stage8bP1eGuardedScheduleReadV1::Read(
+            crate::Stage8bP1eNewestScheduleReadV1::Verified(snapshot),
+        ) => snapshot,
+        _ => return Err("fixed schedule did not verify as newest authority".into()),
+    };
+    if snapshot.redis_stream_id() != input.schedule_redis_id {
+        return Err("runtime read a different schedule than the fixed producer emitted".into());
+    }
+    let v4_receipt = crate::stage8b_p1_semantic::stage8b_p1f_ie_commit_plain_market_v4_only(
+        published,
+        *snapshot,
+        trusted_schedule,
+        &commitment_key,
+    )
+    .await;
+
+    let restart = crate::stage8b_p1e_first_boot_transaction::stage8b_p1e_test_admit_ordinary_run_with_schedule_key_v1(
+        stage8b_p1f_ie_bootstrap(&supervisor_bytes)?,
+        &commitment_key,
+        fresh_runtime.clone(),
+        input.schedule_public_key_hex.clone(),
+        key_valid_from,
+        key_valid_until,
+    )
+    .map_err(|error| format!("V4 readmission: {error}"))?;
+    let Stage7bRestartOutcome::P1eScheduleBindingCommitted(committed) = restart else {
+        return Err("linked V4 was not retained for exact continuation".into());
+    };
+    if committed.receipt() != &v4_receipt {
+        return Err("linked V4 receipt changed across restart".into());
+    }
+    let mut restart_reclaim = crate::Stage8bP1RedisConfig::paper_default_auto();
+    restart_reclaim.claim_idle_ms = 1;
+    let transport = crate::attach_stage8b_p1_redis(&input.redis_url, restart_reclaim)
+        .await
+        .map_err(|error| format!("reattach linked Redis: {error}"))?;
+    let crate::Stage8bP1eRecoveredMarketScheduleOutcomeV1::FeedbackAckCommitted {
+        owner: ack, ..
+    } = crate::resume_stage8b_p1e_committed_market_with_redis(
+        committed,
+        transport,
+        &Stage8bP1eShutdownLatchV1::new(),
+        &commitment_key,
+    )
+    .await
+    .map_err(|error| format!("resume linked Market: {error}"))?
+    else {
+        return Err("linked Market did not reach durable ACK".into());
+    };
+    let resolved = ack
+        .commit_truth(&commitment_key)
+        .map_err(|error| format!("commit linked truth: {error}"))?
+        .acknowledge_source()
+        .await
+        .map_err(|error| format!("XACK linked source: {error}"))?;
+    if resolved.disposition() != Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending {
+        return Err("first linked resolution did not XACK one pending source".into());
+    }
+    drop(resolved.into_ready_owner());
+
+    let namespace = crate::stage8b_p1_redis_namespace();
+    let mut connection = redis::aio::ConnectionManager::new(
+        redis::Client::open(input.redis_url.as_str())
+            .map_err(|error| format!("open evidence Redis: {error}"))?,
+    )
+    .await
+    .map_err(|error| format!("connect evidence Redis: {error}"))?;
+    let command_stream_length_before_restart: u64 = redis::cmd("XLEN")
+        .arg(&namespace.canonical_command_stream)
+        .query_async(&mut connection)
+        .await
+        .map_err(|error| format!("read command length: {error}"))?;
+
+    let readmission = crate::stage8b_p1e_first_boot_transaction::stage8b_p1e_test_admit_ordinary_run_with_schedule_key_v1(
+        stage8b_p1f_ie_bootstrap(&supervisor_bytes)?,
+        &commitment_key,
+        fresh_runtime,
+        input.schedule_public_key_hex,
+        key_valid_from,
+        key_valid_until,
+    )
+    .map_err(|error| format!("truth readmission: {error}"))?;
+    let Stage7bRestartOutcome::P1d2TruthCommitted(truth) = readmission else {
+        return Err("truth readmission did not retain the exact P1-d2 frontier".into());
+    };
+    let transport = crate::attach_stage8b_p1_redis(
+        &input.redis_url,
+        crate::Stage8bP1RedisConfig::paper_default_auto(),
+    )
+    .await
+    .map_err(|error| format!("attach readmission Redis: {error}"))?;
+    let acquired = acquire_stage8b_p1d2_truth_with_redis(*truth, transport)
+        .await
+        .map_err(|error| format!("acquire retained truth: {error}"))?;
+    let permit = match crate::decide_stage8b_p1e_post_acquisition_latch(
+        acquired,
+        &Stage8bP1eShutdownLatchV1::new(),
+    ) {
+        crate::Stage8bP1ePostAcquisitionDecisionV1::Continue(permit) => permit,
+        crate::Stage8bP1ePostAcquisitionDecisionV1::RetainForRestart(_) => {
+            return Err("clear readmission latch retained truth".into())
+        }
+    };
+    let frontier_resolved = resume_stage8b_p1d2_truth_with_redis(permit)
+        .await
+        .map_err(|error| format!("resume retained truth: {error}"))?;
+    let readmission_already_acknowledged = frontier_resolved.disposition()
+        == Stage8bP1RedisZeroIntentAckDisposition::AlreadyAcknowledged;
+    if !readmission_already_acknowledged {
+        return Err("readmission attempted a duplicate source acknowledgement".into());
+    }
+    drop(frontier_resolved.into_ready_owner());
+
+    let command_stream_length_after_restart: u64 = redis::cmd("XLEN")
+        .arg(&namespace.canonical_command_stream)
+        .query_async(&mut connection)
+        .await
+        .map_err(|error| format!("reread command length: {error}"))?;
+    let retained_m10_stream_length: u64 = redis::cmd("XLEN")
+        .arg(&namespace.canonical_m10_stream)
+        .query_async(&mut connection)
+        .await
+        .map_err(|error| format!("read M10 length: {error}"))?;
+    let pending: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
+        .arg(&namespace.canonical_m10_stream)
+        .arg(&namespace.m10_consumer_group)
+        .query_async(&mut connection)
+        .await
+        .map_err(|error| format!("read final M10 PEL: {error}"))?;
+    let final_m10_pel_count =
+        u64::try_from(pending.count()).map_err(|_| "M10 PEL count overflow".to_string())?;
+    let audit_record_count = u64::try_from(
+        audit
+            .snapshot()
+            .map_err(|error| format!("snapshot linked audit: {error}"))?
+            .len(),
+    )
+    .map_err(|_| "audit count overflow".to_string())?;
+    let duplicate_command_absent = command_stream_length_before_restart == 1
+        && command_stream_length_after_restart == command_stream_length_before_restart;
+    if retained_m10_stream_length != 2 || final_m10_pel_count != 0 || !duplicate_command_absent {
+        return Err("linked Redis postconditions drifted".into());
+    }
+
+    Ok(Stage8bP1fIeCompositionEvidenceV1 {
+        schema_version: 1,
+        operational_identity_sha256,
+        runtime_config_fingerprint_sha256,
+        config_sha256,
+        source_sha256,
+        decision_redis_id: input.decision_redis_id,
+        successor_redis_id: input.successor_redis_id,
+        schedule_redis_id: input.schedule_redis_id,
+        command_stream_length_before_restart,
+        command_stream_length_after_restart,
+        retained_m10_stream_length,
+        final_m10_pel_count,
+        resource_poll_m10_pel_count: resource_sample.m10_pel_count,
+        resource_poll_command_pel_count: resource_sample.command_pel_count,
+        audit_record_count,
+        bytes_mismatch_rejected,
+        durable_truth_committed: true,
+        source_xack_last: true,
+        readmission_already_acknowledged,
+        duplicate_command_absent,
+    })
 }
 
 #[cfg(test)]

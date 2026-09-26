@@ -13,6 +13,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = "512db6e6e652a2b0a15be7b6dcb72b96e231950d"
+CORRECTION_BASE = "0394cb702e7d11e1ee80f5a2f18177906bcc6be5"
 BRANCH = "stage8b-paper-shadow-resumption"
 DOCUMENT = "docs/stage-8/stage8b-p1f-ie-aggregate-source-closure.md"
 INVENTORY = "docs/stage-8/stage8b-p1f-ie-aggregate-source-closure.json"
@@ -20,11 +21,53 @@ MATRIX = "docs/stage-8/stage8b-p1f-ie-acceptance-matrix.csv"
 STATUS = "docs/current-status.md"
 ROADMAP = "docs/roadmap.md"
 LINKED = "scripts/stage8b_p1f_ie_linked_local_composition.sh"
+WITNESS = "scripts/stage8b_p1f_ie_composition_witness.sh"
+EXACT_RUNNER = "scripts/stage8b_p1f_ie_exact_test.sh"
 CHECKER = "scripts/stage8b_p1f_ie_check.py"
 NEGATIVE = "scripts/stage8b_p1f_ie_negative_harness.py"
 GATE = "scripts/stage8b_p1f_ie_gate.sh"
 SAFETY = "scripts/stage8b_p1f_ie_handoff_safety_check.py"
 BUILDER = "scripts/make_stage8b_p1f_ie_handoff.py"
+CORRECTION_REVIEW = {
+    "commit": CORRECTION_BASE,
+    "file": "FINAM_P1F_IE_REVIEW_0394cb7_2026-09-26.md",
+    "sha256": "99618000f046a5ff1b399bce720029af3a6fecd35d4929e8fdfbdca5f2322cea",
+    "verdict": "HOLD_P1_IE01_LINKED_COMPOSITION",
+}
+
+RUST_FIXTURE_CHANGES = (
+    "crates/finam-gateway/src/stage8b_p1e_schedule_publisher.rs",
+    "crates/finam-gateway/src/stage8b_p1f_fixed_producers.rs",
+    "crates/runtime-durable-service/src/lib.rs",
+    "crates/runtime-durable-service/src/recovery.rs",
+    "crates/runtime-durable-service/src/stage8b_p1_bootstrap.rs",
+    "crates/runtime-durable-service/src/stage8b_p1_semantic.rs",
+    "crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs",
+    "crates/runtime-durable-service/src/stage8b_p1e_first_boot_source.rs",
+    "crates/runtime-durable-service/src/stage8b_p1e_first_boot_transaction.rs",
+    "crates/runtime-durable-service/src/stage8b_p1e_process.rs",
+    "crates/runtime-durable-service/src/stage8b_p1e_schedule_source.rs",
+    "crates/runtime-durable-service/src/stage8b_p1f_guardian.rs",
+    "crates/runtime-durable-service/src/stage8b_p1f_local_supervision.rs",
+)
+
+RUNTIME_REGRESSIONS = (
+    "stage8b_p1f_guardian::tests::o2_materialization_finalizes_only_source_hash_and_replays_exactly",
+    "stage8b_p1f_guardian::tests::local_supervision_starts_after_admission_and_stops_on_sigterm",
+    "stage8b_p1f_fixed_redis::tests::resource_probe_uses_real_bounded_redis_reads_and_hash_only_audit",
+    "stage8b_p1_semantic::redis::tests::p1c_journal_ahead_reclaims_real_pel_before_reconstructing_s1",
+    "stage8b_p1e_process::tests::p1f_id_process_supervision_retains_failed_attach_audit_after_early_owner_return",
+    "stage8b_p1e_process::tests::p1f_id_process_supervision_retains_audit_after_owner_abort",
+    "stage8b_p1e_process::tests::production_v5_bootstrap_runs_continuous_market_lifecycle_and_readmits_exactly",
+)
+FINAM_REGRESSIONS = (
+    "stage8b_p1f_fixed_producers::tests::fixed_o3_o4_schedule_uses_one_retained_sequence_and_revision",
+    "stage8b_p1f_fixed_producers::tests::id_linked_real_redis_response_loss_restarts_prepared_without_duplicate",
+)
+WITNESS_SELECTOR = (
+    "stage8b_p1f_fixed_producers::tests::"
+    "ie_linked_o2_fixed_producers_supervised_runtime_truth_and_readmission"
+)
 
 ACCEPTED_SOURCES = (
     {
@@ -64,12 +107,14 @@ ALLOWED_CHANGES = {
     STATUS,
     ROADMAP,
     LINKED,
+    WITNESS,
+    EXACT_RUNNER,
     CHECKER,
     NEGATIVE,
     GATE,
     SAFETY,
     BUILDER,
-}
+} | set(RUST_FIXTURE_CHANGES)
 
 
 class CheckFailure(RuntimeError):
@@ -118,7 +163,11 @@ def validate_lineage(root: Path) -> None:
         )
     except (OSError, subprocess.CalledProcessError) as error:
         raise CheckFailure(f"Id baseline is not an ancestor: {error}") from error
-    changed = set(git(root, "diff", "--name-only", BASE, "--").splitlines())
+    require(
+        git(root, "rev-parse", f"{CORRECTION_BASE}^{{commit}}") == CORRECTION_BASE,
+        "missing Ie review target",
+    )
+    changed = set(git(root, "diff", "--name-only", CORRECTION_BASE, "--").splitlines())
     changed |= set(
         git(root, "ls-files", "--others", "--exclude-standard").splitlines()
     )
@@ -150,6 +199,7 @@ def validate_inventory(root: Path) -> None:
             "schema_version",
             "stage",
             "status",
+            "correction_review",
             "accepted_sources",
             "lineage",
             "aggregate_composition",
@@ -161,15 +211,19 @@ def validate_inventory(root: Path) -> None:
     )
     require(value["schema_version"] == 1 and type(value["schema_version"]) is int, "schema drift")
     require(value["stage"] == "Stage 8B-P1-f Ie aggregate source closure", "stage drift")
-    require(value["status"] == "REVIEW_CANDIDATE_AGGREGATE_SOURCE_CLOSURE_NO_ACTIVATION", "Ie self-accepted")
+    require(value["status"] == "REVIEW_CANDIDATE_LINKED_COMPOSITION_CORRECTION_NO_ACTIVATION", "Ie self-accepted")
+    require(value["correction_review"] == CORRECTION_REVIEW, "correction review authority drift")
     require(value["accepted_sources"] == list(ACCEPTED_SOURCES), "accepted source authority drift")
     require(value["lineage"] == ["P1F-Ia", "P1F-Ib", "P1F-Ic", "P1F-Id", "P1F-Ie"], "lineage inventory drift")
     composition = value["aggregate_composition"]
     require(
-        composition
-        == {
-            "linked_local_script": LINKED,
-            "existing_fixture_count": 9,
+        composition == {
+            "linked_composition_witness": WITNESS,
+            "linked_witness_count": 1,
+            "aggregate_regression_script": LINKED,
+            "aggregate_regression_fixture_count": 9,
+            "exact_test_runner": EXACT_RUNNER,
+            "test_fixture_rust_files_modified": list(RUST_FIXTURE_CHANGES),
             "new_production_rust_files": 0,
             "new_cargo_changes": 0,
             "isolated_local_redis_only": True,
@@ -181,6 +235,9 @@ def validate_inventory(root: Path) -> None:
         == {
             "checker": CHECKER,
             "negative_harness": NEGATIVE,
+            "linked_composition_witness": WITNESS,
+            "aggregate_regression_suite": LINKED,
+            "exact_test_runner": EXACT_RUNNER,
             "aggregate_gate": GATE,
             "handoff_builder": BUILDER,
         },
@@ -203,29 +260,71 @@ def validate_matrix(root: Path) -> None:
     except OSError as error:
         raise CheckFailure(f"cannot read matrix: {error}") from error
     require(rows and list(rows[0]) == ["id", "area", "requirement", "status"], "matrix header drift")
-    require([row["id"] for row in rows] == [f"P1FIE-{index:03}" for index in range(1, 21)], "matrix row inventory drift")
+    require([row["id"] for row in rows] == [f"P1FIE-{index:03}" for index in range(1, 25)], "matrix row inventory drift")
     require(all(row["status"] == "REQUIRED" for row in rows), "optional matrix row")
 
 
 def validate_linked_proof(root: Path) -> None:
-    script = (root / LINKED).read_text()
-    required_tests = (
-        "o2_materialization_finalizes_only_source_hash_and_replays_exactly",
-        "local_supervision_starts_after_admission_and_stops_on_sigterm",
-        "fixed_o3_o4_schedule_uses_one_retained_sequence_and_revision",
-        "id_linked_real_redis_response_loss_restarts_prepared_without_duplicate",
-        "resource_probe_uses_real_bounded_redis_reads_and_hash_only_audit",
-        "p1c_journal_ahead_reclaims_real_pel_before_reconstructing_s1",
-        "p1f_id_process_supervision_retains_failed_attach_audit_after_early_owner_return",
-        "p1f_id_process_supervision_retains_audit_after_owner_abort",
-        "production_v5_bootstrap_runs_continuous_market_lifecycle_and_readmits_exactly",
+    aggregate = (root / LINKED).read_text()
+    witness = (root / WITNESS).read_text()
+    runner = (root / EXACT_RUNNER).read_text()
+    for test in RUNTIME_REGRESSIONS:
+        require(
+            aggregate.count(f"run_runtime {test}") == 1,
+            f"runtime aggregate fixture missing or duplicated: {test}",
+        )
+    for test in FINAM_REGRESSIONS:
+        require(
+            aggregate.count(f"run_finam {test}") == 1,
+            f"FINAM aggregate fixture missing or duplicated: {test}",
+        )
+    require(
+        aggregate.count("bash scripts/stage8b_p1f_ie_exact_test.sh") == 2,
+        "aggregate suite bypasses exact runner",
     )
-    for test in required_tests:
-        require(script.count(test) == 1, f"linked fixture missing or duplicated: {test}")
-    require("--exact --test-threads=1" in script, "linked fixtures are not exact and serial")
-    require("PASS stage8b-p1f-ie-linked-local-composition steps=9 operational=false" in script, "linked proof marker drift")
+    require(
+        "PASS stage8b-p1f-ie-aggregate-regression-suite steps=9 exact_selected=9 operational=false"
+        in aggregate,
+        "aggregate regression marker drift",
+    )
+    require(witness.count(WITNESS_SELECTOR) == 1, "linked witness selector drift")
+    require(
+        "bash scripts/stage8b_p1f_ie_exact_test.sh finam-gateway \"$selector\"" in witness,
+        "linked witness bypasses exact runner",
+    )
+    require(
+        "PASS stage8b-p1f-ie-linked-composition-witness steps=1 exact_selected=1 operational=false"
+        in witness,
+        "linked witness marker drift",
+    )
+    for fragment in (
+        'cargo test -p "$package" --all-features --lib "$selector"',
+        "--exact --test-threads=1 --nocapture",
+        'grep -Foc "$selector"',
+        "test result: ok. 1 passed; 0 failed; 0 ignored;",
+        '[[ "$selected" != "1" || "$summary" -lt 1 ]]',
+        "selected=1 passed=1 failed=0 ignored=0",
+    ):
+        require(fragment in runner, f"exact runner guard missing: {fragment}")
+    rust_witness = (root / "crates/finam-gateway/src/stage8b_p1f_fixed_producers.rs").read_text()
+    runtime_witness = (root / "crates/runtime-durable-service/src/stage8b_p1e_process.rs").read_text()
+    for fragment in (
+        "ie_linked_o2_fixed_producers_supervised_runtime_truth_and_readmission",
+        "STAGE8B_P1F_IE_LINKED_EVIDENCE",
+        "producer_publication_sequence",
+        "producer_high_water_redis_id",
+    ):
+        require(fragment in rust_witness, f"linked Rust witness evidence missing: {fragment}")
+    for fragment in (
+        "bytes_mismatch_rejected",
+        "durable_truth_committed",
+        "source_xack_last",
+        "readmission_already_acknowledged",
+        "duplicate_command_absent",
+    ):
+        require(fragment in runtime_witness, f"runtime composition evidence missing: {fragment}")
     for forbidden in ("ssh ", "docker ", "redis-cli", "curl ", "FINAM_TOKEN", "POST ", "DELETE "):
-        require(forbidden not in script, f"operational command in linked proof: {forbidden}")
+        require(forbidden not in aggregate + witness, f"operational command in Ie proof: {forbidden}")
 
 
 def validate_documents(root: Path) -> None:
@@ -236,14 +335,16 @@ def validate_documents(root: Path) -> None:
         require(source["commit"] in document, f"document commit missing: {source['slice']}")
         require(source["review_sha256"] in document, f"document review missing: {source['slice']}")
     for fragment in (
-        "REVIEW_CANDIDATE_AGGREGATE_SOURCE_CLOSURE_NO_ACTIVATION",
-        "nine existing",
-        "not a claim",
+        "REVIEW_CANDIDATE_LINKED_COMPOSITION_CORRECTION_NO_ACTIVATION",
+        CORRECTION_REVIEW["sha256"],
+        "one true isolated local composition witness",
+        "nine inherited fixtures are an aggregate regression suite",
+        "XACK-last",
         "P1F-O0 immutable read-only target preflight",
     ):
         require(fragment in document, f"Ie document fragment missing: {fragment}")
-    require("The active source candidate is now P1F-Ie aggregate source closure" in status, "current status boundary drift")
-    require("P1F-Ie is the active and final\nsource candidate" in roadmap, "roadmap boundary drift")
+    require("The active source candidate is now the P1F-Ie linked-composition correction" in status, "current status boundary drift")
+    require("P1F-Ie linked-composition correction is the active and final\nsource candidate" in roadmap, "roadmap boundary drift")
     require("P1F-O0 stays closed" in roadmap, "roadmap O0 boundary drift")
 
 
@@ -262,7 +363,7 @@ def main() -> int:
     except (CheckFailure, OSError, UnicodeDecodeError, KeyError, TypeError) as error:
         print(f"stage8b-p1f-ie-check: FAIL {error}")
         return 1
-    print("PASS stage8b-p1f-ie-check accepted_sources=4 rows=20 linked_steps=9 production_changes=0 operational=false")
+    print("PASS stage8b-p1f-ie-check accepted_sources=4 rows=24 linked_witnesses=1 aggregate_regressions=9 rust_fixture_files=13 cargo_changes=0 operational=false")
     return 0
 
 

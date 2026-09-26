@@ -505,6 +505,12 @@ pub use stage8b_p1e_process::{
     Stage8bP1eStartupOwnerV1, Stage8bP1eStoppedReadyPollingV1,
     Stage8bP1eSupportedScheduleCycleOutcomeV1, Stage8bP1eWorkingScheduleAdvanceOutcomeV1,
 };
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+#[doc(hidden)]
+pub use stage8b_p1e_process::{
+    stage8b_p1f_ie_run_linked_composition_v1, Stage8bP1fIeCompositionEvidenceV1,
+    Stage8bP1fIeCompositionInputV1,
+};
 pub use stage8b_p1e_schedule_source::{
     bind_stage8b_p1e_cancel_schedule, bind_stage8b_p1e_day_expiry_schedule,
     bind_stage8b_p1e_generated_market_schedule, bind_stage8b_p1e_initial_limit_schedule,
@@ -539,6 +545,9 @@ pub use stage8b_p1f_fixed_redis::{
     STAGE8B_P1F_REDIS_SOURCE_OPERATION_COUNT, STAGE8B_P1F_RESOURCE_POLL_INTERVAL_SECONDS,
     STAGE8B_P1F_TOTAL_PEL_FAIL_STOP_THRESHOLD,
 };
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+#[doc(hidden)]
+pub use stage8b_p1f_guardian::Stage8bP1fIeLinkedFixtureV1;
 pub use stage8b_p1f_guardian::{
     execute_stage8b_p1f_permitted_restore_v1, Stage8bP1fActivationCertificateV1,
     Stage8bP1fAuthorityErrorV1, Stage8bP1fAuthorityInspectionV1, Stage8bP1fAuthorityStoreV1,

@@ -409,10 +409,11 @@ independently source-accepted at
 GET/read-only producers are independently accepted at
 `5c2656fbe8691da256b5380dd16ce6f6b6aa1fa8`. P1F-Id fixed Redis composition
 is independently source-accepted at
-`512db6e6e652a2b0a15be7b6dcb72b96e231950d`. P1F-Ie is the active and final
-source candidate: an aggregate authority summary, linked local composition
-proof over accepted fixtures and one reproducible closure gate. It adds no
-production implementation. P1F-O0 stays closed until independent P1F-Ie
+`512db6e6e652a2b0a15be7b6dcb72b96e231950d`. P1F-Ie linked-composition correction is the active and final
+source candidate: an aggregate authority summary, one true connected local
+composition witness, nine separately labelled inherited regressions and one
+reproducible closure gate. Only feature-gated fixture seams are added; Cargo
+and operational surfaces remain unchanged. P1F-O0 stays closed until independent P1F-Ie
 acceptance. After Ie acceptance the remaining sequence is: immutable read-only
 target preflight, non-activating provisioning, one-shot network-isolated
 bootstrap, bounded synthetic paper session/restart acceptance, separately

@@ -218,11 +218,17 @@ pub struct Stage8bP1eRedisScheduleReader {
     p1f_audit: Option<Stage8bP1fRedisCommandAuditHandleV1>,
     #[cfg(test)]
     read_attempts: usize,
-    #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+    #[cfg(any(
+        all(test, feature = "stage8a4-i3-test-fixtures"),
+        feature = "stage8b-p1-test-fixtures"
+    ))]
     fixture_trust: Option<Stage8bP1eFixtureScheduleTrust>,
 }
 
-#[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+#[cfg(any(
+    all(test, feature = "stage8a4-i3-test-fixtures"),
+    feature = "stage8b-p1-test-fixtures"
+))]
 struct Stage8bP1eFixtureScheduleTrust {
     public_key_hex: String,
     key_valid_from: DateTime<Utc>,
@@ -243,7 +249,10 @@ impl Stage8bP1eRedisScheduleReader {
             p1f_audit: None,
             #[cfg(test)]
             read_attempts: 0,
-            #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+            #[cfg(any(
+                all(test, feature = "stage8a4-i3-test-fixtures"),
+                feature = "stage8b-p1-test-fixtures"
+            ))]
             fixture_trust: None,
         })
     }
@@ -257,7 +266,10 @@ impl Stage8bP1eRedisScheduleReader {
         Ok(reader)
     }
 
-    #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+    #[cfg(any(
+        all(test, feature = "stage8a4-i3-test-fixtures"),
+        feature = "stage8b-p1-test-fixtures"
+    ))]
     pub(crate) async fn test_connect_with_fixture_trust(
         redis_url: &str,
         public_key_hex: String,
@@ -273,7 +285,30 @@ impl Stage8bP1eRedisScheduleReader {
         Ok(reader)
     }
 
-    #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+    #[cfg(feature = "stage8b-p1-test-fixtures")]
+    pub(crate) async fn stage8b_p1f_ie_connect_with_fixture_trust_and_audit(
+        redis_url: &str,
+        public_key_hex: String,
+        key_valid_from: DateTime<Utc>,
+        key_valid_until: DateTime<Utc>,
+        audit: Stage8bP1fRedisCommandAuditHandleV1,
+    ) -> Result<Self, Stage8bP1eScheduleReadError> {
+        let mut reader = Self::test_connect_with_fixture_trust(
+            redis_url,
+            public_key_hex,
+            key_valid_from,
+            key_valid_until,
+        )
+        .await?;
+        reader.p1f_audit = Some(audit);
+        Ok(reader)
+    }
+
+    #[cfg(any(
+        all(test, feature = "stage8a4-i3-test-fixtures"),
+        feature = "stage8b-p1-test-fixtures"
+    ))]
+    #[allow(dead_code, reason = "used by fixture-only restart branches")]
     pub(crate) fn test_fixture_trust(&self) -> Option<(String, DateTime<Utc>, DateTime<Utc>)> {
         self.fixture_trust.as_ref().map(|trust| {
             (
@@ -323,7 +358,10 @@ impl Stage8bP1eRedisScheduleReader {
                 .map_err(|_| Stage8bP1eScheduleReadError::InvalidRedisReply)?;
         }
         let reply = reply?;
-        #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+        #[cfg(any(
+            all(test, feature = "stage8a4-i3-test-fixtures"),
+            feature = "stage8b-p1-test-fixtures"
+        ))]
         if let Some(trust) = &self.fixture_trust {
             return verify_newest_reply_with_fixture_key(
                 reply,
@@ -394,7 +432,10 @@ fn verify_newest_reply(
     finish_verified_newest_reply(newest_redis_id, accepted, observations, context)
 }
 
-#[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+#[cfg(any(
+    all(test, feature = "stage8a4-i3-test-fixtures"),
+    feature = "stage8b-p1-test-fixtures"
+))]
 #[allow(clippy::too_many_arguments)]
 fn verify_newest_reply_with_fixture_key(
     reply: StreamRangeReply,

@@ -1026,7 +1026,11 @@ mod tests {
         authorize_stage8b_p1e_first_publication,
         test_prepare_stage8b_p1e_schedule_publication_with_key,
         test_publish_stage8b_p1e_prepared_schedule_with_key,
-        tests::{fixture_adapter_input, fixture_input, FixtureSigner, FixtureWriter},
+        tests::{
+            fixture_adapter_input, fixture_input, fixture_input_for_binding, FixtureBindingV1,
+            FixtureSigner, FixtureWriter,
+        },
+        Stage8bP1fSchedulePublisherRedisV1,
     };
     use broker_core::{Exchange, InstrumentId, Market};
     use chrono::{Duration, TimeZone};
@@ -1278,6 +1282,45 @@ mod tests {
                 }
             })
             .collect()
+    }
+
+    fn observations_with_close(
+        bucket_open: DateTime<Utc>,
+        observed_at: DateTime<Utc>,
+        close_price: i64,
+    ) -> Vec<Stage8bP1fExactM1ObservationV1> {
+        (0_i64..10)
+            .map(|index| {
+                let open_ts = bucket_open + Duration::minutes(index);
+                let close = Decimal::new(close_price, 0);
+                let bar = Bar {
+                    instrument: InstrumentId {
+                        symbol: "IMOEXF".to_string(),
+                        venue_symbol: Some("IMOEXF@RTSX".to_string()),
+                        exchange: Exchange::Moex,
+                        market: Market::Futures,
+                    },
+                    source_kind: MarketDataSourceKind::ReadOnlyPoll,
+                    timeframe_sec: 60,
+                    open_ts,
+                    close_ts: open_ts + Duration::minutes(1),
+                    open: close,
+                    high: close + Decimal::ONE,
+                    low: close - Decimal::ONE,
+                    close,
+                    volume: Decimal::new(1_000, 0),
+                    is_final: true,
+                };
+                Stage8bP1fExactM1ObservationV1 {
+                    exact_bar_json: serde_json::to_vec(&bar).unwrap(),
+                    observed_at_utc: observed_at,
+                }
+            })
+            .collect()
+    }
+
+    fn shell_quote(value: &std::path::Path) -> String {
+        format!("'{}'", value.to_string_lossy().replace('\'', "'\\''"))
     }
 
     fn streaming_observations(bucket_open: DateTime<Utc>) -> Vec<Stage8bP1fExactM1ObservationV1> {
@@ -1579,6 +1622,297 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(stream_length, 1);
+    }
+
+    #[tokio::test]
+    #[ignore = "invoked only as the supervised child of the linked Ie witness"]
+    async fn ie_linked_composition_runtime_child() {
+        let input_path = std::env::var_os("STAGE8B_P1F_IE_INPUT")
+            .map(std::path::PathBuf::from)
+            .expect("linked witness input path");
+        let evidence_path = std::env::var_os("STAGE8B_P1F_IE_EVIDENCE")
+            .map(std::path::PathBuf::from)
+            .expect("linked witness evidence path");
+        let input: runtime_durable_service::Stage8bP1fIeCompositionInputV1 =
+            serde_json::from_slice(&fs::read(input_path).unwrap()).unwrap();
+        let evidence = runtime_durable_service::stage8b_p1f_ie_run_linked_composition_v1(input)
+            .await
+            .expect("linked runtime lifecycle");
+        let bytes = serde_json::to_vec(&evidence).unwrap();
+        let temporary = evidence_path.with_extension("json.tmp");
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .mode(0o600)
+            .open(&temporary)
+            .unwrap();
+        file.write_all(&bytes).unwrap();
+        file.sync_all().unwrap();
+        fs::rename(&temporary, &evidence_path).unwrap();
+        File::open(evidence_path.parent().unwrap())
+            .unwrap()
+            .sync_all()
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn ie_linked_o2_fixed_producers_supervised_runtime_truth_and_readmission() {
+        let redis = RedisServer::start().await;
+        runtime_durable_service::initialize_stage8b_p1_redis_namespace(
+            &redis.url,
+            runtime_durable_service::Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
+        let mut provisioning =
+            redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let schedule_stream = strategy_runtime_core::STAGE8B_P1E_SCHEDULE_STREAM;
+        let seed_id: String = redis::cmd("XADD")
+            .arg(schedule_stream)
+            .arg("*")
+            .arg("payload")
+            .arg("stage8b-p1f-ie-provisioning-seed")
+            .query_async(&mut provisioning)
+            .await
+            .unwrap();
+        let deleted: u64 = redis::cmd("XDEL")
+            .arg(schedule_stream)
+            .arg(&seed_id)
+            .query_async(&mut provisioning)
+            .await
+            .unwrap();
+        assert_eq!(deleted, 1);
+        drop(provisioning);
+        let linked = runtime_durable_service::Stage8bP1fIeLinkedFixtureV1::materialize().unwrap();
+        let identity = linked.operational_identity_sha256().to_string();
+        let runtime_fingerprint = linked.runtime_config_fingerprint_sha256().to_string();
+        let candidate_close = linked.candidate_close_ts_utc_ms();
+        let decision_close = candidate_close + 11_400_000;
+        let successor_close = decision_close + 600_000;
+        let schedule_now = DateTime::<Utc>::from_timestamp_millis(successor_close).unwrap();
+        let trading_day = schedule_now.date_naive().to_string();
+        let session_start = format!("{trading_day}T06:00:00.000000Z");
+        let session_end = format!("{trading_day}T20:40:00.000000Z");
+        let signer = FixtureSigner::new(117);
+        let publisher_input = fixture_input_for_binding(
+            schedule_now,
+            &session_start,
+            &session_end,
+            &trading_day,
+            FixtureBindingV1 {
+                operational_identity_sha256: identity.clone(),
+                runtime_config_fingerprint_sha256: runtime_fingerprint.clone(),
+                instrument_map_fingerprint_sha256:
+                    runtime_durable_service::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+                registry_identity_sha256: "6".repeat(64),
+            },
+        );
+        let phase_id = "o3-ie-linked".to_string();
+        let fixture_sha256 =
+            stage8b_p1f_synthetic_schedule_fixture_sha256(&phase_id, &publisher_input).unwrap();
+        let first =
+            authorize_stage8b_p1e_first_publication("AUTHORIZE-STAGE8B-P1E-FIRST-PUBLICATION")
+                .unwrap();
+        let prepared_schedule = prepare_stage8b_p1f_o3_synthetic_schedule_with(
+            Stage8bP1fO3ScheduleInputV1 {
+                phase_id: phase_id.clone(),
+                expected_synthetic_fixture_sha256: fixture_sha256,
+                publisher_input,
+                trusted_now_utc: schedule_now,
+            },
+            Stage8bP1eSchedulePublisherLineage::First(first),
+            &signer,
+            fixture_prepare,
+        )
+        .unwrap();
+        let schedule_state_path = state_path("ie-linked-schedule");
+        let mut schedule_writer =
+            Stage8bP1fSchedulePublisherRedisV1::connect_synthetic_local_evidence(&redis.url)
+                .await
+                .unwrap();
+        let schedule = test_publish_stage8b_p1e_prepared_schedule_with_key(
+            &schedule_state_path,
+            prepared_schedule,
+            &mut schedule_writer,
+            signer.public_key_ed25519_hex(),
+        )
+        .await
+        .unwrap();
+        let schedule_redis_id = schedule.redis_stream_id().unwrap().to_string();
+        assert_eq!(schedule_writer.audit_records().len(), 1);
+
+        let observed_at = schedule_now;
+        let decision_open =
+            DateTime::<Utc>::from_timestamp_millis(decision_close - 600_000).unwrap();
+        let decision_observations = observations_with_close(decision_open, observed_at, 2_650);
+        let decision_batch = o3_batch(decision_observations.clone(), observed_at);
+        let wrong_first = authorize_stage8b_p1f_first_m10(FIRST_M10_CONFIRMATION).unwrap();
+        assert!(matches!(
+            fixture_prepare_m10(
+                &signer,
+                decision_batch.clone(),
+                &"f".repeat(64),
+                &schedule,
+                Stage8bP1fM10ProducerLineageV1::First(wrong_first),
+            ),
+            Err(Stage8bP1fProducerErrorV1::Schedule(_))
+                | Err(Stage8bP1fProducerErrorV1::DurableStateConflict)
+                | Err(Stage8bP1fProducerErrorV1::Freshness)
+        ));
+
+        let first = authorize_stage8b_p1f_first_m10(FIRST_M10_CONFIRMATION).unwrap();
+        let decision_prepared = prepared(
+            fixture_prepare_m10(
+                &signer,
+                decision_batch,
+                &identity,
+                &schedule,
+                Stage8bP1fM10ProducerLineageV1::First(first),
+            )
+            .unwrap(),
+        );
+        let producer_state_path = state_path("ie-linked-m10");
+        let mut feeder =
+            runtime_durable_service::Stage8bP1fM10FeederRedisV1::connect_synthetic_local_evidence(
+                &redis.url,
+                runtime_durable_service::Stage8bP1RedisConfig::paper_default_auto(),
+            )
+            .await
+            .unwrap();
+        let decision =
+            publish_stage8b_p1f_prepared_m10(&producer_state_path, decision_prepared, &mut feeder)
+                .await
+                .unwrap();
+        assert_eq!(decision.publication_sequence(), 1);
+        let decision_redis_id = decision.canonical_m10_redis_id().to_string();
+
+        let successor_open =
+            DateTime::<Utc>::from_timestamp_millis(successor_close - 600_000).unwrap();
+        let successor_batch = o3_batch(
+            observations_with_close(successor_open, observed_at, 2_175),
+            observed_at,
+        );
+        let successor_prepared = prepared(
+            fixture_prepare_m10(
+                &signer,
+                successor_batch,
+                &identity,
+                &schedule,
+                Stage8bP1fM10ProducerLineageV1::Resume(&decision),
+            )
+            .unwrap(),
+        );
+        let successor =
+            publish_stage8b_p1f_prepared_m10(&producer_state_path, successor_prepared, &mut feeder)
+                .await
+                .unwrap();
+        assert_eq!(successor.publication_sequence(), 2);
+        let successor_redis_id = successor.canonical_m10_redis_id().to_string();
+
+        let input = runtime_durable_service::Stage8bP1fIeCompositionInputV1 {
+            supervisor_path: linked.supervisor_path(),
+            source_path: linked.source_path(),
+            expected_config_sha256: linked.config_sha256().to_string(),
+            expected_source_sha256: linked.source_sha256().to_string(),
+            expected_operational_identity_sha256: identity.clone(),
+            expected_runtime_config_fingerprint_sha256: runtime_fingerprint.clone(),
+            redis_url: redis.url.clone(),
+            decision_redis_id: decision_redis_id.clone(),
+            successor_redis_id: successor_redis_id.clone(),
+            successor_close_ts_utc_ms: successor_close,
+            schedule_redis_id: schedule_redis_id.clone(),
+            schedule_public_key_hex: signer.public_key_ed25519_hex().to_string(),
+            schedule_key_valid_from_ms: Utc
+                .with_ymd_and_hms(2026, 1, 1, 0, 0, 0)
+                .single()
+                .unwrap()
+                .timestamp_millis(),
+            schedule_key_valid_until_ms: Utc
+                .with_ymd_and_hms(2027, 1, 1, 0, 0, 0)
+                .single()
+                .unwrap()
+                .timestamp_millis(),
+            schedule_registry_version: "imoexf-v1".to_string(),
+            schedule_registry_identity_sha256: "6".repeat(64),
+        };
+        let input_path = linked.durable_parent().join("ie-linked-input.json");
+        let evidence_path = linked.durable_parent().join("ie-linked-evidence.json");
+        let mut input_file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .mode(0o600)
+            .open(&input_path)
+            .unwrap();
+        input_file
+            .write_all(&serde_json::to_vec(&input).unwrap())
+            .unwrap();
+        input_file.sync_all().unwrap();
+
+        let executable = std::env::current_exe().unwrap();
+        let child_selector =
+            "stage8b_p1f_fixed_producers::tests::ie_linked_composition_runtime_child";
+        let command = format!(
+            "STAGE8B_P1F_IE_INPUT={} STAGE8B_P1F_IE_EVIDENCE={} {} --ignored --exact {} --nocapture; status=$?; if [ $status -ne 0 ]; then printf '%s' '{{\"error\":\"linked-child-failed\"}}' > {}; exit $status; fi; trap 'exit 0' TERM INT; while :; do sleep 0.05; done",
+            shell_quote(&input_path),
+            shell_quote(&evidence_path),
+            shell_quote(&executable),
+            child_selector,
+            shell_quote(&evidence_path),
+        );
+        let supervision = linked
+            .supervise_o3_child(command, &evidence_path)
+            .await
+            .unwrap();
+        assert_eq!(supervision.child_starts, 1);
+        assert_eq!(
+            supervision.disposition,
+            runtime_durable_service::Stage8bP1fLocalSupervisionDispositionV1::GracefulStop
+        );
+        assert!(!supervision.force_killed);
+
+        let evidence: runtime_durable_service::Stage8bP1fIeCompositionEvidenceV1 =
+            serde_json::from_slice(&fs::read(&evidence_path).unwrap()).unwrap();
+        assert_eq!(evidence.operational_identity_sha256, identity);
+        assert_eq!(
+            evidence.runtime_config_fingerprint_sha256,
+            runtime_fingerprint
+        );
+        assert_eq!(evidence.source_sha256, linked.source_sha256());
+        assert_eq!(evidence.config_sha256, linked.config_sha256());
+        assert_eq!(evidence.decision_redis_id, decision_redis_id);
+        assert_eq!(evidence.successor_redis_id, successor_redis_id);
+        assert_eq!(evidence.schedule_redis_id, schedule_redis_id);
+        assert!(evidence.bytes_mismatch_rejected);
+        assert!(evidence.durable_truth_committed);
+        assert!(evidence.source_xack_last);
+        assert!(evidence.readmission_already_acknowledged);
+        assert!(evidence.duplicate_command_absent);
+        assert!(evidence.audit_record_count >= 2);
+        assert_eq!(evidence.retained_m10_stream_length, 2);
+        assert_eq!(evidence.final_m10_pel_count, 0);
+        let retained = load_stage8b_p1f_m10_producer_state(&producer_state_path).unwrap();
+        assert_eq!(retained, successor);
+        assert_eq!(retained.publication_sequence(), 2);
+        assert_eq!(retained.canonical_m10_redis_id(), successor_redis_id);
+        println!(
+            "STAGE8B_P1F_IE_LINKED_EVIDENCE={}",
+            serde_json::to_string(&serde_json::json!({
+                "schema_version": 1,
+                "o2_source_sha256": linked.source_sha256(),
+                "o2_config_sha256": linked.config_sha256(),
+                "operational_identity_sha256": identity,
+                "schedule_redis_id": schedule_redis_id,
+                "producer_publication_sequence": retained.publication_sequence(),
+                "producer_high_water_redis_id": retained.canonical_m10_redis_id(),
+                "runtime": evidence,
+                "supervision_child_starts": supervision.child_starts,
+                "supervision_disposition": supervision.disposition,
+                "operational": false
+            }))
+            .unwrap()
+        );
     }
 
     #[tokio::test]

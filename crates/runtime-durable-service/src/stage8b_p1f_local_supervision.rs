@@ -71,7 +71,7 @@ pub(crate) struct LocalSupervisionPolicyV1 {
     restart_delay: StdDuration,
     max_starts_per_window: usize,
     fail_closed_grace: StdDuration,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
     stop_grace_override: Option<StdDuration>,
 }
 
@@ -83,7 +83,7 @@ impl LocalSupervisionPolicyV1 {
             restart_delay: RESTART_DELAY,
             max_starts_per_window: MAX_STARTS_PER_WINDOW,
             fail_closed_grace: FAIL_CLOSED_GRACE,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
             stop_grace_override: None,
         }
     }
@@ -595,7 +595,7 @@ async fn supervise_admitted_child(
         }
         if let Some(signal) = queued {
             let decision = permit.request_local_stop(signal.stop_cause(), Utc::now())?;
-            #[cfg(test)]
+            #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
             if let Some(grace) = policy.stop_grace_override {
                 permit.shorten_stop_grace_for_test(grace);
             }
@@ -667,7 +667,7 @@ async fn supervise_admitted_child(
             match poll_guardian(&mut permit, Utc::now()) {
                 Ok(Stage8bP1fDeadlineDecisionV1::Continue) => {}
                 Ok(Stage8bP1fDeadlineDecisionV1::BeginStopping) => {
-                    #[cfg(test)]
+                    #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
                     if let Some(grace) = policy.stop_grace_override {
                         permit.shorten_stop_grace_for_test(grace);
                     }
@@ -724,7 +724,7 @@ async fn supervise_admitted_child(
                                     return Err(error.into());
                                 }
                             };
-                            #[cfg(test)]
+                            #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
                             if let Some(grace) = policy.stop_grace_override {
                                 permit.shorten_stop_grace_for_test(grace);
                             }
@@ -827,7 +827,7 @@ async fn wait_restart_delay(
                     }
                 };
                 let decision = permit.request_local_stop(signal.stop_cause(), Utc::now())?;
-                #[cfg(test)]
+                #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
                 if let Some(grace) = policy.stop_grace_override {
                     permit.shorten_stop_grace_for_test(grace);
                 }
@@ -1065,7 +1065,11 @@ fn resolve_service_identity() -> Result<(u32, u32), Stage8bP1fLocalSupervisionEr
     Ok((passwd.pw_uid, group.gr_gid))
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
+#[allow(
+    dead_code,
+    reason = "fixture-only supervision controls are selectively composed"
+)]
 pub(crate) mod test_support {
     use super::*;
 

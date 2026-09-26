@@ -15,6 +15,8 @@ use std::{
     path::Path,
 };
 
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+use chrono::TimeZone;
 use chrono::{DateTime, Datelike, Duration, NaiveDate, Timelike, Utc, Weekday};
 use rust_decimal::Decimal;
 use serde::{
@@ -168,6 +170,45 @@ pub fn build_stage8b_p1_first_boot_source_v1(
     let source = load_stage8b_p1e_first_boot_source_v1(&supervisor, trusted_now)?;
     let (bootstrap, runtime) = supervisor.into_first_boot_parts();
     prepare_stage8b_p1_first_boot_source_v1(bootstrap, runtime, source)
+}
+
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+pub(crate) fn stage8b_p1f_ie_prepare_materialized_o2_v1(
+    supervisor_bytes: &[u8],
+    source_bytes: &[u8],
+    trusted_now: DateTime<Utc>,
+) -> Result<
+    (
+        Stage8bP1ePreparedFirstBootV1,
+        crate::Stage8bP1FirstBootAdminCommand,
+        strategy_runtime_core::Stage5gLifecycleCommitmentKey,
+        String,
+    ),
+    Stage8bP1eFirstBootBuildError,
+> {
+    let config = crate::parse_stage8b_p1e_supervisor_config_v1(supervisor_bytes)?;
+    let supervisor = crate::validate_stage8b_p1e_supervisor_config_v1(config, [0x1e; 16])?;
+    let identity = supervisor
+        .bootstrap()
+        .operational_identity_sha256()
+        .to_string();
+    let admin = crate::authorize_stage8b_p1_first_boot(
+        supervisor.bootstrap(),
+        crate::STAGE8B_P1_FIRST_BOOT_CONFIRMATION,
+    )
+    .map_err(|_| Stage8bP1eFirstBootBuildError::Composition)?;
+    let source = parse_stage8b_p1e_first_boot_source_v1(
+        source_bytes,
+        supervisor.first_boot_source_bundle_sha256(),
+        &identity,
+        supervisor.bootstrap().account_id().as_str(),
+        trusted_now,
+    )?;
+    let (bootstrap, runtime) = supervisor.into_first_boot_parts();
+    let prepared = prepare_stage8b_p1_first_boot_source_v1(bootstrap, runtime, source)?;
+    let key = strategy_runtime_core::Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x81; 32])
+        .map_err(|_| Stage8bP1eFirstBootBuildError::Composition)?;
+    Ok((prepared, admin, key, identity))
 }
 
 /// Reconstructs the exact source of an authenticated transaction after its
@@ -1188,6 +1229,190 @@ impl<'de> Deserialize<'de> for NoDuplicateJson {
 
         deserializer.deserialize_any(NoDuplicateVisitor)
     }
+}
+
+/// Builds the exact source bytes used by the isolated P1F-Ie composition
+/// witness. This seam is feature-gated and cannot be reached by a production
+/// runtime build without the explicit artifact-fixture feature.
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+pub(crate) fn stage8b_p1f_ie_first_boot_source_fixture_v1(
+    operational: &str,
+    account: &str,
+) -> (Vec<u8>, DateTime<Utc>, String) {
+    let mut day = NaiveDate::from_ymd_opt(2026, 1, 5).expect("fixed fixture date");
+    let mut history = Vec::new();
+    let mut observations = Vec::new();
+    let mut coverage_sessions = Vec::new();
+    let mut session_count = 0_usize;
+    while session_count < STAGE8B_P1E_FIRST_BOOT_MIN_HISTORY_SESSIONS {
+        if !matches!(day.weekday(), Weekday::Sat | Weekday::Sun) {
+            let first_close = Utc
+                .with_ymd_and_hms(day.year(), day.month(), day.day(), 6, 10, 0)
+                .single()
+                .expect("fixed first close")
+                .timestamp();
+            let last_close = Utc
+                .with_ymd_and_hms(day.year(), day.month(), day.day(), 20, 40, 0)
+                .single()
+                .expect("fixed last close")
+                .timestamp();
+            let mut close_time_utc = first_close;
+            let mut bar_index = 0_usize;
+            while close_time_utc <= last_close {
+                let (open, high, low, close) = if bar_index == 0 {
+                    if session_count == 0 {
+                        ("2200", "2210", "2190", "2200")
+                    } else {
+                        ("2200", "2210", "2190", "2201.5")
+                    }
+                } else if session_count > 0 && bar_index == 1 {
+                    ("2201.5", "2202", "2199.5", "2200")
+                } else {
+                    ("2200", "2201", "2199", "2200")
+                };
+                history.push(serde_json::json!({
+                    "instrument": STAGE8B_P1_VENUE_SYMBOL,
+                    "timeframe_sec": 600,
+                    "close_time_utc": close_time_utc,
+                    "open": open,
+                    "high": high,
+                    "low": low,
+                    "close": close,
+                    "volume": "10",
+                    "is_final": true,
+                    "origin": "history"
+                }));
+                close_time_utc += 600;
+                bar_index += 1;
+            }
+            coverage_sessions.push(serde_json::json!({
+                "session_date": day.format("%Y-%m-%d").to_string(),
+                "windows": [{
+                    "first_close_time_utc": first_close,
+                    "last_close_time_utc": last_close
+                }]
+            }));
+            observations.push(serde_json::json!({
+                "session_date": day.format("%Y-%m-%d").to_string(),
+                "shadow_pnl_points": if session_count == 0 { "0.0" } else { "1.4" },
+                "shadow_trade_count": if session_count == 0 { 0 } else { 1 }
+            }));
+            session_count += 1;
+        }
+        day = day.succ_opt().expect("fixture date progression");
+    }
+    while matches!(day.weekday(), Weekday::Sat | Weekday::Sun) {
+        day = day.succ_opt().expect("fixture weekday progression");
+    }
+    let candidate_close = Utc
+        .with_ymd_and_hms(day.year(), day.month(), day.day(), 12, 0, 0)
+        .single()
+        .expect("fixed candidate close")
+        .timestamp();
+    // Keep the broker-truth/capture clock at the accepted breakout boundary:
+    // the first live decision follows the candidate by 3h10m and therefore
+    // must not be evaluated against a first-boot clock left at candidate+30s.
+    let captured = Utc
+        .timestamp_opt(candidate_close + 11_370, 0)
+        .single()
+        .expect("fixed capture instant");
+    let history_hash = canonical_value_sha256(&Value::Array(history.clone()));
+    let coverage_hash = canonical_value_sha256(&Value::Array(coverage_sessions.clone()));
+    let observation_hash = canonical_value_sha256(&Value::Array(observations.clone()));
+    let close_ts_utc_ms = candidate_close * 1_000;
+    let open_ts_utc_ms = close_ts_utc_ms - 600_000;
+    let source_m1 = (0_i64..10)
+        .map(|index| {
+            let open = open_ts_utc_ms + index * 60_000;
+            let close = open + 60_000;
+            crate::Stage8bP1CanonicalM10SourceM1 {
+                redis_id: format!("{close}-0"),
+                semantic_id_sha256: sha256_hex(format!("candidate-m1-semantic-{index}").as_bytes()),
+                payload_sha256: sha256_hex(format!("candidate-m1-payload-{index}").as_bytes()),
+                open_ts_utc_ms: open,
+                close_ts_utc_ms: close,
+            }
+        })
+        .collect::<Vec<_>>();
+    let candidate_bytes =
+        crate::build_stage8b_p1_canonical_m10(crate::Stage8bP1CanonicalM10BuildInput {
+            operational_identity_sha256: operational.to_string(),
+            open_ts_utc_ms,
+            close_ts_utc_ms,
+            open: "2200".to_string(),
+            high: "2201".to_string(),
+            low: "2199".to_string(),
+            close: "2200".to_string(),
+            volume: "20".to_string(),
+            source_m1: source_m1.clone(),
+        })
+        .expect("canonical fixture candidate");
+    let candidate = crate::parse_stage8b_p1_canonical_m10(&candidate_bytes, operational)
+        .expect("validated fixture candidate");
+    let broker_truth_checked_at = captured - Duration::seconds(1);
+    let value = serde_json::json!({
+        "schema_version": STAGE8B_P1E_FIRST_BOOT_SOURCE_SCHEMA_VERSION,
+        "domain": STAGE8B_P1E_FIRST_BOOT_SOURCE_DOMAIN,
+        "operational_identity_sha256": operational,
+        "runtime_profile_sha256": STAGE8B_P1E_RUNTIME_PROFILE_SHA256,
+        "instrument_map_fingerprint_sha256": stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+        "source_bundle_generation": 1,
+        "captured_at_utc": captured.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        "broker_truth": {
+            "checked_at_utc": broker_truth_checked_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            "account_id": account,
+            "instrument": STAGE8B_P1_VENUE_SYMBOL,
+            "target_position_qty": "0",
+            "target_positions_complete": true,
+            "target_active_orders_count": 0,
+            "account_active_orders_count": 0,
+            "active_orders_complete": true,
+            "instrument_price_step": "0.5"
+        },
+        "history_provenance": {
+            "source_mode": "finam_derived_m1_to_m10",
+            "source_timeframe_sec": 60,
+            "target_timeframe_sec": 600,
+            "aggregation_complete": true,
+            "gap_absence_proven": true
+        },
+        "history_coverage": {
+            "source_mode": "config-bound-explicit-session-windows-v1",
+            "sessions_sha256": coverage_hash,
+            "sessions": coverage_sessions
+        },
+        "history_bars": history,
+        "riskgate_history": {
+            "source_mode": "source-compatible-high180-shadow-history-v1",
+            "state_generation": "runtime-ledger-v1",
+            "history_bars_sha256": history_hash,
+            "session_observations_sha256": observation_hash,
+            "session_observations": observations
+        },
+        "candidate": {
+            "instrument": STAGE8B_P1_VENUE_SYMBOL,
+            "timeframe_sec": 600,
+            "close_time_utc": candidate_close,
+            "open": "2200",
+            "high": "2201",
+            "low": "2199",
+            "close": "2200",
+            "volume": "20",
+            "is_final": true,
+            "origin": "replay",
+            "redis_id": candidate.redis_id(),
+            "semantic_id_sha256": candidate.semantic_id_sha256(),
+            "payload_sha256": candidate.payload_sha256(),
+            "open_ts_utc_ms": open_ts_utc_ms,
+            "close_ts_utc_ms": close_ts_utc_ms,
+            "source_m1": source_m1
+        }
+    });
+    (
+        serde_json::to_vec(&value).expect("serialize fixture source"),
+        captured + Duration::seconds(1),
+        broker_truth_checked_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+    )
 }
 
 #[cfg(test)]

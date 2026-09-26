@@ -27,6 +27,9 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+use ed25519_dalek::{Signer, SigningKey};
+
 #[cfg(test)]
 use std::sync::atomic::{AtomicU8, Ordering as AtomicOrdering};
 
@@ -425,7 +428,7 @@ impl Stage8bP1fRunPermitV1 {
         self.stopping_reason_code.as_deref()
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
     pub(crate) fn shorten_stop_grace_for_test(&mut self, grace: StdDuration) {
         self.force_kill_after_elapsed = Some(self.admitted_monotonic.elapsed() + grace);
     }
@@ -3255,12 +3258,12 @@ fn current_boot_id() -> Result<String, Stage8bP1fAuthorityErrorV1> {
             }
         }
         Err(error) => {
-            #[cfg(test)]
+            #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
             {
                 let _ = error;
                 Ok("test-boot-id".to_string())
             }
-            #[cfg(not(test))]
+            #[cfg(not(any(test, feature = "stage8b-p1-test-fixtures")))]
             {
                 Err(error.into())
             }
@@ -3482,6 +3485,394 @@ fn open_directory(path: &Path) -> Result<File, Stage8bP1fAuthorityErrorV1> {
         return Err(std::io::Error::last_os_error().into());
     }
     Ok(unsafe { File::from_raw_fd(fd) })
+}
+
+/// Isolated O2/O3 authority used only by the P1F-Ie linked-composition
+/// witness. The fixture calls the production guardian transactions and keeps
+/// every generated artifact outside the operational paths.
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+pub struct Stage8bP1fIeLinkedFixtureV1 {
+    root: PathBuf,
+    config_root: PathBuf,
+    durable_parent: PathBuf,
+    store: Stage8bP1fAuthorityStoreV1,
+    signing: SigningKey,
+    operational_identity_sha256: String,
+    runtime_config_fingerprint_sha256: String,
+    source_sha256: String,
+    config_sha256: String,
+    candidate_close_ts_utc_ms: i64,
+}
+
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+impl Stage8bP1fIeLinkedFixtureV1 {
+    pub fn materialize() -> Result<Self, Stage8bP1fAuthorityErrorV1> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| Stage8bP1fAuthorityErrorV1::InvalidDocument)?
+            .as_nanos();
+        let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let scratch = std::env::current_dir()?
+            .join("target/p1f-ie-linked")
+            .join(format!("{}-{unique}-{sequence}", std::process::id()));
+        fs::create_dir_all(&scratch)?;
+        let root = scratch.join("authority-root");
+        let config_root = scratch.join("config");
+        let bootstrap_dir = config_root.join("bootstrap");
+        let durable_parent = scratch.join("durable");
+        fs::DirBuilder::new().mode(0o750).create(&root)?;
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o750)
+            .create(&bootstrap_dir)?;
+        fs::DirBuilder::new().mode(0o755).create(&durable_parent)?;
+        fs::set_permissions(&config_root, fs::Permissions::from_mode(0o750))?;
+        fs::set_permissions(&bootstrap_dir, fs::Permissions::from_mode(0o750))?;
+        let root = fs::canonicalize(root)?;
+        let config_root = fs::canonicalize(config_root)?;
+        let durable_parent = fs::canonicalize(durable_parent)?;
+        let uid = unsafe { libc::geteuid() };
+        let gid = unsafe { libc::getegid() };
+        let store = Stage8bP1fAuthorityStoreV1::open_at(&root, uid, gid)?;
+        let signing = SigningKey::from_bytes(&[0x57; 32]);
+        let (_, runtime_config_fingerprint_sha256) =
+            crate::Stage8bP1RuntimeProfileV1::build_hybrid_runtime()
+                .map_err(|_| Stage8bP1fAuthorityErrorV1::InvalidDocument)?;
+        let bootstrap = crate::Stage8bP1BootstrapConfig {
+            schema_version: 1,
+            broker_id: crate::STAGE8B_P1_BROKER_ID.into(),
+            strategy_id: crate::STAGE8B_P1_STRATEGY_ID.into(),
+            account_id: "ACC_TEST_0001".into(),
+            internal_symbol: crate::STAGE8B_P1_INTERNAL_SYMBOL.into(),
+            venue_symbol: crate::STAGE8B_P1_VENUE_SYMBOL.into(),
+            exchange: crate::STAGE8B_P1_EXCHANGE.into(),
+            market: crate::STAGE8B_P1_MARKET.into(),
+            tick_size: crate::STAGE8B_P1_TICK_SIZE.into(),
+            runtime_config_fingerprint_sha256: runtime_config_fingerprint_sha256.clone(),
+            instrument_map_fingerprint_sha256:
+                crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+            deployment_id: "finam-imoexf-paper-p1".into(),
+            deployment_generation: 1,
+            gateway_instance_id: "finam-imoexf-paper-gateway-1".into(),
+            market_data_generation: 1,
+            command_consumer_generation: 1,
+            stage8a4_writer_issuer_public_key_hex: "8".repeat(64),
+            durable_parent: durable_parent.clone(),
+        };
+        let validated = crate::validate_stage8b_p1_bootstrap_config(bootstrap)
+            .map_err(|_| Stage8bP1fAuthorityErrorV1::InvalidDocument)?;
+        let operational_identity_sha256 = validated.operational_identity_sha256().to_string();
+        let (source, trusted_now, broker_truth_checked_at_utc) =
+            crate::stage8b_p1e_first_boot_source::stage8b_p1f_ie_first_boot_source_fixture_v1(
+                &operational_identity_sha256,
+                "ACC_TEST_0001",
+            );
+        let source_value: Value = serde_json::from_slice(&source)
+            .map_err(|_| Stage8bP1fAuthorityErrorV1::InvalidDocument)?;
+        let candidate_close_ts_utc_ms = source_value["candidate"]["close_ts_utc_ms"]
+            .as_i64()
+            .ok_or(Stage8bP1fAuthorityErrorV1::InvalidDocument)?;
+        let template = canonical_json(&serde_json::json!({
+            "schema_version": 1,
+            "runtime_profile_id": crate::STAGE8B_P1E_RUNTIME_PROFILE_ID,
+            "runtime_profile_sha256": crate::STAGE8B_P1E_RUNTIME_PROFILE_SHA256,
+            "first_boot_source_bundle_sha256": STAGE8B_P1F_SOURCE_SHA256_TEMPLATE_SENTINEL,
+            "schedule_registry_version": "imoexf-v1",
+            "schedule_registry_identity_sha256": "6".repeat(64),
+            "redis_url": crate::STAGE8B_P1E_REDIS_URL_IPV4,
+            "redis_deployment_manifest_sha256": "7".repeat(64),
+            "redis_runtime_policy_id": crate::STAGE8B_P1E_REDIS_RUNTIME_POLICY_ID,
+            "redis_runtime_policy_sha256": crate::STAGE8B_P1E_REDIS_RUNTIME_POLICY_SHA256,
+            "telemetry_contract_sha256": crate::STAGE8B_P1E_TELEMETRY_CONTRACT_SHA256,
+            "health_interval_ms": 1000,
+            "shutdown_grace_ms": 30000,
+            "bootstrap": {
+                "schema_version": 1,
+                "broker_id": crate::STAGE8B_P1_BROKER_ID,
+                "strategy_id": crate::STAGE8B_P1_STRATEGY_ID,
+                "account_id": "ACC_TEST_0001",
+                "internal_symbol": crate::STAGE8B_P1_INTERNAL_SYMBOL,
+                "venue_symbol": crate::STAGE8B_P1_VENUE_SYMBOL,
+                "exchange": crate::STAGE8B_P1_EXCHANGE,
+                "market": crate::STAGE8B_P1_MARKET,
+                "tick_size": crate::STAGE8B_P1_TICK_SIZE,
+                "runtime_config_fingerprint_sha256": runtime_config_fingerprint_sha256,
+                "instrument_map_fingerprint_sha256": crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+                "deployment_id": "finam-imoexf-paper-p1",
+                "deployment_generation": 1,
+                "gateway_instance_id": "finam-imoexf-paper-gateway-1",
+                "market_data_generation": 1,
+                "command_consumer_generation": 1,
+                "stage8a4_writer_issuer_public_key_hex": "8".repeat(64),
+                "durable_parent": durable_parent
+            }
+        }))?;
+        let policy = canonical_json(&serde_json::json!({
+            "mode": "isolated-local-composition-witness",
+            "redis_attached": true,
+            "order_endpoints": false
+        }))?;
+
+        let public_key_hex = lower_hex(signing.verifying_key().as_bytes());
+        let mut genesis = Stage8bP1fGenesisManifestV1 {
+            schema_version: 1,
+            domain: "stage8b-p1f-genesis-manifest-v1".into(),
+            installation_id: "p1f-ie-linked".into(),
+            target_host_id: STAGE8B_P1F_TARGET_HOST_ID.into(),
+            target_host_ssh_ed25519_sha256: STAGE8B_P1F_TARGET_HOST_SSH_ED25519_SHA256.into(),
+            control_root: root.to_string_lossy().into_owned(),
+            authority_generation: 1,
+            ceremony_nonce_sha256: "1".repeat(64),
+            genesis_head_sha256: String::new(),
+            not_before_utc: canonical_timestamp(trusted_now - chrono::Duration::seconds(1)),
+            expires_at_utc: canonical_timestamp(trusted_now + chrono::Duration::hours(1)),
+            issuer_key_id: "p1f-ie-fixture".into(),
+            signature_ed25519_hex: String::new(),
+        };
+        genesis.genesis_head_sha256 = genesis_head_sha256(&genesis);
+        let genesis = ie_sign_document(SIGNED_GENESIS_DOMAIN, &mut genesis, &signing, |v, s| {
+            v.signature_ed25519_hex = s;
+        })?;
+        let genesis_receipt =
+            store.initialize_authority(&genesis, &public_key_hex, "p1f-ie-fixture", trusted_now)?;
+        let genesis_manifest: Stage8bP1fGenesisManifestV1 = parse_canonical(&genesis)?;
+        let mut activation = Stage8bP1fActivationCertificateV1 {
+            schema_version: 1,
+            domain: "stage8b-p1f-activation-certificate-v1".into(),
+            installation_id: genesis_manifest.installation_id,
+            target_host_id: genesis_manifest.target_host_id,
+            control_root: genesis_manifest.control_root,
+            authority_generation: genesis_manifest.authority_generation,
+            ceremony_nonce_sha256: genesis_manifest.ceremony_nonce_sha256,
+            genesis_manifest_sha256: sha256_hex(&genesis),
+            genesis_receipt_sha256: sha256_hex(&canonical_json(&genesis_receipt)?),
+            genesis_head_sha256: genesis_manifest.genesis_head_sha256,
+            activated_at_utc: canonical_timestamp(trusted_now),
+            expires_at_utc: canonical_timestamp(trusted_now + chrono::Duration::hours(1)),
+            issuer_key_id: "p1f-ie-fixture".into(),
+            signature_ed25519_hex: String::new(),
+        };
+        let activation = ie_sign_document(
+            SIGNED_ACTIVATION_DOMAIN,
+            &mut activation,
+            &signing,
+            |v, s| v.signature_ed25519_hex = s,
+        )?;
+        store.activate_authority(&activation, &public_key_hex, "p1f-ie-fixture", trusted_now)?;
+        let head = store.inspect()?;
+        let phase = ie_phase_manifest(
+            &root,
+            &head,
+            Stage8bP1fPhaseV1::O2MaterializeBootstrap,
+            &sha256_hex(&policy),
+            &sha256_hex(&template),
+            trusted_now,
+            &signing,
+        )?;
+        let manifest_sha256 = sha256_hex(&phase);
+        store.claim_phase(&phase, &public_key_hex, "p1f-ie-fixture", trusted_now)?;
+        let receipt = store.materialize_o2_at(
+            &config_root,
+            &manifest_sha256,
+            &policy,
+            &template,
+            &source,
+            &broker_truth_checked_at_utc,
+            trusted_now,
+        )?;
+        let supervisor_bytes = fs::read(config_root.join("supervisor.json"))?;
+        let source_bytes = fs::read(
+            config_root
+                .join("bootstrap")
+                .join("stage8b-p1-first-boot-source-v1.json"),
+        )?;
+        if sha256_hex(&source_bytes) != receipt.source_sha256
+            || sha256_hex(&supervisor_bytes) != receipt.final_config_sha256
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+        }
+        store.finish_phase(
+            &manifest_sha256,
+            Stage8bP1fPhaseStateV1::Completed,
+            "ie-o2-materialized",
+            trusted_now + chrono::Duration::milliseconds(1),
+        )?;
+        Ok(Self {
+            root,
+            config_root,
+            durable_parent,
+            store,
+            signing,
+            operational_identity_sha256,
+            runtime_config_fingerprint_sha256,
+            source_sha256: receipt.source_sha256,
+            config_sha256: receipt.final_config_sha256,
+            candidate_close_ts_utc_ms,
+        })
+    }
+
+    pub fn supervisor_path(&self) -> PathBuf {
+        self.config_root.join("supervisor.json")
+    }
+
+    pub fn source_path(&self) -> PathBuf {
+        self.config_root
+            .join("bootstrap")
+            .join("stage8b-p1-first-boot-source-v1.json")
+    }
+
+    pub fn durable_parent(&self) -> &Path {
+        &self.durable_parent
+    }
+
+    pub fn operational_identity_sha256(&self) -> &str {
+        &self.operational_identity_sha256
+    }
+
+    pub fn runtime_config_fingerprint_sha256(&self) -> &str {
+        &self.runtime_config_fingerprint_sha256
+    }
+
+    pub fn source_sha256(&self) -> &str {
+        &self.source_sha256
+    }
+
+    pub fn config_sha256(&self) -> &str {
+        &self.config_sha256
+    }
+
+    pub const fn candidate_close_ts_utc_ms(&self) -> i64 {
+        self.candidate_close_ts_utc_ms
+    }
+
+    pub async fn supervise_o3_child(
+        &self,
+        command: String,
+        completion_marker: &Path,
+    ) -> Result<crate::Stage8bP1fLocalSupervisionResultV1, crate::Stage8bP1fLocalSupervisionErrorV1>
+    {
+        use crate::stage8b_p1f_local_supervision::test_support;
+
+        let now = Utc::now();
+        let head = self
+            .store
+            .inspect()
+            .map_err(crate::Stage8bP1fLocalSupervisionErrorV1::Authority)?;
+        let phase = ie_phase_manifest(
+            &self.root,
+            &head,
+            Stage8bP1fPhaseV1::O3SyntheticPaper,
+            &"3".repeat(64),
+            &"4".repeat(64),
+            now,
+            &self.signing,
+        )
+        .map_err(crate::Stage8bP1fLocalSupervisionErrorV1::Authority)?;
+        let manifest_sha256 = sha256_hex(&phase);
+        let public_key_hex = lower_hex(self.signing.verifying_key().as_bytes());
+        self.store
+            .claim_phase(&phase, &public_key_hex, "p1f-ie-fixture", now)
+            .map_err(crate::Stage8bP1fLocalSupervisionErrorV1::Authority)?;
+        let permit = self
+            .store
+            .admit_active_phase_at(
+                &manifest_sha256,
+                now + chrono::Duration::milliseconds(1),
+                None,
+            )
+            .map_err(crate::Stage8bP1fLocalSupervisionErrorV1::Authority)?;
+        let child = test_support::shell(command);
+        let (sender, receiver) = test_support::signals();
+        let runner = test_support::run(
+            &self.store,
+            permit,
+            child,
+            receiver,
+            test_support::policy(StdDuration::from_millis(10), StdDuration::from_millis(100)),
+        );
+        let trigger = async {
+            let deadline = Instant::now() + StdDuration::from_secs(30);
+            while !completion_marker.exists() {
+                if Instant::now() >= deadline {
+                    return Err(crate::Stage8bP1fLocalSupervisionErrorV1::UnexpectedCleanExit);
+                }
+                tokio::time::sleep(StdDuration::from_millis(10)).await;
+            }
+            sender
+                .send(test_support::sigterm())
+                .map_err(|_| crate::Stage8bP1fLocalSupervisionErrorV1::SignalTask)?;
+            Ok(())
+        };
+        let (result, trigger) = tokio::join!(runner, trigger);
+        trigger?;
+        result
+    }
+}
+
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+impl Drop for Stage8bP1fIeLinkedFixtureV1 {
+    fn drop(&mut self) {
+        if let Some(scratch) = self.root.parent() {
+            let _ = fs::remove_dir_all(scratch);
+        }
+    }
+}
+
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+fn ie_sign_document<T, F>(
+    domain: &[u8],
+    value: &mut T,
+    key: &SigningKey,
+    set_signature: F,
+) -> Result<Vec<u8>, Stage8bP1fAuthorityErrorV1>
+where
+    T: Serialize,
+    F: FnOnce(&mut T, String),
+{
+    let mut payload = domain.to_vec();
+    payload.extend(canonical_json(value)?);
+    set_signature(value, lower_hex(&key.sign(&payload).to_bytes()));
+    canonical_json(value)
+}
+
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+#[allow(clippy::too_many_arguments)]
+fn ie_phase_manifest(
+    root: &Path,
+    predecessor: &Stage8bP1fAuthorityInspectionV1,
+    phase: Stage8bP1fPhaseV1,
+    policy_sha256: &str,
+    template_sha256: &str,
+    now: DateTime<Utc>,
+    signing: &SigningKey,
+) -> Result<Vec<u8>, Stage8bP1fAuthorityErrorV1> {
+    let mut value = Stage8bP1fPhaseManifestV1 {
+        schema_version: 1,
+        domain: "stage8b-p1f-phase-manifest-v1".into(),
+        installation_id: "p1f-ie-linked".into(),
+        target_host_id: STAGE8B_P1F_TARGET_HOST_ID.into(),
+        target_host_ssh_ed25519_sha256: STAGE8B_P1F_TARGET_HOST_SSH_ED25519_SHA256.into(),
+        authority_generation: predecessor.authority_generation,
+        authority_sequence: predecessor.latest_sequence + 1,
+        predecessor_event_sha256: predecessor.latest_event_sha256.clone(),
+        accepted_source_tree_sha256: "2".repeat(64),
+        phase,
+        materialization_policy_sha256: policy_sha256.to_string(),
+        config_template_sha256: template_sha256.to_string(),
+        installation_sha256: sha256_hex(root.to_string_lossy().as_bytes()),
+        controller_id: "p1f-ie-controller".into(),
+        not_before_utc: canonical_timestamp(now),
+        deadline_utc: canonical_timestamp(now + chrono::Duration::minutes(30)),
+        issuer_key_id: "p1f-ie-fixture".into(),
+        signature_ed25519_hex: String::new(),
+    };
+    ie_sign_document(SIGNED_PHASE_DOMAIN, &mut value, signing, |v, s| {
+        v.signature_ed25519_hex = s;
+    })
 }
 
 #[cfg(test)]

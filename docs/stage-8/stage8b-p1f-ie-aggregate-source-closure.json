@@ -1,7 +1,13 @@
 {
   "schema_version": 1,
   "stage": "Stage 8B-P1-f Ie aggregate source closure",
-  "status": "REVIEW_CANDIDATE_AGGREGATE_SOURCE_CLOSURE_NO_ACTIVATION",
+  "status": "REVIEW_CANDIDATE_LINKED_COMPOSITION_CORRECTION_NO_ACTIVATION",
+  "correction_review": {
+    "commit": "0394cb702e7d11e1ee80f5a2f18177906bcc6be5",
+    "file": "FINAM_P1F_IE_REVIEW_0394cb7_2026-09-26.md",
+    "sha256": "99618000f046a5ff1b399bce720029af3a6fecd35d4929e8fdfbdca5f2322cea",
+    "verdict": "HOLD_P1_IE01_LINKED_COMPOSITION"
+  },
   "accepted_sources": [
     {
       "slice": "P1F-Ia",
@@ -34,8 +40,26 @@
   ],
   "lineage": ["P1F-Ia", "P1F-Ib", "P1F-Ic", "P1F-Id", "P1F-Ie"],
   "aggregate_composition": {
-    "linked_local_script": "scripts/stage8b_p1f_ie_linked_local_composition.sh",
-    "existing_fixture_count": 9,
+    "linked_composition_witness": "scripts/stage8b_p1f_ie_composition_witness.sh",
+    "linked_witness_count": 1,
+    "aggregate_regression_script": "scripts/stage8b_p1f_ie_linked_local_composition.sh",
+    "aggregate_regression_fixture_count": 9,
+    "exact_test_runner": "scripts/stage8b_p1f_ie_exact_test.sh",
+    "test_fixture_rust_files_modified": [
+      "crates/finam-gateway/src/stage8b_p1e_schedule_publisher.rs",
+      "crates/finam-gateway/src/stage8b_p1f_fixed_producers.rs",
+      "crates/runtime-durable-service/src/lib.rs",
+      "crates/runtime-durable-service/src/recovery.rs",
+      "crates/runtime-durable-service/src/stage8b_p1_bootstrap.rs",
+      "crates/runtime-durable-service/src/stage8b_p1_semantic.rs",
+      "crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs",
+      "crates/runtime-durable-service/src/stage8b_p1e_first_boot_source.rs",
+      "crates/runtime-durable-service/src/stage8b_p1e_first_boot_transaction.rs",
+      "crates/runtime-durable-service/src/stage8b_p1e_process.rs",
+      "crates/runtime-durable-service/src/stage8b_p1e_schedule_source.rs",
+      "crates/runtime-durable-service/src/stage8b_p1f_guardian.rs",
+      "crates/runtime-durable-service/src/stage8b_p1f_local_supervision.rs"
+    ],
     "new_production_rust_files": 0,
     "new_cargo_changes": 0,
     "isolated_local_redis_only": true
@@ -43,6 +67,9 @@
   "evidence": {
     "checker": "scripts/stage8b_p1f_ie_check.py",
     "negative_harness": "scripts/stage8b_p1f_ie_negative_harness.py",
+    "linked_composition_witness": "scripts/stage8b_p1f_ie_composition_witness.sh",
+    "aggregate_regression_suite": "scripts/stage8b_p1f_ie_linked_local_composition.sh",
+    "exact_test_runner": "scripts/stage8b_p1f_ie_exact_test.sh",
     "aggregate_gate": "scripts/stage8b_p1f_ie_gate.sh",
     "handoff_builder": "scripts/make_stage8b_p1f_ie_handoff.py"
   },

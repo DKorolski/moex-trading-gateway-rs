@@ -7609,6 +7609,71 @@ fn token(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
 }
 
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+pub(crate) async fn stage8b_p1f_ie_commit_plain_market_v4_only(
+    mut published: Stage8bP1RedisCommandPublished,
+    snapshot: crate::Stage8bP1eVerifiedScheduleSnapshotV1,
+    bound_at_utc: DateTime<Utc>,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> crate::Stage8bP1eScheduleBindingCommitReceipt {
+    assert_eq!(
+        published.p1e_schedule_route(),
+        Stage8bP1ePublishedScheduleRouteV1::PlainMarket
+    );
+    let operational_identity_sha256 = published
+        .stage7
+        .stage8b_p1_operational_identity_sha256()
+        .to_string();
+    let predecessor = published
+        .pending_m10
+        .parse_exact(&operational_identity_sha256)
+        .expect("linked witness predecessor must be exact");
+    let candidate = published
+        .transport
+        .backend
+        .exact_first_successor_m10(
+            published.pending_m10.redis_id(),
+            &operational_identity_sha256,
+        )
+        .await
+        .expect("linked witness successor must be exact");
+    let request_id = published
+        .evidence
+        .strategy_request_id
+        .expect("linked witness request id");
+    let command_sha256 = published
+        .evidence
+        .canonical_command_sha256
+        .clone()
+        .expect("linked witness command hash");
+    let predecessor = stage8b_p1e_m10_identity_from_validated(&predecessor);
+    let candidate = stage8b_p1e_m10_identity_from_validated(&candidate);
+    let committed = crate::bind_stage8b_p1e_market_schedule(
+        published.stage7,
+        snapshot,
+        &Stage8bP1eShutdownLatchV1::new(),
+        &predecessor,
+        &candidate,
+        request_id.to_string(),
+        command_sha256,
+        (
+            published.receipt.covering_seal_generation,
+            published.receipt.covering_seal_commitment_sha256.clone(),
+        ),
+        bound_at_utc,
+        commitment_key,
+    )
+    .expect("linked witness schedule binding");
+    let crate::Stage8bP1eScheduleBindingCommitV1::Committed(owner) = committed else {
+        panic!("clear linked-witness latch must commit plain-Market V4")
+    };
+    let receipt = owner.receipt().clone();
+    drop(owner);
+    drop(published.transport);
+    drop(published.pending_m10);
+    receipt
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;

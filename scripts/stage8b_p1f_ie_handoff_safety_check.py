@@ -25,6 +25,9 @@ REVIEWS = {
     PREFIX + "reviews/" + item["review_file"]: item["review_sha256"]
     for item in source_check.ACCEPTED_SOURCES
 }
+REVIEWS[PREFIX + "reviews/" + source_check.CORRECTION_REVIEW["file"]] = (
+    source_check.CORRECTION_REVIEW["sha256"]
+)
 GENERATED = {MARKER, MANIFEST, COMMIT_RAW, EVIDENCE, GATE} | set(REVIEWS)
 REQUIRED = GENERATED | source_check.ALLOWED_CHANGES
 
@@ -55,6 +58,7 @@ def parse_marker(raw: bytes) -> dict[str, str]:
             "source_tree",
             "branch",
             "accepted_id_ref",
+            "reviewed_ie_ref",
             "archive_name",
         },
         "marker inventory drift",
@@ -79,8 +83,9 @@ def check(path: str) -> dict[str, object]:
         marker = parse_marker(files[MARKER])
         require(marker["stage"] == STAGE, "stage mismatch")
         require(marker["archive_name"] == PurePosixPath(path).name, "archive-name mismatch")
-        require(marker["source_parent"] == source_check.BASE, "source parent mismatch")
+        require(marker["source_parent"] == source_check.CORRECTION_BASE, "source parent mismatch")
         require(marker["accepted_id_ref"] == source_check.BASE, "accepted Id mismatch")
+        require(marker["reviewed_ie_ref"] == source_check.CORRECTION_BASE, "reviewed Ie mismatch")
         require(marker["branch"] == BRANCH, "branch mismatch")
         require(marker["source_ref"].startswith(marker["source_short_ref"]), "short ref mismatch")
 
@@ -88,7 +93,7 @@ def check(path: str) -> dict[str, object]:
         require(common.git_object_id("commit", commit_raw) == marker["source_ref"], "commit mismatch")
         commit_lines = commit_raw.decode().splitlines()
         require(commit_lines[0] == f"tree {marker['source_tree']}", "commit tree mismatch")
-        require(f"parent {source_check.BASE}" in commit_lines, "commit parent mismatch")
+        require(f"parent {source_check.CORRECTION_BASE}" in commit_lines, "commit parent mismatch")
 
         manifest = json.loads(files[MANIFEST])
         require(manifest["schema_version"] == 2, "manifest schema mismatch")
@@ -112,15 +117,18 @@ def check(path: str) -> dict[str, object]:
 
         evidence = json.loads(files[EVIDENCE])
         require(evidence["source_ref"] == marker["source_ref"], "evidence source mismatch")
-        require(evidence["source_parent"] == source_check.BASE, "evidence parent mismatch")
+        require(evidence["source_parent"] == source_check.CORRECTION_BASE, "evidence parent mismatch")
         require(evidence["source_tree"] == marker["source_tree"], "evidence tree mismatch")
-        require(evidence["status"] == "AGGREGATE_SOURCE_CLOSURE_REVIEW_CANDIDATE_NO_ACTIVATION", "evidence status mismatch")
+        require(evidence["status"] == "LINKED_COMPOSITION_CORRECTION_REVIEW_CANDIDATE_NO_ACTIVATION", "evidence status mismatch")
         require(evidence["accepted_sources"] == list(source_check.ACCEPTED_SOURCES), "accepted source evidence drift")
+        require(evidence["correction_review"] == source_check.CORRECTION_REVIEW, "correction review drift")
         require(evidence["changed_paths"] == sorted(source_check.ALLOWED_CHANGES), "changed path drift")
-        require(evidence["negative_cases"] == 20, "negative count mismatch")
-        require(evidence["acceptance_matrix_rows"] == 20, "matrix count mismatch")
-        require(evidence["linked_fixture_steps"] == 9, "linked step count mismatch")
-        require(evidence["production_rust_changes"] == 0, "production Rust opened")
+        require(evidence["negative_cases"] == 24, "negative count mismatch")
+        require(evidence["acceptance_matrix_rows"] == 24, "matrix count mismatch")
+        require(evidence["linked_witnesses"] == 1, "linked witness count mismatch")
+        require(evidence["aggregate_regression_steps"] == 9, "aggregate regression count mismatch")
+        require(evidence["rust_fixture_files_changed"] == 13, "Rust fixture path count mismatch")
+        require(evidence["new_production_rust_files"] == 0, "new production Rust opened")
         require(evidence["cargo_changes"] == 0, "Cargo opened")
         require(all(flag is False for flag in evidence["closed_surfaces"].values()), "surface opened")
         require(evidence["gate_sha256"] == sha256(files[GATE]), "gate digest mismatch")
@@ -129,10 +137,12 @@ def check(path: str) -> dict[str, object]:
             require(sha256(files[name]) == digest, f"review digest mismatch: {name}")
         for expected in (
             b"PASS stage8b-p1f-ie-check",
-            b"PASS stage8b-p1f-ie-negative-harness 20/20",
+            b"PASS stage8b-p1f-ie-negative-harness 24/24",
             b"PASS positive-control",
             b"PASS nonsemantic-control",
-            b"PASS stage8b-p1f-ie-linked-local-composition steps=9 operational=false",
+            b"PASS zero-selection-exact-runner-rejected",
+            b"PASS stage8b-p1f-ie-linked-composition-witness steps=1 exact_selected=1 operational=false",
+            b"PASS stage8b-p1f-ie-aggregate-regression-suite steps=9 exact_selected=9 operational=false",
             b"test result: ok.",
             b"PASS stage8b-p1f-ie-gate",
         ):

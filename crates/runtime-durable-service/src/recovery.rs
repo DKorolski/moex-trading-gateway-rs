@@ -988,7 +988,10 @@ pub(crate) struct Stage8bP1eDayExpiryRestartMaterial {
 
 enum Stage8bP1eScheduleRecoveryTrust {
     Production,
-    #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+    #[cfg(any(
+        all(test, feature = "stage8a4-i3-test-fixtures"),
+        feature = "stage8b-p1-test-fixtures"
+    ))]
     Fixture {
         public_key_hex: String,
         key_valid_from: DateTime<Utc>,
@@ -1014,7 +1017,10 @@ fn recover_stage8b_p1e_schedule_binding_with_trust(
                 runtime_config_fingerprint_sha256,
                 instrument_map_fingerprint_sha256,
             ),
-        #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+        #[cfg(any(
+            all(test, feature = "stage8a4-i3-test-fixtures"),
+            feature = "stage8b-p1-test-fixtures"
+        ))]
         Stage8bP1eScheduleRecoveryTrust::Fixture {
             public_key_hex,
             key_valid_from,
@@ -4565,7 +4571,10 @@ impl Stage7bRecoveryReadyOwner {
         )
     }
 
-    #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+    #[cfg(any(
+        all(test, feature = "stage8a4-i3-test-fixtures"),
+        feature = "stage8b-p1-test-fixtures"
+    ))]
     pub(crate) fn stage8b_p1e_test_restart_with_schedule_key(
         root: Stage7bDurableRootAuthority,
         identity: Stage6dOperationalIdentityConfig,

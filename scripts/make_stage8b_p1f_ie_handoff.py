@@ -50,10 +50,10 @@ def main() -> None:
     source_ref = git("rev-parse", "HEAD").decode().strip()
     source_parent = git("rev-parse", "HEAD^").decode().strip()
     source_tree = git("rev-parse", "HEAD^{tree}").decode().strip()
-    if source_parent != source_check.BASE:
+    if source_parent != source_check.CORRECTION_BASE:
         raise SystemExit("stage8b-p1f-ie-handoff: FAIL source parent drift")
     changed = set(
-        git("diff", "--name-only", source_check.BASE, source_ref, "--")
+        git("diff", "--name-only", source_check.CORRECTION_BASE, source_ref, "--")
         .decode()
         .splitlines()
     )
@@ -70,6 +70,13 @@ def main() -> None:
         if sha256(raw) != item["review_sha256"]:
             raise SystemExit(f"stage8b-p1f-ie-handoff: FAIL review digest {path.name}")
         reviews[safety.PREFIX + "reviews/" + path.name] = raw
+    correction_review_path = DOWNLOADS / source_check.CORRECTION_REVIEW["file"]
+    correction_review = correction_review_path.read_bytes()
+    if sha256(correction_review) != source_check.CORRECTION_REVIEW["sha256"]:
+        raise SystemExit(
+            f"stage8b-p1f-ie-handoff: FAIL review digest {correction_review_path.name}"
+        )
+    reviews[safety.PREFIX + "reviews/" + correction_review_path.name] = correction_review
 
     gate = run_capture(["bash", "scripts/stage8b_p1f_ie_gate.sh"])
     if (
@@ -79,7 +86,7 @@ def main() -> None:
         raise SystemExit("stage8b-p1f-ie-handoff: FAIL source changed during evidence run")
 
     short = source_ref[:7]
-    archive_name = f"moex-trading-project-{short}-stage8b-p1f-ie-review-package.zip"
+    archive_name = f"moex-trading-project-{short}-stage8b-p1f-ie-linked-correction-review-package.zip"
     archive_path = OUTPUT / archive_name
     manifest, entries = common.source_manifest(source_ref)
     closed_surfaces = {
@@ -96,20 +103,23 @@ def main() -> None:
     evidence = {
         "schema_version": 1,
         "stage": safety.STAGE,
-        "status": "AGGREGATE_SOURCE_CLOSURE_REVIEW_CANDIDATE_NO_ACTIVATION",
+        "status": "LINKED_COMPOSITION_CORRECTION_REVIEW_CANDIDATE_NO_ACTIVATION",
         "source_ref": source_ref,
         "source_parent": source_parent,
         "source_tree": source_tree,
         "branch": branch,
         "archive_name": archive_name,
         "accepted_sources": list(source_check.ACCEPTED_SOURCES),
+        "correction_review": source_check.CORRECTION_REVIEW,
         "changed_paths": sorted(changed),
         "manifest_sha256": sha256(manifest),
         "gate_sha256": sha256(gate),
-        "negative_cases": 20,
-        "acceptance_matrix_rows": 20,
-        "linked_fixture_steps": 9,
-        "production_rust_changes": 0,
+        "negative_cases": 24,
+        "acceptance_matrix_rows": 24,
+        "linked_witnesses": 1,
+        "aggregate_regression_steps": 9,
+        "rust_fixture_files_changed": len(source_check.RUST_FIXTURE_CHANGES),
+        "new_production_rust_files": 0,
         "cargo_changes": 0,
         "closed_surfaces": closed_surfaces,
         "next_after_acceptance": "P1F-O0 immutable read-only target preflight; operational activation remains closed",
@@ -122,6 +132,7 @@ def main() -> None:
         f"source_tree={source_tree}\n"
         f"branch={branch}\n"
         f"accepted_id_ref={source_check.BASE}\n"
+        f"reviewed_ie_ref={source_check.CORRECTION_BASE}\n"
         f"archive_name={archive_name}\n"
     ).encode()
     additions = {

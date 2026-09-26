@@ -33,9 +33,12 @@ P1F-Ic fixed producers and retained high-water are independently accepted at
 is independently SOURCE ACCEPTED at
 `512db6e6e652a2b0a15be7b6dcb72b96e231950d`; its review SHA-256 is
 `3208f8472f7e9a0109f41187458f78bfdab780029b4cc6be610640e5c652b1b9`.
-The active source candidate is now P1F-Ie aggregate source closure. It adds no
-production implementation and binds the accepted Ia/Ib/Ic/Id lineage, linked
-local composition fixtures and aggregate regression evidence.
+The active source candidate is now the P1F-Ie linked-composition correction
+over held commit `0394cb702e7d11e1ee80f5a2f18177906bcc6be5`. It adds one true
+isolated O2 → fixed producers → shared Redis → supervised paper runtime →
+truth/XACK-last → readmission witness. The nine prior fixtures remain a
+separate aggregate regression suite. Only feature-gated fixture seams changed;
+Cargo, deployment and operational surfaces did not.
 Source authority is not activation authority.
 Operational installation or service start, Redis DB15/DB0 activation, VPS
 deployment, paper-provider execution, FINAM POST/DELETE/send, broker dispatch,

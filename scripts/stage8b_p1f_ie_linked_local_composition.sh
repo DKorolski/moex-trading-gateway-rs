@@ -6,11 +6,11 @@ cd "$root"
 export RUST_MIN_STACK=33554432
 
 run_runtime() {
-  cargo test -p runtime-durable-service --all-features --lib "$1" -- --exact --test-threads=1
+  bash scripts/stage8b_p1f_ie_exact_test.sh runtime-durable-service "$1"
 }
 
 run_finam() {
-  cargo test -p finam-gateway --all-features --lib "$1" -- --exact --test-threads=1
+  bash scripts/stage8b_p1f_ie_exact_test.sh finam-gateway "$1"
 }
 
 run_runtime stage8b_p1f_guardian::tests::o2_materialization_finalizes_only_source_hash_and_replays_exactly
@@ -23,4 +23,4 @@ run_runtime stage8b_p1e_process::tests::p1f_id_process_supervision_retains_faile
 run_runtime stage8b_p1e_process::tests::p1f_id_process_supervision_retains_audit_after_owner_abort
 run_runtime stage8b_p1e_process::tests::production_v5_bootstrap_runs_continuous_market_lifecycle_and_readmits_exactly
 
-echo "PASS stage8b-p1f-ie-linked-local-composition steps=9 operational=false"
+echo "PASS stage8b-p1f-ie-aggregate-regression-suite steps=9 exact_selected=9 operational=false"

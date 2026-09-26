@@ -83,6 +83,9 @@ pub(crate) use redis::tests::p1e_test_commit_generated_market_v4_only;
 #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
 pub(crate) use redis::tests::p1e_test_plain_market_published;
 
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+pub(crate) use redis::stage8b_p1f_ie_commit_plain_market_v4_only;
+
 pub use redis::{
     acquire_stage8b_p1_journal_ahead_with_redis, acquire_stage8b_p1_prepublication_with_redis,
     acquire_stage8b_p1_zero_intent_ack_with_redis, acquire_stage8b_p1d2_ack_with_redis,

@@ -811,6 +811,16 @@ impl Stage8bP1fSchedulePublisherRedisV1 {
     {
         self.audit.records()
     }
+
+    #[cfg(test)]
+    pub(crate) async fn connect_synthetic_local_evidence(
+        redis_url: &str,
+    ) -> Result<Self, Stage8bP1eSchedulePublisherError> {
+        Ok(Self {
+            writer: Stage8bP1eRedisScheduleStreamWriter::connect(redis_url).await?,
+            audit: runtime_durable_service::Stage8bP1fRedisCommandAuditV1::default(),
+        })
+    }
 }
 
 #[async_trait]
@@ -1197,6 +1207,34 @@ pub(crate) mod tests {
             instrument_map_fingerprint_sha256: "3".repeat(64),
             published_at_utc: now,
         }
+    }
+
+    pub(crate) struct FixtureBindingV1 {
+        pub(crate) operational_identity_sha256: String,
+        pub(crate) runtime_config_fingerprint_sha256: String,
+        pub(crate) instrument_map_fingerprint_sha256: String,
+        pub(crate) registry_identity_sha256: String,
+    }
+
+    pub(crate) fn fixture_input_for_binding(
+        now: DateTime<Utc>,
+        session_start: &str,
+        session_end: &str,
+        trading_day: &str,
+        binding: FixtureBindingV1,
+    ) -> Stage8bP1eSchedulePublisherInputV1 {
+        let mut input = fixture_input(now, session_end);
+        input.payload.normalized_schedule.sessions[0].start_utc = session_start.to_string();
+        input.payload.trading_day = trading_day.to_string();
+        input.payload.registry.registry_identity_sha256 = binding.registry_identity_sha256;
+        input.payload.normalized_schedule.normalized_payload_sha256 = sha256_hex(
+            &stage8b_p1e_canonical_json(&input.payload.normalized_schedule.sessions)
+                .expect("canonical linked schedule sessions"),
+        );
+        input.operational_identity_sha256 = binding.operational_identity_sha256;
+        input.runtime_config_fingerprint_sha256 = binding.runtime_config_fingerprint_sha256;
+        input.instrument_map_fingerprint_sha256 = binding.instrument_map_fingerprint_sha256;
+        input
     }
 
     fn close_fixture_input(
