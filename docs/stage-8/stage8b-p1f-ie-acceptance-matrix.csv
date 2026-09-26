@@ -1,0 +1,21 @@
+id,area,requirement,status
+P1FIE-001,authority,P1F-Ia accepted commit tree and independent review digest are exact,REQUIRED
+P1FIE-002,authority,P1F-Ib accepted commit tree and independent review digest are exact,REQUIRED
+P1FIE-003,authority,P1F-Ic accepted commit tree and independent review digest are exact,REQUIRED
+P1FIE-004,authority,P1F-Id accepted commit tree and independent review digest are exact,REQUIRED
+P1FIE-005,lineage,Ia Ib Ic Id and Ie form one ordered Git ancestry,REQUIRED
+P1FIE-006,freeze,Ie changes no production Rust Cargo configuration or deployment material,REQUIRED
+P1FIE-007,composition,O2 materialization uses the accepted Ia exact source and config fixture,REQUIRED
+P1FIE-008,composition,Fixed local child admission and bounded signal supervision use the accepted Ib fixture,REQUIRED
+P1FIE-009,composition,O3 and O4 schedules preserve one retained sequence and semantic revision,REQUIRED
+P1FIE-010,composition,Prepared M10 real Redis publication exact reread restart and Published high-water are linked,REQUIRED
+P1FIE-011,composition,Resource probing uses bounded isolated Redis reads and hash-only audit,REQUIRED
+P1FIE-012,composition,Pending M10 recovery executes audited exact XAUTOCLAIM,REQUIRED
+P1FIE-013,composition,Early attach failure and bounded owner abort retain terminal audit,REQUIRED
+P1FIE-014,composition,Accepted V5 production lifecycle and exact readmission fixture remains green,REQUIRED
+P1FIE-015,evidence,Linked proof uses nine existing fixtures and no operational endpoint,REQUIRED
+P1FIE-016,evidence,Aggregate gate reruns complete runtime FINAM doctest clippy and formatting checks,REQUIRED
+P1FIE-017,evidence,Mutation harness includes positive and nonsemantic controls,REQUIRED
+P1FIE-018,handoff,Immutable handoff binds exact commit tree gate log and four accepted reviews,REQUIRED
+P1FIE-019,boundary,O0 install VPS operational Redis paper provider FINAM writes runtime-live and real orders remain closed,REQUIRED
+P1FIE-020,roadmap,Only independently accepted Ie may unlock separate O0 read-only target preflight,REQUIRED

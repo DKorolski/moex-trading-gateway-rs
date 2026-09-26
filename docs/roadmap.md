@@ -407,18 +407,18 @@ P1F-Ia guardian foundation correction R3 is independently accepted at
 independently source-accepted at
 `7c481bc60699b514b016e8dffe62eb9ca462a100`. P1F-Ic fixed O3 synthetic and O4
 GET/read-only producers are independently accepted at
-`5c2656fbe8691da256b5380dd16ce6f6b6aa1fa8`. P1F-Id is the active source
-candidate: eight fixed Redis roles, ten accepted operations, exact retained
-M10 publication/reread, production-composed two-group resource polling,
-execution-point hash-only command audit, shared recovery-reclaim coverage,
-process-level terminal retention and linked post-effect adapter-result-loss recovery.
-P1F-Ie aggregate source closure remains required; P1F-O0 stays closed until
-P1F-Ie acceptance. The remaining sequence is:
-guardian foundation, remaining source composition, immutable read-only target preflight, non-activating
-provisioning, one-shot network-isolated bootstrap, bounded synthetic paper
-session/restart acceptance, separately authorized read-only FINAM-bar session,
-then aggregate P1 acceptance. Each operational transition remains fail closed
-until the preceding immutable package receives independent acceptance.
+`5c2656fbe8691da256b5380dd16ce6f6b6aa1fa8`. P1F-Id fixed Redis composition
+is independently source-accepted at
+`512db6e6e652a2b0a15be7b6dcb72b96e231950d`. P1F-Ie is the active and final
+source candidate: an aggregate authority summary, linked local composition
+proof over accepted fixtures and one reproducible closure gate. It adds no
+production implementation. P1F-O0 stays closed until independent P1F-Ie
+acceptance. After Ie acceptance the remaining sequence is: immutable read-only
+target preflight, non-activating provisioning, one-shot network-isolated
+bootstrap, bounded synthetic paper session/restart acceptance, separately
+authorized read-only FINAM-bar session, then aggregate P1 acceptance. Each
+operational transition remains fail closed until the preceding immutable
+package receives independent acceptance.
 
 R4 makes the sequence executable without weakening accepted freshness or I1
 ordering. O2 uses a signed policy/template and a crash-safe exact

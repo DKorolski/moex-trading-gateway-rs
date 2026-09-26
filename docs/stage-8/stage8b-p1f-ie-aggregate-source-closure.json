@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P1-f Ie aggregate source closure",
+  "status": "REVIEW_CANDIDATE_AGGREGATE_SOURCE_CLOSURE_NO_ACTIVATION",
+  "accepted_sources": [
+    {
+      "slice": "P1F-Ia",
+      "commit": "9be356b04a38e627337ed148ccc9fbdaebae8d4a",
+      "tree": "98ae44fd82c0dfcd342d06487a4fbe219d455062",
+      "review_file": "FINAM_P1F_IA_R3_SOURCE_ACCEPT_9be356b_2026-09-25.md",
+      "review_sha256": "db684cb6ba10cb951801cc917c317d2817c99c3f10874d5a1d959c053f6ebb60"
+    },
+    {
+      "slice": "P1F-Ib",
+      "commit": "7c481bc60699b514b016e8dffe62eb9ca462a100",
+      "tree": "9b3feb5a1f4dde69bf17c910f95c3ca2b096c8b9",
+      "review_file": "FINAM_P1F_IB_R2_SOURCE_ACCEPT_7c481bc_2026-09-25.md",
+      "review_sha256": "098a24fc87871968bc6e7b0a77deefffd403bc56d997d21af18e1869750acf7e"
+    },
+    {
+      "slice": "P1F-Ic",
+      "commit": "5c2656fbe8691da256b5380dd16ce6f6b6aa1fa8",
+      "tree": "e18034883ea05bb6c0259f24043b29aa2405555a",
+      "review_file": "FINAM_P1F_IC_SOURCE_ACCEPT_5c2656f_2026-09-26.md",
+      "review_sha256": "ee69d58bc70288f447a9ab880d2a2eec01fefdfe6f86ce3be603eb7f5a1b30b3"
+    },
+    {
+      "slice": "P1F-Id",
+      "commit": "512db6e6e652a2b0a15be7b6dcb72b96e231950d",
+      "tree": "8235ce38f87e35b7258d89eb22ee0ee1e0c0e8c9",
+      "review_file": "FINAM_P1F_ID_R2_SOURCE_ACCEPT_512db6e_2026-09-26.md",
+      "review_sha256": "3208f8472f7e9a0109f41187458f78bfdab780029b4cc6be610640e5c652b1b9"
+    }
+  ],
+  "lineage": ["P1F-Ia", "P1F-Ib", "P1F-Ic", "P1F-Id", "P1F-Ie"],
+  "aggregate_composition": {
+    "linked_local_script": "scripts/stage8b_p1f_ie_linked_local_composition.sh",
+    "existing_fixture_count": 9,
+    "new_production_rust_files": 0,
+    "new_cargo_changes": 0,
+    "isolated_local_redis_only": true
+  },
+  "evidence": {
+    "checker": "scripts/stage8b_p1f_ie_check.py",
+    "negative_harness": "scripts/stage8b_p1f_ie_negative_harness.py",
+    "aggregate_gate": "scripts/stage8b_p1f_ie_gate.sh",
+    "handoff_builder": "scripts/make_stage8b_p1f_ie_handoff.py"
+  },
+  "closed_surfaces": {
+    "p1f_o0_read_only_target_preflight": false,
+    "installation_or_systemd_activation": false,
+    "vps_mutation": false,
+    "operational_redis_db15_or_db0": false,
+    "paper_provider_execution": false,
+    "finam_post_or_delete": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false
+  },
+  "next_after_acceptance": "P1F-O0 immutable read-only target preflight; operational activation remains closed"
+}

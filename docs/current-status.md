@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-09-25.
+Status date: 2026-09-26.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -28,12 +28,14 @@ independently `CLOSED / ACCEPTED` at
 P1F-Ib correction R2 is independently `CLOSED / SOURCE ACCEPTED` at
 `7c481bc60699b514b016e8dffe62eb9ca462a100`; its accepted review SHA-256 is
 `098a24fc87871968bc6e7b0a77deefffd403bc56d997d21af18e1869750acf7e`.
-The active source candidate is P1F-Ic fixed producers and retained high-water.
-It reuses the accepted O2/Ia materialization path and adds only fixed O3
-synthetic and O4 GET/read-only schedule and canonical-M10 composition. O3 and
-O4 share one retained source generation, publication sequence and exact
-Prepared/Published high-water; missing, stale or conflicting lineage fails
-closed and O4 cannot create a new genesis.
+P1F-Ic fixed producers and retained high-water are independently accepted at
+`5c2656fbe8691da256b5380dd16ce6f6b6aa1fa8`. P1F-Id fixed Redis composition
+is independently SOURCE ACCEPTED at
+`512db6e6e652a2b0a15be7b6dcb72b96e231950d`; its review SHA-256 is
+`3208f8472f7e9a0109f41187458f78bfdab780029b4cc6be610640e5c652b1b9`.
+The active source candidate is now P1F-Ie aggregate source closure. It adds no
+production implementation and binds the accepted Ia/Ib/Ic/Id lineage, linked
+local composition fixtures and aggregate regression evidence.
 Source authority is not activation authority.
 Operational installation or service start, Redis DB15/DB0 activation, VPS
 deployment, paper-provider execution, FINAM POST/DELETE/send, broker dispatch,
@@ -81,13 +83,13 @@ production pre-spawn composition, assert zero child starts and no marker, and
 retain a no-signal child-start control. It performs no operational action and grants no
 operational authority. P1F-Ic fixed producers and retained high-water are
 independently accepted at `5c2656fbe8691da256b5380dd16ce6f6b6aa1fa8`.
-The active source candidate is P1F-Id fixed Redis composition: eight closed
-roles, ten accepted operations, exact Prepared/publication/reread/Published
-ordering, a production-composed five-second two-group resource monitor,
-execution-point hash-only audit, audited recovery reclaim, process-level terminal
-audit retention and linked real-Redis post-effect adapter-result-loss recovery. P1F-Ie remains
-the next aggregate source closure. P1F-Id is source-only and does not activate
-DB15, VPS services or provider execution. P1F-O0 remains closed.
+P1F-Id retains eight closed roles, ten accepted operations, exact
+Prepared/publication/reread/Published ordering, a production-composed
+five-second two-group resource monitor, execution-point hash-only audit,
+audited recovery reclaim, process-level terminal audit retention and linked
+real-Redis post-effect adapter-result-loss recovery. P1F-Ie is source-only and
+does not activate DB15, VPS services or provider execution. P1F-O0 remains
+closed pending separate acceptance after Ie.
 
 ## Current accepted boundary
 
