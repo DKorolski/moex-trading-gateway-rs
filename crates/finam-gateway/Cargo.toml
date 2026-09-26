@@ -94,6 +94,6 @@ hyper = { version = "=1.10.1", features = ["http2", "server"] }
 hyper-util = { version = "=0.1.20", features = ["tokio"] }
 rcgen = "=0.14.7"
 rustls = { version = "=0.23.41", default-features = false, features = ["ring", "std", "tls12"] }
-runtime-durable-service = { path = "../runtime-durable-service", features = ["stage8a4-i3-test-fixtures"] }
+runtime-durable-service = { path = "../runtime-durable-service", features = ["stage8a4-i3-test-fixtures", "stage8b-p1-test-fixtures"] }
 strategy-runtime-core = { path = "../strategy-runtime-core", features = ["stage5g-artifact-fixtures"] }
 tokio-rustls = { version = "=0.26.4", default-features = false, features = ["ring", "tls12"] }

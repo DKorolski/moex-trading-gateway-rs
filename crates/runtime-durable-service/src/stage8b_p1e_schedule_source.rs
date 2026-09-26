@@ -20,7 +20,9 @@ use strategy_runtime_core::{
 
 use crate::{
     Stage7bRecoveryError, Stage7bRecoveryReadyOwner, Stage8bP1eScheduleBindingCommittedOwner,
-    Stage8bP1eShutdownIntentV1, Stage8bP1eShutdownLatchV1, STAGE8B_P1E_REDIS_OPERATION_TIMEOUT_MS,
+    Stage8bP1eShutdownIntentV1, Stage8bP1eShutdownLatchV1, Stage8bP1fRedisAuditResultV1,
+    Stage8bP1fRedisCommandAuditHandleV1, Stage8bP1fRedisRoleV1, Stage8bP1fRedisSourceOperationV1,
+    STAGE8B_P1E_REDIS_OPERATION_TIMEOUT_MS,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -213,6 +215,7 @@ pub fn resume_stage8b_p1e_committed_schedule_binding(
 /// command-publication API.
 pub struct Stage8bP1eRedisScheduleReader {
     connection: ConnectionManager,
+    p1f_audit: Option<Stage8bP1fRedisCommandAuditHandleV1>,
     #[cfg(test)]
     read_attempts: usize,
     #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
@@ -237,11 +240,21 @@ impl Stage8bP1eRedisScheduleReader {
         .map_err(|_| Stage8bP1eScheduleReadError::OperationTimeout)??;
         Ok(Self {
             connection,
+            p1f_audit: None,
             #[cfg(test)]
             read_attempts: 0,
             #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
             fixture_trust: None,
         })
+    }
+
+    pub(crate) async fn connect_with_p1f_audit(
+        redis_url: &str,
+        audit: Stage8bP1fRedisCommandAuditHandleV1,
+    ) -> Result<Self, Stage8bP1eScheduleReadError> {
+        let mut reader = Self::connect(redis_url).await?;
+        reader.p1f_audit = Some(audit);
+        Ok(reader)
     }
 
     #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
@@ -281,7 +294,7 @@ impl Stage8bP1eRedisScheduleReader {
             self.read_attempts += 1;
             crate::stage8b_p1_semantic::p1e_i1_observe_direct_schedule_read();
         }
-        let reply: StreamRangeReply = tokio::time::timeout(
+        let reply: Result<StreamRangeReply, Stage8bP1eScheduleReadError> = tokio::time::timeout(
             operation_timeout,
             redis::cmd("XREVRANGE")
                 .arg(STAGE8B_P1E_SCHEDULE_STREAM)
@@ -292,7 +305,24 @@ impl Stage8bP1eRedisScheduleReader {
                 .query_async(&mut self.connection),
         )
         .await
-        .map_err(|_| Stage8bP1eScheduleReadError::OperationTimeout)??;
+        .map_err(|_| Stage8bP1eScheduleReadError::OperationTimeout)
+        .and_then(|reply| reply.map_err(Stage8bP1eScheduleReadError::from));
+        if let Some(audit) = &self.p1f_audit {
+            audit
+                .record(
+                    Stage8bP1fRedisRoleV1::Supervisor,
+                    Stage8bP1fRedisSourceOperationV1::ScheduleRead,
+                    None,
+                    b"XREVRANGE market-schedule + - COUNT 64",
+                    if reply.is_ok() {
+                        Stage8bP1fRedisAuditResultV1::Succeeded
+                    } else {
+                        Stage8bP1fRedisAuditResultV1::Failed
+                    },
+                )
+                .map_err(|_| Stage8bP1eScheduleReadError::InvalidRedisReply)?;
+        }
+        let reply = reply?;
         #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
         if let Some(trust) = &self.fixture_trust {
             return verify_newest_reply_with_fixture_key(

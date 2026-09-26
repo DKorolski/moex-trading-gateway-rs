@@ -28,7 +28,8 @@ use crate::{
     Stage8bP1BootstrapConfig, Stage8bP1BootstrapError, Stage8bP1RedisConfig,
     Stage8bP1RedisNamespace, Stage8bP1RedisSemanticCompositionTransport,
     Stage8bP1ValidatedBootstrapConfig, Stage8bP1eShutdownCauseV1, Stage8bP1eShutdownIntentV1,
-    Stage8bP1eShutdownLatchV1,
+    Stage8bP1eShutdownLatchV1, Stage8bP1fRedisAuditResultV1, Stage8bP1fRedisCommandAuditHandleV1,
+    Stage8bP1fRedisRoleV1, Stage8bP1fRedisScriptV1, Stage8bP1fRedisSourceOperationV1,
 };
 
 use redis::{
@@ -320,6 +321,7 @@ struct Stage8bP1eRedisManifestKeyV1 {
 pub struct Stage8bP1eRedisControlV1 {
     connection: ConnectionManager,
     namespace: Stage8bP1RedisNamespace,
+    audit: Stage8bP1fRedisCommandAuditHandleV1,
 }
 
 /// Write-only telemetry capability derived from an already verified S05
@@ -340,6 +342,10 @@ pub struct Stage8bP1eVerifiedRedisSessionV1 {
 }
 
 impl Stage8bP1eVerifiedRedisSessionV1 {
+    pub fn redis_audit(&self) -> Stage8bP1fRedisCommandAuditHandleV1 {
+        self.control.audit.clone()
+    }
+
     pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
         &mut self.control
     }
@@ -403,14 +409,33 @@ impl Stage8bP1eRedisControlV1 {
         AfterDiscovery: FnOnce() -> AfterDiscoveryFuture,
         AfterDiscoveryFuture: Future<Output = Result<(), Stage8bP1eRedisControlError>>,
     {
-        let mut consumers: StreamInfoConsumersReply = redis_operation(
-            redis::cmd("XINFO")
-                .arg("CONSUMERS")
-                .arg(&self.namespace.canonical_m10_stream)
-                .arg(&self.namespace.m10_consumer_group)
-                .query_async(&mut self.connection),
-        )
-        .await?;
+        let discovery_material = format!(
+            "XINFO CONSUMERS {} {}",
+            self.namespace.canonical_m10_stream, self.namespace.m10_consumer_group
+        );
+        let discovery: Result<StreamInfoConsumersReply, Stage8bP1eRedisControlError> =
+            redis_operation(
+                redis::cmd("XINFO")
+                    .arg("CONSUMERS")
+                    .arg(&self.namespace.canonical_m10_stream)
+                    .arg(&self.namespace.m10_consumer_group)
+                    .query_async(&mut self.connection),
+            )
+            .await;
+        self.audit
+            .record(
+                Stage8bP1fRedisRoleV1::Supervisor,
+                Stage8bP1fRedisSourceOperationV1::StaleConsumerDiscovery,
+                None,
+                discovery_material.as_bytes(),
+                if discovery.is_ok() {
+                    Stage8bP1fRedisAuditResultV1::Succeeded
+                } else {
+                    Stage8bP1fRedisAuditResultV1::Failed
+                },
+            )
+            .map_err(|_| Stage8bP1eRedisControlError::Redis)?;
+        let mut consumers = discovery?;
         let inventory_count = consumers.consumers.len();
         if inventory_count > STAGE8B_P1E_STALE_CONSUMER_INVENTORY_MAX {
             return Err(Stage8bP1eRedisControlError::ConsumerInventoryInvalid);
@@ -434,7 +459,14 @@ impl Stage8bP1eRedisControlV1 {
             if consumer.pending != 0 || consumer.idle < minimum_idle_ms {
                 continue;
             }
-            let deleted: i64 = redis_operation(
+            let cleanup_material = format!(
+                "EVAL stale-delete {} {} {} {}",
+                self.namespace.canonical_m10_stream,
+                self.namespace.m10_consumer_group,
+                consumer.name,
+                minimum_idle_ms
+            );
+            let cleanup: Result<i64, Stage8bP1eRedisControlError> = redis_operation(
                 redis::cmd("EVAL")
                     .arg(ATOMIC_STALE_CONSUMER_DELETE_SCRIPT_V1)
                     .arg(1)
@@ -444,7 +476,21 @@ impl Stage8bP1eRedisControlV1 {
                     .arg(minimum_idle_ms)
                     .query_async(&mut self.connection),
             )
-            .await?;
+            .await;
+            self.audit
+                .record(
+                    Stage8bP1fRedisRoleV1::Supervisor,
+                    Stage8bP1fRedisSourceOperationV1::StaleConsumerCleanup,
+                    Some(Stage8bP1fRedisScriptV1::AtomicStaleConsumerDeleteV1),
+                    cleanup_material.as_bytes(),
+                    if cleanup.is_ok() {
+                        Stage8bP1fRedisAuditResultV1::Succeeded
+                    } else {
+                        Stage8bP1fRedisAuditResultV1::Failed
+                    },
+                )
+                .map_err(|_| Stage8bP1eRedisControlError::Redis)?;
+            let deleted = cleanup?;
             if deleted != 0 && deleted != 1 {
                 return Err(Stage8bP1eRedisControlError::ConsumerInventoryInvalid);
             }
@@ -544,6 +590,7 @@ pub(crate) async fn stage8b_p1e_test_redis_control_v1(redis_url: &str) -> Stage8
     Stage8bP1eRedisControlV1 {
         connection,
         namespace: stage8b_p1_redis_namespace(),
+        audit: Stage8bP1fRedisCommandAuditHandleV1::default(),
     }
 }
 
@@ -568,6 +615,38 @@ pub(crate) async fn stage8b_p1e_test_verified_redis_session_v1(
 /// function can create a key, group or stream.
 pub async fn attach_stage8b_p1e_verified_redis(
     plan: &Stage8bP1eRedisAttachPlanV1,
+) -> Result<Stage8bP1eVerifiedRedisSessionV1, Stage8bP1eRedisControlError> {
+    attach_stage8b_p1e_verified_redis_with_audit(
+        plan,
+        Stage8bP1fRedisCommandAuditHandleV1::default(),
+    )
+    .await
+}
+
+pub(crate) async fn attach_stage8b_p1e_verified_redis_with_audit(
+    plan: &Stage8bP1eRedisAttachPlanV1,
+    audit: Stage8bP1fRedisCommandAuditHandleV1,
+) -> Result<Stage8bP1eVerifiedRedisSessionV1, Stage8bP1eRedisControlError> {
+    let result = attach_stage8b_p1e_verified_redis_with_audit_inner(plan, audit.clone()).await;
+    audit
+        .record(
+            Stage8bP1fRedisRoleV1::Supervisor,
+            Stage8bP1fRedisSourceOperationV1::VerifyOnlyAttach,
+            Some(Stage8bP1fRedisScriptV1::NamespaceVerifyV1),
+            b"stage8b-p1e-verify-only-attach-v1",
+            if result.is_ok() {
+                Stage8bP1fRedisAuditResultV1::Succeeded
+            } else {
+                Stage8bP1fRedisAuditResultV1::Failed
+            },
+        )
+        .map_err(|_| Stage8bP1eRedisControlError::Redis)?;
+    result
+}
+
+async fn attach_stage8b_p1e_verified_redis_with_audit_inner(
+    plan: &Stage8bP1eRedisAttachPlanV1,
+    audit: Stage8bP1fRedisCommandAuditHandleV1,
 ) -> Result<Stage8bP1eVerifiedRedisSessionV1, Stage8bP1eRedisControlError> {
     let client = redis::Client::open(plan.redis_url.as_str())
         .map_err(|_| Stage8bP1eRedisControlError::Redis)?;
@@ -625,18 +704,20 @@ pub async fn attach_stage8b_p1e_verified_redis(
         }
     }
 
-    let transport = tokio::time::timeout(
+    let mut transport = tokio::time::timeout(
         StdDuration::from_millis(STAGE8B_P1E_REDIS_OPERATION_TIMEOUT_MS),
         attach_stage8b_p1_redis(&plan.redis_url, plan.redis_config.clone()),
     )
     .await
     .map_err(|_| Stage8bP1eRedisControlError::OperationTimeout)?
     .map_err(|_| Stage8bP1eRedisControlError::GroupMismatch)?;
+    transport.install_stage8b_p1f_supervisor_audit_v1(audit.clone());
     Ok(Stage8bP1eVerifiedRedisSessionV1 {
         transport,
         control: Stage8bP1eRedisControlV1 {
             connection,
             namespace: plan.namespace.clone(),
+            audit,
         },
     })
 }
@@ -2434,6 +2515,7 @@ mod tests {
         let mut control = Stage8bP1eRedisControlV1 {
             connection: redis.connection().await,
             namespace: namespace.clone(),
+            audit: Stage8bP1fRedisCommandAuditHandleV1::default(),
         };
         let report = control
             .clean_stale_zero_pending_consumers_inner("current", 0, move || async move {
@@ -2499,9 +2581,11 @@ mod tests {
         create_consumer(&mut setup, &namespace, "eligible").await;
         create_consumer(&mut setup, &namespace, "too-young").await;
 
+        let audit = Stage8bP1fRedisCommandAuditHandleV1::default();
         let mut control = Stage8bP1eRedisControlV1 {
             connection: redis.connection().await,
             namespace: namespace.clone(),
+            audit: audit.clone(),
         };
         let retained = control
             .clean_stale_zero_pending_consumers_inner("current", usize::MAX, || async { Ok(()) })
@@ -2517,6 +2601,23 @@ mod tests {
         let inventory = consumer_inventory(&mut control.connection, &namespace).await;
         assert_eq!(inventory.consumers.len(), 1);
         assert_eq!(inventory.consumers[0].name, "current");
+        let records = audit.snapshot().unwrap();
+        assert!(records.iter().any(|record| {
+            record.operation
+                == crate::Stage8bP1fRedisAuditedOperationV1::Source(
+                    Stage8bP1fRedisSourceOperationV1::StaleConsumerDiscovery,
+                )
+                && record.result == Stage8bP1fRedisAuditResultV1::Succeeded
+        }));
+        assert!(records.iter().any(|record| {
+            record.operation
+                == crate::Stage8bP1fRedisAuditedOperationV1::Source(
+                    Stage8bP1fRedisSourceOperationV1::StaleConsumerCleanup,
+                )
+                && record.script_sha256.as_deref()
+                    == Some(Stage8bP1fRedisScriptV1::AtomicStaleConsumerDeleteV1.sha256())
+                && record.result == Stage8bP1fRedisAuditResultV1::Succeeded
+        }));
     }
 
     #[tokio::test]
@@ -2531,6 +2632,7 @@ mod tests {
         let mut control = Stage8bP1eRedisControlV1 {
             connection: redis.connection().await,
             namespace: namespace.clone(),
+            audit: Stage8bP1fRedisCommandAuditHandleV1::default(),
         };
         assert_eq!(
             control
@@ -2557,6 +2659,7 @@ mod tests {
         let mut control = Stage8bP1eRedisControlV1 {
             connection: redis.connection().await,
             namespace: namespace.clone(),
+            audit: Stage8bP1fRedisCommandAuditHandleV1::default(),
         };
         let first = control
             .clean_stale_zero_pending_consumers_inner("current", 0, || async { Ok(()) })

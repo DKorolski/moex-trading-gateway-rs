@@ -25,6 +25,10 @@ use crate::recovery::{
     Stage8bP1d4GeneratedMarketPrepublicationOwner, Stage8bP1d4GeneratedMarketTruthCommittedOwner,
 };
 use crate::stage8b_p1_bootstrap::{stage8b_p1_redis_namespace, Stage8bP1RedisNamespace};
+use crate::stage8b_p1f_fixed_redis::{
+    Stage8bP1fRedisAuditResultV1, Stage8bP1fRedisCommandAuditHandleV1, Stage8bP1fRedisRoleV1,
+    Stage8bP1fRedisScriptV1, Stage8bP1fRedisSourceOperationV1,
+};
 use broker_core::{BrokerCommand, Envelope, MessageType, StrategyRequestId, SCHEMA_VERSION};
 use chrono::{DateTime, Utc};
 use redis::aio::ConnectionManager;
@@ -1117,6 +1121,8 @@ pub enum Stage8bP1RedisSemanticError {
     P1eScheduleHighWaterConflict,
     #[error("Stage 8B-P1-e signed schedule composition failed: {0}")]
     P1eSchedule(#[from] crate::Stage8bP1eScheduleReadError),
+    #[error("Stage 8B-P1F redacted Redis audit failed closed")]
+    P1fAudit,
 }
 
 struct Stage8bP1RedisBackend {
@@ -1126,6 +1132,7 @@ struct Stage8bP1RedisBackend {
     claim_cursor: String,
     delivery_generation: u64,
     groups_verified: bool,
+    p1f_audit: Option<Stage8bP1fRedisCommandAuditHandleV1>,
 }
 
 enum Stage8bP1ReadySourceAcquisition {
@@ -1185,6 +1192,7 @@ async fn open_backend(
         claim_cursor: "0-0".to_string(),
         delivery_generation: 0,
         groups_verified: false,
+        p1f_audit: None,
     })
 }
 
@@ -1195,6 +1203,13 @@ pub struct Stage8bP1RedisSemanticCompositionTransport {
 }
 
 impl Stage8bP1RedisSemanticCompositionTransport {
+    pub(crate) fn install_stage8b_p1f_supervisor_audit_v1(
+        &mut self,
+        audit: Stage8bP1fRedisCommandAuditHandleV1,
+    ) {
+        self.backend.p1f_audit = Some(audit);
+    }
+
     pub fn consumer_name(&self) -> &str {
         &self.backend.config.consumer_name
     }
@@ -2689,6 +2704,7 @@ impl Stage8bP1RedisPreAckRecoveryOutcome {
 pub enum Stage8bP1eShutdownCauseV1 {
     ExternalSignal,
     OwnerFailure,
+    RedisLifecycleFailure,
     TelemetryFailure,
     SignalTaskFailure,
 }
@@ -2698,6 +2714,7 @@ impl Stage8bP1eShutdownCauseV1 {
         match self {
             Self::ExternalSignal => 0,
             Self::OwnerFailure => 70,
+            Self::RedisLifecycleFailure => 67,
             Self::TelemetryFailure => 71,
             Self::SignalTaskFailure => 73,
         }
@@ -6293,6 +6310,27 @@ pub async fn resume_stage8b_p1d3_semantic_with_redis(
 }
 
 impl Stage8bP1RedisBackend {
+    fn record_p1f_supervisor_audit(
+        &self,
+        operation: Stage8bP1fRedisSourceOperationV1,
+        script: Option<Stage8bP1fRedisScriptV1>,
+        command_material: &[u8],
+        result: Stage8bP1fRedisAuditResultV1,
+    ) -> Result<(), Stage8bP1RedisSemanticError> {
+        let Some(audit) = &self.p1f_audit else {
+            return Ok(());
+        };
+        audit
+            .record(
+                Stage8bP1fRedisRoleV1::Supervisor,
+                operation,
+                script,
+                command_material,
+                result,
+            )
+            .map_err(|_| Stage8bP1RedisSemanticError::P1fAudit)
+    }
+
     fn next_delivery_generation(&mut self) -> Result<u64, Stage8bP1RedisSemanticError> {
         self.delivery_generation = self
             .delivery_generation
@@ -6394,58 +6432,98 @@ impl Stage8bP1RedisBackend {
     async fn acquire_ready_delivery(
         &mut self,
     ) -> Result<Stage8bP1ReadySourceAcquisition, Stage8bP1RedisSemanticError> {
-        let pending = self.pending_entries("-", "+", 2).await?;
-        match pending.ids.as_slice() {
-            [] => self
-                .read_next_fresh()
-                .await
-                .map(|delivery| Stage8bP1ReadySourceAcquisition::Delivery(Box::new(delivery))),
-            [entry] => {
-                let redis_id = entry.id.clone();
-                match self.try_reclaim_exact_id(&redis_id).await? {
-                    Some(delivery) => Ok(Stage8bP1ReadySourceAcquisition::Delivery(Box::new(
-                        delivery,
-                    ))),
-                    None => Ok(Stage8bP1ReadySourceAcquisition::PendingNotClaimable(
-                        redis_id,
-                    )),
+        let result = async {
+            let pending = self.pending_entries("-", "+", 2).await?;
+            match pending.ids.as_slice() {
+                [] => self
+                    .read_next_fresh()
+                    .await
+                    .map(|delivery| Stage8bP1ReadySourceAcquisition::Delivery(Box::new(delivery))),
+                [entry] => {
+                    let redis_id = entry.id.clone();
+                    match self.try_reclaim_exact_id(&redis_id).await? {
+                        Some(delivery) => Ok(Stage8bP1ReadySourceAcquisition::Delivery(Box::new(
+                            delivery,
+                        ))),
+                        None => Ok(Stage8bP1ReadySourceAcquisition::PendingNotClaimable(
+                            redis_id,
+                        )),
+                    }
                 }
+                _ => Err(Stage8bP1RedisSemanticError::AmbiguousReadyPendingEntries),
             }
-            _ => Err(Stage8bP1RedisSemanticError::AmbiguousReadyPendingEntries),
         }
+        .await;
+        self.record_p1f_supervisor_audit(
+            Stage8bP1fRedisSourceOperationV1::SourceAcquireAndReclaim,
+            None,
+            b"XPENDING/XAUTOCLAIM/XREADGROUP canonical-m10 bounded",
+            if result.is_ok() {
+                Stage8bP1fRedisAuditResultV1::Succeeded
+            } else {
+                Stage8bP1fRedisAuditResultV1::Failed
+            },
+        )?;
+        result
     }
 
     async fn acquire_ready_pending_for_supervisor(
         &mut self,
     ) -> Result<Stage8bP1eReadyPendingAcquisitionV1, Stage8bP1RedisSemanticError> {
-        let pending = self.pending_entries("-", "+", 2).await?;
-        match pending.ids.as_slice() {
-            [] => Ok(Stage8bP1eReadyPendingAcquisitionV1::NoPending),
-            [entry] => {
-                let redis_id = entry.id.clone();
-                match self.try_reclaim_exact_id(&redis_id).await? {
-                    Some(delivery) => Ok(Stage8bP1eReadyPendingAcquisitionV1::Delivery {
-                        delivery: Box::new(delivery),
-                        acquisition_kind: Stage8bP1eAcquisitionKindV1::ReclaimedReady,
-                    }),
-                    None => Ok(Stage8bP1eReadyPendingAcquisitionV1::PendingNotClaimable(
-                        redis_id,
-                    )),
+        let result = async {
+            let pending = self.pending_entries("-", "+", 2).await?;
+            match pending.ids.as_slice() {
+                [] => Ok(Stage8bP1eReadyPendingAcquisitionV1::NoPending),
+                [entry] => {
+                    let redis_id = entry.id.clone();
+                    match self.try_reclaim_exact_id(&redis_id).await? {
+                        Some(delivery) => Ok(Stage8bP1eReadyPendingAcquisitionV1::Delivery {
+                            delivery: Box::new(delivery),
+                            acquisition_kind: Stage8bP1eAcquisitionKindV1::ReclaimedReady,
+                        }),
+                        None => Ok(Stage8bP1eReadyPendingAcquisitionV1::PendingNotClaimable(
+                            redis_id,
+                        )),
+                    }
                 }
+                _ => Err(Stage8bP1RedisSemanticError::AmbiguousReadyPendingEntries),
             }
-            _ => Err(Stage8bP1RedisSemanticError::AmbiguousReadyPendingEntries),
         }
+        .await;
+        self.record_p1f_supervisor_audit(
+            Stage8bP1fRedisSourceOperationV1::SourceAcquireAndReclaim,
+            None,
+            b"XPENDING/XAUTOCLAIM canonical-m10 bounded",
+            if result.is_ok() {
+                Stage8bP1fRedisAuditResultV1::Succeeded
+            } else {
+                Stage8bP1fRedisAuditResultV1::Failed
+            },
+        )?;
+        result
     }
 
     async fn acquire_ready_fresh_for_supervisor(
         &mut self,
     ) -> Result<Stage8bP1eReadyFreshAcquisitionV1, Stage8bP1RedisSemanticError> {
-        match self.read_next_fresh_bounded().await? {
-            Some(delivery) => Ok(Stage8bP1eReadyFreshAcquisitionV1::Delivery(Box::new(
+        let result = match self.read_next_fresh_bounded().await {
+            Err(error) => Err(error),
+            Ok(Some(delivery)) => Ok(Stage8bP1eReadyFreshAcquisitionV1::Delivery(Box::new(
                 delivery,
             ))),
-            None => Ok(Stage8bP1eReadyFreshAcquisitionV1::EmptyFreshPoll),
-        }
+            Ok(None) => Ok(Stage8bP1eReadyFreshAcquisitionV1::EmptyFreshPoll),
+        };
+        self.record_p1f_supervisor_audit(
+            Stage8bP1fRedisSourceOperationV1::SourceAcquireAndReclaim,
+            None,
+            b"XREADGROUP canonical-m10 bounded",
+            if result.is_ok() {
+                Stage8bP1fRedisAuditResultV1::Succeeded
+            } else {
+                Stage8bP1fRedisAuditResultV1::Failed
+            },
+        )?;
+        result
     }
 
     async fn read_next_fresh_bounded(
@@ -6684,12 +6762,23 @@ impl Stage8bP1RedisBackend {
             1 if pending.ids[0].id == delivery.redis_id() => {
                 #[cfg(test)]
                 p1e_i1_observe_xack_attempt();
-                let acknowledged: usize = redis::cmd("XACK")
+                let acknowledged: Result<usize, redis::RedisError> = redis::cmd("XACK")
                     .arg(&self.namespace.canonical_m10_stream)
                     .arg(&self.namespace.m10_consumer_group)
                     .arg(delivery.redis_id())
                     .query_async(&mut self.connection)
-                    .await?;
+                    .await;
+                self.record_p1f_supervisor_audit(
+                    Stage8bP1fRedisSourceOperationV1::SourceXackLast,
+                    None,
+                    format!("XACK canonical-m10 exact-id {}", delivery.redis_id()).as_bytes(),
+                    if acknowledged.is_ok() {
+                        Stage8bP1fRedisAuditResultV1::Succeeded
+                    } else {
+                        Stage8bP1fRedisAuditResultV1::Failed
+                    },
+                )?;
+                let acknowledged = acknowledged?;
                 #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
                 crate::recovery::stage8b_p1d4_test_observe_xack_reply(
                     acknowledged,
@@ -6764,7 +6853,7 @@ impl Stage8bP1RedisBackend {
         let source_payload = std::str::from_utf8(&delivery.canonical_bytes)
             .map_err(|_| Stage8bP1RedisSemanticError::ExactSourceConflict)?;
         let marker_key = publication_marker_key(&self.namespace, request_id);
-        let result: Vec<String> = redis::cmd("EVAL")
+        let result: redis::RedisResult<Vec<String>> = redis::cmd("EVAL")
             .arg(COMMAND_PUBLICATION_LUA)
             .arg(3)
             .arg(&self.namespace.canonical_m10_stream)
@@ -6784,7 +6873,22 @@ impl Stage8bP1RedisBackend {
             .arg(COMMAND_PUBLICATION_MARKER_DOMAIN)
             .arg(&self.namespace.stage7b_command_consumer_group)
             .query_async(&mut self.connection)
-            .await?;
+            .await;
+        self.record_p1f_supervisor_audit(
+            Stage8bP1fRedisSourceOperationV1::CommandPublication,
+            Some(Stage8bP1fRedisScriptV1::CommandPublicationV1),
+            format!(
+                "EVAL command-publication {} {request_id}",
+                delivery.redis_id()
+            )
+            .as_bytes(),
+            if result.is_ok() {
+                Stage8bP1fRedisAuditResultV1::Succeeded
+            } else {
+                Stage8bP1fRedisAuditResultV1::Failed
+            },
+        )?;
+        let result = result?;
         let [classification, command_entry_id] = result.as_slice() else {
             return Err(Stage8bP1RedisSemanticError::InvalidRedisReply);
         };
@@ -6858,7 +6962,7 @@ impl Stage8bP1RedisBackend {
         let source_payload = std::str::from_utf8(&delivery.canonical_bytes)
             .map_err(|_| Stage8bP1RedisSemanticError::ExactSourceConflict)?;
         let marker_key = publication_marker_key(&self.namespace, request_id);
-        let result: Vec<String> = redis::cmd("EVAL")
+        let result: redis::RedisResult<Vec<String>> = redis::cmd("EVAL")
             .arg(COMMAND_PUBLICATION_REVALIDATE_LUA)
             .arg(3)
             .arg(&self.namespace.canonical_m10_stream)
@@ -6878,7 +6982,22 @@ impl Stage8bP1RedisBackend {
             .arg(COMMAND_PUBLICATION_MARKER_DOMAIN)
             .arg(&self.namespace.stage7b_command_consumer_group)
             .query_async(&mut self.connection)
-            .await?;
+            .await;
+        self.record_p1f_supervisor_audit(
+            Stage8bP1fRedisSourceOperationV1::CommandPublication,
+            Some(Stage8bP1fRedisScriptV1::CommandPublicationRevalidateV1),
+            format!(
+                "EVAL command-publication-revalidate {} {request_id}",
+                delivery.redis_id()
+            )
+            .as_bytes(),
+            if result.is_ok() {
+                Stage8bP1fRedisAuditResultV1::Succeeded
+            } else {
+                Stage8bP1fRedisAuditResultV1::Failed
+            },
+        )?;
+        let result = result?;
         match result.as_slice() {
             [classification, command_entry_id]
                 if classification == "existing" && !command_entry_id.is_empty() =>
@@ -7008,7 +7127,7 @@ impl Stage8bP1RedisBackend {
         let source_payload = std::str::from_utf8(&delivery.canonical_bytes)
             .map_err(|_| Stage8bP1RedisSemanticError::ExactSourceConflict)?;
         let marker_key = publication_marker_key(&self.namespace, request_id);
-        let result: Vec<String> = redis::cmd("EVAL")
+        let result: redis::RedisResult<Vec<String>> = redis::cmd("EVAL")
             .arg(P1D4_COMMAND_PUBLICATION_LUA)
             .arg(3)
             .arg(&self.namespace.canonical_m10_stream)
@@ -7023,7 +7142,22 @@ impl Stage8bP1RedisBackend {
             .arg(envelope_payload)
             .arg(&marker_payload)
             .query_async(&mut self.connection)
-            .await?;
+            .await;
+        self.record_p1f_supervisor_audit(
+            Stage8bP1fRedisSourceOperationV1::CommandPublication,
+            Some(Stage8bP1fRedisScriptV1::P1d4CommandPublicationV1),
+            format!(
+                "EVAL p1d4-command-publication {} {request_id}",
+                delivery.redis_id()
+            )
+            .as_bytes(),
+            if result.is_ok() {
+                Stage8bP1fRedisAuditResultV1::Succeeded
+            } else {
+                Stage8bP1fRedisAuditResultV1::Failed
+            },
+        )?;
+        let result = result?;
         let [classification, command_entry_id] = result.as_slice() else {
             return Err(Stage8bP1RedisSemanticError::InvalidRedisReply);
         };
@@ -7132,7 +7266,7 @@ impl Stage8bP1RedisBackend {
         let source_payload = std::str::from_utf8(&delivery.canonical_bytes)
             .map_err(|_| Stage8bP1RedisSemanticError::ExactSourceConflict)?;
         let marker_key = publication_marker_key(&self.namespace, request_id);
-        let result: Vec<String> = redis::cmd("EVAL")
+        let result: redis::RedisResult<Vec<String>> = redis::cmd("EVAL")
             .arg(P1D4_COMMAND_PUBLICATION_REVALIDATE_LUA)
             .arg(3)
             .arg(&self.namespace.canonical_m10_stream)
@@ -7151,7 +7285,22 @@ impl Stage8bP1RedisBackend {
                 "optional"
             })
             .query_async(&mut self.connection)
-            .await?;
+            .await;
+        self.record_p1f_supervisor_audit(
+            Stage8bP1fRedisSourceOperationV1::CommandPublication,
+            Some(Stage8bP1fRedisScriptV1::P1d4CommandPublicationRevalidateV1),
+            format!(
+                "EVAL p1d4-command-publication-revalidate {} {request_id}",
+                delivery.redis_id()
+            )
+            .as_bytes(),
+            if result.is_ok() {
+                Stage8bP1fRedisAuditResultV1::Succeeded
+            } else {
+                Stage8bP1fRedisAuditResultV1::Failed
+            },
+        )?;
+        let result = result?;
         match result.as_slice() {
             [classification, command_entry_id]
                 if classification == "existing"
@@ -7291,10 +7440,21 @@ impl Stage8bP1RedisBackend {
     }
 
     async fn retained_m10_count(&mut self) -> Result<usize, Stage8bP1RedisSemanticError> {
-        let count: usize = redis::cmd("XLEN")
+        let count: Result<usize, redis::RedisError> = redis::cmd("XLEN")
             .arg(&self.namespace.canonical_m10_stream)
             .query_async(&mut self.connection)
-            .await?;
+            .await;
+        self.record_p1f_supervisor_audit(
+            Stage8bP1fRedisSourceOperationV1::RetentionAdmission,
+            None,
+            b"XLEN canonical-m10",
+            if count.is_ok() {
+                Stage8bP1fRedisAuditResultV1::Succeeded
+            } else {
+                Stage8bP1fRedisAuditResultV1::Failed
+            },
+        )?;
+        let count = count?;
         // P1-c never invokes XTRIM/XDEL. The floor is an admission constraint
         // for future bounded retention, not permission to trim active input.
         if self.config.retention_floor < MIN_RETENTION_FLOOR {
@@ -17092,6 +17252,10 @@ pub(crate) mod tests {
         let redis = RedisServer::start().await;
         let parent = temp_directory("p1d2-market-feedback");
         let (mut pending, key, fresh, identity) = one_intent_pending(&redis, &parent).await;
+        let p1f_audit = Stage8bP1fRedisCommandAuditHandleV1::default();
+        pending
+            .transport
+            .install_stage8b_p1f_supervisor_audit_v1(p1f_audit.clone());
         let predecessor_close = 1_785_759_000_000_i64;
         let successor = canonical_m10(identity.clone(), predecessor_close + 600_000, 2_175);
         pending
@@ -17134,9 +17298,10 @@ pub(crate) mod tests {
             panic!("durable S_ack must restart as truth-only authority");
         };
         tokio::time::sleep(Duration::from_millis(5)).await;
-        let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+        let mut transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
             .await
             .unwrap();
+        transport.install_stage8b_p1f_supervisor_audit_v1(p1f_audit.clone());
         let ack = p1e_test_resume_p1d2_ack(*ack, transport).await.unwrap();
         let ack_generation = ack.recovery_seal_generation();
         let truth = ack.commit_truth(&key).unwrap();
@@ -17169,9 +17334,10 @@ pub(crate) mod tests {
             panic!("durable S_truth must restart as source-resolution-only authority");
         };
         tokio::time::sleep(Duration::from_millis(5)).await;
-        let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+        let mut transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
             .await
             .unwrap();
+        transport.install_stage8b_p1f_supervisor_audit_v1(p1f_audit.clone());
         let resolved = p1e_test_resume_p1d2_truth(*truth, transport).await.unwrap();
         assert_eq!(resolved.audit_evidence(), &audit_before_restart);
         assert_eq!(
@@ -17199,6 +17365,21 @@ pub(crate) mod tests {
             .await
             .unwrap();
         assert_eq!(pending_after_xack.count(), 0);
+        let p1f_records = p1f_audit.snapshot().unwrap();
+        assert!(p1f_records.iter().any(|record| {
+            record.operation
+                == crate::Stage8bP1fRedisAuditedOperationV1::Source(
+                    Stage8bP1fRedisSourceOperationV1::CommandPublication,
+                )
+                && record.result == Stage8bP1fRedisAuditResultV1::Succeeded
+        }));
+        assert!(p1f_records.iter().any(|record| {
+            record.operation
+                == crate::Stage8bP1fRedisAuditedOperationV1::Source(
+                    Stage8bP1fRedisSourceOperationV1::SourceXackLast,
+                )
+                && record.result == Stage8bP1fRedisAuditResultV1::Succeeded
+        }));
 
         let restart = restart_stage8b_p1(
             validate_stage8b_p1_bootstrap_config(bootstrap_config(
@@ -17213,15 +17394,63 @@ pub(crate) mod tests {
         let Stage7bRestartOutcome::P1d2TruthCommitted(truth) = restart else {
             panic!("S_truth remains the local restart authority after source XACK");
         };
-        let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+        let mut transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
             .await
             .unwrap();
+        transport.install_stage8b_p1f_supervisor_audit_v1(p1f_audit.clone());
         let resolved = p1e_test_resume_p1d2_truth(*truth, transport).await.unwrap();
         assert_eq!(
             resolved.disposition(),
             Stage8bP1RedisZeroIntentAckDisposition::AlreadyAcknowledged
         );
         drop(resolved);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn p1f_id_real_acquisition_and_retention_emit_supervisor_audit() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("p1f-id-acquisition-audit");
+        let (owner, key, _fresh, identity) = first_boot(&parent);
+        let mut transport = initialize_stage8b_p1_redis_namespace(
+            &redis.url,
+            Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
+        transport
+            .publish_canonical_m10(
+                &canonical_m10(identity.clone(), 1_785_759_000_000, 2_650),
+                &identity,
+            )
+            .await
+            .unwrap();
+        let audit = Stage8bP1fRedisCommandAuditHandleV1::default();
+        transport.install_stage8b_p1f_supervisor_audit_v1(audit.clone());
+        assert_eq!(transport.backend.retained_m10_count().await.unwrap(), 1);
+        let outcome = Stage8bP1RedisSemanticCompositionOwner::new(owner, transport)
+            .process_next(&key)
+            .await
+            .unwrap();
+        assert!(matches!(
+            outcome,
+            Stage8bP1RedisSemanticOutcome::Prepublication(_)
+        ));
+        let records = audit.snapshot().unwrap();
+        assert!(records.iter().any(|record| {
+            record.operation
+                == crate::Stage8bP1fRedisAuditedOperationV1::Source(
+                    Stage8bP1fRedisSourceOperationV1::SourceAcquireAndReclaim,
+                )
+                && record.result == Stage8bP1fRedisAuditResultV1::Succeeded
+        }));
+        assert!(records.iter().any(|record| {
+            record.operation
+                == crate::Stage8bP1fRedisAuditedOperationV1::Source(
+                    Stage8bP1fRedisSourceOperationV1::RetentionAdmission,
+                )
+                && record.result == Stage8bP1fRedisAuditResultV1::Succeeded
+        }));
         fs::remove_dir_all(parent).unwrap();
     }
 

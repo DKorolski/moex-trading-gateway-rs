@@ -17,7 +17,7 @@ import stage8b_p1f_id_handoff_safety_check as safety
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "reports/handoff"
 REVIEW_SOURCE = Path(
-    "/Users/denisq/Downloads/FINAM_P1F_IC_SOURCE_ACCEPT_5c2656f_2026-09-26.md"
+    "/Users/denisq/Downloads/FINAM_P1F_ID_REVIEW_c7ce3ba_2026-09-26.md"
 )
 
 
@@ -52,7 +52,7 @@ def main() -> None:
     source_ref = git("rev-parse", "HEAD").decode().strip()
     source_parent = git("rev-parse", "HEAD^").decode().strip()
     source_tree = git("rev-parse", "HEAD^{tree}").decode().strip()
-    if source_parent != source_check.BASE:
+    if source_parent != source_check.REVIEWED_ID_CANDIDATE:
         raise SystemExit("stage8b-p1f-id-handoff: FAIL source parent drift")
     changed = set(
         git("diff", "--name-only", source_check.BASE, source_ref, "--")
@@ -65,8 +65,8 @@ def main() -> None:
             f"{sorted(changed ^ source_check.ALLOWED_CHANGES)}"
         )
     review = REVIEW_SOURCE.read_bytes()
-    if sha256(review) != source_check.REVIEW_SHA256:
-        raise SystemExit("stage8b-p1f-id-handoff: FAIL accepted Ic review digest")
+    if sha256(review) != source_check.CORRECTION_REVIEW_SHA256:
+        raise SystemExit("stage8b-p1f-id-handoff: FAIL correction review digest")
 
     gate = run_capture(["bash", "scripts/stage8b_p1f_id_gate.sh"])
     if (
@@ -76,7 +76,7 @@ def main() -> None:
         raise SystemExit("stage8b-p1f-id-handoff: FAIL source changed during evidence run")
 
     short = source_ref[:7]
-    archive_name = f"moex-trading-project-{short}-stage8b-p1f-id-review-package.zip"
+    archive_name = f"moex-trading-project-{short}-stage8b-p1f-id-r1-review-package.zip"
     archive_path = OUTPUT / archive_name
     manifest, entries = common.source_manifest(source_ref)
     closed_surfaces = {
@@ -93,7 +93,7 @@ def main() -> None:
     evidence = {
         "schema_version": 1,
         "stage": safety.STAGE,
-        "status": "FIXED_REDIS_COMPOSITION_REVIEW_CANDIDATE_NO_ACTIVATION",
+        "status": "FIXED_REDIS_COMPOSITION_CORRECTION_REVIEW_CANDIDATE_NO_ACTIVATION",
         "source_ref": source_ref,
         "source_parent": source_parent,
         "source_tree": source_tree,
@@ -101,12 +101,14 @@ def main() -> None:
         "archive_name": archive_name,
         "accepted_ic_ref": source_check.BASE,
         "accepted_ic_review_sha256": source_check.REVIEW_SHA256,
+        "reviewed_id_candidate_ref": source_check.REVIEWED_ID_CANDIDATE,
+        "correction_review_sha256": source_check.CORRECTION_REVIEW_SHA256,
         "changed_paths": sorted(changed),
         "manifest_sha256": sha256(manifest),
         "gate_sha256": sha256(gate),
-        "source_negative_cases": 23,
+        "source_negative_cases": 29,
         "acceptance_matrix_rows": 30,
-        "targeted_rust_tests": 12,
+        "targeted_rust_tests": 18,
         "fixed_redis_roles": 8,
         "source_operations": 10,
         "pinned_lua_scripts": 8,
@@ -121,6 +123,7 @@ def main() -> None:
         f"source_tree={source_tree}\n"
         f"branch={branch}\n"
         f"accepted_ic_ref={source_check.BASE}\n"
+        f"reviewed_id_candidate_ref={source_check.REVIEWED_ID_CANDIDATE}\n"
         f"archive_name={archive_name}\n"
     ).encode()
     additions = {

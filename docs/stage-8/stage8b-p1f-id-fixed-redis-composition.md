@@ -2,6 +2,10 @@
 
 Status: `REVIEW_CANDIDATE_SOURCE_ONLY_NO_ACTIVATION`.
 
+Correction baseline: reviewed Id candidate
+`c7ce3ba15e336a792b5b67aa3919d7efa7861c6c`; the correction closes P1-ID01,
+P1-ID02 and supplies the requested linked P2-ID03 witness without opening Ie.
+
 Immutable predecessor: accepted P1F-Ic commit
 `5c2656fbe8691da256b5380dd16ce6f6b6aa1fa8`. Its independent review is bound
 by SHA-256
@@ -18,12 +22,16 @@ P1F-Id implements the narrow source composition authorized by the Ic review:
   then durable `Published` high-water;
 - response-loss/restart replay of the same retained bytes and deterministic
   ID, without rebuilding from a fresh M1 batch;
-- five-second bounded resource polling for total PEL, conservative Redis
-  memory/evidence use and root free space;
-- transfer of a crossed resource bound to the accepted supervisor
-  `RedisLifecycleFailed` terminal path;
+- one five-second bounded resource task in the existing production owner
+  `select`, measuring both fixed P1 groups, conservative Redis memory/evidence
+  use and root free space;
+- fail-closed transfer of either a crossed bound or probe failure to the
+  existing first-wins `RedisLifecycleFailure` latch and bounded terminal path;
 - a bounded 4096-entry operation audit containing fixed enums, script hashes,
   command fingerprints and results, never raw command material or credentials.
+- execution-point audit wiring for verify-only attach, retention admission,
+  schedule read, stale discovery/cleanup, acquire/reclaim, command publication
+  and XACK-last; rejected cross-role attempts are retained as `Rejected`.
 
 This is a closed composition, not a generic Redis proxy or extensible policy
 engine. `PhaseGuardian` and `BrokerTruthObserver` deliberately have no Redis
@@ -42,22 +50,29 @@ The M10 publication transition is:
 5. validate the receipt ID, bytes SHA-256 and `exact_reread=true`;
 6. mark the retained state `Published`, fsync, rename, parent-fsync and reread.
 
-Any error before step 6 leaves the same durable `Prepared` state. A restart
-therefore cannot advance the high-water or synthesize replacement bytes.
+Any error before step 6 leaves the same durable `Prepared` state. A linked
+real-Redis control executes the Redis effect, deliberately loses the response,
+creates a fresh producer/feeder instance, reloads `Prepared`, retries and
+proves one stream entry plus unchanged sequence. A restart therefore cannot
+advance the high-water or synthesize replacement bytes.
 
 ## Resource behavior
 
-The frozen limits are PEL `<=64`, Redis/evidence use `<=536870912` bytes, root
-free space `>=10737418240` bytes and a poll interval of five seconds. Crossing
-a limit stops only P1 through the existing terminal coordinator. Id contains
-no trim, delete, Redis configuration, Redis restart or P0 service action.
+The frozen limits are aggregate PEL `<=64`, Redis/evidence use `<=536870912`
+bytes, root free space `>=10737418240` bytes and a poll interval of five
+seconds. The PEL scope is exactly the canonical M10 and command groups; command
+PEL must remain zero even when the aggregate is at most 64. Crossing a limit
+or failing/timing out a probe stops only P1 through the existing latch and
+terminal coordinator. Id contains no trim, delete, Redis configuration, Redis
+restart or P0 service action.
 
 ## Evidence
 
-Targeted Rust tests cover the fixed role/script matrix, forbidden cross-role
-authority, hash-only bounded audit, exact boundary values, existing terminal
-routing, real isolated-Redis idempotent publication plus exact reread, real
-resource reads, response-loss restart with identical bytes, and refusal of a
+Targeted Rust tests cover the fixed role/script matrix, retained rejected
+cross-role evidence, hash-only bounded audit, exact boundary values, repeated
+resource ticks, fail-closed probe loss, real supervisor-operation audit,
+existing terminal routing, real isolated-Redis idempotent publication plus
+exact reread, one linked post-effect response-loss restart, and refusal of a
 forged reread receipt. The source checker and mutation harness pin these
 properties and all closed surfaces. The aggregate gate also runs the complete
 runtime durability suite with all features, the complete FINAM gateway suite

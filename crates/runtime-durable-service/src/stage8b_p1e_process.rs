@@ -42,9 +42,9 @@ use crate::{
     acquire_stage8b_p1d4_pre_finalization_with_redis,
     acquire_stage8b_p1d4_prepublication_with_redis, acquire_stage8b_p1d4_truth_with_redis,
     acquire_stage8b_p1e_ready_pending_with_redis, admit_stage8b_p1e_ordinary_run_v1,
-    attach_stage8b_p1e_verified_redis, authorize_stage8b_p1_first_boot,
-    authorize_stage8b_p1e_pre_seal_recovery_v5, build_stage8b_p1_first_boot_source_v1,
-    first_boot_stage8b_p1e_transaction_v5, load_stage8b_p1_commitment_key_from_systemd_credential,
+    authorize_stage8b_p1_first_boot, authorize_stage8b_p1e_pre_seal_recovery_v5,
+    build_stage8b_p1_first_boot_source_v1, first_boot_stage8b_p1e_transaction_v5,
+    load_stage8b_p1_commitment_key_from_systemd_credential,
     poll_stage8b_p1e_ready_fresh_with_redis, recover_stage8b_p1e_first_boot_adoption_v5,
     recover_stage8b_p1e_first_boot_pre_seal_from_supervisor_v5,
     resolve_stage8b_p1_zero_intent_ack_with_redis, resume_stage8b_p1_journal_ahead_with_redis,
@@ -91,8 +91,13 @@ use crate::{
     Stage8bP1eSignedWorkingScheduleOutcomeV1, Stage8bP1eSupervisorConfigV1,
     Stage8bP1eSupervisorEventV1, Stage8bP1eTelemetryPublisherV1,
     Stage8bP1eValidatedSupervisorConfigV1, Stage8bP1eVerifiedRedisSessionV1,
+    Stage8bP1fRedisCommandAuditHandleV1, Stage8bP1fResourceMonitorOutcomeV1,
+    Stage8bP1fResourceProbeV1, Stage8bP1fResourceStopReasonV1,
     STAGE8B_P1E_FIRST_BOOT_RECOVERY_CONFIRMATION, STAGE8B_P1E_SUPERVISOR_CONFIG_PATH,
 };
+
+use crate::stage8b_p1_supervisor::attach_stage8b_p1e_verified_redis_with_audit;
+use crate::stage8b_p1f_fixed_redis::run_stage8b_p1f_resource_monitor_v1;
 
 use crate::stage8b_p1e_first_boot_transaction::next_stage8b_p1e_bootstrap_attempt_generation_v5;
 
@@ -4391,6 +4396,16 @@ pub enum Stage8bP1eProcessErrorV1 {
     ScheduleReader,
     #[error("owner loop failed or returned at a restart-only boundary")]
     OwnerLoop,
+    #[error("P1 resource supervision stopped after M10/command PEL exceeded its fixed bound")]
+    ResourcePelLimit,
+    #[error("P1 resource supervision stopped after the DB15 evidence budget was exceeded")]
+    ResourceEvidenceBudget,
+    #[error(
+        "P1 resource supervision stopped because root free space fell below its fixed minimum"
+    )]
+    ResourceRootFree,
+    #[error("P1 resource supervision probe failed or timed out")]
+    ResourceProbe,
     #[error("owner task panicked or returned without an authenticated owner boundary")]
     OwnerTaskFailed,
     #[error("production telemetry task or write failed")]
@@ -4415,7 +4430,13 @@ impl Stage8bP1eProcessErrorV1 {
             | Self::DurableRestart
             | Self::RestartBlocked
             | Self::RedisDeployment => 66,
-            Self::RedisAttach | Self::ScheduleReader | Self::OwnerLoop => 67,
+            Self::RedisAttach
+            | Self::ScheduleReader
+            | Self::OwnerLoop
+            | Self::ResourcePelLimit
+            | Self::ResourceEvidenceBudget
+            | Self::ResourceRootFree
+            | Self::ResourceProbe => 67,
             Self::OwnerTaskFailed => 70,
             Self::TelemetryFailed => 71,
             Self::ShutdownGraceExpired => 72,
@@ -4764,6 +4785,9 @@ impl Stage8bP1eProductionTelemetryStateV1 {
                 }
                 Stage8bP1eShutdownCauseV1::SignalTaskFailure => {
                     Stage8bP1eFailureClassV1::SignalTaskFailed
+                }
+                Stage8bP1eShutdownCauseV1::RedisLifecycleFailure => {
+                    Stage8bP1eFailureClassV1::RedisReadFailed
                 }
                 Stage8bP1eShutdownCauseV1::ExternalSignal
                 | Stage8bP1eShutdownCauseV1::OwnerFailure => self.last_failure_class,
@@ -5249,6 +5273,7 @@ async fn run_stage8b_p1e_production_owner_v1(
 
     let redis_url = attach_plan.redis_url().to_string();
     let consumer_name = attach_plan.consumer_name().to_string();
+    let p1f_audit = Stage8bP1fRedisCommandAuditHandleV1::default();
     stage8b_p1e_process_startup_test_barrier_v1("before-redis-attach", &latch).await;
     if latch.intent().is_some() {
         drop(attachable);
@@ -5256,7 +5281,7 @@ async fn run_stage8b_p1e_production_owner_v1(
     }
     let mut session = match await_stage8b_p1e_startup_operation_v1(
         "inflight-redis-attach",
-        attach_stage8b_p1e_verified_redis(&attach_plan),
+        attach_stage8b_p1e_verified_redis_with_audit(&attach_plan, p1f_audit.clone()),
         &latch,
     )
     .await
@@ -5277,6 +5302,10 @@ async fn run_stage8b_p1e_production_owner_v1(
         .clean_stale_zero_pending_consumers(&consumer_name)
         .await
         .map_err(map_redis_attach_error)?;
+    let resource_probe =
+        Stage8bP1fResourceProbeV1::connect_with_audit(&redis_url, p1f_audit.clone())
+            .await
+            .map_err(|_| Stage8bP1eProcessErrorV1::ResourceProbe)?;
     let telemetry_publisher = session.redis_control_mut().telemetry_publisher();
     if latch.intent().is_some() {
         drop(session);
@@ -5310,9 +5339,10 @@ async fn run_stage8b_p1e_production_owner_v1(
         .pel_count()
         .await
         .map_err(map_redis_attach_error)? as u64;
-    let reader = crate::Stage8bP1eRedisScheduleReader::connect(&redis_url)
-        .await
-        .map_err(|_| Stage8bP1eProcessErrorV1::ScheduleReader)?;
+    let reader =
+        crate::Stage8bP1eRedisScheduleReader::connect_with_p1f_audit(&redis_url, p1f_audit.clone())
+            .await
+            .map_err(|_| Stage8bP1eProcessErrorV1::ScheduleReader)?;
     if latch.intent().is_some() {
         drop(reader);
         drop(startup);
@@ -5376,6 +5406,12 @@ async fn run_stage8b_p1e_production_owner_v1(
             Some(&telemetry_reporter),
         );
         tokio::pin!(owner);
+        let resources = run_stage8b_p1f_resource_monitor_v1(
+            resource_probe,
+            Arc::clone(&latch),
+            settings.shutdown_grace_ms,
+        );
+        tokio::pin!(resources);
         tokio::select! {
             result = &mut owner => (result.map_err(map_startup_error), false),
             result = telemetry_task.task_mut() => {
@@ -5387,6 +5423,36 @@ async fn run_stage8b_p1e_production_owner_v1(
                 let _ = result;
                 telemetry_reporter.request_telemetry_failure();
                 (owner.await.map_err(map_startup_error), true)
+            },
+            resource_outcome = &mut resources => {
+                let owner_result = owner.await.map_err(map_startup_error);
+                let resource_error = match resource_outcome {
+                    Stage8bP1fResourceMonitorOutcomeV1::ShutdownObserved { .. } => None,
+                    Stage8bP1fResourceMonitorOutcomeV1::ProbeFailed { .. } => {
+                        Some(Stage8bP1eProcessErrorV1::ResourceProbe)
+                    }
+                    Stage8bP1fResourceMonitorOutcomeV1::StopP1Phase { reason, .. } => Some(
+                        match reason {
+                            Stage8bP1fResourceStopReasonV1::PelLimitExceeded => {
+                                Stage8bP1eProcessErrorV1::ResourcePelLimit
+                            }
+                            Stage8bP1fResourceStopReasonV1::EvidenceBudgetExceeded => {
+                                Stage8bP1eProcessErrorV1::ResourceEvidenceBudget
+                            }
+                            Stage8bP1fResourceStopReasonV1::RootFreeBelowMinimum => {
+                                Stage8bP1eProcessErrorV1::ResourceRootFree
+                            }
+                        }
+                    ),
+                };
+                (
+                    match (owner_result, resource_error) {
+                        (Err(error), _) => Err(error),
+                        (Ok(_), Some(error)) => Err(error),
+                        (Ok(boundary), None) => Ok(boundary),
+                    },
+                    false,
+                )
             }
         }
     };
@@ -5413,7 +5479,24 @@ async fn run_stage8b_p1e_production_owner_v1(
         )
         .await
     };
-    settle_stage8b_p1e_production_telemetry_v1(owner_result, telemetry_succeeded, latch.as_ref())
+    let result = settle_stage8b_p1e_production_telemetry_v1(
+        owner_result,
+        telemetry_succeeded,
+        latch.as_ref(),
+    );
+    emit_stage8b_p1f_audit_snapshot_v1(&p1f_audit);
+    result
+}
+
+fn emit_stage8b_p1f_audit_snapshot_v1(audit: &Stage8bP1fRedisCommandAuditHandleV1) {
+    let Ok(records) = audit.snapshot() else {
+        eprintln!("stage8b-p1f-redis-audit: audit_snapshot_failed");
+        return;
+    };
+    match serde_json::to_string(&records) {
+        Ok(encoded) => eprintln!("stage8b-p1f-redis-audit: {encoded}"),
+        Err(_) => eprintln!("stage8b-p1f-redis-audit: audit_encoding_failed"),
+    }
 }
 
 fn settle_stage8b_p1e_production_telemetry_v1(
@@ -5447,9 +5530,12 @@ fn process_failure_class(error: &Stage8bP1eProcessErrorV1) -> Stage8bP1eFailureC
             Stage8bP1eFailureClassV1::RedisManifestMismatch
         }
         Stage8bP1eProcessErrorV1::RedisAttach => Stage8bP1eFailureClassV1::RedisClaimFailed,
-        Stage8bP1eProcessErrorV1::ScheduleReader | Stage8bP1eProcessErrorV1::OwnerLoop => {
-            Stage8bP1eFailureClassV1::RedisReadFailed
-        }
+        Stage8bP1eProcessErrorV1::ScheduleReader
+        | Stage8bP1eProcessErrorV1::OwnerLoop
+        | Stage8bP1eProcessErrorV1::ResourcePelLimit
+        | Stage8bP1eProcessErrorV1::ResourceEvidenceBudget
+        | Stage8bP1eProcessErrorV1::ResourceRootFree
+        | Stage8bP1eProcessErrorV1::ResourceProbe => Stage8bP1eFailureClassV1::RedisReadFailed,
         Stage8bP1eProcessErrorV1::TelemetryFailed => Stage8bP1eFailureClassV1::RedisTelemetryFailed,
         Stage8bP1eProcessErrorV1::OwnerTaskFailed => {
             Stage8bP1eFailureClassV1::OwnerReturnedUnexpectedly

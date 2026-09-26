@@ -13,10 +13,16 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 BASE = "5c2656fbe8691da256b5380dd16ce6f6b6aa1fa8"
 REVIEW_SHA256 = "ee69d58bc70288f447a9ab880d2a2eec01fefdfe6f86ce3be603eb7f5a1b30b3"
+REVIEWED_ID_CANDIDATE = "c7ce3ba15e336a792b5b67aa3919d7efa7861c6c"
+CORRECTION_REVIEW_SHA256 = "295ac3f17a62a42b3de4ac553783c68ed5b6213419f42e6ea5195e0c00232b11"
 REDIS = "crates/runtime-durable-service/src/stage8b_p1f_fixed_redis.rs"
 SEMANTIC = "crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs"
+SUPERVISOR = "crates/runtime-durable-service/src/stage8b_p1_supervisor.rs"
+PROCESS = "crates/runtime-durable-service/src/stage8b_p1e_process.rs"
+SCHEDULE_SOURCE = "crates/runtime-durable-service/src/stage8b_p1e_schedule_source.rs"
 RUNTIME_LIB = "crates/runtime-durable-service/src/lib.rs"
 PRODUCER = "crates/finam-gateway/src/stage8b_p1f_fixed_producers.rs"
+GATEWAY_CARGO = "crates/finam-gateway/Cargo.toml"
 PUBLISHER = "crates/finam-gateway/src/stage8b_p1e_schedule_publisher.rs"
 GATEWAY_LIB = "crates/finam-gateway/src/lib.rs"
 DOCUMENT = "docs/stage-8/stage8b-p1f-id-fixed-redis-composition.md"
@@ -30,7 +36,8 @@ GATE = "scripts/stage8b_p1f_id_gate.sh"
 HANDOFF = "scripts/make_stage8b_p1f_id_handoff.py"
 HANDOFF_SAFETY = "scripts/stage8b_p1f_id_handoff_safety_check.py"
 ALLOWED_CHANGES = {
-    REDIS, SEMANTIC, RUNTIME_LIB, PRODUCER, PUBLISHER, GATEWAY_LIB,
+    REDIS, SEMANTIC, SUPERVISOR, PROCESS, SCHEDULE_SOURCE, RUNTIME_LIB,
+    PRODUCER, GATEWAY_CARGO, PUBLISHER, GATEWAY_LIB,
     DOCUMENT, INVENTORY, MATRIX, STATUS, ROADMAP, CHECKER, NEGATIVE, GATE,
     HANDOFF, HANDOFF_SAFETY,
 }
@@ -115,14 +122,22 @@ def validate_inventory(root: Path) -> None:
     require(publication["fresh_candidate_rebuild_on_restart"] is False, "restart rebuild opened")
     resources = value["resources"]
     require(resources == {
+        "command_pel_required_zero": True,
         "db15_evidence_budget_bytes": 536870912,
         "minimum_root_free_bytes": 10737418240,
+        "pel_scope": ["canonical_m10_consumer_group", "stage7b_command_consumer_group"],
         "poll_interval_seconds": 5,
-        "stop_action": "existing RedisLifecycleFailed terminal path; P1 only",
+        "stop_action": "existing first-wins RedisLifecycleFailure latch and bounded terminal path; P1 only",
         "total_pel_fail_stop_threshold": 64,
     }, "resource contract drift")
     audit = value["audit"]
     require(audit["capacity"] == 4096 and audit["raw_command_material_retained"] is False and audit["secrets_retained"] is False, "audit boundary drift")
+    require(audit["supervisor_execution_points"] == [
+        "verify-only-attach", "retention-admission", "schedule-read",
+        "stale-consumer-discovery", "stale-consumer-cleanup",
+        "source-acquire-and-reclaim", "command-publication", "source-xack-last",
+    ], "supervisor audit coverage drift")
+    require(value["publication"]["linked_real_redis_response_loss_witness"] is True, "linked response-loss witness missing")
     require(all(flag is False for flag in value["closed_surfaces"].values()), "closed surface opened")
     require(value["next_after_acceptance"] == "P1F-Ie aggregate source closure; P1F-O0 remains closed", "next boundary drift")
 
@@ -138,6 +153,9 @@ def validate_matrix(root: Path) -> None:
 def validate_source(root: Path) -> None:
     redis = (root / REDIS).read_text()
     semantic = (root / SEMANTIC).read_text()
+    supervisor = (root / SUPERVISOR).read_text()
+    process = (root / PROCESS).read_text()
+    schedule_source = (root / SCHEDULE_SOURCE).read_text()
     producer = (root / PRODUCER).read_text()
     publisher = (root / PUBLISHER).read_text()
     runtime_lib = (root / RUNTIME_LIB).read_text()
@@ -159,7 +177,13 @@ def validate_source(root: Path) -> None:
         "self.records.pop_front();",
         "command_fingerprint_sha256: sha256_hex(exact_command_material)",
         'redis::cmd("INFO")',
-        "supervisor_control.pel_count().await?",
+        "command_pel_count != 0",
+        ".arg(&namespace.canonical_m10_stream)",
+        ".arg(&namespace.canonical_command_stream)",
+        "run_stage8b_p1f_resource_monitor_v1",
+        "resource_monitor_performs_sequential_ticks_until_existing_latch_stops_it",
+        "resource_monitor_probe_failure_requests_bounded_existing_shutdown",
+        "rejected_cross_role_attempt_is_retained_without_command_material",
         "Stage8bP1eSupervisorEventV1::RedisLifecycleFailed",
         "real_redis_feeder_replays_exact_id_and_rereads_exact_bytes",
         "resource_probe_uses_real_bounded_redis_reads_and_hash_only_audit",
@@ -172,13 +196,41 @@ def validate_source(root: Path) -> None:
         "endpoint guard coverage drift",
     )
     require(
-        redis.count("command_fingerprint_sha256: sha256_hex(exact_command_material)") == 2,
+        redis.count("command_fingerprint_sha256: sha256_hex(exact_command_material)") == 1,
         "hash-only audit coverage drift",
     )
     for forbidden in ('redis::cmd("DEL")', 'redis::cmd("XTRIM")', 'redis::cmd("CONFIG")', 'redis::cmd("FLUSHDB")'):
         require(forbidden not in redis, f"forbidden Redis effect: {forbidden}")
     require("pub async fn verify_exact_canonical_m10(" in semantic, "exact reread API missing")
     require("self.backend.exact_stream_entry(redis_id).await?.as_deref() != Some(payload)" in semantic, "exact bytes comparison missing")
+    for operation in (
+        "RetentionAdmission", "SourceAcquireAndReclaim", "CommandPublication", "SourceXackLast",
+    ):
+        require(
+            f"Stage8bP1fRedisSourceOperationV1::{operation}" in semantic,
+            f"semantic supervisor audit missing: {operation}",
+        )
+    require("p1f_id_real_acquisition_and_retention_emit_supervisor_audit" in semantic, "real acquisition audit control missing")
+    require("p1d2_market_feedback_commits_ack_then_truth_then_xacks_source" in semantic, "command/XACK audit control missing")
+    for operation in ("VerifyOnlyAttach", "StaleConsumerDiscovery", "StaleConsumerCleanup"):
+        require(
+            f"Stage8bP1fRedisSourceOperationV1::{operation}" in supervisor,
+            f"supervisor audit missing: {operation}",
+        )
+    require("attach_stage8b_p1e_verified_redis_with_audit" in supervisor, "audited attach missing")
+    require("cleanup_deletes_only_rechecked_zero_pending_idle_consumers" in supervisor, "stale cleanup audit control missing")
+    require("Stage8bP1fRedisSourceOperationV1::ScheduleRead" in schedule_source, "schedule-read audit missing")
+    for fragment in (
+        "Stage8bP1fRedisCommandAuditHandleV1::default()",
+        "attach_stage8b_p1e_verified_redis_with_audit",
+        "Stage8bP1fResourceProbeV1::connect_with_audit",
+        "Stage8bP1eRedisScheduleReader::connect_with_p1f_audit",
+        "let resources = run_stage8b_p1f_resource_monitor_v1(",
+        "tokio::pin!(resources);",
+        "emit_stage8b_p1f_audit_snapshot_v1(&p1f_audit);",
+    ):
+        require(fragment in process, f"production Id composition missing: {fragment}")
+    require("tokio::spawn(run_stage8b_p1f_resource_monitor_v1" not in process, "resource monitor detached")
     for fragment in (
         "pub trait Stage8bP1fM10PublicationPortV1",
         "persist_stage8b_p1f_m10_producer_state(path, &prepared)?;",
@@ -186,6 +238,9 @@ def validate_source(root: Path) -> None:
         "|| !receipt.exact_reread",
         "mark_stage8b_p1f_m10_published(prepared, &redis_id, &exact_bytes)?",
         "id_publication_replays_retained_prepared_bytes_after_response_loss",
+        "id_linked_real_redis_response_loss_restarts_prepared_without_duplicate",
+        "LoseFirstRedisResponsePort",
+        "assert_eq!(stream_length, 1);",
         "id_publication_refuses_unproven_exact_reread",
     ):
         require(fragment in producer, f"publication composition missing: {fragment}")

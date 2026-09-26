@@ -5,7 +5,8 @@
     "capacity": 4096,
     "fields": ["sequence", "role", "operation", "database", "script_sha256", "command_fingerprint_sha256", "result"],
     "raw_command_material_retained": false,
-    "secrets_retained": false
+    "secrets_retained": false,
+    "supervisor_execution_points": ["verify-only-attach", "retention-admission", "schedule-read", "stale-consumer-discovery", "stale-consumer-cleanup", "source-acquire-and-reclaim", "command-publication", "source-xack-last"]
   },
   "closed_surfaces": {
     "broker_dispatch": false,
@@ -21,16 +22,17 @@
     "checker": "scripts/stage8b_p1f_id_check.py",
     "full_regression": "runtime-durable-service all-features; finam-gateway default feature set; both all-features doctests and strict all-targets clippy",
     "gate": "scripts/stage8b_p1f_id_gate.sh",
-    "id_specific_rust_tests": 12,
+    "id_specific_rust_tests": 18,
     "negative_harness": "scripts/stage8b_p1f_id_negative_harness.py",
-    "producer_publication_tests": 2,
-    "redis_role_tests": 9,
+    "producer_publication_tests": 3,
+    "redis_role_tests": 12,
     "schedule_role_tests": 1
   },
   "next_after_acceptance": "P1F-Ie aggregate source closure; P1F-O0 remains closed",
   "publication": {
     "effect_order": ["persist_prepared", "publish_exact_retained_bytes", "exact_id_reread", "validate_receipt", "persist_published"],
     "fresh_candidate_rebuild_on_restart": false,
+    "linked_real_redis_response_loss_witness": true,
     "response_loss": "retain Prepared and retry identical bytes and deterministic Redis ID",
     "success_proof": "matching Redis ID, canonical bytes SHA-256 and exact_reread=true"
   },
@@ -52,10 +54,12 @@
     "source_operations": ["fresh-namespace", "verify-only-attach", "m10-publish", "retention-admission", "schedule-read", "stale-consumer-discovery", "stale-consumer-cleanup", "source-acquire-and-reclaim", "command-publication", "source-xack-last"]
   },
   "resources": {
+    "command_pel_required_zero": true,
     "db15_evidence_budget_bytes": 536870912,
     "minimum_root_free_bytes": 10737418240,
+    "pel_scope": ["canonical_m10_consumer_group", "stage7b_command_consumer_group"],
     "poll_interval_seconds": 5,
-    "stop_action": "existing RedisLifecycleFailed terminal path; P1 only",
+    "stop_action": "existing first-wins RedisLifecycleFailure latch and bounded terminal path; P1 only",
     "total_pel_fail_stop_threshold": 64
   },
   "schema_version": 1,

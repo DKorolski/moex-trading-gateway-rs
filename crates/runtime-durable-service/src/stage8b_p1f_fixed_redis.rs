@@ -4,18 +4,25 @@
 //! general ACL/policy engine: the eight roles, ten source operations and eight
 //! Lua identities are exhaustive enums and no raw Redis connection escapes.
 
-use std::{collections::VecDeque, ffi::CString, time::Duration};
+use std::{
+    collections::VecDeque,
+    ffi::CString,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use redis::aio::ConnectionManager;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    attach_stage8b_p1_redis, initialize_stage8b_p1_redis_namespace, Stage8bP1RedisConfig,
-    Stage8bP1RedisM10PublishDisposition, Stage8bP1RedisSemanticCompositionTransport,
-    Stage8bP1RedisSemanticError, Stage8bP1eCoordinatorDecisionV1, Stage8bP1eCoordinatorV1,
-    Stage8bP1eRedisControlError, Stage8bP1eRedisControlV1, Stage8bP1eSupervisorEventV1,
-    STAGE8B_P1E_REDIS_OPERATION_TIMEOUT_MS, STAGE8B_P1E_REDIS_URL_IPV4, STAGE8B_P1E_REDIS_URL_IPV6,
+    attach_stage8b_p1_redis, initialize_stage8b_p1_redis_namespace, stage8b_p1_redis_namespace,
+    Stage8bP1RedisConfig, Stage8bP1RedisM10PublishDisposition,
+    Stage8bP1RedisSemanticCompositionTransport, Stage8bP1RedisSemanticError,
+    Stage8bP1eCoordinatorDecisionV1, Stage8bP1eCoordinatorV1, Stage8bP1eRedisControlError,
+    Stage8bP1eShutdownCauseV1, Stage8bP1eShutdownIntentV1, Stage8bP1eShutdownLatchV1,
+    Stage8bP1eSupervisorEventV1, STAGE8B_P1E_REDIS_OPERATION_TIMEOUT_MS,
+    STAGE8B_P1E_REDIS_URL_IPV4, STAGE8B_P1E_REDIS_URL_IPV6,
 };
 
 pub const STAGE8B_P1F_REDIS_DATABASE: u8 = 15;
@@ -348,10 +355,45 @@ impl Stage8bP1fRedisCommandAuditV1 {
         exact_command_material: &[u8],
         result: Stage8bP1fRedisAuditResultV1,
     ) -> Result<(), Stage8bP1fRedisRoleErrorV1> {
-        authorize_stage8b_p1f_redis_operation(role, operation)?;
-        if let Some(script) = script {
-            authorize_script_for_operation(operation, script)?;
+        if let Err(error) = authorize_stage8b_p1f_redis_operation(role, operation) {
+            self.push_record(
+                role,
+                Stage8bP1fRedisAuditedOperationV1::Source(operation),
+                script,
+                exact_command_material,
+                Stage8bP1fRedisAuditResultV1::Rejected,
+            )?;
+            return Err(error);
         }
+        if let Some(script) = script {
+            if let Err(error) = authorize_script_for_operation(operation, script) {
+                self.push_record(
+                    role,
+                    Stage8bP1fRedisAuditedOperationV1::Source(operation),
+                    Some(script),
+                    exact_command_material,
+                    Stage8bP1fRedisAuditResultV1::Rejected,
+                )?;
+                return Err(error);
+            }
+        }
+        self.push_record(
+            role,
+            Stage8bP1fRedisAuditedOperationV1::Source(operation),
+            script,
+            exact_command_material,
+            result,
+        )
+    }
+
+    fn push_record(
+        &mut self,
+        role: Stage8bP1fRedisRoleV1,
+        operation: Stage8bP1fRedisAuditedOperationV1,
+        script: Option<Stage8bP1fRedisScriptV1>,
+        exact_command_material: &[u8],
+        result: Stage8bP1fRedisAuditResultV1,
+    ) -> Result<(), Stage8bP1fRedisRoleErrorV1> {
         self.next_sequence = self
             .next_sequence
             .checked_add(1)
@@ -363,7 +405,7 @@ impl Stage8bP1fRedisCommandAuditV1 {
             schema_version: 1,
             sequence: self.next_sequence,
             role,
-            operation: Stage8bP1fRedisAuditedOperationV1::Source(operation),
+            operation,
             database: STAGE8B_P1F_REDIS_DATABASE,
             script_sha256: script.map(|value| value.sha256().to_string()),
             command_fingerprint_sha256: sha256_hex(exact_command_material),
@@ -397,6 +439,13 @@ impl Stage8bP1fRedisCommandAuditV1 {
             )
         );
         if !allowed {
+            self.push_record(
+                role,
+                Stage8bP1fRedisAuditedOperationV1::Auxiliary(operation),
+                script,
+                exact_command_material,
+                Stage8bP1fRedisAuditResultV1::Rejected,
+            )?;
             return Err(Stage8bP1fRedisRoleErrorV1::ForbiddenOperation);
         }
         let script_allowed = matches!(
@@ -412,26 +461,72 @@ impl Stage8bP1fRedisCommandAuditV1 {
             )
         );
         if !script_allowed {
+            self.push_record(
+                role,
+                Stage8bP1fRedisAuditedOperationV1::Auxiliary(operation),
+                script,
+                exact_command_material,
+                Stage8bP1fRedisAuditResultV1::Rejected,
+            )?;
             return Err(Stage8bP1fRedisRoleErrorV1::ForbiddenScript);
         }
-        self.next_sequence = self
-            .next_sequence
-            .checked_add(1)
-            .ok_or(Stage8bP1fRedisRoleErrorV1::AuditOverflow)?;
-        if self.records.len() == STAGE8B_P1F_COMMAND_AUDIT_CAPACITY {
-            self.records.pop_front();
-        }
-        self.records.push_back(Stage8bP1fRedisCommandAuditRecordV1 {
-            schema_version: 1,
-            sequence: self.next_sequence,
+        self.push_record(
             role,
-            operation: Stage8bP1fRedisAuditedOperationV1::Auxiliary(operation),
-            database: STAGE8B_P1F_REDIS_DATABASE,
-            script_sha256: script.map(|value| value.sha256().to_string()),
-            command_fingerprint_sha256: sha256_hex(exact_command_material),
+            Stage8bP1fRedisAuditedOperationV1::Auxiliary(operation),
+            script,
+            exact_command_material,
             result,
-        });
-        Ok(())
+        )
+    }
+}
+
+/// Cloneable redacted audit sink shared by the already-existing Redis
+/// capabilities.  It contains no Redis connection or execution authority.
+#[derive(Debug, Clone, Default)]
+pub struct Stage8bP1fRedisCommandAuditHandleV1 {
+    inner: Arc<Mutex<Stage8bP1fRedisCommandAuditV1>>,
+}
+
+impl Stage8bP1fRedisCommandAuditHandleV1 {
+    pub fn record(
+        &self,
+        role: Stage8bP1fRedisRoleV1,
+        operation: Stage8bP1fRedisSourceOperationV1,
+        script: Option<Stage8bP1fRedisScriptV1>,
+        exact_command_material: &[u8],
+        result: Stage8bP1fRedisAuditResultV1,
+    ) -> Result<(), Stage8bP1fRedisRoleErrorV1> {
+        self.inner
+            .lock()
+            .map_err(|_| Stage8bP1fRedisRoleErrorV1::AuditPoisoned)?
+            .record(role, operation, script, exact_command_material, result)
+    }
+
+    pub fn record_auxiliary(
+        &self,
+        role: Stage8bP1fRedisRoleV1,
+        operation: Stage8bP1fRedisAuxiliaryOperationV1,
+        script: Option<Stage8bP1fRedisScriptV1>,
+        exact_command_material: &[u8],
+        result: Stage8bP1fRedisAuditResultV1,
+    ) -> Result<(), Stage8bP1fRedisRoleErrorV1> {
+        self.inner
+            .lock()
+            .map_err(|_| Stage8bP1fRedisRoleErrorV1::AuditPoisoned)?
+            .record_auxiliary(role, operation, script, exact_command_material, result)
+    }
+
+    pub fn snapshot(
+        &self,
+    ) -> Result<Vec<Stage8bP1fRedisCommandAuditRecordV1>, Stage8bP1fRedisRoleErrorV1> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|_| Stage8bP1fRedisRoleErrorV1::AuditPoisoned)?
+            .records()
+            .iter()
+            .cloned()
+            .collect())
     }
 }
 
@@ -445,6 +540,8 @@ pub enum Stage8bP1fRedisRoleErrorV1 {
     WrongRedisEndpoint,
     #[error("the bounded command audit sequence overflowed")]
     AuditOverflow,
+    #[error("the bounded command audit lock was poisoned")]
+    AuditPoisoned,
     #[error("the exact M10 publication receipt conflicts with retained bytes")]
     PublicationConflict,
     #[error("the bounded resource probe failed")]
@@ -565,6 +662,17 @@ impl Stage8bP1fM10FeederRedisV1 {
     ) -> Result<Self, Stage8bP1fRedisRoleErrorV1> {
         validate_production_db15_endpoint(redis_url)?;
         Self::connect_at(redis_url, config, Stage8bP1fRedisRoleV1::FinamBarsFeeder).await
+    }
+
+    /// Local-only constructor used by retained artifact fixtures. Production
+    /// callers remain restricted to the two fixed loopback DB15 endpoints.
+    #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
+    #[doc(hidden)]
+    pub async fn connect_synthetic_local_evidence(
+        redis_url: &str,
+        config: Stage8bP1RedisConfig,
+    ) -> Result<Self, Stage8bP1fRedisRoleErrorV1> {
+        Self::connect_at(redis_url, config, Stage8bP1fRedisRoleV1::SyntheticM10Feeder).await
     }
 
     async fn connect_at(
@@ -727,6 +835,8 @@ pub async fn provision_stage8b_p1f_fresh_namespace_v1(
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Stage8bP1fResourceSampleV1 {
+    pub m10_pel_count: u64,
+    pub command_pel_count: u64,
     pub total_pel_count: u64,
     pub db15_evidence_bytes: u64,
     pub root_free_bytes: u64,
@@ -747,10 +857,26 @@ pub enum Stage8bP1fResourceDispositionV1 {
     StopP1Phase(Stage8bP1fResourceStopReasonV1),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage8bP1fResourceMonitorOutcomeV1 {
+    ShutdownObserved {
+        completed_ticks: u64,
+    },
+    StopP1Phase {
+        completed_ticks: u64,
+        reason: Stage8bP1fResourceStopReasonV1,
+    },
+    ProbeFailed {
+        completed_ticks: u64,
+    },
+}
+
 pub fn evaluate_stage8b_p1f_resource_sample_v1(
     sample: Stage8bP1fResourceSampleV1,
 ) -> Stage8bP1fResourceDispositionV1 {
-    if sample.total_pel_count > STAGE8B_P1F_TOTAL_PEL_FAIL_STOP_THRESHOLD {
+    if sample.command_pel_count != 0
+        || sample.total_pel_count > STAGE8B_P1F_TOTAL_PEL_FAIL_STOP_THRESHOLD
+    {
         Stage8bP1fResourceDispositionV1::StopP1Phase(
             Stage8bP1fResourceStopReasonV1::PelLimitExceeded,
         )
@@ -768,21 +894,24 @@ pub fn evaluate_stage8b_p1f_resource_sample_v1(
 }
 
 /// Read-only resource adapter. The Redis connection remains private and can
-/// issue only `INFO memory`; PEL is obtained through the already bounded
-/// supervisor control API. `used_memory` is a conservative upper bound for
-/// the isolated DB15 evidence budget.
+/// issue only bounded `XPENDING` against the two fixed P1 groups plus
+/// `INFO memory`. `used_memory` is a conservative upper bound for the isolated
+/// DB15 evidence budget. A non-empty command PEL is fail-closed.
 pub struct Stage8bP1fResourceProbeV1 {
     connection: ConnectionManager,
-    audit: Stage8bP1fRedisCommandAuditV1,
+    audit: Stage8bP1fRedisCommandAuditHandleV1,
 }
 
 impl Stage8bP1fResourceProbeV1 {
     pub async fn connect(redis_url: &str) -> Result<Self, Stage8bP1fRedisRoleErrorV1> {
         validate_production_db15_endpoint(redis_url)?;
-        Self::connect_at(redis_url).await
+        Self::connect_with_audit(redis_url, Stage8bP1fRedisCommandAuditHandleV1::default()).await
     }
 
-    async fn connect_at(redis_url: &str) -> Result<Self, Stage8bP1fRedisRoleErrorV1> {
+    pub(crate) async fn connect_with_audit(
+        redis_url: &str,
+        audit: Stage8bP1fRedisCommandAuditHandleV1,
+    ) -> Result<Self, Stage8bP1fRedisRoleErrorV1> {
         let client = redis::Client::open(redis_url)?;
         let connection = tokio::time::timeout(
             Duration::from_millis(STAGE8B_P1E_REDIS_OPERATION_TIMEOUT_MS),
@@ -790,22 +919,73 @@ impl Stage8bP1fResourceProbeV1 {
         )
         .await
         .map_err(|_| Stage8bP1fRedisRoleErrorV1::ResourceProbe)??;
-        Ok(Self {
-            connection,
-            audit: Stage8bP1fRedisCommandAuditV1::default(),
-        })
+        Ok(Self { connection, audit })
     }
 
-    pub fn audit_records(&self) -> &VecDeque<Stage8bP1fRedisCommandAuditRecordV1> {
-        self.audit.records()
+    pub fn audit_records(
+        &self,
+    ) -> Result<Vec<Stage8bP1fRedisCommandAuditRecordV1>, Stage8bP1fRedisRoleErrorV1> {
+        self.audit.snapshot()
     }
 
-    pub async fn poll(
+    pub async fn poll(&mut self) -> Result<Stage8bP1fResourceSampleV1, Stage8bP1fRedisRoleErrorV1> {
+        let result = self.poll_inner().await;
+        let (material, audit_result) = match &result {
+            Ok(sample) => (
+                format!(
+                    "m10_pel={};command_pel={};total_pel={};used_memory={};root_free={}",
+                    sample.m10_pel_count,
+                    sample.command_pel_count,
+                    sample.total_pel_count,
+                    sample.db15_evidence_bytes,
+                    sample.root_free_bytes
+                ),
+                Stage8bP1fRedisAuditResultV1::Succeeded,
+            ),
+            Err(_) => (
+                "stage8b-p1f-resource-probe-failed-v1".to_string(),
+                Stage8bP1fRedisAuditResultV1::Failed,
+            ),
+        };
+        self.audit.record_auxiliary(
+            Stage8bP1fRedisRoleV1::ReadOnlyAuditor,
+            Stage8bP1fRedisAuxiliaryOperationV1::ResourcePoll,
+            None,
+            material.as_bytes(),
+            audit_result,
+        )?;
+        result
+    }
+
+    async fn poll_inner(
         &mut self,
-        supervisor_control: &mut Stage8bP1eRedisControlV1,
     ) -> Result<Stage8bP1fResourceSampleV1, Stage8bP1fRedisRoleErrorV1> {
-        let total_pel_count = u64::try_from(supervisor_control.pel_count().await?)
+        let namespace = stage8b_p1_redis_namespace();
+        let m10_pending: redis::streams::StreamPendingReply = tokio::time::timeout(
+            Duration::from_millis(STAGE8B_P1E_REDIS_OPERATION_TIMEOUT_MS),
+            redis::cmd("XPENDING")
+                .arg(&namespace.canonical_m10_stream)
+                .arg(&namespace.m10_consumer_group)
+                .query_async(&mut self.connection),
+        )
+        .await
+        .map_err(|_| Stage8bP1fRedisRoleErrorV1::ResourceProbe)??;
+        let command_pending: redis::streams::StreamPendingReply = tokio::time::timeout(
+            Duration::from_millis(STAGE8B_P1E_REDIS_OPERATION_TIMEOUT_MS),
+            redis::cmd("XPENDING")
+                .arg(&namespace.canonical_command_stream)
+                .arg(&namespace.stage7b_command_consumer_group)
+                .query_async(&mut self.connection),
+        )
+        .await
+        .map_err(|_| Stage8bP1fRedisRoleErrorV1::ResourceProbe)??;
+        let m10_pel_count = u64::try_from(m10_pending.count())
             .map_err(|_| Stage8bP1fRedisRoleErrorV1::ResourceProbe)?;
+        let command_pel_count = u64::try_from(command_pending.count())
+            .map_err(|_| Stage8bP1fRedisRoleErrorV1::ResourceProbe)?;
+        let total_pel_count = m10_pel_count
+            .checked_add(command_pel_count)
+            .ok_or(Stage8bP1fRedisRoleErrorV1::ResourceProbe)?;
         let info: String = tokio::time::timeout(
             Duration::from_millis(STAGE8B_P1E_REDIS_OPERATION_TIMEOUT_MS),
             redis::cmd("INFO")
@@ -814,23 +994,88 @@ impl Stage8bP1fResourceProbeV1 {
         )
         .await
         .map_err(|_| Stage8bP1fRedisRoleErrorV1::ResourceProbe)??;
-        let sample = Stage8bP1fResourceSampleV1 {
+        Ok(Stage8bP1fResourceSampleV1 {
+            m10_pel_count,
+            command_pel_count,
             total_pel_count,
             db15_evidence_bytes: parse_used_memory(&info)?,
             root_free_bytes: root_free_bytes()?,
+        })
+    }
+}
+
+/// The sole periodic Id resource task. It owns no lifecycle authority: an
+/// exceeded limit or probe failure requests the existing first-wins I1 latch,
+/// after which the existing owner and outer coordinator perform bounded
+/// shutdown to an authenticated boundary.
+pub(crate) async fn run_stage8b_p1f_resource_monitor_v1(
+    mut probe: Stage8bP1fResourceProbeV1,
+    latch: Arc<Stage8bP1eShutdownLatchV1>,
+    shutdown_grace_ms: u64,
+) -> Stage8bP1fResourceMonitorOutcomeV1 {
+    run_stage8b_p1f_resource_monitor_with_period_v1(
+        &mut probe,
+        latch,
+        shutdown_grace_ms,
+        Duration::from_secs(STAGE8B_P1F_RESOURCE_POLL_INTERVAL_SECONDS),
+    )
+    .await
+}
+
+async fn run_stage8b_p1f_resource_monitor_with_period_v1(
+    probe: &mut Stage8bP1fResourceProbeV1,
+    latch: Arc<Stage8bP1eShutdownLatchV1>,
+    shutdown_grace_ms: u64,
+    period: Duration,
+) -> Stage8bP1fResourceMonitorOutcomeV1 {
+    let mut interval = tokio::time::interval(period);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut completed_ticks = 0_u64;
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {}
+            _ = wait_for_stage8b_p1f_shutdown_v1(latch.as_ref()) => {
+                return Stage8bP1fResourceMonitorOutcomeV1::ShutdownObserved { completed_ticks };
+            }
+        }
+        if latch.intent().is_some() {
+            return Stage8bP1fResourceMonitorOutcomeV1::ShutdownObserved { completed_ticks };
+        }
+        completed_ticks = completed_ticks.saturating_add(1);
+        let sample = match probe.poll().await {
+            Ok(sample) => sample,
+            Err(_) => {
+                request_stage8b_p1f_resource_shutdown_v1(latch.as_ref(), shutdown_grace_ms);
+                return Stage8bP1fResourceMonitorOutcomeV1::ProbeFailed { completed_ticks };
+            }
         };
-        let material = format!(
-            "pel={};used_memory={};root_free={}",
-            sample.total_pel_count, sample.db15_evidence_bytes, sample.root_free_bytes
-        );
-        self.audit.record_auxiliary(
-            Stage8bP1fRedisRoleV1::ReadOnlyAuditor,
-            Stage8bP1fRedisAuxiliaryOperationV1::ResourcePoll,
-            None,
-            material.as_bytes(),
-            Stage8bP1fRedisAuditResultV1::Succeeded,
-        )?;
-        Ok(sample)
+        if let Stage8bP1fResourceDispositionV1::StopP1Phase(reason) =
+            evaluate_stage8b_p1f_resource_sample_v1(sample)
+        {
+            request_stage8b_p1f_resource_shutdown_v1(latch.as_ref(), shutdown_grace_ms);
+            return Stage8bP1fResourceMonitorOutcomeV1::StopP1Phase {
+                completed_ticks,
+                reason,
+            };
+        }
+    }
+}
+
+fn request_stage8b_p1f_resource_shutdown_v1(
+    latch: &Stage8bP1eShutdownLatchV1,
+    shutdown_grace_ms: u64,
+) {
+    let now_utc_ms = chrono::Utc::now().timestamp_millis();
+    let _ = latch.request(Stage8bP1eShutdownIntentV1::new(
+        Stage8bP1eShutdownCauseV1::RedisLifecycleFailure,
+        now_utc_ms.saturating_add(shutdown_grace_ms as i64),
+        1,
+    ));
+}
+
+async fn wait_for_stage8b_p1f_shutdown_v1(latch: &Stage8bP1eShutdownLatchV1) {
+    while latch.intent().is_none() {
+        tokio::time::sleep(Duration::from_millis(5)).await;
     }
 }
 
@@ -1081,6 +1326,8 @@ mod tests {
     fn resource_boundaries_stop_only_after_crossing_exact_limits() {
         assert_eq!(
             evaluate_stage8b_p1f_resource_sample_v1(Stage8bP1fResourceSampleV1 {
+                m10_pel_count: 64,
+                command_pel_count: 0,
                 total_pel_count: 64,
                 db15_evidence_bytes: 536_870_912,
                 root_free_bytes: 10_737_418_240,
@@ -1089,6 +1336,8 @@ mod tests {
         );
         assert_eq!(
             evaluate_stage8b_p1f_resource_sample_v1(Stage8bP1fResourceSampleV1 {
+                m10_pel_count: 65,
+                command_pel_count: 0,
                 total_pel_count: 65,
                 db15_evidence_bytes: 0,
                 root_free_bytes: u64::MAX,
@@ -1097,7 +1346,80 @@ mod tests {
                 Stage8bP1fResourceStopReasonV1::PelLimitExceeded
             )
         );
+        assert_eq!(
+            evaluate_stage8b_p1f_resource_sample_v1(Stage8bP1fResourceSampleV1 {
+                m10_pel_count: 63,
+                command_pel_count: 1,
+                total_pel_count: 64,
+                db15_evidence_bytes: 0,
+                root_free_bytes: u64::MAX,
+            }),
+            Stage8bP1fResourceDispositionV1::StopP1Phase(
+                Stage8bP1fResourceStopReasonV1::PelLimitExceeded
+            )
+        );
+        assert_eq!(
+            evaluate_stage8b_p1f_resource_sample_v1(Stage8bP1fResourceSampleV1 {
+                m10_pel_count: 0,
+                command_pel_count: 0,
+                total_pel_count: 0,
+                db15_evidence_bytes: STAGE8B_P1F_DB15_EVIDENCE_BUDGET_BYTES,
+                root_free_bytes: STAGE8B_P1F_MINIMUM_ROOT_FREE_BYTES,
+            }),
+            Stage8bP1fResourceDispositionV1::Continue
+        );
+        assert_eq!(
+            evaluate_stage8b_p1f_resource_sample_v1(Stage8bP1fResourceSampleV1 {
+                m10_pel_count: 0,
+                command_pel_count: 0,
+                total_pel_count: 0,
+                db15_evidence_bytes: STAGE8B_P1F_DB15_EVIDENCE_BUDGET_BYTES + 1,
+                root_free_bytes: u64::MAX,
+            }),
+            Stage8bP1fResourceDispositionV1::StopP1Phase(
+                Stage8bP1fResourceStopReasonV1::EvidenceBudgetExceeded
+            )
+        );
+        assert_eq!(
+            evaluate_stage8b_p1f_resource_sample_v1(Stage8bP1fResourceSampleV1 {
+                m10_pel_count: 0,
+                command_pel_count: 0,
+                total_pel_count: 0,
+                db15_evidence_bytes: 0,
+                root_free_bytes: STAGE8B_P1F_MINIMUM_ROOT_FREE_BYTES - 1,
+            }),
+            Stage8bP1fResourceDispositionV1::StopP1Phase(
+                Stage8bP1fResourceStopReasonV1::RootFreeBelowMinimum
+            )
+        );
         assert_eq!(STAGE8B_P1F_RESOURCE_POLL_INTERVAL_SECONDS, 5);
+    }
+
+    #[test]
+    fn rejected_cross_role_attempt_is_retained_without_command_material() {
+        let audit = Stage8bP1fRedisCommandAuditHandleV1::default();
+        assert!(matches!(
+            audit.record(
+                Stage8bP1fRedisRoleV1::ReadOnlyAuditor,
+                Stage8bP1fRedisSourceOperationV1::CommandPublication,
+                Some(Stage8bP1fRedisScriptV1::CommandPublicationV1),
+                b"forbidden-command-material",
+                Stage8bP1fRedisAuditResultV1::Succeeded,
+            ),
+            Err(Stage8bP1fRedisRoleErrorV1::ForbiddenOperation)
+        ));
+        let records = audit.snapshot().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].result, Stage8bP1fRedisAuditResultV1::Rejected);
+        assert_eq!(records[0].role, Stage8bP1fRedisRoleV1::ReadOnlyAuditor);
+        assert_eq!(
+            records[0].operation,
+            Stage8bP1fRedisAuditedOperationV1::Source(
+                Stage8bP1fRedisSourceOperationV1::CommandPublication
+            )
+        );
+        let encoded = serde_json::to_string(&records).unwrap();
+        assert!(!encoded.contains("forbidden-command-material"));
     }
 
     #[test]
@@ -1106,6 +1428,8 @@ mod tests {
         let decision = coordinate_stage8b_p1f_resource_sample_v1(
             &mut coordinator,
             Stage8bP1fResourceSampleV1 {
+                m10_pel_count: 0,
+                command_pel_count: 0,
                 total_pel_count: 0,
                 db15_evidence_bytes: STAGE8B_P1F_DB15_EVIDENCE_BUDGET_BYTES + 1,
                 root_free_bytes: u64::MAX,
@@ -1231,18 +1555,113 @@ mod tests {
         )
         .await
         .unwrap();
-        let mut control =
-            crate::stage8b_p1_supervisor::stage8b_p1e_test_redis_control_v1(&redis.url).await;
-        let mut probe = Stage8bP1fResourceProbeV1::connect_at(&redis.url)
-            .await
-            .unwrap();
-        let sample = probe.poll(&mut control).await.unwrap();
+        let mut probe = Stage8bP1fResourceProbeV1::connect_with_audit(
+            &redis.url,
+            Stage8bP1fRedisCommandAuditHandleV1::default(),
+        )
+        .await
+        .unwrap();
+        let sample = probe.poll().await.unwrap();
+        assert_eq!(sample.m10_pel_count, 0);
+        assert_eq!(sample.command_pel_count, 0);
         assert_eq!(sample.total_pel_count, 0);
         assert!(sample.db15_evidence_bytes > 0);
         assert!(sample.root_free_bytes > 0);
-        assert_eq!(probe.audit_records().len(), 1);
-        let encoded = serde_json::to_string(probe.audit_records()).unwrap();
+        let audit = probe.audit_records().unwrap();
+        assert_eq!(audit.len(), 1);
+        let encoded = serde_json::to_string(&audit).unwrap();
         assert!(!encoded.contains("used_memory="));
         assert!(encoded.contains("command_fingerprint_sha256"));
+    }
+
+    #[tokio::test]
+    async fn resource_monitor_performs_sequential_ticks_until_existing_latch_stops_it() {
+        let redis = RedisServer::start().await;
+        initialize_stage8b_p1_redis_namespace(
+            &redis.url,
+            Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
+        let audit = Stage8bP1fRedisCommandAuditHandleV1::default();
+        let mut probe = Stage8bP1fResourceProbeV1::connect_with_audit(&redis.url, audit.clone())
+            .await
+            .unwrap();
+        let latch = Arc::new(Stage8bP1eShutdownLatchV1::new());
+        let monitor_latch = Arc::clone(&latch);
+        let monitor = tokio::spawn(async move {
+            run_stage8b_p1f_resource_monitor_with_period_v1(
+                &mut probe,
+                monitor_latch,
+                100,
+                Duration::from_millis(10),
+            )
+            .await
+        });
+        tokio::time::sleep(Duration::from_millis(45)).await;
+        assert!(latch.intent().is_none());
+        assert!(latch.request(Stage8bP1eShutdownIntentV1::new(
+            Stage8bP1eShutdownCauseV1::ExternalSignal,
+            chrono::Utc::now().timestamp_millis() + 100,
+            1,
+        )));
+        let outcome = monitor.await.unwrap();
+        assert!(matches!(
+            outcome,
+            Stage8bP1fResourceMonitorOutcomeV1::ShutdownObserved {
+                completed_ticks: 2..
+            }
+        ));
+        let records = audit.snapshot().unwrap();
+        assert!(records.len() >= 2);
+        assert!(records.iter().all(|record| {
+            record.operation
+                == Stage8bP1fRedisAuditedOperationV1::Auxiliary(
+                    Stage8bP1fRedisAuxiliaryOperationV1::ResourcePoll,
+                )
+                && record.result == Stage8bP1fRedisAuditResultV1::Succeeded
+        }));
+    }
+
+    #[tokio::test]
+    async fn resource_monitor_probe_failure_requests_bounded_existing_shutdown() {
+        let redis = RedisServer::start().await;
+        initialize_stage8b_p1_redis_namespace(
+            &redis.url,
+            Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
+        let audit = Stage8bP1fRedisCommandAuditHandleV1::default();
+        let mut probe = Stage8bP1fResourceProbeV1::connect_with_audit(&redis.url, audit.clone())
+            .await
+            .unwrap();
+        drop(redis);
+        let latch = Arc::new(Stage8bP1eShutdownLatchV1::new());
+        let outcome = tokio::time::timeout(
+            Duration::from_secs(5),
+            run_stage8b_p1f_resource_monitor_with_period_v1(
+                &mut probe,
+                Arc::clone(&latch),
+                100,
+                Duration::from_millis(1),
+            ),
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            outcome,
+            Stage8bP1fResourceMonitorOutcomeV1::ProbeFailed { completed_ticks: 1 }
+        ));
+        let intent = latch.intent().expect("probe failure must stop the owner");
+        assert_eq!(
+            intent.cause(),
+            Stage8bP1eShutdownCauseV1::RedisLifecycleFailure
+        );
+        assert_eq!(intent.cause().exit_class(), 67);
+        assert_eq!(
+            audit.snapshot().unwrap().last().unwrap().result,
+            Stage8bP1fRedisAuditResultV1::Failed
+        );
     }
 }

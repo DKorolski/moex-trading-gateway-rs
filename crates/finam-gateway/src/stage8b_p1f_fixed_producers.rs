@@ -1015,6 +1015,12 @@ fn decode_lower_hex(value: &str) -> Result<Vec<u8>, Stage8bP1fProducerErrorV1> {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        net::TcpListener,
+        process::{Child, Command, Stdio},
+        time::Duration as StdDuration,
+    };
+
     use super::*;
     use crate::stage8b_p1e_schedule_publisher::{
         authorize_stage8b_p1e_first_publication,
@@ -1067,6 +1073,88 @@ mod tests {
                     exact_reread: true,
                 },
             )
+        }
+    }
+
+    struct RedisServer {
+        child: Child,
+        url: String,
+    }
+
+    impl RedisServer {
+        async fn start() -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            drop(listener);
+            let mut child = Command::new("redis-server")
+                .args([
+                    "--bind",
+                    "127.0.0.1",
+                    "--port",
+                    &port.to_string(),
+                    "--save",
+                    "",
+                    "--appendonly",
+                    "no",
+                ])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("redis-server is required for the linked P1F-Id response-loss proof");
+            let url = format!("redis://127.0.0.1:{port}/15");
+            for _ in 0..100 {
+                if let Ok(client) = redis::Client::open(url.as_str()) {
+                    if let Ok(mut connection) = redis::aio::ConnectionManager::new(client).await {
+                        let pong: redis::RedisResult<String> =
+                            redis::cmd("PING").query_async(&mut connection).await;
+                        if pong.as_deref() == Ok("PONG") && child.try_wait().unwrap().is_none() {
+                            return Self { child, url };
+                        }
+                    }
+                }
+                tokio::time::sleep(StdDuration::from_millis(10)).await;
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("temporary Redis did not start");
+        }
+    }
+
+    impl Drop for RedisServer {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    struct LoseFirstRedisResponsePort {
+        feeder: runtime_durable_service::Stage8bP1fM10FeederRedisV1,
+        lose_next_response: bool,
+    }
+
+    #[async_trait]
+    impl Stage8bP1fM10PublicationPortV1 for LoseFirstRedisResponsePort {
+        async fn publish_and_reread_exact_m10(
+            &mut self,
+            redis_id: &str,
+            canonical_bytes: &[u8],
+            operational_identity_sha256: &str,
+        ) -> Result<
+            runtime_durable_service::Stage8bP1fM10RedisPublicationReceiptV1,
+            Stage8bP1fProducerErrorV1,
+        > {
+            let receipt = self
+                .feeder
+                .publish_and_reread_exact_m10(
+                    redis_id,
+                    canonical_bytes,
+                    operational_identity_sha256,
+                )
+                .await?;
+            if std::mem::take(&mut self.lose_next_response) {
+                return Err(Stage8bP1fProducerErrorV1::DurableStateConflict);
+            }
+            Ok(receipt)
         }
     }
 
@@ -1410,6 +1498,87 @@ mod tests {
             load_stage8b_p1f_m10_producer_state(&path).unwrap(),
             published
         );
+    }
+
+    #[tokio::test]
+    async fn id_linked_real_redis_response_loss_restarts_prepared_without_duplicate() {
+        let redis = RedisServer::start().await;
+        runtime_durable_service::initialize_stage8b_p1_redis_namespace(
+            &redis.url,
+            runtime_durable_service::Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
+        let signer = FixtureSigner::new(104);
+        let now = timestamp(12, 10, 0);
+        let schedule = o3_published_schedule(now, &signer).await;
+        let first = authorize_stage8b_p1f_first_m10(FIRST_M10_CONFIRMATION).unwrap();
+        let prepared_state = prepared(
+            fixture_prepare_m10(
+                &signer,
+                o3_batch(
+                    observations(
+                        timestamp(12, 0, 0),
+                        now,
+                        MarketDataSourceKind::ReadOnlyPoll,
+                        0,
+                    ),
+                    now,
+                ),
+                &"4".repeat(64),
+                &schedule,
+                Stage8bP1fM10ProducerLineageV1::First(first),
+            )
+            .unwrap(),
+        );
+        let path = state_path("id-linked-real-redis-response-loss");
+        let first_feeder =
+            runtime_durable_service::Stage8bP1fM10FeederRedisV1::connect_synthetic_local_evidence(
+                &redis.url,
+                runtime_durable_service::Stage8bP1RedisConfig::paper_default_auto(),
+            )
+            .await
+            .unwrap();
+        let mut lossy_port = LoseFirstRedisResponsePort {
+            feeder: first_feeder,
+            lose_next_response: true,
+        };
+        assert!(
+            publish_stage8b_p1f_prepared_m10(&path, prepared_state.clone(), &mut lossy_port)
+                .await
+                .is_err()
+        );
+        drop(lossy_port);
+        let retained = load_stage8b_p1f_m10_producer_state(&path).unwrap();
+        assert_eq!(retained.phase(), Stage8bP1fM10ProducerPhaseV1::Prepared);
+        assert_eq!(retained, prepared_state);
+
+        let mut restarted_port =
+            runtime_durable_service::Stage8bP1fM10FeederRedisV1::connect_synthetic_local_evidence(
+                &redis.url,
+                runtime_durable_service::Stage8bP1RedisConfig::paper_default_auto(),
+            )
+            .await
+            .unwrap();
+        let published = publish_stage8b_p1f_prepared_m10(&path, retained, &mut restarted_port)
+            .await
+            .unwrap();
+        assert_eq!(published.phase(), Stage8bP1fM10ProducerPhaseV1::Published);
+        assert_eq!(published.publication_sequence(), 1);
+        assert_eq!(
+            load_stage8b_p1f_m10_producer_state(&path).unwrap(),
+            published
+        );
+
+        let client = redis::Client::open(redis.url.as_str()).unwrap();
+        let mut connection = redis::aio::ConnectionManager::new(client).await.unwrap();
+        let namespace = runtime_durable_service::stage8b_p1_redis_namespace();
+        let stream_length: u64 = redis::cmd("XLEN")
+            .arg(&namespace.canonical_m10_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(stream_length, 1);
     }
 
     #[tokio::test]
