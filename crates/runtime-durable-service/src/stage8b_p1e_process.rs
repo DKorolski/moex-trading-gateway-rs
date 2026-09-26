@@ -5200,19 +5200,33 @@ async fn execute_run(
     let shutdown_grace_ms = supervisor.shutdown_grace_ms();
     let coordinator = Stage8bP1eCoordinatorV1::new();
     let latch = coordinator.shutdown_latch();
+    // Process supervision owns the audit sink. It therefore survives every
+    // early owner return and a grace-deadline abort, and can always emit the
+    // bounded terminal snapshot after the owner task has been settled.
+    let p1f_audit = Stage8bP1fRedisCommandAuditHandleV1::default();
     let owner = tokio::spawn(run_stage8b_p1e_production_owner_v1(
         supervisor,
         trusted_now,
         latch,
+        p1f_audit.clone(),
     ));
-    supervise_stage8b_p1e_owner_task_v1(owner, coordinator, shutdown_grace_ms, terminate, interrupt)
-        .await
+    let result = supervise_stage8b_p1e_owner_task_v1(
+        owner,
+        coordinator,
+        shutdown_grace_ms,
+        terminate,
+        interrupt,
+    )
+    .await;
+    emit_stage8b_p1f_audit_snapshot_v1(&p1f_audit);
+    result
 }
 
 async fn run_stage8b_p1e_production_owner_v1(
     supervisor: Stage8bP1eValidatedSupervisorConfigV1,
     trusted_now: DateTime<Utc>,
     latch: Arc<Stage8bP1eShutdownLatchV1>,
+    p1f_audit: Stage8bP1fRedisCommandAuditHandleV1,
 ) -> Result<Stage8bP1eOwnerTaskBoundaryV1, Stage8bP1eProcessErrorV1> {
     stage8b_p1e_process_startup_test_barrier_v1("before-admission", &latch).await;
     if latch.intent().is_some() {
@@ -5273,7 +5287,6 @@ async fn run_stage8b_p1e_production_owner_v1(
 
     let redis_url = attach_plan.redis_url().to_string();
     let consumer_name = attach_plan.consumer_name().to_string();
-    let p1f_audit = Stage8bP1fRedisCommandAuditHandleV1::default();
     stage8b_p1e_process_startup_test_barrier_v1("before-redis-attach", &latch).await;
     if latch.intent().is_some() {
         drop(attachable);
@@ -5479,23 +5492,20 @@ async fn run_stage8b_p1e_production_owner_v1(
         )
         .await
     };
-    let result = settle_stage8b_p1e_production_telemetry_v1(
-        owner_result,
-        telemetry_succeeded,
-        latch.as_ref(),
-    );
-    emit_stage8b_p1f_audit_snapshot_v1(&p1f_audit);
-    result
+    settle_stage8b_p1e_production_telemetry_v1(owner_result, telemetry_succeeded, latch.as_ref())
 }
 
 fn emit_stage8b_p1f_audit_snapshot_v1(audit: &Stage8bP1fRedisCommandAuditHandleV1) {
+    eprintln!("{}", render_stage8b_p1f_audit_snapshot_v1(audit));
+}
+
+fn render_stage8b_p1f_audit_snapshot_v1(audit: &Stage8bP1fRedisCommandAuditHandleV1) -> String {
     let Ok(records) = audit.snapshot() else {
-        eprintln!("stage8b-p1f-redis-audit: audit_snapshot_failed");
-        return;
+        return "stage8b-p1f-redis-audit: audit_snapshot_failed".to_string();
     };
     match serde_json::to_string(&records) {
-        Ok(encoded) => eprintln!("stage8b-p1f-redis-audit: {encoded}"),
-        Err(_) => eprintln!("stage8b-p1f-redis-audit: audit_encoding_failed"),
+        Ok(encoded) => format!("stage8b-p1f-redis-audit: {encoded}"),
+        Err(_) => "stage8b-p1f-redis-audit: audit_encoding_failed".to_string(),
     }
 }
 
@@ -6526,6 +6536,96 @@ mod tests {
         assert!(!phases.iter().any(|phase| phase == "paper_ready"));
         assert!(phases.iter().any(|phase| phase == "draining"));
         assert_eq!(phases.last().map(String::as_str), Some("stopped"));
+    }
+
+    #[tokio::test]
+    async fn p1f_id_process_supervision_retains_failed_attach_audit_after_early_owner_return() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("p1f-id-early-attach-audit");
+        let supervisor =
+            crate::stage8b_p1_supervisor::stage8b_p1e_test_validated_production_supervisor_v1(
+                production_supervisor_config(parent.clone()),
+                PROCESS_FIXTURE_BOOT_ID,
+                &redis.url,
+                &"22".repeat(32),
+            );
+        let (_, _, attach_plan, _) = supervisor.into_run_parts();
+        let terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+        let interrupt =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()).unwrap();
+        let coordinator = Stage8bP1eCoordinatorV1::new();
+        let audit = Stage8bP1fRedisCommandAuditHandleV1::default();
+        let owner_audit = audit.clone();
+        let owner = tokio::spawn(async move {
+            let error = attach_stage8b_p1e_verified_redis_with_audit(&attach_plan, owner_audit)
+                .await
+                .err()
+                .expect("unprovisioned Redis must fail verify-only attach");
+            Err(map_redis_attach_error(error))
+        });
+
+        let result =
+            supervise_stage8b_p1e_owner_task_v1(owner, coordinator, 5_000, terminate, interrupt)
+                .await;
+        assert!(matches!(
+            result,
+            Err(Stage8bP1eProcessErrorV1::RedisDeployment)
+        ));
+        let terminal_output = render_stage8b_p1f_audit_snapshot_v1(&audit);
+        assert!(terminal_output.contains("verify-only-attach"));
+        assert!(terminal_output.contains("failed"));
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn p1f_id_process_supervision_retains_audit_after_owner_abort() {
+        let terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+        let interrupt =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()).unwrap();
+        let coordinator = Stage8bP1eCoordinatorV1::new();
+        let latch = coordinator.shutdown_latch();
+        let audit = Stage8bP1fRedisCommandAuditHandleV1::default();
+        let owner_audit = audit.clone();
+        let owner = tokio::spawn(async move {
+            owner_audit
+                .record(
+                    crate::Stage8bP1fRedisRoleV1::Supervisor,
+                    crate::Stage8bP1fRedisSourceOperationV1::SourceAcquireAndReclaim,
+                    None,
+                    b"XAUTOCLAIM canonical-m10 exact-id bounded",
+                    crate::Stage8bP1fRedisAuditResultV1::Succeeded,
+                )
+                .unwrap();
+            std::future::pending::<()>().await;
+            #[allow(unreachable_code)]
+            Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop)
+        });
+        for _ in 0..100 {
+            if !audit.snapshot().unwrap().is_empty() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(audit.snapshot().unwrap().len(), 1);
+        let now = Utc::now().timestamp_millis();
+        assert!(latch.request(Stage8bP1eShutdownIntentV1::new(
+            Stage8bP1eShutdownCauseV1::RedisLifecycleFailure,
+            now.saturating_add(40),
+            1,
+        )));
+
+        let result =
+            supervise_stage8b_p1e_owner_task_v1(owner, coordinator, 5_000, terminate, interrupt)
+                .await;
+        assert!(matches!(
+            result,
+            Err(Stage8bP1eProcessErrorV1::ShutdownGraceExpired)
+        ));
+        let terminal_output = render_stage8b_p1f_audit_snapshot_v1(&audit);
+        assert!(terminal_output.contains("source-acquire-and-reclaim"));
+        assert!(terminal_output.contains("succeeded"));
     }
 
     #[tokio::test]

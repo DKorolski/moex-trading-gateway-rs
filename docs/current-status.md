@@ -84,7 +84,8 @@ independently accepted at `5c2656fbe8691da256b5380dd16ce6f6b6aa1fa8`.
 The active source candidate is P1F-Id fixed Redis composition: eight closed
 roles, ten accepted operations, exact Prepared/publication/reread/Published
 ordering, a production-composed five-second two-group resource monitor,
-execution-point hash-only audit and linked real-Redis response-loss recovery. P1F-Ie remains
+execution-point hash-only audit, audited recovery reclaim, process-level terminal
+audit retention and linked real-Redis post-effect adapter-result-loss recovery. P1F-Ie remains
 the next aggregate source closure. P1F-Id is source-only and does not activate
 DB15, VPS services or provider execution. P1F-O0 remains closed.
 

@@ -13,7 +13,7 @@ P1FID-011,m10,Prepared state is durable before Redis publication,REQUIRED
 P1FID-012,m10,Only retained exact M10 bytes and deterministic ID are published,REQUIRED
 P1FID-013,m10,Exact Redis ID is reread after publication,REQUIRED
 P1FID-014,m10,Published requires matching ID bytes hash and reread proof,REQUIRED
-P1FID-015,restart,Post-effect Redis response loss leaves durable state Prepared,REQUIRED
+P1FID-015,restart,Post-effect adapter-result loss before Published leaves durable state Prepared,REQUIRED
 P1FID-016,restart,Restart retries byte-identical retained M10 material,REQUIRED
 P1FID-017,restart,Fresh M1 candidate cannot replace unresolved Prepared state,REQUIRED
 P1FID-018,redis,Equal existing M10 is classified idempotently,REQUIRED
@@ -27,5 +27,5 @@ P1FID-025,resource,Redis evidence budget boundary is 536870912 bytes,REQUIRED
 P1FID-026,resource,Root free-space floor is 10737418240 bytes,REQUIRED
 P1FID-027,resource,Resource limit or probe failure enters existing first-wins RedisLifecycleFailure terminal path,REQUIRED
 P1FID-028,resource,Resource failure performs no trim delete config restart or P0 action,REQUIRED
-P1FID-029,evidence,Linked isolated Redis proves post-effect response-loss replay one entry and resource reads,REQUIRED
+P1FID-029,evidence,Linked isolated Redis proves post-effect adapter-result-loss replay one entry and resource reads,REQUIRED
 P1FID-030,boundary,Install VPS operational Redis provider FINAM writes runtime-live and real orders remain closed,REQUIRED

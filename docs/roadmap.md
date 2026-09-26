@@ -410,7 +410,8 @@ GET/read-only producers are independently accepted at
 `5c2656fbe8691da256b5380dd16ce6f6b6aa1fa8`. P1F-Id is the active source
 candidate: eight fixed Redis roles, ten accepted operations, exact retained
 M10 publication/reread, production-composed two-group resource polling,
-execution-point hash-only command audit and linked response-loss recovery.
+execution-point hash-only command audit, shared recovery-reclaim coverage,
+process-level terminal retention and linked post-effect adapter-result-loss recovery.
 P1F-Ie aggregate source closure remains required; P1F-O0 stays closed until
 P1F-Ie acceptance. The remaining sequence is:
 guardian foundation, remaining source composition, immutable read-only target preflight, non-activating

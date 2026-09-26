@@ -21,7 +21,7 @@ MANIFEST = PREFIX + "source-tree-manifest.json"
 COMMIT_RAW = PREFIX + "source-commit.raw"
 EVIDENCE = PREFIX + "stage8b-p1f-id-evidence.json"
 GATE = PREFIX + "stage8b-p1f-id-gate.txt"
-REVIEW = PREFIX + "reviews/FINAM_P1F_ID_REVIEW_c7ce3ba_2026-09-26.md"
+REVIEW = PREFIX + "reviews/FINAM_P1F_ID_R1_REVIEW_ea2897a_2026-09-26.md"
 GENERATED = {MARKER, MANIFEST, COMMIT_RAW, EVIDENCE, GATE, REVIEW}
 REQUIRED = GENERATED | source_check.ALLOWED_CHANGES
 
@@ -139,7 +139,7 @@ def check(path: str) -> dict[str, object]:
         require(evidence["source_tree"] == marker["source_tree"], "evidence tree mismatch")
         require(
             evidence["status"]
-            == "FIXED_REDIS_COMPOSITION_CORRECTION_REVIEW_CANDIDATE_NO_ACTIVATION",
+            == "FIXED_REDIS_COMPOSITION_CORRECTION_R2_REVIEW_CANDIDATE_NO_ACTIVATION",
             "evidence status mismatch",
         )
         require(evidence["accepted_ic_ref"] == source_check.BASE, "evidence Ic mismatch")
@@ -155,8 +155,8 @@ def check(path: str) -> dict[str, object]:
             evidence["changed_paths"] == sorted(source_check.ALLOWED_CHANGES),
             "changed path drift",
         )
-        require(evidence["source_negative_cases"] == 29, "negative count mismatch")
-        require(evidence["targeted_rust_tests"] == 18, "targeted test count mismatch")
+        require(evidence["source_negative_cases"] == 34, "negative count mismatch")
+        require(evidence["targeted_rust_tests"] == 21, "targeted test count mismatch")
         require(
             all(flag is False for flag in evidence["closed_surfaces"].values()),
             "surface opened",
@@ -176,7 +176,7 @@ def check(path: str) -> dict[str, object]:
         )
         for expected in (
             b"PASS stage8b-p1f-id-check",
-            b"PASS stage8b-p1f-id-negative-harness 29/29",
+            b"PASS stage8b-p1f-id-negative-harness 34/34",
             b"PASS positive-control",
             b"PASS nonsemantic-control",
             b"test result: ok.",

@@ -2,9 +2,9 @@
 
 Status: `REVIEW_CANDIDATE_SOURCE_ONLY_NO_ACTIVATION`.
 
-Correction baseline: reviewed Id candidate
-`c7ce3ba15e336a792b5b67aa3919d7efa7861c6c`; the correction closes P1-ID01,
-P1-ID02 and supplies the requested linked P2-ID03 witness without opening Ie.
+Correction baseline: reviewed Id R1 candidate
+`ea2897a2831168cc9bfe33ca63161182ab065850`; this final narrow correction
+closes the remaining P1-ID02 recovery/terminal-audit gaps without opening Ie.
 
 Immutable predecessor: accepted P1F-Ic commit
 `5c2656fbe8691da256b5380dd16ce6f6b6aa1fa8`. Its independent review is bound
@@ -20,8 +20,9 @@ P1F-Id implements the narrow source composition authorized by the Ic review:
 - fixed loopback DB15 production endpoints and no exposed raw connection;
 - exact retained `Prepared` M10 publication, exact Redis-ID reread and only
   then durable `Published` high-water;
-- response-loss/restart replay of the same retained bytes and deterministic
-  ID, without rebuilding from a fresh M1 batch;
+- post-effect adapter-result loss followed by a controlled restart before
+  `Published`, replaying the same retained bytes and deterministic ID without
+  rebuilding from a fresh M1 batch;
 - one five-second bounded resource task in the existing production owner
   `select`, measuring both fixed P1 groups, conservative Redis memory/evidence
   use and root free space;
@@ -31,13 +32,16 @@ P1F-Id implements the narrow source composition authorized by the Ic review:
   command fingerprints and results, never raw command material or credentials.
 - execution-point audit wiring for verify-only attach, retention admission,
   schedule read, stale discovery/cleanup, acquire/reclaim, command publication
-  and XACK-last; rejected cross-role attempts are retained as `Rejected`.
+  and XACK-last; rejected cross-role attempts are retained as `Rejected`;
+- shared exact-reclaim auditing for restart/recovery routes, plus process-level
+  ownership and terminal emission of the bounded sink after early return or
+  owner abort.
 
 This is a closed composition, not a generic Redis proxy or extensible policy
 engine. `PhaseGuardian` and `BrokerTruthObserver` deliberately have no Redis
-capability. The read-only resource probe owns a private connection and can
-issue only `INFO memory`; PEL inspection remains in the accepted bounded
-supervisor control API.
+capability. The read-only resource probe owns a private connection and issues
+only `INFO memory` plus bounded `XPENDING` reads for the exact canonical-M10
+and command groups.
 
 ## Publication ordering
 
@@ -45,16 +49,19 @@ The M10 publication transition is:
 
 1. validate and durably persist the exact `Prepared` state;
 2. publish only `exact_canonical_m10_bytes` under its deterministic Redis ID;
-3. resolve Redis response loss through the accepted exact-ID `XRANGE` path;
+3. resolve an uncertain publication result through the accepted exact-ID
+   `XRANGE` path;
 4. perform an explicit exact reread and compare ID and bytes;
 5. validate the receipt ID, bytes SHA-256 and `exact_reread=true`;
 6. mark the retained state `Published`, fsync, rename, parent-fsync and reread.
 
-Any error before step 6 leaves the same durable `Prepared` state. A linked
-real-Redis control executes the Redis effect, deliberately loses the response,
-creates a fresh producer/feeder instance, reloads `Prepared`, retries and
-proves one stream entry plus unchanged sequence. A restart therefore cannot
-advance the high-water or synthesize replacement bytes.
+Any error before step 6 leaves the same durable `Prepared` state. The linked
+real-Redis control executes the effect and exact reread, then loses the adapter
+result before the producer persists `Published`. A fresh producer/feeder
+instance reloads `Prepared`, retries and proves one stream entry plus unchanged
+sequence. This is a controlled post-effect restart witness, not a simulated
+network-response loss before reread. A restart cannot advance the high-water
+or synthesize replacement bytes.
 
 ## Resource behavior
 
@@ -71,9 +78,11 @@ restart or P0 service action.
 Targeted Rust tests cover the fixed role/script matrix, retained rejected
 cross-role evidence, hash-only bounded audit, exact boundary values, repeated
 resource ticks, fail-closed probe loss, real supervisor-operation audit,
+recovery reclaim success/failure with no Ready double-accounting, retained
+audit after early startup failure and grace-deadline owner abort,
 existing terminal routing, real isolated-Redis idempotent publication plus
-exact reread, one linked post-effect response-loss restart, and refusal of a
-forged reread receipt. The source checker and mutation harness pin these
+exact reread, one linked post-effect adapter-result-loss restart, and refusal
+of a forged reread receipt. The source checker and mutation harness pin these
 properties and all closed surfaces. The aggregate gate also runs the complete
 runtime durability suite with all features, the complete FINAM gateway suite
 with its normal closed-endpoint feature set, both all-feature doctest suites,

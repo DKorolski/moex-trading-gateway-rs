@@ -6674,9 +6674,28 @@ impl Stage8bP1RedisBackend {
         &mut self,
         expected_id: &str,
     ) -> Result<Stage8bP1PendingM10Delivery, Stage8bP1RedisSemanticError> {
-        self.try_reclaim_exact_id(expected_id)
-            .await?
-            .ok_or(Stage8bP1RedisSemanticError::ExactPendingEntryMissing)
+        // Recovery routes do not pass through the Ready acquisition wrappers.
+        // Audit the shared exact-reclaim execution point so every pending or
+        // committed continuation records the real XAUTOCLAIM result once.
+        // Ready wrappers call `try_reclaim_exact_id` directly and retain their
+        // existing aggregate acquisition record, avoiding duplicate entries.
+        let result = match self.try_reclaim_exact_id(expected_id).await {
+            Ok(Some(delivery)) => Ok(delivery),
+            Ok(None) => Err(Stage8bP1RedisSemanticError::ExactPendingEntryMissing),
+            Err(error) => Err(error),
+        };
+        let command_material = format!("XAUTOCLAIM canonical-m10 exact-id {expected_id} bounded");
+        self.record_p1f_supervisor_audit(
+            Stage8bP1fRedisSourceOperationV1::SourceAcquireAndReclaim,
+            None,
+            command_material.as_bytes(),
+            if result.is_ok() {
+                Stage8bP1fRedisAuditResultV1::Succeeded
+            } else {
+                Stage8bP1fRedisAuditResultV1::Failed
+            },
+        )?;
+        result
     }
 
     async fn try_reclaim_exact_id(
@@ -17227,9 +17246,11 @@ pub(crate) mod tests {
             panic!("uncovered RequestAccepted must remain typed pending");
         };
         tokio::time::sleep(Duration::from_millis(5)).await;
-        let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+        let mut transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
             .await
             .unwrap();
+        let audit = Stage8bP1fRedisCommandAuditHandleV1::default();
+        transport.install_stage8b_p1f_supervisor_audit_v1(audit.clone());
         let pending = p1e_test_resume_journal_ahead(*pending, transport, &key)
             .await
             .unwrap();
@@ -17243,7 +17264,75 @@ pub(crate) mod tests {
             Stage8bP1RedisCommandPublicationDisposition::Published
         );
         assert!(!published.m10_xack_allowed());
+        let reclaim_records: Vec<_> = audit
+            .snapshot()
+            .unwrap()
+            .into_iter()
+            .filter(|record| {
+                record.operation
+                    == crate::Stage8bP1fRedisAuditedOperationV1::Source(
+                        Stage8bP1fRedisSourceOperationV1::SourceAcquireAndReclaim,
+                    )
+            })
+            .collect();
+        assert_eq!(reclaim_records.len(), 1);
+        assert_eq!(
+            reclaim_records[0].result,
+            Stage8bP1fRedisAuditResultV1::Succeeded
+        );
         drop(published);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn p1f_id_failed_exact_reclaim_is_audited_and_remains_fail_closed() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("p1f-id-reclaim-failure-audit");
+        let (_, _, _, identity) = first_boot(&parent);
+        let mut transport = initialize_stage8b_p1_redis_namespace(
+            &redis.url,
+            Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
+        transport
+            .publish_canonical_m10(
+                &canonical_m10(identity.clone(), 1_785_759_000_000, 2_650),
+                &identity,
+            )
+            .await
+            .unwrap();
+        let delivery = transport.backend.read_next_fresh().await.unwrap();
+        let audit = Stage8bP1fRedisCommandAuditHandleV1::default();
+        transport.install_stage8b_p1f_supervisor_audit_v1(audit.clone());
+
+        let namespace = stage8b_p1_redis_namespace();
+        let mut control = redis.connection().await;
+        let destroyed: i64 = redis::cmd("XGROUP")
+            .arg("DESTROY")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut control)
+            .await
+            .unwrap();
+        assert_eq!(destroyed, 1);
+
+        assert!(matches!(
+            transport
+                .backend
+                .reclaim_exact_id(delivery.redis_id())
+                .await,
+            Err(Stage8bP1RedisSemanticError::Redis(_))
+        ));
+        let records = audit.snapshot().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(
+            records[0].operation,
+            crate::Stage8bP1fRedisAuditedOperationV1::Source(
+                Stage8bP1fRedisSourceOperationV1::SourceAcquireAndReclaim,
+            )
+        );
+        assert_eq!(records[0].result, Stage8bP1fRedisAuditResultV1::Failed);
         fs::remove_dir_all(parent).unwrap();
     }
 
@@ -17437,7 +17526,17 @@ pub(crate) mod tests {
             Stage8bP1RedisSemanticOutcome::Prepublication(_)
         ));
         let records = audit.snapshot().unwrap();
-        assert!(records.iter().any(|record| {
+        let acquisition_records: Vec<_> = records
+            .iter()
+            .filter(|record| {
+                record.operation
+                    == crate::Stage8bP1fRedisAuditedOperationV1::Source(
+                        Stage8bP1fRedisSourceOperationV1::SourceAcquireAndReclaim,
+                    )
+            })
+            .collect();
+        assert_eq!(acquisition_records.len(), 1);
+        assert!(acquisition_records.iter().any(|record| {
             record.operation
                 == crate::Stage8bP1fRedisAuditedOperationV1::Source(
                     Stage8bP1fRedisSourceOperationV1::SourceAcquireAndReclaim,

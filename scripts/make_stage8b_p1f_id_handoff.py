@@ -17,7 +17,7 @@ import stage8b_p1f_id_handoff_safety_check as safety
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "reports/handoff"
 REVIEW_SOURCE = Path(
-    "/Users/denisq/Downloads/FINAM_P1F_ID_REVIEW_c7ce3ba_2026-09-26.md"
+    "/Users/denisq/Downloads/FINAM_P1F_ID_R1_REVIEW_ea2897a_2026-09-26.md"
 )
 
 
@@ -76,7 +76,7 @@ def main() -> None:
         raise SystemExit("stage8b-p1f-id-handoff: FAIL source changed during evidence run")
 
     short = source_ref[:7]
-    archive_name = f"moex-trading-project-{short}-stage8b-p1f-id-r1-review-package.zip"
+    archive_name = f"moex-trading-project-{short}-stage8b-p1f-id-r2-review-package.zip"
     archive_path = OUTPUT / archive_name
     manifest, entries = common.source_manifest(source_ref)
     closed_surfaces = {
@@ -93,7 +93,7 @@ def main() -> None:
     evidence = {
         "schema_version": 1,
         "stage": safety.STAGE,
-        "status": "FIXED_REDIS_COMPOSITION_CORRECTION_REVIEW_CANDIDATE_NO_ACTIVATION",
+        "status": "FIXED_REDIS_COMPOSITION_CORRECTION_R2_REVIEW_CANDIDATE_NO_ACTIVATION",
         "source_ref": source_ref,
         "source_parent": source_parent,
         "source_tree": source_tree,
@@ -106,9 +106,9 @@ def main() -> None:
         "changed_paths": sorted(changed),
         "manifest_sha256": sha256(manifest),
         "gate_sha256": sha256(gate),
-        "source_negative_cases": 29,
+        "source_negative_cases": 34,
         "acceptance_matrix_rows": 30,
-        "targeted_rust_tests": 18,
+        "targeted_rust_tests": 21,
         "fixed_redis_roles": 8,
         "source_operations": 10,
         "pinned_lua_scripts": 8,

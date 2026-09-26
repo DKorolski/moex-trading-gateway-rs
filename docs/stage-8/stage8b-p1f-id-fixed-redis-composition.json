@@ -22,7 +22,7 @@
     "checker": "scripts/stage8b_p1f_id_check.py",
     "full_regression": "runtime-durable-service all-features; finam-gateway default feature set; both all-features doctests and strict all-targets clippy",
     "gate": "scripts/stage8b_p1f_id_gate.sh",
-    "id_specific_rust_tests": 18,
+    "id_specific_rust_tests": 21,
     "negative_harness": "scripts/stage8b_p1f_id_negative_harness.py",
     "producer_publication_tests": 3,
     "redis_role_tests": 12,
@@ -32,8 +32,8 @@
   "publication": {
     "effect_order": ["persist_prepared", "publish_exact_retained_bytes", "exact_id_reread", "validate_receipt", "persist_published"],
     "fresh_candidate_rebuild_on_restart": false,
-    "linked_real_redis_response_loss_witness": true,
-    "response_loss": "retain Prepared and retry identical bytes and deterministic Redis ID",
+    "linked_real_redis_post_effect_adapter_result_loss_witness": true,
+    "result_loss": "after Redis effect and exact reread but before Published retain Prepared and retry identical bytes and deterministic Redis ID",
     "success_proof": "matching Redis ID, canonical bytes SHA-256 and exact_reread=true"
   },
   "redis": {

@@ -13,8 +13,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 BASE = "5c2656fbe8691da256b5380dd16ce6f6b6aa1fa8"
 REVIEW_SHA256 = "ee69d58bc70288f447a9ab880d2a2eec01fefdfe6f86ce3be603eb7f5a1b30b3"
-REVIEWED_ID_CANDIDATE = "c7ce3ba15e336a792b5b67aa3919d7efa7861c6c"
-CORRECTION_REVIEW_SHA256 = "295ac3f17a62a42b3de4ac553783c68ed5b6213419f42e6ea5195e0c00232b11"
+REVIEWED_ID_CANDIDATE = "ea2897a2831168cc9bfe33ca63161182ab065850"
+CORRECTION_REVIEW_SHA256 = "278d5e5f6c837e8f1cb27882d46b626675d8ae2d811571264e8212501448970e"
 REDIS = "crates/runtime-durable-service/src/stage8b_p1f_fixed_redis.rs"
 SEMANTIC = "crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs"
 SUPERVISOR = "crates/runtime-durable-service/src/stage8b_p1_supervisor.rs"
@@ -137,7 +137,15 @@ def validate_inventory(root: Path) -> None:
         "stale-consumer-discovery", "stale-consumer-cleanup",
         "source-acquire-and-reclaim", "command-publication", "source-xack-last",
     ], "supervisor audit coverage drift")
-    require(value["publication"]["linked_real_redis_response_loss_witness"] is True, "linked response-loss witness missing")
+    require(
+        value["publication"]["linked_real_redis_post_effect_adapter_result_loss_witness"] is True,
+        "linked post-effect adapter-result-loss witness missing",
+    )
+    require(
+        value["publication"]["result_loss"]
+        == "after Redis effect and exact reread but before Published retain Prepared and retry identical bytes and deterministic Redis ID",
+        "result-loss boundary drift",
+    )
     require(all(flag is False for flag in value["closed_surfaces"].values()), "closed surface opened")
     require(value["next_after_acceptance"] == "P1F-Ie aggregate source closure; P1F-O0 remains closed", "next boundary drift")
 
@@ -211,6 +219,15 @@ def validate_source(root: Path) -> None:
             f"semantic supervisor audit missing: {operation}",
         )
     require("p1f_id_real_acquisition_and_retention_emit_supervisor_audit" in semantic, "real acquisition audit control missing")
+    require(
+        'format!("XAUTOCLAIM canonical-m10 exact-id {expected_id} bounded")' in semantic,
+        "shared exact-reclaim audit hook missing",
+    )
+    require(
+        "p1c_journal_ahead_reclaims_real_pel_before_reconstructing_s1" in semantic
+        and "p1f_id_failed_exact_reclaim_is_audited_and_remains_fail_closed" in semantic,
+        "recovery reclaim audit controls missing",
+    )
     require("p1d2_market_feedback_commits_ack_then_truth_then_xacks_source" in semantic, "command/XACK audit control missing")
     for operation in ("VerifyOnlyAttach", "StaleConsumerDiscovery", "StaleConsumerCleanup"):
         require(
@@ -230,6 +247,37 @@ def validate_source(root: Path) -> None:
         "emit_stage8b_p1f_audit_snapshot_v1(&p1f_audit);",
     ):
         require(fragment in process, f"production Id composition missing: {fragment}")
+    execute_start = process.index("async fn execute_run(")
+    owner_start = process.index("async fn run_stage8b_p1e_production_owner_v1(")
+    execute = process[execute_start:owner_start]
+    require(
+        "let p1f_audit = Stage8bP1fRedisCommandAuditHandleV1::default();" in execute,
+        "process-level audit owner missing",
+    )
+    require(
+        "tokio::spawn(run_stage8b_p1e_production_owner_v1(" in execute
+        and "supervise_stage8b_p1e_owner_task_v1(" in execute
+        and "emit_stage8b_p1f_audit_snapshot_v1(&p1f_audit);" in execute,
+        "process-level audit terminal path missing",
+    )
+    audit_owner = execute.index("let p1f_audit = Stage8bP1fRedisCommandAuditHandleV1::default();")
+    owner_spawn = execute.index("tokio::spawn(run_stage8b_p1e_production_owner_v1(")
+    supervision = execute.index("supervise_stage8b_p1e_owner_task_v1(")
+    terminal_emit = execute.index("emit_stage8b_p1f_audit_snapshot_v1(&p1f_audit);")
+    require(
+        audit_owner < owner_spawn < supervision < terminal_emit,
+        "process-level audit ownership/emission order drift",
+    )
+    require("p1f_audit.clone()," in execute, "owner did not receive shared process audit")
+    require(
+        "p1f_id_process_supervision_retains_failed_attach_audit_after_early_owner_return"
+        in process,
+        "early startup audit retention control missing",
+    )
+    require(
+        "p1f_id_process_supervision_retains_audit_after_owner_abort" in process,
+        "owner-abort audit retention control missing",
+    )
     require("tokio::spawn(run_stage8b_p1f_resource_monitor_v1" not in process, "resource monitor detached")
     for fragment in (
         "pub trait Stage8bP1fM10PublicationPortV1",
