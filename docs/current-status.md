@@ -37,9 +37,12 @@ P1F-Ie is independently `CLOSED / SOURCE ACCEPTED` at
 `940377ab2bd406be31547200ca0b8cc3bb0f3e22`; its acceptance review SHA-256 is
 `94b224e56c30e4ad54b5db6d0d744b1fd7fbf06897e58af9be3382a3c9d5af96`.
 P1-IE01 and P2-IE02 are closed, so P1F-Ia through P1F-Ie form the accepted
-source baseline. The active boundary is preparation of a separate P1F-O0
-immutable read-only target preflight. O0 has observation authority only;
-P1F-O1 provisioning and every activation surface remain closed.
+source baseline. P1F-O0 has now produced an immutable read-only target
+preflight candidate for `stage8b-p1f-isolated-vps-1`. Its retained observation
+passes target identity, resources, loopback Redis, empty DB15, unchanged P0
+service identity and absent P1 identity checks. O0 has observation authority
+only; P1F-O1 provisioning and every activation surface remain closed pending
+independent O0 acceptance.
 Source authority is not activation authority.
 Operational installation or service start, Redis DB15/DB0 activation, VPS
 deployment, paper-provider execution, FINAM POST/DELETE/send, broker dispatch,
