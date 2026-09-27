@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P1-f Ie governance closure",
+  "status": "CLOSED_SOURCE_ACCEPTED_NO_ACTIVATION",
+  "accepted_source": {
+    "commit": "940377ab2bd406be31547200ca0b8cc3bb0f3e22",
+    "tree": "cb7af50342bf9a96b896cda4ca5ad51b067edca3",
+    "archive_sha256": "7ccea070230e2e0b452f9650ab34c24b742acd5f8ee53bfab5b6de94e1b00654"
+  },
+  "independent_review": {
+    "file": "FINAM_P1F_IE_SOURCE_ACCEPT_940377a_2026-09-27.md",
+    "sha256": "94b224e56c30e4ad54b5db6d0d744b1fd7fbf06897e58af9be3382a3c9d5af96",
+    "verdict": "SOURCE_ACCEPT"
+  },
+  "accepted_evidence_boundary": "local linked source-composition witness with controlled durable-owner restart/readmission; not OS SIGKILL production executable or systemd rehearsal",
+  "transition": {
+    "p1f_source_closed": true,
+    "p1f_o0_read_only_preflight_authorized": true,
+    "p1f_o1_provisioning_authorized": false,
+    "p1f_o2_bootstrap_authorized": false,
+    "p1f_o3_synthetic_session_authorized": false,
+    "p1f_o4_finam_bars_session_authorized": false,
+    "p1f_aggregate_acceptance_complete": false
+  },
+  "closed_surfaces": {
+    "remote_mutation": false,
+    "installation_or_systemd_activation": false,
+    "operational_redis_db15_or_db0_mutation": false,
+    "paper_provider_execution": false,
+    "finam_post_or_delete": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false
+  }
+}

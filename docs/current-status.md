@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-09-26.
+Status date: 2026-09-27.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -33,12 +33,13 @@ P1F-Ic fixed producers and retained high-water are independently accepted at
 is independently SOURCE ACCEPTED at
 `512db6e6e652a2b0a15be7b6dcb72b96e231950d`; its review SHA-256 is
 `3208f8472f7e9a0109f41187458f78bfdab780029b4cc6be610640e5c652b1b9`.
-The active source candidate is now the P1F-Ie linked-composition correction
-over held commit `0394cb702e7d11e1ee80f5a2f18177906bcc6be5`. It adds one true
-isolated O2 → fixed producers → shared Redis → supervised paper runtime →
-truth/XACK-last → readmission witness. The nine prior fixtures remain a
-separate aggregate regression suite. Only feature-gated fixture seams changed;
-Cargo, deployment and operational surfaces did not.
+P1F-Ie is independently `CLOSED / SOURCE ACCEPTED` at
+`940377ab2bd406be31547200ca0b8cc3bb0f3e22`; its acceptance review SHA-256 is
+`94b224e56c30e4ad54b5db6d0d744b1fd7fbf06897e58af9be3382a3c9d5af96`.
+P1-IE01 and P2-IE02 are closed, so P1F-Ia through P1F-Ie form the accepted
+source baseline. The active boundary is preparation of a separate P1F-O0
+immutable read-only target preflight. O0 has observation authority only;
+P1F-O1 provisioning and every activation surface remain closed.
 Source authority is not activation authority.
 Operational installation or service start, Redis DB15/DB0 activation, VPS
 deployment, paper-provider execution, FINAM POST/DELETE/send, broker dispatch,
