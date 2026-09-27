@@ -12,6 +12,7 @@ User=root
 Group=root
 UMask=0077
 LoadCredential=finam-readonly.token:/run/moex-finam-p1f-o2-input/finam-readonly.token
+LoadCredential=finam-account.id:/run/moex-finam-p1f-o2-input/finam-account.id
 ExecStart=/usr/local/libexec/moex/stage8b-p1f-o2-materializer
 TimeoutStartSec=180s
 NoNewPrivileges=yes

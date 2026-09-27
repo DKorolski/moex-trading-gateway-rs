@@ -23,6 +23,7 @@ const M1_SEMANTIC_DOMAIN: &str = "moex.stage8b.p1f.exact-m1.v1";
 const MAX_CANDIDATE_AGE_SECONDS: i64 = 900;
 const MAX_BARS_CHUNK_SECONDS: i64 = 7 * 24 * 60 * 60;
 const MAX_BARS_RANGE_SECONDS: i64 = 400 * 24 * 60 * 60;
+pub const STAGE8B_P1F_O2_ACCOUNT_TEMPLATE_SENTINEL: &str = "INJECT_FROM_ACCOUNT_CREDENTIAL";
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -210,7 +211,9 @@ pub fn materialize_stage8b_p1f_o2_source_v1(
         .and_then(|truth| truth.get("account_id"))
         .and_then(Value::as_str)
         .ok_or(Stage8bP1fO2MaterializerErrorV1::Template)?;
-    if template_account != expected_account_id || account.account_id != expected_account_id {
+    if template_account != STAGE8B_P1F_O2_ACCOUNT_TEMPLATE_SENTINEL
+        || account.account_id != expected_account_id
+    {
         return Err(Stage8bP1fO2MaterializerErrorV1::AccountTruth);
     }
     validate_flat_target(&account)?;
@@ -1010,7 +1013,7 @@ mod tests {
             "instrument_map_fingerprint_sha256": runtime_durable_service::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
             "source_bundle_generation": 1,
             "captured_at_utc": canonical_timestamp(trusted_now),
-            "broker_truth": {"account_id": account_id},
+            "broker_truth": {"account_id": STAGE8B_P1F_O2_ACCOUNT_TEMPLATE_SENTINEL},
             "history_provenance": {},
             "history_coverage": {
                 "source_mode": "config-bound-explicit-session-windows-v1",

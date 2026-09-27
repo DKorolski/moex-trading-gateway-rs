@@ -15,6 +15,8 @@ const POLICY_PATH: &str = "/etc/moex-finam-p1-paper/o2/materialization-policy.js
 const SOURCE_TEMPLATE_PATH: &str = "/etc/moex-finam-p1-paper/o2/source-template.json";
 const TOKEN_PATH: &str =
     "/run/credentials/moex-finam-p1f-o2-materializer.service/finam-readonly.token";
+const ACCOUNT_PATH: &str =
+    "/run/credentials/moex-finam-p1f-o2-materializer.service/finam-account.id";
 const STAGING_ROOT: &str = "/var/lib/moex-finam-p1-paper-o2-staging";
 const MAX_POLICY_BYTES: u64 = 64 * 1024;
 const MAX_TOKEN_BYTES: u64 = 16 * 1024;
@@ -27,7 +29,7 @@ const MAX_BARS_RANGE_DAYS: i64 = 400;
 struct MaterializationPolicyV1 {
     schema_version: u16,
     domain: String,
-    account_id: String,
+    account_id_sha256: String,
     venue_symbol: String,
     bars_start_utc: String,
     bars_end_utc: String,
@@ -79,6 +81,17 @@ fn run() -> Result<MaterializerResultV1, String> {
     let policy: MaterializationPolicyV1 =
         serde_json::from_slice(&policy_bytes).map_err(|_| "invalid materialization policy")?;
     validate_policy(&policy)?;
+    let account_bytes = Zeroizing::new(read_protected(
+        Path::new(ACCOUNT_PATH),
+        MAX_TOKEN_BYTES,
+        true,
+    )?);
+    let account_id = Zeroizing::new(read_single_line_secret(&account_bytes, "FINAM account id")?);
+    if sha256_hex(account_id.as_bytes()) != policy.account_id_sha256
+        || broker_finam::Stage8bP1fO2GetOnlyClientV1::new(account_id.as_str()).is_err()
+    {
+        return Err("FINAM account credential does not match policy".into());
+    }
     let template_bytes = read_protected(
         Path::new(SOURCE_TEMPLATE_PATH),
         runtime_durable_service::STAGE8B_P1E_FIRST_BOOT_SOURCE_MAX_BYTES,
@@ -88,7 +101,7 @@ fn run() -> Result<MaterializerResultV1, String> {
         .map_err(|error| error.to_string())?;
     let output_path = staging_path(&manifest_sha256)?;
     if output_path.exists() {
-        return validate_existing(&output_path, &manifest_sha256, &policy);
+        return validate_existing(&output_path, &manifest_sha256, &policy, &account_id);
     }
     validate_staging_root()?;
     let token_bytes = Zeroizing::new(read_protected(
@@ -96,14 +109,7 @@ fn run() -> Result<MaterializerResultV1, String> {
         MAX_TOKEN_BYTES,
         true,
     )?);
-    let token_text = std::str::from_utf8(&token_bytes).map_err(|_| "FINAM token is not UTF-8")?;
-    let token_text = token_text.strip_suffix('\n').unwrap_or(token_text);
-    if token_text.is_empty()
-        || token_text.len() > 8192
-        || token_text.bytes().any(|byte| byte.is_ascii_whitespace())
-    {
-        return Err("FINAM token boundary is invalid".into());
-    }
+    let token_text = read_single_line_secret(&token_bytes, "FINAM token")?;
     let token = AccessToken::new(token_text.to_string());
     let trusted_now = Utc::now();
     let materialized = tokio::runtime::Builder::new_current_thread()
@@ -111,7 +117,7 @@ fn run() -> Result<MaterializerResultV1, String> {
         .build()
         .map_err(|error| error.to_string())?
         .block_on(collect_stage8b_p1f_o2_source_v1(
-            &policy.account_id,
+            &account_id,
             &token,
             &template_bytes,
             &policy.bars_start_utc,
@@ -146,6 +152,7 @@ fn validate_existing(
     path: &Path,
     manifest_sha256: &str,
     policy: &MaterializationPolicyV1,
+    account_id: &str,
 ) -> Result<MaterializerResultV1, String> {
     let bytes = read_protected(path, MAX_STAGED_BYTES, false)?;
     let staged: StagedMaterializationV1 =
@@ -155,7 +162,8 @@ fn validate_existing(
         || staged.manifest_sha256 != manifest_sha256
         || staged.source_bundle_sha256 != sha256_hex(staged.exact_source_json.as_bytes())
         || staged.evidence.source_bundle_sha256 != staged.source_bundle_sha256
-        || staged.evidence.account_id_sha256 != sha256_hex(policy.account_id.as_bytes())
+        || staged.evidence.account_id_sha256 != policy.account_id_sha256
+        || staged.evidence.account_id_sha256 != sha256_hex(account_id.as_bytes())
     {
         return Err("retained staged package conflicts with active authority".into());
     }
@@ -168,7 +176,7 @@ fn validate_existing(
     runtime_durable_service::validate_stage8b_p1e_first_boot_source_bytes_v1(
         staged.exact_source_json.as_bytes(),
         identity,
-        &policy.account_id,
+        account_id,
         Utc::now(),
     )
     .map_err(|_| "retained source no longer satisfies fresh admission")?;
@@ -186,7 +194,7 @@ fn validate_policy(policy: &MaterializationPolicyV1) -> Result<(), String> {
     if policy.schema_version != 1
         || policy.domain != "stage8b-p1f-o2-materialization-policy-v1"
         || policy.venue_symbol != broker_finam::STAGE8B_P1F_O2_VENUE_SYMBOL
-        || broker_finam::Stage8bP1fO2GetOnlyClientV1::new(&policy.account_id).is_err()
+        || !valid_sha256(&policy.account_id_sha256)
     {
         return Err("materialization policy identity is invalid".into());
     }
@@ -200,6 +208,15 @@ fn validate_policy(policy: &MaterializationPolicyV1) -> Result<(), String> {
         return Err("materialization policy bars interval is insufficient".into());
     }
     Ok(())
+}
+
+fn read_single_line_secret(bytes: &[u8], label: &str) -> Result<String, String> {
+    let text = std::str::from_utf8(bytes).map_err(|_| format!("{label} is not UTF-8"))?;
+    let text = text.strip_suffix('\n').unwrap_or(text);
+    if text.is_empty() || text.len() > 8192 || text.bytes().any(|byte| byte.is_ascii_whitespace()) {
+        return Err(format!("{label} boundary is invalid"));
+    }
+    Ok(text.to_string())
 }
 
 fn canonical_time(value: &str) -> Result<DateTime<Utc>, String> {

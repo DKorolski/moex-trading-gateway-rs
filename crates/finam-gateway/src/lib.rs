@@ -85,6 +85,7 @@ pub use stage8b_p1f_o2_materializer::{
     collect_stage8b_p1f_o2_source_v1, materialize_stage8b_p1f_o2_source_v1,
     Stage8bP1fO2MaterializationEvidenceV1, Stage8bP1fO2MaterializedSourceV1,
     Stage8bP1fO2MaterializerErrorV1, Stage8bP1fO2RouteEvidenceV1,
+    STAGE8B_P1F_O2_ACCOUNT_TEMPLATE_SENTINEL,
 };
 #[cfg(feature = "stage8b-r2a7-source-adapter")]
 pub use stage8b_r2a7_source_adapter::{
