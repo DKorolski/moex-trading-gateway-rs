@@ -24,6 +24,14 @@ of one separate O2 fresh-materialization/bootstrap package is authorized; O2
 execution and all provider/live surfaces remain closed pending independent
 acceptance of that package.
 
+The active O2 R0 candidate freezes the execution contract only. It specifies
+the existing guardian/API facades, offline authority ceremony, fresh wire-V2
+source materialization, fixed-path lifecycle credential, 300-second admission,
+AF_UNIX-only bootstrap one-shot and retained evidence. It performs no key
+generation, target/FINAM/Redis contact, daemon reload or service start. A later
+immutable execution artifact and its actual execution each require separate
+acceptance.
+
 Stage 8B-P1-e I1 aggregate candidate
 `a9bcd940635b62c2a13f8d378453e6ca21511e30` is independently
 `CLOSED / ACCEPTED` in source, installation/systemd material and retained

@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P1-f O2 fresh materialization and isolated bootstrap package",
+  "status": "R0_EXECUTION_CONTRACT_REVIEW_CANDIDATE_DO_NOT_EXECUTE",
+  "accepted_predecessor": {
+    "o1_operational_commit": "997e8a1d201048fcdec0e948660f32a0bee3cceb",
+    "o1_governance_closure_commit": "e11744e31f11d567633716f21211c484bb9045eb",
+    "o1_governance_closure_sha256": "6d663cce47a38c859e5e0649774eb453a6d1d433abfe0fcf36e40be8fa7034fa",
+    "installed_binary_sha256": "cee324a4e4f251227a25d4a7b23dda332a94522b45407671982f4fc896614406",
+    "installation_manifest_sha256": "dab3e1426e40acb5101a8743cce5aac5aec8d3ae54d81fb73ac33c9bb18d464f"
+  },
+  "accepted_contracts": {
+    "operational_design": {
+      "path": "docs/stage-8/stage8b-p1f-isolated-operational-acceptance-design.json",
+      "sha256": "0077a7dbfdca4cbf2323726bffa2208125427b7c7cafc20cc0a9e848cdf6b0cd"
+    },
+    "first_boot_source_plan": {
+      "path": "docs/stage-8/stage8b-p1e-first-boot-source-plan-v2.json",
+      "sha256": "2a507577075b8b5315a462ffeee221dd0a7f8a8f61d42516fbdb9346cc3464ca"
+    },
+    "deployment_identity": {
+      "path": "docs/stage-8/stage8b-p1e-deployment-identity-v2.json",
+      "sha256": "428415fdedd3fd24ac128ee2ca703a6572e57644cad0cb40b30a9c96ea62a038"
+    },
+    "bootstrap_unit": {
+      "path": "deploy/stage8b-p1e/moex-finam-p1-paper-bootstrap.service",
+      "sha256": "f5f6db6e08d45f39fa3976701f78526a55e1485f3398f4140d13eaba1b2bc62b"
+    }
+  },
+  "target": {
+    "target_id": "stage8b-p1f-isolated-vps-1",
+    "hostname": "nektodk1.ispvds.com",
+    "ipv4": "45.150.11.252",
+    "ssh_ed25519_fingerprint": "SHA256:8fOAPkfvZ61LYmldUBs6A5ZC+BFr6O3yCvUrBAWZsAo"
+  },
+  "subphases": [
+    {
+      "id": "P1F-O2-M",
+      "effect": "read-only FINAM GET source collection followed by guardian materialize_o2",
+      "network": "documented FINAM read-only GET plus DNS/TLS only; no Redis and no order endpoint",
+      "terminal_output": "ReadyForBootstrap materialized-set receipt"
+    },
+    {
+      "id": "P1F-O2-B",
+      "effect": "one accepted first-boot durable-root creation",
+      "network": "PrivateNetwork=yes and AF_UNIX only",
+      "terminal_output": "accepted first-boot receipt and guardian Completed receipt"
+    }
+  ],
+  "fixed_paths": {
+    "control_root": "/var/lib/moex-finam-p1-paper-control",
+    "config": "/etc/moex-finam-p1-paper/supervisor.json",
+    "source": "/etc/moex-finam-p1-paper/bootstrap/stage8b-p1-first-boot-source-v1.json",
+    "lifecycle_credential": "/etc/moex-finam-p1-paper/credentials/stage8b-p1-lifecycle.key",
+    "durable_state": "/var/lib/moex-finam-p1-paper/state",
+    "bootstrap_unit": "moex-finam-p1-paper-bootstrap.service"
+  },
+  "freshness": {
+    "broker_truth_max_age_seconds_at_bootstrap": 300,
+    "stale_action": "guardian Failed; zero bootstrap mutation; retain evidence; require new manifest"
+  },
+  "facades_required_in_later_execution_artifact": [
+    "offline canonical Ed25519 signer with no secret output",
+    "root target guardian CLI over accepted Stage8bP1fAuthorityStoreV1 APIs only",
+    "read-only wire-V2 first-boot source materializer over accepted parsers/oracles",
+    "root O2-B runner holding the guardian permit across exact systemd one-shot",
+    "read-only redacted O2 evidence collector"
+  ],
+  "source_contract": {
+    "wire_schema_version": 2,
+    "broker_truth": "flat exact account and IMOEXF@RTSX complete positions/orders; price step 0.5",
+    "history": "at least 121 explicit Moscow sessions; final FINAM M1 aggregated through accepted M1-to-M10 path",
+    "riskgate": "at least 120 source-compatible high180 observations rebuilt and cross-validated",
+    "candidate": "one later canonical final M10; exact ten-M1 provenance; zero intents"
+  },
+  "bootstrap": {
+    "daemon_reload_allowed_once_after_full_reread": true,
+    "enable_allowed": false,
+    "command": "systemctl start --wait moex-finam-p1-paper-bootstrap.service",
+    "ordinary_service_start_allowed": false,
+    "redis_contact_allowed": false,
+    "finam_contact_allowed": false
+  },
+  "package_boundary": {
+    "execution_authorized": false,
+    "remote_mutation_performed": false,
+    "key_generation_performed": false,
+    "finam_contact_performed": false,
+    "redis_contact_performed": false,
+    "systemd_reload_or_start_performed": false
+  },
+  "closed_surfaces": {
+    "o2_execution": false,
+    "o3_synthetic_session": false,
+    "o4_finam_bars_session": false,
+    "ordinary_p1_service": false,
+    "redis_db15_or_db0_mutation": false,
+    "paper_provider_order_execution": false,
+    "finam_post_or_delete": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false
+  },
+  "next_after_acceptance": "build one immutable O2 execution artifact containing the reviewed thin facades, pinned public authority identity, policy/template and exact commands; review it before execution"
+}
