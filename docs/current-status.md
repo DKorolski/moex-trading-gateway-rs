@@ -37,6 +37,28 @@ generation, target/FINAM/Redis contact, daemon reload or service start. One
 immutable execution artifact may now be prepared. Its review and actual O2
 execution remain separate gates.
 
+The ALOR-freeze source correction at
+`aacd81c3a9181f9d0aa55d891f76cb573b453b8d` is independently `SOURCE
+ACCEPTED`; its tree is `68efe82a75c242d2d5c82f304dbe8b5d74fb0330`, reviewed archive
+SHA-256 is `8dc7fa6d4091eb1ef75a76d7d7178fa3295687204b2110f2459bff644a3f0f5c`,
+and acceptance-review SHA-256 is
+`7b0dcf7131660881f711a2ec97bfdccee399f75c9ab50e8e009b52ba73c30a75`.
+PAR02, O2A01 and O2A02 are closed in source. The accepted target is the
+`imoexf-baseline07-bo-only-paper-v1` profile: first-boot History, High180 and
+Replay use candle-start model labels while canonical bar identity, hashes,
+watermarks and Redis identity remain close-bound. The O2 custody source uses
+the service group and exact post-umask mode, and stopped-proof polling is
+monotonic-bounded. `StopNotProven` remains typed API code 72 while the current
+operator CLI maps runner failures to process exit 70; O2 artifact evidence must
+assert the latter unless typed process propagation is changed and reviewed.
+
+The old O2 artifact at `1090de4` is a superseded infrastructure checkpoint,
+not an accepted artifact for the corrected profile. Source acceptance opens
+only a fresh O2 identity/binary/template/non-activating package rebuild from
+`aacd81c`; it does not authorize use of the old binary, O2 execution,
+installation mutation, Redis activation, FINAM writes, broker dispatch,
+runtime-live or real orders.
+
 Stage 8B-P1-e I1 aggregate candidate
 `a9bcd940635b62c2a13f8d378453e6ca21511e30` is independently
 `CLOSED / ACCEPTED` in source, installation/systemd material and retained

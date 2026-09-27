@@ -449,6 +449,17 @@ authorized read-only FINAM-bar session, then aggregate P1 acceptance. Each
 operational transition remains fail closed until the preceding immutable
 package receives independent acceptance.
 
+The ALOR-freeze correction at
+`aacd81c3a9181f9d0aa55d891f76cb573b453b8d` is independently SOURCE
+ACCEPTED. It closes PAR02, O2A01 and O2A02 for the
+`imoexf-baseline07-bo-only-paper-v1` target and supersedes the earlier O2
+artifact at `1090de4`. The next permitted slice is a fresh O2
+source-to-binary-to-unit identity rebuild and non-activating package review.
+Actual O2 execution, Redis activation, FINAM POST/DELETE, broker dispatch,
+runtime-live and real orders remain separate downstream gates. Artifact
+evidence must distinguish typed `StopNotProven` code 72 from the current
+operator process exit 70.
+
 R4 makes the sequence executable without weakening accepted freshness or I1
 ordering. O2 uses a signed policy/template and a crash-safe exact
 source/config/materialized-receipt chain readable by the nonroot service; V5

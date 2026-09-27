@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create immutable ALOR→FINAM source-correction review handoff."""
+"""Create immutable ALOR→FINAM source-governance-closure handoff."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ import stage8b_p1f_alor_finam_source_correction_handoff_safety_check as safety
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "reports/handoff"
 REVIEW_SOURCE = Path(
-    "/Users/denisq/Downloads/FINAM_be20447_SOURCE_AND_O2_REVIEW_HOLD_2026-09-27.md"
+    "/Users/denisq/Downloads/FINAM_aacd81c_SOURCE_ACCEPT_REVIEW_2026-09-27.md"
 )
 
 
@@ -69,6 +69,10 @@ def main() -> None:
         )
 
     gate = run_capture(["bash", "scripts/stage8b_p1f_alor_finam_source_correction_gate.sh"])
+    current_tree = run_capture(["python3", "scripts/current_tree_authority_check.py"])
+    current_tree_negative = run_capture(
+        ["python3", "scripts/current_tree_authority_negative_harness.py"]
+    )
     multi_uid = run_capture([
         "docker", "run", "--rm", "--user", "0:0",
         "-v", f"{ROOT}:/work:ro", "-w", "/work",
@@ -82,7 +86,7 @@ def main() -> None:
 
     short = source_ref[:7]
     archive_name = (
-        f"moex-trading-project-{short}-stage8b-p1f-alor-finam-source-correction-review-package.zip"
+        f"moex-trading-project-{short}-stage8b-p1f-alor-finam-authority-closure-review-package.zip"
     )
     archive_path = OUTPUT / archive_name
     manifest, entries = common.source_manifest(source_ref)
@@ -96,7 +100,7 @@ def main() -> None:
     evidence = {
         "schema_version": 1,
         "stage": safety.STAGE,
-        "status": "SOURCE_CORRECTION_VERIFIED_REVIEW_PENDING",
+        "status": "SOURCE_ACCEPTED_AUTHORITY_REBIND_REVIEW_PENDING_NO_ACTIVATION",
         "source_ref": source_ref,
         "source_parent": source_parent,
         "source_tree": source_tree,
@@ -108,9 +112,14 @@ def main() -> None:
         "changed_paths": sorted(changed),
         "manifest_sha256": sha256(manifest),
         "gate_sha256": sha256(gate),
+        "current_tree_authority_sha256": sha256(current_tree),
+        "current_tree_negative_sha256": sha256(current_tree_negative),
         "multi_uid_sha256": sha256(multi_uid),
         "fmt_sha256": sha256(fmt),
         "closed_surfaces": closed_surfaces,
+        "accepted_source_ref": "aacd81c3a9181f9d0aa55d891f76cb573b453b8d",
+        "source_accept_review_sha256": safety.REVIEW_SHA256,
+        "governance_only": True,
         "next_after_acceptance": (
             "rebuild exact O2 identities, source schema/template, binary and "
             "non-activating package for the corrected profile"
@@ -132,6 +141,8 @@ def main() -> None:
         safety.COMMIT_RAW: git("cat-file", "commit", source_ref),
         safety.EVIDENCE: (json.dumps(evidence, indent=2, sort_keys=True) + "\n").encode(),
         safety.GATE: gate,
+        safety.CURRENT_TREE: current_tree,
+        safety.CURRENT_TREE_NEGATIVE: current_tree_negative,
         safety.MULTI_UID: multi_uid,
         safety.REVIEW: review,
     }
@@ -163,7 +174,7 @@ def main() -> None:
     )
     print(
         f"archive={archive_path}\nsha256={digest}\nsource_ref={source_ref}\n"
-        "PASS stage8b-p1f-alor-finam-source-correction-handoff"
+        "PASS stage8b-p1f-alor-finam-authority-closure-handoff"
     )
 
 

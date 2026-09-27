@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate an immutable ALOR→FINAM source-correction handoff."""
+"""Validate an immutable ALOR→FINAM source-governance-closure handoff."""
 
 from __future__ import annotations
 
@@ -12,20 +12,38 @@ from pathlib import PurePosixPath
 import stage8b_p1e_i1a_handoff_safety_check as common
 
 
-STAGE = "Stage 8B-P1-f ALOR-FINAM source correction"
+STAGE = "Stage 8B-P1-f ALOR-FINAM source governance closure"
 BRANCH = "stage8b-paper-shadow-resumption"
 BASELINE = "1090de48cd7f216ce7868cfc5c141208579d7d33"
-REVIEW_SHA256 = "8a3096d8b0640c22a902a07937233066702dba9db59f0798a1c8d9e48fa9e9f3"
+ACCEPTED_SOURCE = "aacd81c3a9181f9d0aa55d891f76cb573b453b8d"
+REVIEW_SHA256 = "7b0dcf7131660881f711a2ec97bfdccee399f75c9ab50e8e009b52ba73c30a75"
 PREFIX = "handoff-evidence/"
 MARKER = "handoff-commit.txt"
 MANIFEST = PREFIX + "source-tree-manifest.json"
 COMMIT_RAW = PREFIX + "source-commit.raw"
-EVIDENCE = PREFIX + "stage8b-p1f-alor-finam-source-correction-handoff.json"
+EVIDENCE = PREFIX + "stage8b-p1f-alor-finam-authority-closure-handoff.json"
 GATE = PREFIX + "stage8b-p1f-alor-finam-source-correction-gate.txt"
+CURRENT_TREE = PREFIX + "stage8b-p1f-current-tree-authority.txt"
+CURRENT_TREE_NEGATIVE = PREFIX + "stage8b-p1f-current-tree-authority-negative.txt"
 MULTI_UID = PREFIX + "stage8b-p1f-alor-finam-linux-multi-uid-custody.txt"
-REVIEW = PREFIX + "reviews/FINAM_be20447_SOURCE_AND_O2_REVIEW_HOLD_2026-09-27.md"
-GENERATED = {MARKER, MANIFEST, COMMIT_RAW, EVIDENCE, GATE, MULTI_UID, REVIEW}
+REVIEW = PREFIX + "reviews/FINAM_aacd81c_SOURCE_ACCEPT_REVIEW_2026-09-27.md"
+GENERATED = {
+    MARKER,
+    MANIFEST,
+    COMMIT_RAW,
+    EVIDENCE,
+    GATE,
+    CURRENT_TREE,
+    CURRENT_TREE_NEGATIVE,
+    MULTI_UID,
+    REVIEW,
+}
 REQUIRED_TRACKED = {
+    "docs/current-status.md",
+    "docs/roadmap.md",
+    "docs/stage-8/gov-ci-1-authority.json",
+    "docs/stage-8/stage8b-p1f-alor-finam-source-governance-closure-2026-09-27.md",
+    "docs/stage-8/stage8b-p1f-alor-finam-source-governance-closure-2026-09-27.json",
     "docs/stage-8/stage8b-p1f-alor-finam-freeze-intake-2026-09-27.json",
     "docs/stage-8/stage8b-p1f-alor-finam-source-correction-2026-09-27.md",
     "docs/stage-8/stage8b-p1f-alor-finam-source-correction-evidence-2026-09-27.json",
@@ -169,6 +187,14 @@ def check(path: str) -> dict[str, object]:
         require(common.build_tree_oid(entries, payloads) == marker["source_tree"], "tree reconstruction mismatch")
 
         evidence = json.loads(files[EVIDENCE])
+        require(
+            evidence["status"]
+            == "SOURCE_ACCEPTED_AUTHORITY_REBIND_REVIEW_PENDING_NO_ACTIVATION",
+            "closure status mismatch",
+        )
+        require(evidence["accepted_source_ref"] == ACCEPTED_SOURCE, "accepted source mismatch")
+        require(evidence["source_accept_review_sha256"] == REVIEW_SHA256, "review binding mismatch")
+        require(evidence["governance_only"] is True, "governance-only marker missing")
         require(evidence["source_ref"] == marker["source_ref"], "evidence source mismatch")
         require(evidence["source_parent"] == marker["source_parent"], "evidence parent mismatch")
         require(evidence["source_tree"] == marker["source_tree"], "evidence tree mismatch")
@@ -178,9 +204,36 @@ def check(path: str) -> dict[str, object]:
         require(all(value is False for value in evidence["closed_surfaces"].values()), "closed surface opened")
         require(evidence["manifest_sha256"] == sha256(files[MANIFEST]), "manifest digest mismatch")
         require(evidence["gate_sha256"] == sha256(files[GATE]), "gate digest mismatch")
+        require(
+            evidence["current_tree_authority_sha256"] == sha256(files[CURRENT_TREE]),
+            "current-tree authority digest mismatch",
+        )
+        require(
+            evidence["current_tree_negative_sha256"]
+            == sha256(files[CURRENT_TREE_NEGATIVE]),
+            "current-tree negative digest mismatch",
+        )
         require(evidence["multi_uid_sha256"] == sha256(files[MULTI_UID]), "multi-UID digest mismatch")
         require(sha256(files[REVIEW]) == REVIEW_SHA256, "review digest mismatch")
+        closure = json.loads(
+            files[
+                "docs/stage-8/stage8b-p1f-alor-finam-source-governance-closure-2026-09-27.json"
+            ]
+        )
+        require(closure["accepted_source"]["commit"] == ACCEPTED_SOURCE, "closure source mismatch")
+        require(closure["independent_review"]["sha256"] == REVIEW_SHA256, "closure review mismatch")
+        require(closure["transition"]["main_sync_authorized"] is False, "premature main sync")
+        require(
+            all(value is False for value in closure["closed_surfaces"].values()),
+            "closure opened operational surface",
+        )
         require(b"PASS stage8b-p1f-multi-uid root-transition-and-custody" in files[MULTI_UID], "multi-UID custody evidence missing")
+        require(b"current-tree-authority-check: PASS" in files[CURRENT_TREE], "current-tree authority evidence missing")
+        require(
+            b"current-tree-authority-negative: PASS cases=35/35"
+            in files[CURRENT_TREE_NEGATIVE],
+            "current-tree negative evidence missing",
+        )
 
         gate = files[GATE]
         for expected in (

@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P1-f ALOR-FINAM source governance closure",
+  "status": "SOURCE_ACCEPTED_AUTHORITY_REBIND_REVIEW_PENDING_NO_ACTIVATION",
+  "accepted_source": {
+    "commit": "aacd81c3a9181f9d0aa55d891f76cb573b453b8d",
+    "parent": "be204471ddea51c940bdec3ae1e7b6bda8f06b03",
+    "tree": "68efe82a75c242d2d5c82f304dbe8b5d74fb0330",
+    "archive_sha256": "8dc7fa6d4091eb1ef75a76d7d7178fa3295687204b2110f2459bff644a3f0f5c"
+  },
+  "independent_review": {
+    "file": "FINAM_aacd81c_SOURCE_ACCEPT_REVIEW_2026-09-27.md",
+    "sha256": "7b0dcf7131660881f711a2ec97bfdccee399f75c9ab50e8e009b52ba73c30a75",
+    "verdict": "SOURCE_ACCEPT"
+  },
+  "target": {
+    "profile_id": "imoexf-baseline07-bo-only-paper-v1",
+    "profile_sha256": "8f346b730760c8a70c4ab8576da60147a80a7c0668ba2068783ea2e5a2637872",
+    "runtime_config_fingerprint_sha256": "6ac8994e5fc8777035c48c0b871b2d15a6662cdae6be88220f2bcdcadf0a244d"
+  },
+  "findings": {
+    "P1-PAR02": "CLOSED_SOURCE",
+    "P1-O2A01": "CLOSED_SOURCE",
+    "P1-O2A02": "CLOSED_SOURCE"
+  },
+  "exit_contract": {
+    "stop_not_proven_typed_error_code": 72,
+    "current_operator_process_exit": 70,
+    "artifact_review_expected_process_exit": 70
+  },
+  "transition": {
+    "current_tree_authority_rebind_pending_review": true,
+    "corrected_o2_artifact_rebuild_authorized": true,
+    "old_o2_artifact_superseded": true,
+    "o2_execution_authorized": false,
+    "main_sync_authorized": false
+  },
+  "closed_surfaces": {
+    "vps_activation": false,
+    "operational_redis_mutation": false,
+    "finam_post_or_delete": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false
+  }
+}
