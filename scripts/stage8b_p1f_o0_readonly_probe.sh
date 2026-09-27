@@ -136,7 +136,11 @@ for index in "${!paths[@]}"; do
   fi
 done
 
-p1_unit_file_inventory="$(systemctl list-unit-files --no-legend --no-pager --type=service)"
+# P1_SYSTEMD_BEHAVIOR_BEGIN
+if ! p1_unit_file_inventory="$(systemctl list-unit-files --no-legend --no-pager --type=service)"; then
+  echo "P1 unit-file inventory query failed" >&2
+  exit 1
+fi
 p1_unit_file_state() {
   local unit="$1"
   awk -v expected="$unit" '
@@ -155,34 +159,63 @@ p1_units=(
 )
 for index in "${!p1_units[@]}"; do
   unit="${p1_units[$index]}"
+  if ! load_state="$(unit_value "$unit" LoadState)"; then
+    echo "P1 LoadState query failed: $unit" >&2
+    exit 1
+  fi
+  if ! active_state="$(unit_value "$unit" ActiveState)"; then
+    echo "P1 ActiveState query failed: $unit" >&2
+    exit 1
+  fi
+  if ! unit_file_state="$(p1_unit_file_state "$unit")"; then
+    echo "P1 UnitFileState query failed: $unit" >&2
+    exit 1
+  fi
+  if ! fragment_path="$(unit_value "$unit" FragmentPath)"; then
+    echo "P1 FragmentPath query failed: $unit" >&2
+    exit 1
+  fi
   kv "p1_unit_${index}_name" "$unit"
   kv "p1_unit_${index}_kind" regular
-  kv "p1_unit_${index}_load_state" "$(unit_value "$unit" LoadState)"
-  kv "p1_unit_${index}_active_state" "$(unit_value "$unit" ActiveState)"
-  kv "p1_unit_${index}_unit_file_state" "$(p1_unit_file_state "$unit")"
-  kv "p1_unit_${index}_fragment_path" "$(unit_value "$unit" FragmentPath)"
+  kv "p1_unit_${index}_load_state" "$load_state"
+  kv "p1_unit_${index}_active_state" "$active_state"
+  kv "p1_unit_${index}_unit_file_state" "$unit_file_state"
+  kv "p1_unit_${index}_fragment_path" "$fragment_path"
 done
 
 template=moex-finam-p1-paper-bootstrap-recover@.service
+if ! template_unit_file_state="$(p1_unit_file_state "$template")"; then
+  echo "P1 template UnitFileState query failed: $template" >&2
+  exit 1
+fi
 kv p1_unit_2_name "$template"
 kv p1_unit_2_kind template
 kv p1_unit_2_load_state not-applicable
 kv p1_unit_2_active_state not-applicable
-kv p1_unit_2_unit_file_state "$(p1_unit_file_state "$template")"
+kv p1_unit_2_unit_file_state "$template_unit_file_state"
 kv p1_unit_2_fragment_path ""
 
-recovery_raw="$(
+if ! recovery_raw="$(
   systemctl list-units --all --type=service --plain --no-legend \
     'moex-finam-p1-paper-bootstrap-recover@*.service'
-)"
-recovery_instances="$(
+)"; then
+  echo "P1 recovery-instance query failed" >&2
+  exit 1
+fi
+if ! recovery_instances="$(
   printf '%s\n' "$recovery_raw" |
     awk 'NF {print $1}' |
     LC_ALL=C sort -u |
     paste -sd, -
-)"
+)"; then
+  echo "P1 recovery-instance normalization failed" >&2
+  exit 1
+fi
 if [[ -n "$recovery_instances" ]]; then
-  recovery_count="$(awk -F, '{print NF}' <<<"$recovery_instances")"
+  if ! recovery_count="$(awk -F, '{print NF}' <<<"$recovery_instances")"; then
+    echo "P1 recovery-instance count failed" >&2
+    exit 1
+  fi
 else
   recovery_count=0
 fi
@@ -190,6 +223,7 @@ kv p1_recovery_instances_count "$recovery_count"
 kv p1_recovery_instances "$recovery_instances"
 kv p1_recovery_instances_sha256 "$(printf '%s' "$recovery_instances" | sha256sum | awk '{print $1}')"
 kv p1_systemd_query_ok true
+# P1_SYSTEMD_BEHAVIOR_END
 
 kv remote_mutation_performed false
 REMOTE

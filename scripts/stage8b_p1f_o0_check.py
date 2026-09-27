@@ -16,7 +16,8 @@ import stage8b_p1f_o0_collect as collect
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE = "e6b2f2dd2a35145dda4db0b2ae09e0581f56d989"
+BASE = "609f999ae1184c53de6320125a52b93bfdad9ace"
+PRIOR_O0_TARGET = "e6b2f2dd2a35145dda4db0b2ae09e0581f56d989"
 IE_CLOSURE = "3a46a460ea4bd5c85c5befd036510c580941a265"
 BRANCH = "stage8b-paper-shadow-resumption"
 ACCEPTED_IE = "940377ab2bd406be31547200ca0b8cc3bb0f3e22"
@@ -24,6 +25,8 @@ IE_REVIEW = "FINAM_P1F_IE_SOURCE_ACCEPT_940377a_2026-09-27.md"
 IE_REVIEW_SHA256 = "94b224e56c30e4ad54b5db6d0d744b1fd7fbf06897e58af9be3382a3c9d5af96"
 O0_HOLD_REVIEW = "FINAM_P1F_O0_REVIEW_e6b2f2d_2026-09-27.md"
 O0_HOLD_REVIEW_SHA256 = "5b4e2f04c9427b67857ec564878185b08214a4d56aa2db88fe1160eb8480ce6b"
+O0_R1_HOLD_REVIEW = "FINAM_P1F_O0_R1_REVIEW_609f999_2026-09-27.md"
+O0_R1_HOLD_REVIEW_SHA256 = "10467157b969c3665ff21cf4c77a4d777c178848f2515f96476eec00d371b519"
 
 DOCUMENT = "docs/stage-8/stage8b-p1f-o0-target-preflight.md"
 EVIDENCE = "docs/stage-8/stage8b-p1f-o0-target-preflight.json"
@@ -38,10 +41,11 @@ NEGATIVE = "scripts/stage8b_p1f_o0_negative_harness.py"
 GATE = "scripts/stage8b_p1f_o0_gate.sh"
 BUILDER = "scripts/make_stage8b_p1f_o0_handoff.py"
 SAFETY = "scripts/stage8b_p1f_o0_handoff_safety_check.py"
+BEHAVIORAL = "scripts/stage8b_p1f_o0_systemd_query_behavioral_test.sh"
 
 ALLOWED_CHANGES = {
     DOCUMENT, EVIDENCE, MATRIX, RAW, STATUS, ROADMAP, PROBE, COLLECTOR,
-    CHECKER, NEGATIVE, GATE, BUILDER, SAFETY,
+    CHECKER, NEGATIVE, GATE, BUILDER, SAFETY, BEHAVIORAL,
 }
 EXPECTED_PATHS = list(collect.P1_PATHS)
 EXPECTED_SERVICES = {
@@ -109,6 +113,12 @@ def validate_probe(root: Path) -> None:
     require("p1_service_group_present" in text, "P1 group observation missing")
     require("p1_systemd_query_ok true" in text, "systemd query completion marker missing")
     require("|| true" not in text.split("p1_unit_file_inventory=", 1)[1], "systemd query error can be hidden")
+    require('if ! fragment_path="$(unit_value "$unit" FragmentPath)"; then' in text, "FragmentPath status is not checked in parent shell")
+    require('kv "p1_unit_${index}_fragment_path" "$fragment_path"' in text, "FragmentPath evidence bypasses checked value")
+    require('kv "p1_unit_${index}_fragment_path" "$(unit_value' not in text, "direct FragmentPath query-to-kv fail-open")
+    behavior = (root / BEHAVIORAL).read_text()
+    require("FRAGMENT_QUERY_MODE=pass" in behavior and "FRAGMENT_QUERY_MODE=fail" in behavior, "behavioral query controls missing")
+    require("p1_systemd_query_ok=true" in behavior and "negative_status" in behavior, "behavioral success/failure assertions missing")
     forbidden = (
         r"\b(?:sudo|scp|rsync|curl|wget|docker|podman|useradd|groupadd|mkdir|install|chmod|chown)\b",
         r"systemctl\s+(?:start|stop|restart|reload|enable|disable|daemon-reload)",
@@ -127,9 +137,11 @@ def validate_evidence(root: Path) -> None:
     actual = read_json(root)
     require(actual == expected, "normalized evidence is not an exact raw-probe rebuild")
     require(actual["source_baseline"] == BASE, "correction baseline drift")
+    require(actual["prior_o0_target"] == PRIOR_O0_TARGET, "prior O0 target drift")
     require(actual["accepted_ie_closure"] == IE_CLOSURE, "accepted Ie closure drift")
     require(actual["hold_review"] == {"file": O0_HOLD_REVIEW, "sha256": O0_HOLD_REVIEW_SHA256, "findings": ["P1-O001", "P1-O002"]}, "HOLD review binding drift")
-    require(actual["status"] == "REVIEW_CANDIDATE_CORRECTION_P1_O001_P1_O002_NO_MUTATION", "self-acceptance/status drift")
+    require(actual["r1_hold_review"] == {"file": O0_R1_HOLD_REVIEW, "sha256": O0_R1_HOLD_REVIEW_SHA256, "open_finding": "P1-O002-systemd-query-status"}, "R1 HOLD review binding drift")
+    require(actual["status"] == "REVIEW_CANDIDATE_R2_SYSTEMD_QUERY_FAIL_CLOSED_NO_MUTATION", "self-acceptance/status drift")
     require(actual["all_required_checks_passed"] is True, "required check failed")
     require(actual["remote_mutation_performed"] is False, "remote mutation declared")
     require(actual["platform"]["ntp_synchronized"] == "yes", "NTP is not synchronized")
@@ -182,12 +194,12 @@ def validate_docs(root: Path) -> None:
     document = (root / DOCUMENT).read_text()
     status = (root / STATUS).read_text()
     roadmap = (root / ROADMAP).read_text()
-    for value in (BASE, IE_CLOSURE, ACCEPTED_IE, IE_REVIEW_SHA256, O0_HOLD_REVIEW_SHA256, "REVIEW_CANDIDATE_CORRECTION_P1_O001_P1_O002_NO_MUTATION"):
+    for value in (BASE, PRIOR_O0_TARGET, IE_CLOSURE, ACCEPTED_IE, IE_REVIEW_SHA256, O0_HOLD_REVIEW_SHA256, O0_R1_HOLD_REVIEW_SHA256, "REVIEW_CANDIDATE_R2_SYSTEMD_QUERY_FAIL_CLOSED_NO_MUTATION"):
         require(value in document, f"O0 document binding missing: {value}")
     require("O0 does not authorize O1" in document, "O1 boundary missing")
-    require("P1F-O0 correction has now produced a replacement immutable read-only target" in status, "status not updated")
+    require("P1F-O0 R2 correction has now produced a replacement immutable read-only target" in status, "status not updated")
     require("P1F-O1 provisioning" in status and "independent O0 correction acceptance" in status, "status boundary drift")
-    require("P1F-O0 correction has an immutable read-only target-preflight candidate" in roadmap, "roadmap not updated")
+    require("P1F-O0 R2 correction has an immutable read-only target-preflight candidate" in roadmap, "roadmap not updated")
     require("cannot authorize O1 without independent" in roadmap, "roadmap boundary drift")
 
 

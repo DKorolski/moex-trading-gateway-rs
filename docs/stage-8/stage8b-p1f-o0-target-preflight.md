@@ -1,8 +1,14 @@
 # Stage 8B-P1-f O0 — immutable read-only target preflight
 
-Status: `REVIEW_CANDIDATE_CORRECTION_P1_O001_P1_O002_NO_MUTATION`.
+Status: `REVIEW_CANDIDATE_R2_SYSTEMD_QUERY_FAIL_CLOSED_NO_MUTATION`.
 
-The correction is a direct continuation of held O0 target
+R2 is a direct continuation of held R1 target
+`609f999ae1184c53de6320125a52b93bfdad9ace`. Its HOLD review is
+`FINAM_P1F_O0_R1_REVIEW_609f999_2026-09-27.md`, SHA-256
+`10467157b969c3665ff21cf4c77a4d777c178848f2515f96476eec00d371b519`;
+P1-O001 and the fixed inventory portion of P1-O002 are closed. The remaining
+correction is only the P1 systemd query-status fail-closed behavior. The prior
+O0 target was
 `e6b2f2dd2a35145dda4db0b2ae09e0581f56d989`. The HOLD review is
 `FINAM_P1F_O0_REVIEW_e6b2f2d_2026-09-27.md`, SHA-256
 `5b4e2f04c9427b67857ec564878185b08214a4d56aa2db88fe1160eb8480ce6b`;
@@ -33,7 +39,11 @@ empty before any O1 mutation. Redis listener endpoints must be exactly the two
 loopback endpoints. Redis server version comes only from read-only
 `INFO server`; `redis-cli --version` is retained separately as diagnostics and
 is never a server-version fallback. Systemd query failure aborts the probe and
-cannot be normalized as absence.
+cannot be normalized as absence. Every P1 systemd value is first captured with
+an explicit status check in the parent shell and only then emitted through
+`kv`; a successful empty `FragmentPath` and a failed query with empty stdout
+are therefore distinguishable. The retained behavioral control executes the
+actual marked probe section for both outcomes.
 
 ## Result
 
@@ -52,6 +62,8 @@ The retained observation proves:
 - the P1 service user and group and all 17 fixed-install artifacts are absent;
 - both regular P1 units are `not-found`/inactive with no fragment, the recovery
   template unit file is not found and no recovery instances are loaded.
+- the actual P1 systemd probe section passes empty `FragmentPath` with exit 0
+  and rejects the same empty stdout with exit 1 before the success marker.
 
 All required O0 checks pass. This means only that the target is ready for an
 independently reviewed O1 non-activating provisioning package.

@@ -50,7 +50,7 @@ CASES = (
     ("probe-target", check.PROBE, 'target="root@45.150.11.252"', 'target="root@127.0.0.1"'),
     ("probe-mutation", check.PROBE, "set -euo pipefail\n\nkv()", "set -euo pipefail\nmkdir /tmp/forbidden\n\nkv()"),
     ("matrix-row", check.MATRIX, "P1FO0-020,next,Only independent O0 acceptance may authorize a separate O1 package,REQUIRED\n", ""),
-    ("document-self-accept", check.DOCUMENT, "REVIEW_CANDIDATE_CORRECTION_P1_O001_P1_O002_NO_MUTATION", "ACCEPTED"),
+    ("document-self-accept", check.DOCUMENT, "REVIEW_CANDIDATE_R2_SYSTEMD_QUERY_FAIL_CLOSED_NO_MUTATION", "ACCEPTED"),
     ("document-opens-o1", check.DOCUMENT, "O0 does not authorize O1", "O0 authorizes O1"),
     ("status-opens-o1", check.STATUS, "independent O0 correction acceptance", "immediate O1 activation"),
     ("roadmap-opens-o1", check.ROADMAP, "cannot authorize O1 without independent", "authorizes O1 without independent"),

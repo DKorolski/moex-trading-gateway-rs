@@ -20,4 +20,4 @@ P1FO0-018,probe,Probe command inventory is read-only and contains no remote muta
 P1FO0-019,boundary,O1 installation Redis mutation service activation provider execution and FINAM send remain closed,REQUIRED
 P1FO0-020,next,Only independent O0 acceptance may authorize a separate O1 package,REQUIRED
 P1FO0-021,isolation,Two regular P1 units recovery template and all loaded recovery instances are fresh-absent,REQUIRED
-P1FO0-022,evidence,Redis server and systemd query errors fail closed and cannot be normalized as absence,REQUIRED
+P1FO0-022,evidence,Redis server and systemd query errors fail closed through parent-shell status checks and executed behavioral controls,REQUIRED

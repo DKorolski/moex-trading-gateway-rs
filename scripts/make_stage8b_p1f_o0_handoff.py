@@ -58,12 +58,16 @@ def main() -> None:
     hold_review = hold_review_path.read_bytes()
     if sha256(hold_review) != source_check.O0_HOLD_REVIEW_SHA256:
         raise SystemExit("stage8b-p1f-o0-handoff: FAIL O0 HOLD review digest")
+    r1_hold_review_path = DOWNLOADS / source_check.O0_R1_HOLD_REVIEW
+    r1_hold_review = r1_hold_review_path.read_bytes()
+    if sha256(r1_hold_review) != source_check.O0_R1_HOLD_REVIEW_SHA256:
+        raise SystemExit("stage8b-p1f-o0-handoff: FAIL O0 R1 HOLD review digest")
     gate = run_capture(["bash", "scripts/stage8b_p1f_o0_gate.sh"])
     if git("rev-parse", "HEAD").decode().strip() != source_ref or git("status", "--porcelain", "--untracked-files=all").decode().strip():
         raise SystemExit("stage8b-p1f-o0-handoff: FAIL source changed during gate")
 
     short = source_ref[:7]
-    archive_name = f"moex-trading-project-{short}-stage8b-p1f-o0-correction-review-package.zip"
+    archive_name = f"moex-trading-project-{short}-stage8b-p1f-o0-r2-systemd-query-correction-review-package.zip"
     archive_path = OUTPUT / archive_name
     manifest, entries = common.source_manifest(source_ref)
     raw_probe = git("show", f"{source_ref}:{source_check.RAW}")
@@ -71,7 +75,7 @@ def main() -> None:
     evidence = {
         "schema_version": 1,
         "stage": safety.STAGE,
-        "status": "O0_CORRECTION_REVIEW_CANDIDATE_P1_O001_P1_O002_NO_REMOTE_MUTATION",
+        "status": "O0_R2_SYSTEMD_QUERY_CORRECTION_REVIEW_CANDIDATE_NO_REMOTE_MUTATION",
         "source_ref": source_ref,
         "source_parent": source_parent,
         "source_tree": source_tree,
@@ -81,6 +85,7 @@ def main() -> None:
         "accepted_ie_closure": source_check.IE_CLOSURE,
         "accepted_ie_review": {"file": source_check.IE_REVIEW, "sha256": source_check.IE_REVIEW_SHA256},
         "hold_review": {"file": source_check.O0_HOLD_REVIEW, "sha256": source_check.O0_HOLD_REVIEW_SHA256, "findings": ["P1-O001", "P1-O002"]},
+        "r1_hold_review": {"file": source_check.O0_R1_HOLD_REVIEW, "sha256": source_check.O0_R1_HOLD_REVIEW_SHA256, "open_finding": "P1-O002-systemd-query-status"},
         "changed_paths": sorted(changed),
         "manifest_sha256": sha256(manifest),
         "gate_sha256": sha256(gate),
@@ -88,6 +93,7 @@ def main() -> None:
         "raw_probe_sha256": sha256(raw_probe),
         "negative_cases": 27,
         "acceptance_matrix_rows": 22,
+        "behavioral_controls": 2,
         "rust_changes": 0,
         "cargo_changes": 0,
         "remote_mutation_performed": False,
@@ -117,6 +123,7 @@ def main() -> None:
         safety.GATE: gate,
         safety.IE_REVIEW: ie_review,
         safety.HOLD_REVIEW: hold_review,
+        safety.R1_HOLD_REVIEW: r1_hold_review,
     }
     OUTPUT.mkdir(parents=True, exist_ok=True)
     archive_path.unlink(missing_ok=True)

@@ -169,13 +169,19 @@ def build(values: dict[str, str], raw: bytes) -> dict[str, object]:
     return {
         "schema_version": 1,
         "stage": "Stage 8B-P1-f O0 immutable read-only target preflight",
-        "status": "REVIEW_CANDIDATE_CORRECTION_P1_O001_P1_O002_NO_MUTATION",
-        "source_baseline": "e6b2f2dd2a35145dda4db0b2ae09e0581f56d989",
+        "status": "REVIEW_CANDIDATE_R2_SYSTEMD_QUERY_FAIL_CLOSED_NO_MUTATION",
+        "source_baseline": "609f999ae1184c53de6320125a52b93bfdad9ace",
+        "prior_o0_target": "e6b2f2dd2a35145dda4db0b2ae09e0581f56d989",
         "accepted_ie_closure": "3a46a460ea4bd5c85c5befd036510c580941a265",
         "hold_review": {
             "file": "FINAM_P1F_O0_REVIEW_e6b2f2d_2026-09-27.md",
             "sha256": "5b4e2f04c9427b67857ec564878185b08214a4d56aa2db88fe1160eb8480ce6b",
             "findings": ["P1-O001", "P1-O002"],
+        },
+        "r1_hold_review": {
+            "file": "FINAM_P1F_O0_R1_REVIEW_609f999_2026-09-27.md",
+            "sha256": "10467157b969c3665ff21cf4c77a4d777c178848f2515f96476eec00d371b519",
+            "open_finding": "P1-O002-systemd-query-status",
         },
         "observed_at_utc": values["observed_at_utc"],
         "raw_probe_path": str(RAW.relative_to(ROOT)),
