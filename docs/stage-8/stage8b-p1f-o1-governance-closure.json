@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P1-f O1 governance closure",
+  "status": "CLOSED_NON_ACTIVATING_PROVISIONING_ACCEPTED",
+  "accepted_operational_evidence": {
+    "commit": "997e8a1d201048fcdec0e948660f32a0bee3cceb",
+    "parent": "645cb3555ca410f5a00795830ade896e89887e5b",
+    "tree": "fc2d5032c666c8fec1e01dd8f4f7f3119e7e9ac2",
+    "archive_sha256": "3b329414e1370b0fa094c2013eadec6ef7f03329060be657d51da74dc139574d",
+    "observed_at_utc": "2026-09-27T09:20:58Z"
+  },
+  "accepted_package": {
+    "commit": "8864a2bbba64ef930073fae4e71dfcde82ceba58",
+    "binary_sha256": "cee324a4e4f251227a25d4a7b23dda332a94522b45407671982f4fc896614406",
+    "nested_bundle_sha256": "f90fea1357a0f959d119027ef07becd4e1175995223037c83ed9e70c93db73c1"
+  },
+  "independent_review": {
+    "file": "FINAM_P1F_O1_OPERATIONAL_ACCEPT_997e8a1_2026-09-27.md",
+    "sha256": "59fce7a8048b1c39eeb24f89a759d5cfd8c756af77443bd6d9bb8b1bede34742",
+    "verdict": "SOURCE_OPERATIONAL_EVIDENCE_ACCEPT"
+  },
+  "findings": {
+    "P1-O1E01": "CLOSED",
+    "P1-O1E02": "CLOSED"
+  },
+  "transition": {
+    "p1f_o1_closed": true,
+    "p1f_o2_package_preparation_authorized": true,
+    "p1f_o2_execution_authorized": false,
+    "p1f_o3_synthetic_session_authorized": false,
+    "p1f_o4_finam_bars_session_authorized": false,
+    "p1f_aggregate_acceptance_complete": false
+  },
+  "closed_surfaces": {
+    "daemon_reload_enable_or_start": false,
+    "operational_config_source_or_credential_creation": false,
+    "operational_redis_db15_or_db0_mutation": false,
+    "paper_provider_execution": false,
+    "finam_post_or_delete": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false
+  },
+  "next": "prepare one immutable P1F-O2 fresh-materialization and network-isolated one-shot bootstrap package for independent review; do not execute it"
+}

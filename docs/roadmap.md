@@ -28,16 +28,13 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 ## Current active stage
 
 The accepted P1F-O1 package `8864a2b` has been installed once on the isolated
-target under its authorized non-activating boundary. The
-O1 operational evidence R1 correction review candidate records a fresh passing O0, exact installed
-bytes/custody, `EXACT_INSTALLED`, unchanged running P0, empty DB15 and no
-reload/enable/start. It rebuilds the complete normalized evidence from retained
-raw bytes and fail-closes exact systemd query/state evidence after the first
-candidate was held for P1-O1E01/P1-O1E02. Independent O1 operational
-acceptance is required before
-a separate O2 fresh-materialization/bootstrap package may be prepared or
-executed. O2, provider execution, FINAM send, broker dispatch, runtime-live and
-real orders remain closed.
+target under its authorized non-activating boundary. Its corrected operational
+evidence at `997e8a1` is independently accepted: exact installed bytes/custody,
+`EXACT_INSTALLED`, unchanged running P0, empty DB15, absent operator material
+and no reload/enable/start. P1-O1E01/P1-O1E02 are closed. O1 is closed and one
+separate O2 fresh-materialization/bootstrap package may now be prepared for
+review. O2 execution, provider execution, FINAM send, broker dispatch,
+runtime-live and real orders remain closed.
 
 Stage 8B-P1-a, P1-b and P1-c are independently accepted and closed. P1-d0 is
 independently accepted at `0d59d54d42fc29ae7b31359c1ded8efbd3a348fd` as the

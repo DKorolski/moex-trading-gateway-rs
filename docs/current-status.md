@@ -13,18 +13,16 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 ## Active Stage 8B-P1-f source boundary
 
 The O1 immutable package at
-`8864a2bbba64ef930073fae4e71dfcde82ceba58` is independently accepted. Its
-authorized non-activating provisioning has now been executed once on the exact
-isolated target after a fresh passing O0 observation. The retained
-O1 operational evidence R1 correction review candidate proves `EXACT_INSTALLED`, exact managed
-bytes/custody, unchanged active P0 unit identities, empty DB15, absent operator
-material and no P1 activation. The first evidence commit `645cb35` is held for
-P1-O1E01/P1-O1E02. R1 deterministically rebuilds the complete O0/O1 model from
-retained raw bytes and uses status-checked exact systemd classification; it
-performs only a fresh read-only post-install observation. The installer did
-not contact Redis or FINAM and did not reload, enable or start systemd. O1
-remains operationally open until this correction receives independent
-acceptance; O2 and all execution surfaces remain closed.
+`8864a2bbba64ef930073fae4e71dfcde82ceba58` and its operational-evidence
+correction at `997e8a1d201048fcdec0e948660f32a0bee3cceb` are independently
+accepted. O1 non-activating provisioning is closed. The accepted observation
+proves `EXACT_INSTALLED`, exact managed bytes/custody, unchanged active P0 unit
+identities, empty DB15, absent operator material, uninitialized durable state
+and no P1 activation. P1-O1E01/P1-O1E02 are closed. The installer did not
+contact Redis or FINAM and did not reload, enable or start systemd. Preparation
+of one separate O2 fresh-materialization/bootstrap package is authorized; O2
+execution and all provider/live surfaces remain closed pending independent
+acceptance of that package.
 
 Stage 8B-P1-e I1 aggregate candidate
 `a9bcd940635b62c2a13f8d378453e6ca21511e30` is independently
@@ -66,7 +64,8 @@ O0 has observation authority only. The immutable O1 package binds the accepted
 Ie runtime source, accepted fixed installer and its five public payloads. The
 first package `f2fe5a2` was held for P2-O101; corrected package `8864a2b` was
 accepted and is the exact source of the retained installation. O1 operational
-evidence correction remains a review candidate and does not itself authorize O2.
+evidence is accepted and authorizes only preparation of a separate O2 package;
+it does not authorize O2 execution.
 Source authority is not activation authority.
 Operational installation or service start, Redis DB15/DB0 activation, VPS
 deployment, paper-provider execution, FINAM POST/DELETE/send, broker dispatch,
