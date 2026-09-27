@@ -1,7 +1,14 @@
 {
   "schema_version": 1,
   "stage": "Stage 8B-P1-f O2 fresh materialization and isolated bootstrap package",
-  "status": "R1_EXECUTION_CONTRACT_CORRECTION_REVIEW_CANDIDATE_DO_NOT_EXECUTE",
+  "status": "R1_EXECUTION_CONTRACT_ACCEPTED_ARTIFACT_PREPARATION_ONLY_DO_NOT_EXECUTE",
+  "independent_review": {
+    "review_target": "a9f8fe30a45752c943f9e399775322d83fcd8a36",
+    "file": "FINAM_P1F_O2_R1_CONTRACT_ACCEPT_a9f8fe3_2026-09-27.md",
+    "sha256": "3342409133760dbb8ea909460310881eebdd91c797ed97f3879be4cfbb12ce1b",
+    "verdict": "DESIGN_EXECUTION_CONTRACT_ACCEPT",
+    "findings": {"P1-O2C01":"CLOSED_CONTRACT","P1-O2C02":"CLOSED_CONTRACT"}
+  },
   "accepted_predecessor": {
     "o1_operational_commit": "997e8a1d201048fcdec0e948660f32a0bee3cceb",
     "o1_governance_closure_commit": "e11744e31f11d567633716f21211c484bb9045eb",
@@ -94,6 +101,7 @@
     "host_or_ip_filter_alone_is_sufficient": false,
     "complete_orders_truth_may_be_assumed": false,
     "orders_snapshot_is_read_only_truth_not_execution": true,
+    "zero_write_scope": "zero FINAM order-execution or write calls; accepted GET account orders snapshot is broker truth",
     "forbidden_methods": ["POST", "PUT", "PATCH", "DELETE"],
     "unlisted_routes_allowed": false,
     "redirects_allowed": false,

@@ -25,16 +25,17 @@ execution and all provider/live surfaces remain closed pending independent
 acceptance of that package.
 
 The O2 R0 contract at `b8d573ab940e7a9ae5162e2da63faad4f6e38dab`
-is held by independent review for `P1-O2C01` and `P1-O2C02`; it did not execute
-O2 and does not affect accepted O1. The active O2 R1 correction candidate
-defines unit-level systemd runner supervision with exact
+was superseded by the independently accepted O2 R1 execution contract at
+`a9f8fe30a45752c943f9e399775322d83fcd8a36`; `P1-O2C01` and `P1-O2C02` are
+closed at contract level. The accepted R1 contract defines unit-level systemd
+runner supervision with exact
 `Completed`/`Failed`/`Expired` deadline semantics and an exact-account FINAM
 GET method/route allowlist that includes the complete orders snapshot but no
 order execution. It also fixes public-key ordering, the empty control-root
 skeleton and the fifth read-only evidence facade. It performs no key
-generation, target/FINAM/Redis contact, daemon reload or service start. A later
-immutable execution artifact and its actual execution each require separate
-acceptance.
+generation, target/FINAM/Redis contact, daemon reload or service start. One
+immutable execution artifact may now be prepared. Its review and actual O2
+execution remain separate gates.
 
 Stage 8B-P1-e I1 aggregate candidate
 `a9bcd940635b62c2a13f8d378453e6ca21511e30` is independently

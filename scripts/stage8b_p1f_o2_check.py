@@ -126,9 +126,16 @@ def validate(document: dict[str, object], root: Path = ROOT) -> None:
     require(document.get("schema_version") == 1, "schema drift")
     require(
         document.get("status")
-        == "R1_EXECUTION_CONTRACT_CORRECTION_REVIEW_CANDIDATE_DO_NOT_EXECUTE",
+        == "R1_EXECUTION_CONTRACT_ACCEPTED_ARTIFACT_PREPARATION_ONLY_DO_NOT_EXECUTE",
         "status opened",
     )
+    require(document.get("independent_review") == {
+        "review_target": "a9f8fe30a45752c943f9e399775322d83fcd8a36",
+        "file": "FINAM_P1F_O2_R1_CONTRACT_ACCEPT_a9f8fe3_2026-09-27.md",
+        "sha256": "3342409133760dbb8ea909460310881eebdd91c797ed97f3879be4cfbb12ce1b",
+        "verdict": "DESIGN_EXECUTION_CONTRACT_ACCEPT",
+        "findings": {"P1-O2C01": "CLOSED_CONTRACT", "P1-O2C02": "CLOSED_CONTRACT"},
+    }, "independent acceptance drift")
     predecessor = document["accepted_predecessor"]
     require(predecessor["o1_governance_closure_commit"] == PREDECESSOR, "O1 closure drift")
     require(
@@ -194,6 +201,11 @@ def validate(document: dict[str, object], root: Path = ROOT) -> None:
     require(network["host_or_ip_filter_alone_is_sufficient"] is False, "host-only enforcement accepted")
     require(network["complete_orders_truth_may_be_assumed"] is False, "orders truth assumed")
     require(network["orders_snapshot_is_read_only_truth_not_execution"] is True, "orders GET classification drift")
+    require(
+        network["zero_write_scope"]
+        == "zero FINAM order-execution or write calls; accepted GET account orders snapshot is broker truth",
+        "zero-write scope drift",
+    )
     require(network["forbidden_methods"] == ["POST", "PUT", "PATCH", "DELETE"], "write method inventory drift")
     require(network["unlisted_routes_allowed"] is False, "unlisted route opened")
     require(network["redirects_allowed"] is False and network["system_proxy_allowed"] is False, "transport widened")

@@ -1,10 +1,14 @@
 # Stage 8B-P1-f O2 — fresh materialization and isolated bootstrap package
 
-Status: **R1 EXECUTION-CONTRACT CORRECTION REVIEW CANDIDATE — DO NOT EXECUTE**.
+Status: **R1 EXECUTION CONTRACT ACCEPTED — ARTIFACT PREPARATION ONLY; DO NOT EXECUTE**.
 
-R1 closes `P1-O2C01` and `P1-O2C02` from the independent R0 review. It
+R1 closes `P1-O2C01` and `P1-O2C02` from the independent R0 review. The
+contract was independently accepted at
+`a9f8fe30a45752c943f9e399775322d83fcd8a36`; the acceptance document SHA-256
+is `3342409133760dbb8ea909460310881eebdd91c797ed97f3879be4cfbb12ce1b`. It
 defines unit-level bootstrap supervision and the exact read-only FINAM
-method/route allowlist. It does not change production Rust or authorize O2.
+method/route allowlist. Acceptance authorizes only construction of one
+immutable execution artifact; it does not authorize O2 execution.
 
 Accepted predecessor: O1 operational evidence at
 `997e8a1d201048fcdec0e948660f32a0bee3cceb`; governance closure at
@@ -16,7 +20,9 @@ O2 actions and evidence required before a separately accepted execution.
 
 O2 creates one fresh first-boot input and one durable paper root. It does not
 start the long-running P1 service, initialize Redis DB15, invoke a paper order
-provider, send a broker command or attach FINAM order endpoints.
+provider, send a broker command or attach FINAM order-execution/write
+endpoints. The accepted read-only `GET /v1/accounts/{account_id}/orders`
+snapshot is explicitly permitted as broker-truth input.
 
 The execution is one authority transaction with two effects:
 
@@ -104,8 +110,10 @@ registry records one Prepared generation and unique ceremony nonce.
 The root guardian commits the signed genesis and emits a receipt. That receipt
 is returned offline, byte-hashed and signed into the activation certificate.
 Only the exact certificate may activate local generation 1. Repeated genesis,
-an existing control root, an unexpected history head or a different host /
-installation identity fails closed. No service starts in this step.
+an existing authority, a nonempty or invalid control root, an unexpected
+history head or a different host / installation identity fails closed. A
+valid empty control-root skeleton is permitted as specified above. No service
+starts in this step.
 
 ### 2. O2 claim
 
@@ -236,7 +244,8 @@ The evidence collector is read-only and records:
 - durable-root journal/seal/receipt identities and custody;
 - P1 main unit inactive/not-enabled, no P1 process after the one-shot;
 - DB15 still empty and P0 identities unchanged;
-- zero Redis contact by O2 and zero FINAM write/order calls.
+- zero Redis contact by O2 and zero FINAM write/order-execution calls; the
+  accepted read-only account orders snapshot remains part of broker truth.
 
 The exact raw and normalized evidence, command exit codes and package safety
 report are retained for independent acceptance. O3 remains closed until that
