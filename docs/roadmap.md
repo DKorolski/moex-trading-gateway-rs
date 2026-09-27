@@ -422,7 +422,10 @@ Preparation of one immutable O1 package is now open, but provisioning execution
 still requires separate independent acceptance. The active O1 candidate is a
 non-activating bundle of a fresh Linux/amd64 binary from accepted Ie source and
 the byte-exact accepted fixed installer/systemd material; package construction
-performs no SSH or target mutation. The remaining order is
+performs no SSH or target mutation. Its first immutable package is held only
+for P2-O101 relative binary-path incompatibility. The active R1 correction
+uses the canonical absolute extracted-bundle path and retains the reviewed
+binary/installer/payload bytes. The remaining order is
 non-activating provisioning, one-shot network-isolated
 bootstrap, bounded synthetic paper session/restart acceptance, separately
 authorized read-only FINAM-bar session, then aggregate P1 acceptance. Each

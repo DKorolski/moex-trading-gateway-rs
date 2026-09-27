@@ -12,7 +12,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE = "9c0560b46dc54132fd65e80a6e3ce89ba13d7832"
+BASE = "f2fe5a25c084024dfd83dbf7d28a65d3b3d1dde6"
+O0_CLOSURE = "9c0560b46dc54132fd65e80a6e3ce89ba13d7832"
 BRANCH = "stage8b-paper-shadow-resumption"
 ACCEPTED_O0 = "98148b80dacddf44c58204c1af9403bb6b47f8d3"
 ACCEPTED_IE = "940377ab2bd406be31547200ca0b8cc3bb0f3e22"
@@ -21,6 +22,12 @@ FIXED_INSTALL = "7f2e876c4cad7a3a4a0fa10a1eb5202e58202d2f"
 FIXED_INSTALL_TREE = "056227feea871b7f5be684b931f58eb1772346bb"
 O0_REVIEW = "FINAM_P1F_O0_SOURCE_EVIDENCE_ACCEPT_98148b8_2026-09-27.md"
 O0_REVIEW_SHA256 = "a357514bf2d36ae2a47276da268d87bbd785ee65d00fcb86dcf6f57421061498"
+O1_HOLD_REVIEW = "FINAM_P1F_O1_PACKAGE_REVIEW_f2fe5a2_2026-09-27.md"
+O1_HOLD_REVIEW_SHA256 = "d206b4503174f1bae69120f4b4b2f841cd0cdc43dd64fa3d5537bebab4c8e6a7"
+PREVIOUS_ARCHIVE = "moex-trading-project-f2fe5a2-stage8b-p1f-o1-review-package.zip"
+PREVIOUS_ARCHIVE_SHA256 = "d00d7caa2f2266c12084524188e0e90478d3544c617f6b1e64ae735d251b66d6"
+PREVIOUS_BUNDLE_SHA256 = "486d293912920a35f0cb391a4fa6c0c5403fd9911054aa89be4904799cbd7f8b"
+ACCEPTED_BINARY_SHA256 = "cee324a4e4f251227a25d4a7b23dda332a94522b45407671982f4fc896614406"
 RUST_IMAGE = "rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922"
 SPEC = "docs/stage-8/stage8b-p1f-o1-non-activating-provisioning.json"
 DOC = "docs/stage-8/stage8b-p1f-o1-non-activating-provisioning.md"
@@ -42,6 +49,7 @@ ALLOWED_CHANGES = {
     MATRIX,
     "scripts/stage8b_p1f_o1_check.py",
     "scripts/stage8b_p1f_o1_negative_harness.py",
+    "scripts/stage8b_p1f_o1_command_behavioral_test.py",
     "scripts/make_stage8b_p1f_o1_handoff.py",
     "scripts/stage8b_p1f_o1_handoff_safety_check.py",
 }
@@ -80,11 +88,21 @@ def read_json(path: Path) -> dict[str, object]:
 
 def validate_spec(value: dict[str, object], root: Path = ROOT) -> None:
     require(value.get("schema_version") == 1, "schema drift")
-    require(value.get("status") == "REVIEW_CANDIDATE_PACKAGE_PREPARED_EXECUTION_NOT_AUTHORIZED", "status drift")
+    require(value.get("status") == "R1_COMMAND_CORRECTION_REVIEW_CANDIDATE_EXECUTION_NOT_AUTHORIZED", "status drift")
+    predecessor = value.get("held_predecessor")
+    require(isinstance(predecessor, dict), "held predecessor missing")
+    require(predecessor == {
+        "commit": BASE,
+        "archive_sha256": PREVIOUS_ARCHIVE_SHA256,
+        "bundle_sha256": PREVIOUS_BUNDLE_SHA256,
+        "binary_sha256": ACCEPTED_BINARY_SHA256,
+        "review_sha256": O1_HOLD_REVIEW_SHA256,
+        "finding": "P2-O101",
+    }, "held predecessor drift")
     o0 = value.get("accepted_o0")
     require(isinstance(o0, dict), "accepted O0 missing")
     require(o0.get("source_and_evidence_commit") == ACCEPTED_O0, "accepted O0 drift")
-    require(o0.get("governance_closure_commit") == BASE, "O0 closure drift")
+    require(o0.get("governance_closure_commit") == O0_CLOSURE, "O0 closure drift")
     require(o0.get("review_sha256") == O0_REVIEW_SHA256, "O0 review digest drift")
 
     runtime = value.get("runtime_binary")
@@ -132,9 +150,19 @@ def validate_spec(value: dict[str, object], root: Path = ROOT) -> None:
     execution = value.get("execution")
     require(isinstance(execution, dict) and execution.get("authorized") is False, "execution opened")
     require(execution.get("requires_fresh_o0_preflight") is True, "fresh O0 removed")
+    require(execution.get("bundle_directory_command") == 'bundle_dir="$(pwd -P)"', "bundle directory command drift")
+    require(execution.get("install_command") == 'python3 "$bundle_dir/scripts/stage8b_p1e_i1_fixed_install.py" install --root / --binary "$bundle_dir/payload/stage8b-p1-paper-supervisor"', "install command drift")
+    require(execution.get("status_command") == 'python3 "$bundle_dir/scripts/stage8b_p1e_i1_fixed_install.py" status --root /', "status command drift")
+    require(execution.get("rollback_command") == 'python3 "$bundle_dir/scripts/stage8b_p1e_i1_fixed_install.py" rollback --root /', "rollback command drift")
     require(execution.get("daemon_reload_allowed") is False and execution.get("enable_allowed") is False and execution.get("start_allowed") is False, "activation opened")
     closed = value.get("closed_surfaces")
     require(isinstance(closed, dict) and len(closed) == 12 and all(item is False for item in closed.values()), "closed surface opened")
+    evidence = value.get("post_install_evidence")
+    require(isinstance(evidence, dict), "post-install evidence missing")
+    require(evidence.get("status_result_required") == "EXACT_INSTALLED", "status success criterion drift")
+    require(evidence.get("p0_unit_identity_and_configuration") == "byte-exact unchanged", "P0 evidence drift")
+    require(evidence.get("db0_policy") == "no writes attributable to O1; full before/after digest equality is not required because P0 remains active", "DB0 policy drift")
+    require(evidence.get("db15_policy") == "remains empty", "DB15 policy drift")
 
 
 def validate_source(root: Path = ROOT) -> None:

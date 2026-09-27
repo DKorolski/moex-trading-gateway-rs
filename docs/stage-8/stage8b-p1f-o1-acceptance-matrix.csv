@@ -8,11 +8,11 @@ O1-06,binary and every payload have exact SHA-256,bundle manifest,all digests ma
 O1-07,target and SSH host key are exact,provisioning and bundle manifests,exact fixed identity
 O1-08,package excludes operator config first-boot source and credential,bundle safety,all absent
 O1-09,package contains no activation or phase manifest,bundle safety,all absent
-O1-10,install is fixed-path and non-activating,accepted installer plus package contract,no reload enable start
+O1-10,install is fixed-path and non-activating,accepted installer plus absolute-path command behavioral control,absolute binary admitted; relative binary rejected; no reload enable start
 O1-11,status requires exact installed custody,accepted installer,status EXACT_INSTALLED
 O1-12,rollback is accepted fail-closed rollback,accepted installer,exact preflight twice and public package only
 O1-13,pre-mutation fresh O0 is mandatory,package contract,true
-O1-14,P0 and DB0 are read-only comparison surfaces,package contract,no mutation
+O1-14,P0 identity/configuration and DB0 are read-only comparison surfaces,package contract,no O1 mutation; active P0 DB0 digest may change
 O1-15,DB15 remains empty through O1,package contract,no Redis contact
 O1-16,review candidate performs no SSH or remote mutation,build and handoff evidence,false
 O1-17,separate independent review precedes execution,package contract,execution authorized false

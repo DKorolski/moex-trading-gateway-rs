@@ -1,6 +1,12 @@
 # Stage 8B-P1-f O1 — non-activating provisioning package
 
-Status: **REVIEW CANDIDATE — PACKAGE PREPARED, EXECUTION NOT AUTHORIZED**.
+Status: **R1 COMMAND CORRECTION REVIEW CANDIDATE — EXECUTION NOT AUTHORIZED**.
+
+The first package at `f2fe5a25c084024dfd83dbf7d28a65d3b3d1dde6` received
+`O1 PACKAGE HOLD` for P2-O101. Its relative `--binary` argument could not pass
+the accepted installer's absolute-path admission. R1 changes only the
+documented/generated command and its control; the reviewed binary, installer
+and payload bytes remain unchanged.
 
 O0 is closed at `98148b80dacddf44c58204c1af9403bb6b47f8d3`; its governance
 closure is `9c0560b46dc54132fd65e80a6e3ce89ba13d7832`. O1 prepares one
@@ -34,12 +40,22 @@ The following sequence is documentary and is not authorized by this commit:
    first mutation;
 2. verify the handoff, nested bundle, target identity and all artifact hashes;
 3. copy the immutable bundle to a new root-only staging directory;
-4. run the bundled installer once with `install --root /` and the bundled
-   binary;
+4. after changing to the root-owned extracted bundle directory, derive its
+   canonical absolute path and run the bundled installer once:
+
+   ```bash
+   bundle_dir="$(pwd -P)"
+   python3 "$bundle_dir/scripts/stage8b_p1e_i1_fixed_install.py" install \
+     --root / \
+     --binary "$bundle_dir/payload/stage8b-p1-paper-supervisor"
+   ```
+
 5. run the same installer with `status --root /` and require
    `EXACT_INSTALLED`;
-6. reread all installed hashes, ownership and modes, prove P0 identities and
-   Redis DB0 are unchanged, DB15 remains empty, and retain the O1 evidence;
+6. reread all installed hashes, ownership and modes, prove P0 unit identities
+   and configuration remain unchanged, prove O1 made no DB0 writes while the
+   running P0 contour may continue changing DB0 data, prove DB15 remains empty,
+   and retain the O1 evidence;
 7. do not run `systemctl daemon-reload`, `enable` or `start`.
 
 The accepted rollback is the bundled installer's `rollback --root /`. It is

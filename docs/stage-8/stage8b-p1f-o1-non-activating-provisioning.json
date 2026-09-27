@@ -1,7 +1,15 @@
 {
   "schema_version": 1,
   "stage": "Stage 8B-P1-f O1 non-activating provisioning package",
-  "status": "REVIEW_CANDIDATE_PACKAGE_PREPARED_EXECUTION_NOT_AUTHORIZED",
+  "status": "R1_COMMAND_CORRECTION_REVIEW_CANDIDATE_EXECUTION_NOT_AUTHORIZED",
+  "held_predecessor": {
+    "commit": "f2fe5a25c084024dfd83dbf7d28a65d3b3d1dde6",
+    "archive_sha256": "d00d7caa2f2266c12084524188e0e90478d3544c617f6b1e64ae735d251b66d6",
+    "bundle_sha256": "486d293912920a35f0cb391a4fa6c0c5403fd9911054aa89be4904799cbd7f8b",
+    "binary_sha256": "cee324a4e4f251227a25d4a7b23dda332a94522b45407671982f4fc896614406",
+    "review_sha256": "d206b4503174f1bae69120f4b4b2f841cd0cdc43dd64fa3d5537bebab4c8e6a7",
+    "finding": "P2-O101"
+  },
   "accepted_o0": {
     "source_and_evidence_commit": "98148b80dacddf44c58204c1af9403bb6b47f8d3",
     "governance_closure_commit": "9c0560b46dc54132fd65e80a6e3ce89ba13d7832",
@@ -57,12 +65,19 @@
   "execution": {
     "authorized": false,
     "requires_fresh_o0_preflight": true,
-    "install_command": "python3 scripts/stage8b_p1e_i1_fixed_install.py install --root / --binary payload/stage8b-p1-paper-supervisor",
-    "status_command": "python3 scripts/stage8b_p1e_i1_fixed_install.py status --root /",
-    "rollback_command": "python3 scripts/stage8b_p1e_i1_fixed_install.py rollback --root /",
+    "bundle_directory_command": "bundle_dir=\"$(pwd -P)\"",
+    "install_command": "python3 \"$bundle_dir/scripts/stage8b_p1e_i1_fixed_install.py\" install --root / --binary \"$bundle_dir/payload/stage8b-p1-paper-supervisor\"",
+    "status_command": "python3 \"$bundle_dir/scripts/stage8b_p1e_i1_fixed_install.py\" status --root /",
+    "rollback_command": "python3 \"$bundle_dir/scripts/stage8b_p1e_i1_fixed_install.py\" rollback --root /",
     "daemon_reload_allowed": false,
     "enable_allowed": false,
     "start_allowed": false
+  },
+  "post_install_evidence": {
+    "status_result_required": "EXACT_INSTALLED",
+    "p0_unit_identity_and_configuration": "byte-exact unchanged",
+    "db0_policy": "no writes attributable to O1; full before/after digest equality is not required because P0 remains active",
+    "db15_policy": "remains empty"
   },
   "closed_surfaces": {
     "remote_mutation_performed": false,

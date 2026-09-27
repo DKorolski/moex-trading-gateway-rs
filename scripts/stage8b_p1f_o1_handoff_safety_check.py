@@ -14,7 +14,7 @@ import stage8b_p1e_i1a_handoff_safety_check as common
 import stage8b_p1f_o1_check as source_check
 
 
-STAGE = "Stage 8B-P1-f O1 non-activating provisioning package"
+STAGE = "Stage 8B-P1-f O1 R1 command correction"
 PREFIX = "handoff-evidence/"
 MARKER = "handoff-commit.txt"
 MANIFEST = PREFIX + "source-tree-manifest.json"
@@ -24,7 +24,8 @@ GATE = PREFIX + "stage8b-p1f-o1-gate.txt"
 BUILD = PREFIX + "stage8b-p1f-o1-binary-build.json"
 BUILD_LOG = PREFIX + "stage8b-p1f-o1-binary-build.log"
 SOURCE_ARCHIVE = PREFIX + "stage8b-p1f-o1-source-archive-check.txt"
-REVIEW = PREFIX + "reviews/" + source_check.O0_REVIEW
+O0_REVIEW = PREFIX + "reviews/" + source_check.O0_REVIEW
+HOLD_REVIEW = PREFIX + "reviews/" + source_check.O1_HOLD_REVIEW
 
 
 def require(condition: bool, message: str) -> None:
@@ -98,7 +99,11 @@ def validate_bundle(raw: bytes, source_files: dict[str, bytes], source_ref: str)
     manifest = json.loads(files["o1-provisioning-manifest.json"], object_pairs_hook=strict_object)
     require(manifest["schema_version"] == 1 and manifest["domain"] == "moex.stage8b.p1f.o1.provisioning-package.v1", "bundle manifest identity drift")
     require(manifest["candidate_source_ref"] == source_ref, "bundle source drift")
+    require(manifest["accepted_o0_closure"] == source_check.O0_CLOSURE, "bundle O0 closure drift")
     require(manifest["execution_authorized"] is False and manifest["remote_mutation_performed"] is False, "bundle execution opened")
+    commands = manifest["commands_after_separate_acceptance"]
+    require(commands["bundle_directory_command"] == 'bundle_dir="$(pwd -P)"', "bundle directory command drift")
+    require(commands["install_command"] == 'python3 "$bundle_dir/scripts/stage8b_p1e_i1_fixed_install.py" install --root / --binary "$bundle_dir/payload/stage8b-p1-paper-supervisor"', "install command drift")
     require(all(flag is False for flag in manifest["closed_surfaces"].values()), "bundle surface opened")
     artifacts = manifest["artifacts"]
     require(isinstance(artifacts, list) and len(artifacts) == 8, "bundle artifact inventory drift")
@@ -137,7 +142,7 @@ def check(path: str) -> dict[str, object]:
     require(marker["source_parent"] == source_check.BASE and marker["branch"] == source_check.BRANCH, "lineage drift")
     require(marker["source_ref"].startswith(marker["source_short_ref"]), "short ref drift")
     bundle_path = PREFIX + marker["bundle_name"]
-    generated = {MARKER, MANIFEST, COMMIT_RAW, EVIDENCE, GATE, BUILD, BUILD_LOG, SOURCE_ARCHIVE, REVIEW, bundle_path}
+    generated = {MARKER, MANIFEST, COMMIT_RAW, EVIDENCE, GATE, BUILD, BUILD_LOG, SOURCE_ARCHIVE, O0_REVIEW, HOLD_REVIEW, bundle_path}
     require(generated <= set(files), "generated evidence missing")
 
     commit_raw = files[COMMIT_RAW]
@@ -162,6 +167,17 @@ def check(path: str) -> dict[str, object]:
     evidence = json.loads(files[EVIDENCE], object_pairs_hook=strict_object)
     build = json.loads(files[BUILD], object_pairs_hook=strict_object)
     require(evidence["source_ref"] == marker["source_ref"] and evidence["source_parent"] == source_check.BASE, "evidence lineage drift")
+    require(evidence["accepted_o0_closure"] == source_check.O0_CLOSURE, "evidence O0 closure drift")
+    require(evidence["held_predecessor"] == {
+        "source_ref": source_check.BASE,
+        "archive_name": source_check.PREVIOUS_ARCHIVE,
+        "archive_sha256": source_check.PREVIOUS_ARCHIVE_SHA256,
+        "bundle_sha256": source_check.PREVIOUS_BUNDLE_SHA256,
+        "binary_sha256": source_check.ACCEPTED_BINARY_SHA256,
+        "review_sha256": source_check.O1_HOLD_REVIEW_SHA256,
+        "finding": "P2-O101",
+    }, "held predecessor evidence drift")
+    require(evidence["binary_rebuilt"] is False and evidence["binary_reused_from_reviewed_predecessor"] is True, "binary reuse drift")
     require(evidence["execution_authorized"] is False and evidence["remote_mutation_performed"] is False, "handoff execution opened")
     require(all(flag is False for flag in evidence["closed_surfaces"].values()), "handoff surface opened")
     require(build["source_ref"] == source_check.ACCEPTED_IE and build["source_tree"] == source_check.ACCEPTED_IE_TREE, "build source drift")
@@ -169,13 +185,20 @@ def check(path: str) -> dict[str, object]:
     require(build["build_exit_code"] == 0 and build["build_network"] == "none" and build["rust_image"] == source_check.RUST_IMAGE, "build result drift")
     bundle = validate_bundle(files[bundle_path], payloads, marker["source_ref"])
     require(bundle["binary_sha256"] == build["binary_sha256"], "binary build/bundle mismatch")
+    require(bundle["binary_sha256"] == source_check.ACCEPTED_BINARY_SHA256, "accepted binary drift")
     require(evidence["bundle_sha256"] == sha256(files[bundle_path]), "bundle digest drift")
     require(evidence["bundle_manifest_sha256"] == bundle["manifest_sha256"], "bundle manifest digest drift")
     require(evidence["build_result_sha256"] == sha256(files[BUILD]), "build evidence digest drift")
     require(evidence["gate_sha256"] == sha256(files[GATE]), "gate digest drift")
     require(evidence["source_manifest_sha256"] == sha256(files[MANIFEST]), "source manifest digest drift")
-    require(sha256(files[REVIEW]) == source_check.O0_REVIEW_SHA256, "O0 review digest drift")
-    require(b"PASS stage8b-p1f-o1-check" in files[GATE] and b"PASS stage8b-p1f-o1-negative-harness 12/12" in files[GATE], "gate marker missing")
+    require(sha256(files[O0_REVIEW]) == source_check.O0_REVIEW_SHA256, "O0 review digest drift")
+    require(sha256(files[HOLD_REVIEW]) == source_check.O1_HOLD_REVIEW_SHA256, "O1 HOLD review digest drift")
+    require(
+        b"PASS stage8b-p1f-o1-check" in files[GATE]
+        and b"PASS stage8b-p1f-o1-negative-harness 13/13" in files[GATE]
+        and b"PASS stage8b-p1f-o1-command-behavioral-test controls=2" in files[GATE],
+        "gate marker missing",
+    )
     return {
         "archive_members": len(files),
         "tracked_members_verified": len(tracked),

@@ -25,6 +25,7 @@ def main() -> None:
         ("fresh-o0-removed", mutate(("execution", "requires_fresh_o0_preflight"), False)),
         ("daemon-reload-opened", mutate(("execution", "daemon_reload_allowed"), True)),
         ("unit-start-opened", mutate(("execution", "start_allowed"), True)),
+        ("relative-install-binary", mutate(("execution", "install_command"), "python3 scripts/stage8b_p1e_i1_fixed_install.py install --root / --binary payload/stage8b-p1-paper-supervisor")),
         ("operator-material-added", mutate(("bundle_contract", "operator_material_included"), True)),
         ("credential-added", mutate(("bundle_contract", "credential_included"), True)),
         ("runtime-source-drift", mutate(("runtime_binary", "source_ref"), "0" * 40)),

@@ -56,6 +56,11 @@ installer and its five public payloads. Its handoff builder produces a fresh
 Linux/amd64 release binary and a hash-bound nested provisioning bundle without
 SSH or remote mutation. Independent O1 package acceptance is required before
 that bundle may be copied to or executed on the target.
+The first package `f2fe5a2` is held only for P2-O101: its manifest passed a
+relative binary path that the accepted installer correctly rejects. The active
+R1 correction derives the canonical absolute staging path, adds a positive and
+negative binary-admission control, and reuses the reviewed binary bytes. O1
+execution remains closed.
 Source authority is not activation authority.
 Operational installation or service start, Redis DB15/DB0 activation, VPS
 deployment, paper-provider execution, FINAM POST/DELETE/send, broker dispatch,
