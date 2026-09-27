@@ -7,8 +7,8 @@ ConditionPathExists=/etc/moex-finam-p1-paper/o2/active-manifest.sha256
 [Service]
 Type=oneshot
 User=root
-Group=root
-UMask=0077
+Group=moex-p1-paper
+UMask=0027
 ExecStart=/usr/local/libexec/moex/stage8b-p1f-o2-operator runner-fixed
 ExecStopPost=/usr/local/libexec/moex/stage8b-p1f-o2-operator cleanup-fixed
 TimeoutStartSec=infinity

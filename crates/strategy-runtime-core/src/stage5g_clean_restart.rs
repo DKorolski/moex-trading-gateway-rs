@@ -622,6 +622,12 @@ fn stage5g_reconstruct_runtime_from_clean_restart(
 }
 
 impl Stage5gCleanRestartedCapability {
+    /// Read-only diagnostic for the strategy model clock. Durable identity
+    /// remains represented by the close-bound lifecycle watermark.
+    pub fn stage8b_p1_model_last_bar_label_utc(&self) -> Option<String> {
+        self.runtime.stage8b_p1e_last_semantic_bar_ts_utc()
+    }
+
     pub(crate) fn stage8b_p1e_last_semantic_bar_ts_utc(&self) -> Option<String> {
         self.continuation_authority
             .lifecycle_watermarks

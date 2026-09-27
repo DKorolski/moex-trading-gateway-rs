@@ -1478,7 +1478,7 @@ pub(crate) mod tests {
                     .unwrap()
                     .timestamp();
                 let last_close = Utc
-                    .with_ymd_and_hms(day.year(), day.month(), day.day(), 20, 40, 0)
+                    .with_ymd_and_hms(day.year(), day.month(), day.day(), 20, 50, 0)
                     .single()
                     .unwrap()
                     .timestamp();
@@ -2019,7 +2019,7 @@ pub(crate) mod tests {
         let (bytes, now, operational, account) = fixture();
         let source = parse_fixture(&bytes, now, &operational, &account).unwrap();
         assert_eq!(source.source_bundle_sha256(), sha256_hex(&bytes));
-        assert_eq!(source.history_bars().len(), 121 * 88);
+        assert_eq!(source.history_bars().len(), 121 * 89);
         assert_eq!(source.riskgate_observations().len(), 121);
         assert!(source
             .riskgate_observations()
@@ -2057,6 +2057,131 @@ pub(crate) mod tests {
                     .format("%Y-%m-%d")
                     .to_string()
             )
+        );
+    }
+
+    #[test]
+    fn first_boot_start_labels_survive_restart_and_admit_adjacent_canonical_m10() {
+        let operational = "1".repeat(64);
+        let account = "ACC_TEST_0001".to_string();
+        let (bytes, now, _, _) =
+            fixture_for_binding_with_capture_delay(&operational, &account, 599);
+        let source = parse_fixture(&bytes, now, &operational, &account).unwrap();
+        let candidate_close_time = source.candidate.close_time_utc;
+        let composition = build_composition(source, operational.clone(), account).unwrap();
+        let (timer_ready, export_input, fresh_runtime) = composition.into_parts();
+        let key =
+            strategy_runtime_core::Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x8b; 32])
+                .unwrap();
+        let first_boot_bytes = strategy_runtime_core::export_stage5g_clean_restart(
+            strategy_runtime_core::Stage5gCleanRestartSource::P1BootstrapReady(timer_ready),
+            export_input,
+            &key,
+        )
+        .unwrap();
+        let restored = strategy_runtime_core::restore_stage5g_clean_restart(
+            &first_boot_bytes,
+            &key,
+            fresh_runtime,
+        )
+        .unwrap();
+        let before_fingerprint = restored.reconstructed_runtime_state_fingerprint_sha256();
+        assert_eq!(restored.summary().stage5c_callback_count, 1);
+        assert_eq!(
+            restored.stage8b_p1_model_last_bar_label_utc(),
+            Utc.timestamp_opt(candidate_close_time - 600, 0)
+                .single()
+                .map(|value| value.to_rfc3339_opts(chrono::SecondsFormat::Micros, true))
+        );
+
+        let adjacent_close = candidate_close_time + 600;
+        let accepted = strategy_runtime_core::accept_stage5c_semantic_bar(
+            strategy_runtime_core::Stage5cSemanticBarInput {
+                bar: broker_core::HybridRuntimeBarEvent {
+                    instrument: broker_core::InstrumentId {
+                        symbol: "IMOEXF".to_string(),
+                        venue_symbol: Some("IMOEXF@RTSX".to_string()),
+                        exchange: broker_core::Exchange::Moex,
+                        market: broker_core::Market::Futures,
+                    },
+                    close_time_utc: adjacent_close,
+                    open: 2_200.0,
+                    high: 2_205.0,
+                    low: 2_195.0,
+                    close: 2_200.0,
+                    volume: 20.0,
+                    origin: broker_core::HybridRuntimeBarOrigin::Live,
+                    is_final: true,
+                    timeframe_sec: 600,
+                },
+                provenance:
+                    broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete(),
+                tick_size: 0.5,
+            },
+        )
+        .unwrap()
+        .with_strategy_model_bar_label_utc(candidate_close_time)
+        .unwrap();
+        assert_eq!(accepted.canonical_close_time_utc(), adjacent_close);
+        assert_eq!(
+            accepted.strategy_model_bar_label_utc(),
+            candidate_close_time
+        );
+
+        let transition = strategy_runtime_core::continue_stage5g_p1_semantic(
+            restored,
+            accepted,
+            strategy_runtime_core::Stage5gP1SemanticBindingInput {
+                operational_identity_sha256: operational,
+                m10_redis_id: format!("{}-0", adjacent_close * 1_000),
+                m10_semantic_id_sha256: "22".repeat(32),
+                m10_payload_sha256: "33".repeat(32),
+            },
+        )
+        .unwrap();
+        let strategy_runtime_core::Stage5gP1SemanticTransition::ZeroIntent(committed) = transition
+        else {
+            panic!("adjacent neutral M10 must execute exactly once without an intent");
+        };
+        let continued_bytes =
+            strategy_runtime_core::export_stage5g_p1_zero_intent(committed, &key).unwrap();
+        let (fresh_after, _) = Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
+        let continued = strategy_runtime_core::restore_stage5g_clean_restart(
+            &continued_bytes,
+            &key,
+            fresh_after,
+        )
+        .unwrap();
+        // The replacement package contains exactly one callback for C1; the
+        // first-boot callback belongs to the replaced package, not a cumulative
+        // counter in the new package.
+        assert_eq!(continued.summary().stage5c_callback_count, 1);
+        assert_eq!(
+            continued.stage8b_p1_model_last_bar_label_utc(),
+            Utc.timestamp_opt(candidate_close_time, 0)
+                .single()
+                .map(|value| value.to_rfc3339_opts(chrono::SecondsFormat::Micros, true))
+        );
+
+        let (fresh_again, _) = Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
+        let restarted_again = strategy_runtime_core::restore_stage5g_clean_restart(
+            &continued_bytes,
+            &key,
+            fresh_again,
+        )
+        .unwrap();
+        assert_eq!(restarted_again.summary().stage5c_callback_count, 1);
+        assert_eq!(
+            restarted_again.stage8b_p1_model_last_bar_label_utc(),
+            continued.stage8b_p1_model_last_bar_label_utc()
+        );
+        assert_eq!(
+            restarted_again.reconstructed_runtime_state_fingerprint_sha256(),
+            continued.reconstructed_runtime_state_fingerprint_sha256()
+        );
+        assert_eq!(
+            continued.reconstructed_runtime_state_fingerprint_sha256(),
+            before_fingerprint
         );
     }
 

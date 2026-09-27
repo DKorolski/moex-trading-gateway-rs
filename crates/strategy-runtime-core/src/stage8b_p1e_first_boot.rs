@@ -242,6 +242,7 @@ pub fn build_stage8b_p1_first_boot_composition_v1(
         bars: history_events,
         provenance: Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete(),
     })
+    .and_then(|history| history.with_strategy_model_bar_start_labels())
     .map_err(|_| Stage8bP1eFirstBootCompositionError::History)?;
     let warmed = crate::stage5c_paper_host::warmup_stage5c_history_at(
         restored,
@@ -329,12 +330,14 @@ pub fn build_stage8b_p1_first_boot_composition_v1(
         &input.candidate,
         broker_core::HybridRuntimeBarOrigin::Replay,
     )?;
-    let candidate_session = moscow_date(input.candidate.close_time_utc)
+    let candidate_model_bar_label_utc = strategy_model_bar_label_utc(&input.candidate)?;
+    let candidate_session = moscow_date(candidate_model_bar_label_utc)
         .ok_or(Stage8bP1eFirstBootCompositionError::Candidate)?;
     let history_tail_session = input
         .history_bars
         .last()
-        .and_then(|bar| moscow_date(bar.close_time_utc))
+        .and_then(|bar| strategy_model_bar_label_utc(bar).ok())
+        .and_then(moscow_date)
         .ok_or(Stage8bP1eFirstBootCompositionError::History)?;
     if candidate_session <= history_tail_session
         || input.candidate.close_time_utc > input.captured_at.timestamp()
@@ -346,6 +349,8 @@ pub fn build_stage8b_p1_first_boot_composition_v1(
         provenance: Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete(),
         tick_size: 0.5,
     })
+    .map_err(|_| Stage8bP1eFirstBootCompositionError::Candidate)?
+    .with_strategy_model_bar_label_utc(candidate_model_bar_label_utc)
     .map_err(|_| Stage8bP1eFirstBootCompositionError::Candidate)?;
     let result = crate::stage5c_paper_host::stage8b_p1_apply_first_replay_bar_at(
         recovered,
@@ -478,7 +483,7 @@ fn history_bar_event(
 ) -> Result<BarEvent, Stage8bP1eFirstBootCompositionError> {
     Ok(BarEvent {
         symbol: INTERNAL_SYMBOL.to_string(),
-        close_time_utc: bar.close_time_utc,
+        close_time_utc: strategy_model_bar_label_utc(bar)?,
         close: parse_decimal(&bar.close)?,
         o: parse_decimal(&bar.open)?,
         h: parse_decimal(&bar.high)?,
@@ -486,6 +491,14 @@ fn history_bar_event(
         v: parse_decimal(&bar.volume)?,
         origin: crate::runtime_compat::DataOrigin::History,
     })
+}
+
+fn strategy_model_bar_label_utc(
+    bar: &Stage8bP1eFirstBootBarInputV1,
+) -> Result<i64, Stage8bP1eFirstBootCompositionError> {
+    bar.close_time_utc
+        .checked_sub(600)
+        .ok_or(Stage8bP1eFirstBootCompositionError::History)
 }
 
 fn validate_riskgate_observations(

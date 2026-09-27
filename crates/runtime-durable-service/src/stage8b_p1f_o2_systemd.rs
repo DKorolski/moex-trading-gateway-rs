@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::ffi::CString;
 use std::fs::OpenOptions;
+use std::future::Future;
 use std::io::{ErrorKind, Read};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
@@ -32,6 +33,7 @@ const BOOTSTRAP_UNIT: &str = "moex-finam-p1-paper-bootstrap.service";
 const SYSTEMCTL: &str = "/usr/bin/systemctl";
 const POLL_INTERVAL: StdDuration = StdDuration::from_millis(250);
 const COMMAND_TIMEOUT: StdDuration = StdDuration::from_secs(5);
+const FORCE_KILL_PROOF_TIMEOUT: StdDuration = StdDuration::from_secs(45);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -179,6 +181,22 @@ pub async fn run_stage8b_p1f_o2_systemd_runner_v1(
         if decision == Stage8bP1fDeadlineDecisionV1::ForceKill && !force_kill_used {
             force_kill_used = true;
             kill_bootstrap_unit().await?;
+            let evidence = wait_for_stopped_proof(
+                collect_stage8b_p1f_o2_unit_evidence_v1,
+                FORCE_KILL_PROOF_TIMEOUT,
+                POLL_INTERVAL,
+            )
+            .await?;
+            let status = start_status.unwrap_or_else(failed_exit_status);
+            return finish_new_terminal(
+                &store,
+                manifest_sha256,
+                &permit,
+                status,
+                true,
+                force_kill_used,
+                evidence,
+            );
         }
         if let Some(status) = start_status {
             let evidence = collect_stage8b_p1f_o2_unit_evidence_v1().await?;
@@ -190,21 +208,6 @@ pub async fn run_stage8b_p1f_o2_systemd_runner_v1(
                     status,
                     requested_stop,
                     force_kill_used,
-                    evidence,
-                );
-            }
-        }
-        if force_kill_used {
-            let evidence = collect_stage8b_p1f_o2_unit_evidence_v1().await?;
-            if evidence.stopped_proven {
-                let status = start_status.unwrap_or_else(failed_exit_status);
-                return finish_new_terminal(
-                    &store,
-                    manifest_sha256,
-                    &permit,
-                    status,
-                    true,
-                    true,
                     evidence,
                 );
             }
@@ -487,11 +490,40 @@ async fn stop_kill_and_prove() -> Result<Stage8bP1fO2UnitEvidenceV1, Stage8bP1fO
         return Ok(evidence);
     }
     kill_bootstrap_unit().await?;
-    let evidence = collect_stage8b_p1f_o2_unit_evidence_v1().await?;
-    if evidence.stopped_proven {
-        Ok(evidence)
-    } else {
-        Err(Stage8bP1fO2RunnerErrorV1::StopNotProven)
+    wait_for_stopped_proof(
+        collect_stage8b_p1f_o2_unit_evidence_v1,
+        FORCE_KILL_PROOF_TIMEOUT,
+        POLL_INTERVAL,
+    )
+    .await
+}
+
+async fn wait_for_stopped_proof<F, Fut>(
+    mut collect: F,
+    timeout: StdDuration,
+    poll_interval: StdDuration,
+) -> Result<Stage8bP1fO2UnitEvidenceV1, Stage8bP1fO2RunnerErrorV1>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<Stage8bP1fO2UnitEvidenceV1, Stage8bP1fO2RunnerErrorV1>>,
+{
+    let deadline = Instant::now() + timeout;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(Stage8bP1fO2RunnerErrorV1::StopNotProven);
+        }
+        let evidence = tokio::time::timeout(remaining, collect())
+            .await
+            .map_err(|_| Stage8bP1fO2RunnerErrorV1::StopNotProven)??;
+        if evidence.stopped_proven {
+            return Ok(evidence);
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(Stage8bP1fO2RunnerErrorV1::StopNotProven);
+        }
+        tokio::time::sleep(poll_interval.min(remaining)).await;
     }
 }
 
@@ -828,5 +860,74 @@ mod tests {
         let expired = classify_terminal(true, true, "success", false, None);
         assert_eq!(expired.state, Stage8bP1fPhaseStateV1::Expired);
         assert_eq!(expired.disposition, "EXPIRED");
+    }
+
+    fn evidence(stopped_proven: bool) -> Stage8bP1fO2UnitEvidenceV1 {
+        Stage8bP1fO2UnitEvidenceV1 {
+            schema_version: 1,
+            domain: "stage8b-p1f-o2-unit-evidence-v1".into(),
+            unit: BOOTSTRAP_UNIT.into(),
+            active_state: if stopped_proven {
+                "inactive"
+            } else {
+                "deactivating"
+            }
+            .into(),
+            sub_state: if stopped_proven {
+                "dead"
+            } else {
+                "stop-sigkill"
+            }
+            .into(),
+            result: "success".into(),
+            exec_main_status: 0,
+            main_pid: u32::from(!stopped_proven),
+            control_pid: 0,
+            job: if stopped_proven { "" } else { "17" }.into(),
+            control_group: String::new(),
+            cgroup_procs_empty: stopped_proven,
+            stopped_proven,
+        }
+    }
+
+    #[tokio::test]
+    async fn controlled_stop_proof_adapter_covers_proof_kill_then_proof_and_timeout() {
+        let stopped = wait_for_stopped_proof(
+            || async { Ok(evidence(true)) },
+            StdDuration::from_secs(1),
+            StdDuration::ZERO,
+        )
+        .await
+        .unwrap();
+        assert!(stopped.stopped_proven);
+
+        let observations = Arc::new(std::sync::Mutex::new(vec![false, true].into_iter()));
+        let after_kill = wait_for_stopped_proof(
+            {
+                let observations = Arc::clone(&observations);
+                move || {
+                    let observations = Arc::clone(&observations);
+                    async move {
+                        Ok(evidence(
+                            observations.lock().unwrap().next().unwrap_or(true),
+                        ))
+                    }
+                }
+            },
+            StdDuration::from_secs(1),
+            StdDuration::ZERO,
+        )
+        .await
+        .unwrap();
+        assert!(after_kill.stopped_proven);
+
+        let failure = wait_for_stopped_proof(
+            || async { Ok(evidence(false)) },
+            StdDuration::from_millis(1),
+            StdDuration::ZERO,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(failure.exit_code(), 72);
     }
 }

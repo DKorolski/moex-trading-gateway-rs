@@ -15,15 +15,16 @@ import stage8b_p1e_i1a_handoff_safety_check as common
 STAGE = "Stage 8B-P1-f ALOR-FINAM source correction"
 BRANCH = "stage8b-paper-shadow-resumption"
 BASELINE = "1090de48cd7f216ce7868cfc5c141208579d7d33"
-REVIEW_SHA256 = "03bae2b15abfb3d89c6f8124658f0c2ee4476e6272c6f627f3c9121df414c9e1"
+REVIEW_SHA256 = "8a3096d8b0640c22a902a07937233066702dba9db59f0798a1c8d9e48fa9e9f3"
 PREFIX = "handoff-evidence/"
 MARKER = "handoff-commit.txt"
 MANIFEST = PREFIX + "source-tree-manifest.json"
 COMMIT_RAW = PREFIX + "source-commit.raw"
 EVIDENCE = PREFIX + "stage8b-p1f-alor-finam-source-correction-handoff.json"
 GATE = PREFIX + "stage8b-p1f-alor-finam-source-correction-gate.txt"
-REVIEW = PREFIX + "reviews/ALOR_FINAM_FREEZE_PARITY_AND_LIGHT_TZ_2026-09-27.md"
-GENERATED = {MARKER, MANIFEST, COMMIT_RAW, EVIDENCE, GATE, REVIEW}
+MULTI_UID = PREFIX + "stage8b-p1f-alor-finam-linux-multi-uid-custody.txt"
+REVIEW = PREFIX + "reviews/FINAM_be20447_SOURCE_AND_O2_REVIEW_HOLD_2026-09-27.md"
+GENERATED = {MARKER, MANIFEST, COMMIT_RAW, EVIDENCE, GATE, MULTI_UID, REVIEW}
 REQUIRED_TRACKED = {
     "docs/stage-8/stage8b-p1f-alor-finam-freeze-intake-2026-09-27.json",
     "docs/stage-8/stage8b-p1f-alor-finam-source-correction-2026-09-27.md",
@@ -36,6 +37,13 @@ REQUIRED_TRACKED = {
     "scripts/stage8b_p1f_alor_finam_compare_rounds_test.py",
     "scripts/stage8b_p1f_alor_finam_source_correction_check.py",
     "scripts/stage8b_p1f_alor_finam_source_correction_gate.sh",
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
+    "crates/strategy-runtime-core/src/stage5g_clean_restart.rs",
+    "crates/strategy-runtime-core/src/stage8b_p1e_first_boot.rs",
+    "crates/runtime-durable-service/src/stage8b_p1e_first_boot_source.rs",
+    "crates/runtime-durable-service/src/stage8b_p1f_guardian.rs",
+    "crates/runtime-durable-service/src/stage8b_p1f_o2_systemd.rs",
+    "deploy/stage8b-p1e/moex-finam-p1-paper-o2-bootstrap-runner.service",
 }
 
 
@@ -170,7 +178,9 @@ def check(path: str) -> dict[str, object]:
         require(all(value is False for value in evidence["closed_surfaces"].values()), "closed surface opened")
         require(evidence["manifest_sha256"] == sha256(files[MANIFEST]), "manifest digest mismatch")
         require(evidence["gate_sha256"] == sha256(files[GATE]), "gate digest mismatch")
+        require(evidence["multi_uid_sha256"] == sha256(files[MULTI_UID]), "multi-UID digest mismatch")
         require(sha256(files[REVIEW]) == REVIEW_SHA256, "review digest mismatch")
+        require(b"PASS stage8b-p1f-multi-uid root-transition-and-custody" in files[MULTI_UID], "multi-UID custody evidence missing")
 
         gate = files[GATE]
         for expected in (
@@ -181,6 +191,9 @@ def check(path: str) -> dict[str, object]:
             b"same_day_eod_blocks_new_entries_but_preserves_exit ... ok",
             b"canonical_m10_keeps_close_bound_identity_but_uses_start_model_label ... ok",
             b"exact_runtime_profile_builds_real_fingerprint ... ok",
+            b"first_boot_start_labels_survive_restart_and_admit_adjacent_canonical_m10 ... ok",
+            b"controlled_stop_proof_adapter_covers_proof_kill_then_proof_and_timeout ... ok",
+            b"custody_policy_has_no_service_uid_write_bit ... ok",
             b"PASS stage8b-p1f-alor-finam-source-correction-gate",
         ):
             require(expected in gate, f"gate marker missing: {expected!r}")

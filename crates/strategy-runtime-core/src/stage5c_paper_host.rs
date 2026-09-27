@@ -2519,6 +2519,24 @@ pub struct Stage5cAcceptedHistoryBatch {
     instrument: InstrumentId,
     start_ts: i64,
     end_ts: i64,
+    strategy_model_bar_label_offset_sec: i64,
+}
+
+impl Stage5cAcceptedHistoryBatch {
+    /// Selects candle-start labels for strategy model evaluation while the
+    /// accepted bars, receipt range, provenance and canonical identity remain
+    /// close-bound.
+    pub(crate) fn with_strategy_model_bar_start_labels(
+        mut self,
+    ) -> Result<Self, Stage5cHistoryWarmupError> {
+        for bar in &self.bars {
+            bar.close_time_utc
+                .checked_sub(i64::from(bar.timeframe_sec))
+                .ok_or(Stage5cHistoryWarmupError::InvalidHistoryTimestamp)?;
+        }
+        self.strategy_model_bar_label_offset_sec = -600;
+        Ok(self)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -6808,6 +6826,7 @@ pub fn accept_stage5c_history_batch(
         bars: input.bars,
         provenance: input.provenance,
         instrument,
+        strategy_model_bar_label_offset_sec: 0,
     })
 }
 
@@ -6841,11 +6860,15 @@ pub(crate) fn warmup_stage5c_history_at(
     let input_bars = history.bars.len();
     let source_mode = history.provenance.source_mode;
     let last_history_ts = history.end_ts;
+    let strategy_model_bar_label_offset_sec = history.strategy_model_bar_label_offset_sec;
     let mut bars = Vec::with_capacity(input_bars);
     for bar in history.bars {
         bars.push(crate::runtime_compat::BarEvent {
             symbol: bar.instrument.symbol,
-            close_time_utc: bar.close_time_utc,
+            close_time_utc: bar
+                .close_time_utc
+                .checked_add(strategy_model_bar_label_offset_sec)
+                .ok_or(Stage5cHistoryWarmupError::InvalidHistoryTimestamp)?,
             close: bar.close,
             o: bar.open,
             h: bar.high,

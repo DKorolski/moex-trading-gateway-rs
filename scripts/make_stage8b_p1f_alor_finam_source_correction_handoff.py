@@ -16,7 +16,7 @@ import stage8b_p1f_alor_finam_source_correction_handoff_safety_check as safety
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "reports/handoff"
 REVIEW_SOURCE = Path(
-    "/Users/denisq/Downloads/ALOR_FINAM_FREEZE_PARITY_AND_LIGHT_TZ_2026-09-27.md"
+    "/Users/denisq/Downloads/FINAM_be20447_SOURCE_AND_O2_REVIEW_HOLD_2026-09-27.md"
 )
 
 
@@ -69,6 +69,11 @@ def main() -> None:
         )
 
     gate = run_capture(["bash", "scripts/stage8b_p1f_alor_finam_source_correction_gate.sh"])
+    multi_uid = run_capture([
+        "docker", "run", "--rm", "--user", "0:0",
+        "-v", f"{ROOT}:/work:ro", "-w", "/work",
+        "rust:1.90-bookworm", "bash", "scripts/stage8b_p1f_multi_uid_custody_harness.sh",
+    ])
     fmt = run_capture(["cargo", "fmt", "--all", "--", "--check"])
     if git("rev-parse", "HEAD").decode().strip() != source_ref:
         raise SystemExit("stage8b-p1f-alor-finam-source-correction-handoff: FAIL HEAD changed")
@@ -103,6 +108,7 @@ def main() -> None:
         "changed_paths": sorted(changed),
         "manifest_sha256": sha256(manifest),
         "gate_sha256": sha256(gate),
+        "multi_uid_sha256": sha256(multi_uid),
         "fmt_sha256": sha256(fmt),
         "closed_surfaces": closed_surfaces,
         "next_after_acceptance": (
@@ -126,6 +132,7 @@ def main() -> None:
         safety.COMMIT_RAW: git("cat-file", "commit", source_ref),
         safety.EVIDENCE: (json.dumps(evidence, indent=2, sort_keys=True) + "\n").encode(),
         safety.GATE: gate,
+        safety.MULTI_UID: multi_uid,
         safety.REVIEW: review,
     }
 

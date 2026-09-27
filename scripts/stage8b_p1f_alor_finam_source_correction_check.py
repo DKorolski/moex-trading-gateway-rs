@@ -64,6 +64,12 @@ def main() -> int:
     paper_host = (ROOT / "crates/strategy-runtime-core/src/stage5c_paper_host.rs").read_text(encoding="utf-8")
     bridge = (ROOT / "crates/runtime-durable-service/src/stage8b_p1_semantic.rs").read_text(encoding="utf-8")
     supervisor = (ROOT / "crates/runtime-durable-service/src/stage8b_p1_supervisor.rs").read_text(encoding="utf-8")
+    first_boot = (ROOT / "crates/strategy-runtime-core/src/stage8b_p1e_first_boot.rs").read_text(encoding="utf-8")
+    first_boot_source = (ROOT / "crates/runtime-durable-service/src/stage8b_p1e_first_boot_source.rs").read_text(encoding="utf-8")
+    guardian = (ROOT / "crates/runtime-durable-service/src/stage8b_p1f_guardian.rs").read_text(encoding="utf-8")
+    o2_runner = (ROOT / "crates/runtime-durable-service/src/stage8b_p1f_o2_systemd.rs").read_text(encoding="utf-8")
+    o2_unit = (ROOT / "deploy/stage8b-p1e/moex-finam-p1-paper-o2-bootstrap-runner.service").read_text(encoding="utf-8")
+    correction = (ROOT / "docs/stage-8/stage8b-p1f-alor-finam-source-correction-2026-09-27.md").read_text(encoding="utf-8")
     require("if !self.config.live_mr_entries_enabled" in runtime, "MR pre-ownership guard missing")
     require("frozen_baseline07_replay_matches_all_38_alor_rounds" in runtime, "Rust parity replay missing")
     require("bar.dt.minute() >= 30" in orchestrator, "same-day no-new-entry guard missing")
@@ -71,12 +77,23 @@ def main() -> int:
     require("canonical_close_time_utc" in paper_host, "canonical close identity accessor missing")
     require("with_strategy_model_bar_label_utc" in paper_host, "model-label binding missing")
     require("callback_bar.close_time_utc = self.strategy_model_bar_label_utc" in paper_host, "callback-only model label missing")
+    require("with_strategy_model_bar_start_labels" in paper_host, "first-boot history label binding missing")
+    require("strategy_model_bar_label_utc(&input.candidate)" in first_boot, "Replay candidate model label missing")
+    require("close_time_utc: strategy_model_bar_label_utc(bar)?" in first_boot, "High180 history model label missing")
+    require("first_boot_start_labels_survive_restart_and_admit_adjacent_canonical_m10" in first_boot_source, "linked first-boot restart regression missing")
+    require("libc::fchmod(file.as_raw_fd(), mode as libc::mode_t)" in guardian, "exact authority mode write missing")
+    require("Group=moex-p1-paper" in o2_unit and "UMask=0027" in o2_unit, "runner custody identity drift")
+    require("CapabilityBoundingSet=\n" in o2_unit and "AmbientCapabilities=\n" in o2_unit, "runner capabilities opened")
+    require("FORCE_KILL_PROOF_TIMEOUT" in o2_runner, "force-kill proof budget missing")
+    require("wait_for_stopped_proof" in o2_runner, "bounded stopped-proof loop missing")
+    require("controlled_stop_proof_adapter_covers_proof_kill_then_proof_and_timeout" in o2_runner, "stopped-proof adapter regression missing")
+    require("artifact acceptance was\nnot established" in correction, "superseded O2 wording drift")
     require("live_mr_entries_enabled: semantic.live_mr_entries_enabled" in supervisor, "profile MR policy binding missing")
     require(intake["corrected_runtime_profile"]["runtime_config_fingerprint_sha256"] == "6ac8994e5fc8777035c48c0b871b2d15a6662cdae6be88220f2bcdcadf0a244d", "runtime fingerprint drift")
 
     closed = intake["closed_surfaces"]
     require(not any(closed.values()), "a closed operational surface was opened")
-    print("PASS stage8b-p1f-alor-finam-source-correction")
+    print("PASS stage8b-p1f-alor-finam-source-correction findings=PAR02,O2A01,O2A02")
     return 0
 
 

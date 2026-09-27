@@ -28,6 +28,13 @@ proof of close-bound model time. At the FINAM semantic bridge it carries the
 strategy model label, while the validated canonical envelope retains exact
 open, close, M1 provenance and close-derived Redis identity.
 
+The same convention now applies to production first boot: History warmup,
+High180 shadow reconstruction and the Replay candidate receive candle-start
+model labels. Canonical source bars, availability, hashes, receipt ranges,
+watermarks and Redis identities remain close-bound. A linked regression crosses
+History → Replay C0 → authenticated export/restore → adjacent C1 → replacement
+export/restore and includes the 23:40–23:50 MSK History boundary.
+
 ## Evidence
 
 The fixture-backed Rust test sends all eligible bars through
@@ -35,6 +42,9 @@ The fixture-backed Rust test sends all eligible bars through
 callbacks, and compares complete position rounds to the frozen Python reference.
 It consumes 7,307 raw M10 rows and matches all 38 baseline07 rounds on side,
 entry/exit labels, entry/exit prices and normalized exit reason.
+This is FINAM Rust runtime versus the frozen Python baseline07 reference under
+diagnostic current-close fills; it is not a claim of full ALOR Rust executable,
+broker-lifecycle or successor-open execution parity.
 
 The comparison helper is hardened against empty evidence, `NaN`/non-finite
 prices, wrong profiles, wrong source data and row-count drift. Candidate09 is
@@ -42,9 +52,17 @@ validated as a frozen input but is not treated as a target acceptance result.
 
 ## Artifact boundary
 
-The earlier O2 artifact at `1090de4` remains useful as an accepted infrastructure
-checkpoint, but it binds the previous High180/09:00 profile. It is not a final
+The earlier O2 artifact at `1090de4` remains useful as a reviewed/implemented
+infrastructure checkpoint, superseded for the target; artifact acceptance was
+not established. It binds the previous High180/09:00 profile, is not a final
 artifact for the corrected target and must not create an operational root.
+
+The replacement source aligns O2 custody without adding capabilities: the root
+runner uses primary group `moex-p1-paper`, `UMask=0027`, and the guardian applies
+the exact reviewed mode with `fchmod` before `fchown`, validation and publish.
+After force-kill, both the primary runner and `ExecStopPost` use the same
+45-second monotonic stopped-proof budget; expiry returns nonzero
+`StopNotProven` and writes no successful terminal receipt.
 
 After review of this source correction, O2 identities, source schema/template,
 binary and non-activating installation package must be rebuilt against the new

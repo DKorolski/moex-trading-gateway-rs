@@ -3061,6 +3061,12 @@ impl Stage8bP1fAuthorityStoreV1 {
             .mode(mode)
             .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
             .open(&temporary)?;
+        // Creation mode is filtered by the service umask.  Custody requires
+        // the reviewed mode itself, so establish it explicitly before the
+        // file can be validated or published.
+        if unsafe { libc::fchmod(file.as_raw_fd(), mode as libc::mode_t) } != 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
         if unsafe { libc::fchown(file.as_raw_fd(), self.expected_uid, self.service_gid) } != 0 {
             return Err(std::io::Error::last_os_error().into());
         }
