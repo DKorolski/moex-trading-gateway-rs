@@ -37,6 +37,15 @@
     "service_enable_or_start": false
   },
   "db0_policy": "P0 is active; digest equality is not required. O1 installer manifest declares redis_contact_performed=false.",
+  "held_operational_evidence": {
+    "findings": [
+      "P1-O1E01",
+      "P1-O1E02"
+    ],
+    "review": "FINAM_P1F_O1_OPERATIONAL_REVIEW_645cb35_2026-09-27.md",
+    "review_sha256": "00f39e8f1c87e6e4d58e6704a7557ff146e8d347a0537dccf664db9fd4b5525a",
+    "source_ref": "645cb3555ca410f5a00795830ade896e89887e5b"
+  },
   "installation_execution": {
     "command": "python3 $bundle_dir/scripts/stage8b_p1e_i1_fixed_install.py install --root / --binary $bundle_dir/payload/stage8b-p1-paper-supervisor",
     "installer_exit_code": 0,
@@ -189,7 +198,7 @@
         "uid": 0
       }
     ],
-    "observed_at_utc": "2026-09-27T08:57:31Z",
+    "observed_at_utc": "2026-09-27T09:20:58Z",
     "operator_files": [
       {
         "path": "/etc/moex-finam-p1-paper/supervisor.json",
@@ -224,21 +233,31 @@
     },
     "p1_process_count": 0,
     "p1_recovery_instances": "",
+    "p1_systemd_query_ok": true,
     "p1_units": [
       {
-        "active": "inactive",
-        "enabled": "static",
-        "name": "moex-finam-p1-paper.service"
+        "active_state": "inactive",
+        "fragment_path": "/etc/systemd/system/moex-finam-p1-paper.service",
+        "kind": "regular",
+        "load_state": "loaded",
+        "name": "moex-finam-p1-paper.service",
+        "unit_file_state": "static"
       },
       {
-        "active": "inactive",
-        "enabled": "static",
-        "name": "moex-finam-p1-paper-bootstrap.service"
+        "active_state": "inactive",
+        "fragment_path": "/etc/systemd/system/moex-finam-p1-paper-bootstrap.service",
+        "kind": "regular",
+        "load_state": "loaded",
+        "name": "moex-finam-p1-paper-bootstrap.service",
+        "unit_file_state": "static"
       },
       {
-        "active": "",
-        "enabled": "static",
-        "name": "moex-finam-p1-paper-bootstrap-recover@.service"
+        "active_state": "not-applicable",
+        "fragment_path": "/etc/systemd/system/moex-finam-p1-paper-bootstrap-recover@.service",
+        "kind": "template",
+        "load_state": "not-applicable",
+        "name": "moex-finam-p1-paper-bootstrap-recover@.service",
+        "unit_file_state": "static"
       }
     ],
     "persistent_directories": [
@@ -287,9 +306,9 @@
     ],
     "quarantine_entry_count": 0,
     "raw_probe_path": "reports/stage8b/stage8b-p1f-o1-post-install-readonly-probe.txt",
-    "raw_probe_sha256": "931a018050b10c33c5229bfc85839b263e40569ac98eb3c3e08b3f4d199add8b",
+    "raw_probe_sha256": "2a2c027c214a21a8ea0ab3e532e281dce92b5a4572be64f710bd7aba4f8bb9b9",
     "redis": {
-      "db0_keyspace_sha256": "ed1ce7e880f8fbc7cb3413882d876410e1d24533f7e3bf4c4dab8fcd6457cbde",
+      "db0_keyspace_sha256": "a01c73b29009cf06f480713c9932e97697956f6db59e41f53de3dcc9bbbe77d0",
       "db0_size": 6,
       "db15_keyspace_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "db15_size": 0
@@ -328,5 +347,5 @@
   },
   "schema_version": 1,
   "stage": "Stage 8B-P1-f O1 non-activating provisioning operational evidence",
-  "status": "O1_OPERATIONAL_EVIDENCE_REVIEW_CANDIDATE"
+  "status": "O1_OPERATIONAL_EVIDENCE_R1_CORRECTION_REVIEW_CANDIDATE"
 }

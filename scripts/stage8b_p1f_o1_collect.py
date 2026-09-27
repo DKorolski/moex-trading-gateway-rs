@@ -9,12 +9,13 @@ import json
 import subprocess
 from pathlib import Path
 
+import stage8b_p1f_o0_collect as o0
+
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "scripts/stage8b_p1f_o1_readonly_probe.sh"
 WORK = ROOT / "reports/stage8b-p1f-o1-operational"
 PRE_RAW_INPUT = WORK / "pre-o0-readonly-probe.txt"
-PRE_EVIDENCE_INPUT = WORK / "pre-o0-evidence.json"
 PRE_RAW = ROOT / "reports/stage8b/stage8b-p1f-o1-pre-o0-readonly-probe.txt"
 POST_RAW = ROOT / "reports/stage8b/stage8b-p1f-o1-post-install-readonly-probe.txt"
 EVIDENCE = ROOT / "docs/stage-8/stage8b-p1f-o1-operational-evidence.json"
@@ -22,6 +23,9 @@ EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 ACCEPTANCE_REVIEW = "FINAM_P1F_O1_PACKAGE_ACCEPT_8864a2b_2026-09-27.md"
 ACCEPTANCE_REVIEW_SHA256 = "b3faa0eaceca62b2c7991791cdb348e0530359466b7aca29e9da4dafd8ae16e8"
 PACKAGE_REF = "8864a2bbba64ef930073fae4e71dfcde82ceba58"
+HELD_OPERATIONAL_REF = "645cb3555ca410f5a00795830ade896e89887e5b"
+HOLD_REVIEW = "FINAM_P1F_O1_OPERATIONAL_REVIEW_645cb35_2026-09-27.md"
+HOLD_REVIEW_SHA256 = "00f39e8f1c87e6e4d58e6704a7557ff146e8d347a0537dccf664db9fd4b5525a"
 OUTER_SHA256 = "d8f9695bdb7a29b220dfe1396e31856fa7e71fb8a932dea126cd13e79c78e985"
 BUNDLE_SHA256 = "f90fea1357a0f959d119027ef07becd4e1175995223037c83ed9e70c93db73c1"
 BINARY_SHA256 = "cee324a4e4f251227a25d4a7b23dda332a94522b45407671982f4fc896614406"
@@ -48,10 +52,91 @@ OPERATOR_PATHS = (
     "/etc/moex-finam-p1-paper/credentials/stage8b-p1-lifecycle.key",
 )
 P1_UNITS = (
-    "moex-finam-p1-paper.service",
-    "moex-finam-p1-paper-bootstrap.service",
-    "moex-finam-p1-paper-bootstrap-recover@.service",
+    ("moex-finam-p1-paper.service", "regular", "/etc/systemd/system/moex-finam-p1-paper.service"),
+    ("moex-finam-p1-paper-bootstrap.service", "regular", "/etc/systemd/system/moex-finam-p1-paper-bootstrap.service"),
+    ("moex-finam-p1-paper-bootstrap-recover@.service", "template", "/etc/systemd/system/moex-finam-p1-paper-bootstrap-recover@.service"),
 )
+REQUIRED_CHECKS = (
+    "target_identity_exact",
+    "fresh_o0_complete",
+    "staging_exact_and_root_only",
+    "status_exact_installed",
+    "managed_payloads_exact",
+    "installation_manifest_custody",
+    "installation_manifest_false_boundaries",
+    "service_identity_exact",
+    "persistent_directory_custody",
+    "operator_material_absent",
+    "durable_state_uninitialized",
+    "p1_not_activated",
+    "p0_identity_and_configuration_unchanged",
+    "db15_remains_empty",
+    "probe_declares_no_mutation",
+)
+EXPECTED_KEYS = {
+    "schema_version",
+    "probe_kind",
+    "observed_at_utc",
+    "target_id",
+    "hostname",
+    "ipv4",
+    "ssh_ed25519_fingerprint",
+    "staging_directory",
+    "staging_directory_uid",
+    "staging_directory_gid",
+    "staging_directory_mode",
+    "staging_bundle_sha256",
+    "status_json",
+    "installation_manifest_sha256",
+    "installation_manifest_json",
+    "service_user",
+    "service_group",
+    "service_uid",
+    "service_gid",
+    "service_primary_gid",
+    "service_home",
+    "service_shell",
+    "service_group_members",
+    "state_extra_entry_count",
+    "quarantine_entry_count",
+    "p1_process_count",
+    "p1_recovery_instances",
+    "p1_recovery_instances_sha256",
+    "p1_systemd_query_ok",
+    "moex_finam_paper_runtime_load_state",
+    "moex_finam_paper_runtime_active_state",
+    "moex_finam_paper_runtime_sub_state",
+    "moex_finam_paper_runtime_unit_file_state",
+    "moex_finam_paper_runtime_fragment_sha256",
+    "moex_finam_paper_runtime_execstart_sha256",
+    "moex_finam_paper_ws_load_state",
+    "moex_finam_paper_ws_active_state",
+    "moex_finam_paper_ws_sub_state",
+    "moex_finam_paper_ws_unit_file_state",
+    "moex_finam_paper_ws_fragment_sha256",
+    "moex_finam_paper_ws_execstart_sha256",
+    "redis_db0_size",
+    "redis_db0_keyspace_sha256",
+    "redis_db15_size",
+    "redis_db15_keyspace_sha256",
+    "remote_probe_mutation_performed",
+} | {
+    f"managed_{index}_{field}"
+    for index in range(len(MANAGED) + 1)
+    for field in ("path", "sha256", "uid", "gid", "mode", "nlink", "type")
+} | {
+    f"directory_{index}_{field}"
+    for index in range(len(DIRECTORY_PATHS))
+    for field in ("path", "uid", "gid", "mode", "type")
+} | {
+    f"operator_{index}_{field}"
+    for index in range(len(OPERATOR_PATHS))
+    for field in ("path", "present")
+} | {
+    f"p1_unit_{index}_{field}"
+    for index in range(len(P1_UNITS))
+    for field in ("name", "kind", "load_state", "active_state", "unit_file_state", "fragment_path")
+}
 
 
 def sha256(raw: bytes) -> str:
@@ -67,6 +152,8 @@ def parse(raw: bytes) -> dict[str, str]:
         if not key or key in result:
             raise ValueError(f"duplicate/empty probe key: {key!r}")
         result[key] = value
+    if set(result) != EXPECTED_KEYS:
+        raise ValueError(f"probe key drift: {sorted(set(result) ^ EXPECTED_KEYS)}")
     return result
 
 
@@ -81,6 +168,25 @@ def reject_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
             raise ValueError(f"duplicate JSON key: {key}")
         result[key] = value
     return result
+
+
+def p1_systemd_inactive(units: list[dict[str, object]], query_ok: bool) -> bool:
+    if not query_ok or len(units) != len(P1_UNITS):
+        return False
+    for observed, (name, kind, fragment_path) in zip(units, P1_UNITS):
+        if (
+            observed.get("name") != name
+            or observed.get("kind") != kind
+            or observed.get("unit_file_state") != "static"
+            or observed.get("fragment_path") != fragment_path
+        ):
+            return False
+        if kind == "regular":
+            if observed.get("load_state") != "loaded" or observed.get("active_state") != "inactive":
+                return False
+        elif observed.get("load_state") != "not-applicable" or observed.get("active_state") != "not-applicable":
+            return False
+    return True
 
 
 def build(values: dict[str, str], raw: bytes, pre: dict[str, object], pre_raw: bytes) -> dict[str, object]:
@@ -135,8 +241,11 @@ def build(values: dict[str, str], raw: bytes, pre: dict[str, object], pre_raw: b
     p1_units = [
         {
             "name": values[f"p1_unit_{index}_name"],
-            "active": values[f"p1_unit_{index}_active"],
-            "enabled": values[f"p1_unit_{index}_enabled"],
+            "kind": values[f"p1_unit_{index}_kind"],
+            "load_state": values[f"p1_unit_{index}_load_state"],
+            "active_state": values[f"p1_unit_{index}_active_state"],
+            "unit_file_state": values[f"p1_unit_{index}_unit_file_state"],
+            "fragment_path": values[f"p1_unit_{index}_fragment_path"],
         }
         for index in range(len(P1_UNITS))
     ]
@@ -180,7 +289,7 @@ def build(values: dict[str, str], raw: bytes, pre: dict[str, object], pre_raw: b
             "activation_performed": False,
             "result": "EXACT_INSTALLED",
             "root": "/",
-            "units": list(P1_UNITS),
+            "units": [item[0] for item in P1_UNITS],
         },
         "managed_payloads_exact": all(
             item["path"] == item["expected"]["path"]
@@ -238,9 +347,8 @@ def build(values: dict[str, str], raw: bytes, pre: dict[str, object], pre_raw: b
         and all(not item["present"] for item in operator_files),
         "durable_state_uninitialized": int(values["state_extra_entry_count"]) == 0
         and int(values["quarantine_entry_count"]) == 0,
-        "p1_not_activated": int(values["p1_process_count"]) == 0
-        and [item["name"] for item in p1_units] == list(P1_UNITS)
-        and all(item["active"] != "active" and item["enabled"] != "enabled" for item in p1_units)
+        "p1_not_activated": p1_systemd_inactive(p1_units, values["p1_systemd_query_ok"] == "true")
+        and int(values["p1_process_count"]) == 0
         and values["p1_recovery_instances"] == ""
         and values["p1_recovery_instances_sha256"] == EMPTY_SHA256,
         "p0_identity_and_configuration_unchanged": post_p0 == pre["p0_services"]
@@ -252,7 +360,7 @@ def build(values: dict[str, str], raw: bytes, pre: dict[str, object], pre_raw: b
     return {
         "schema_version": 1,
         "stage": "Stage 8B-P1-f O1 non-activating provisioning operational evidence",
-        "status": "O1_OPERATIONAL_EVIDENCE_REVIEW_CANDIDATE",
+        "status": "O1_OPERATIONAL_EVIDENCE_R1_CORRECTION_REVIEW_CANDIDATE",
         "accepted_package": {
             "source_ref": PACKAGE_REF,
             "outer_sha256": OUTER_SHA256,
@@ -260,6 +368,12 @@ def build(values: dict[str, str], raw: bytes, pre: dict[str, object], pre_raw: b
             "binary_sha256": BINARY_SHA256,
             "acceptance_review": ACCEPTANCE_REVIEW,
             "acceptance_review_sha256": ACCEPTANCE_REVIEW_SHA256,
+        },
+        "held_operational_evidence": {
+            "source_ref": HELD_OPERATIONAL_REF,
+            "review": HOLD_REVIEW,
+            "review_sha256": HOLD_REVIEW_SHA256,
+            "findings": ["P1-O1E01", "P1-O1E02"],
         },
         "installation_execution": {
             "performed": True,
@@ -305,6 +419,7 @@ def build(values: dict[str, str], raw: bytes, pre: dict[str, object], pre_raw: b
             "quarantine_entry_count": int(values["quarantine_entry_count"]),
             "p1_process_count": int(values["p1_process_count"]),
             "p1_units": p1_units,
+            "p1_systemd_query_ok": values["p1_systemd_query_ok"] == "true",
             "p1_recovery_instances": values["p1_recovery_instances"],
             "p0_services": post_p0,
             "redis": {
@@ -338,7 +453,7 @@ def main() -> None:
     parser.add_argument("--write", action="store_true")
     args = parser.parse_args()
     pre_raw = PRE_RAW_INPUT.read_bytes()
-    pre = load_json(PRE_EVIDENCE_INPUT)
+    pre = o0.build(o0.parse(pre_raw), pre_raw)
     process = subprocess.run(
         ["bash", str(PROBE), args.ssh_key],
         cwd=ROOT,

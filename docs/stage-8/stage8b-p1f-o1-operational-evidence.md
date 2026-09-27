@@ -1,13 +1,30 @@
 # Stage 8B-P1-f O1 — non-activating provisioning operational evidence
 
-Status: **OPERATIONAL EVIDENCE REVIEW CANDIDATE**.
+Status: **R1 CORRECTION REVIEW CANDIDATE**.
 
 The immutable O1 package at
 `8864a2bbba64ef930073fae4e71dfcde82ceba58` was independently accepted by
 `FINAM_P1F_O1_PACKAGE_ACCEPT_8864a2b_2026-09-27.md` with SHA-256
 `b3faa0eaceca62b2c7991791cdb348e0530359466b7aca29e9da4dafd8ae16e8`.
-This evidence records only the authorized non-activating installation on
-`stage8b-p1f-isolated-vps-1`.
+The first operational evidence at
+`645cb3555ca410f5a00795830ade896e89887e5b` was held for P1-O1E01 and
+P1-O1E02. This correction records only the authorized non-activating
+installation on `stage8b-p1f-isolated-vps-1`.
+
+P1-O1E01 is closed in the candidate by one deterministic verification path:
+the retained pre-O0 raw bytes are parsed and rebuilt by the accepted O0
+normalizer, the retained post-install raw bytes are parsed and rebuilt by the
+O1 normalizer, and the complete rebuilt object must equal the committed JSON.
+No retained PASS flag is trusted independently. Semantic mutations of binary
+hash, directory mode, P0 fingerprint and historical P1 absence are rejected
+after their raw SHA-256 fields are recomputed.
+
+P1-O1E02 is closed in the candidate by status-checked systemd queries and
+exact state classification. The two regular units must be
+`loaded/inactive/static` with exact FragmentPath. The recovery template is
+classified separately as `not-applicable/static` with exact identity, while
+the recovery-instance inventory must remain empty. Empty/error output,
+`enabled-runtime`, active state and query failure are rejected.
 
 ## Executed sequence
 
@@ -25,7 +42,8 @@ incorrect textual result label. That assertion ran after the installer had
 completed; it caused no second install or other remote action. The independent
 status reread returned `EXACT_INSTALLED`.
 
-The post-install read-only observation at `2026-09-27T08:57:31Z` proves:
+The corrected post-install read-only observation at `2026-09-27T09:20:58Z`
+proves:
 
 - all six managed payloads have the accepted SHA-256, root ownership, exact
   mode and one hard link;
@@ -57,7 +75,8 @@ condition. The accepted installer manifest independently states
 
 ## Closed boundary
 
-No `systemctl daemon-reload`, enable or start was performed. O2 bootstrap,
+No reinstall, rollback, `systemctl daemon-reload`, enable or start was
+performed for this correction. O2 bootstrap,
 Redis mutation by O1, paper-provider execution, FINAM POST/DELETE, broker
 dispatch, runtime-live and real orders remain closed. O1 does not authorize O2.
 A separately reviewed fresh-materialization and network-isolated one-shot

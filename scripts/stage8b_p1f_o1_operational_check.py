@@ -9,12 +9,18 @@ import json
 import sys
 from pathlib import Path
 
+import stage8b_p1f_o0_collect as o0
+import stage8b_p1f_o1_collect as collector
+
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE = "8864a2bbba64ef930073fae4e71dfcde82ceba58"
+BASE = "645cb3555ca410f5a00795830ade896e89887e5b"
+PACKAGE_REF = "8864a2bbba64ef930073fae4e71dfcde82ceba58"
 BRANCH = "stage8b-paper-shadow-resumption"
 REVIEW = "FINAM_P1F_O1_PACKAGE_ACCEPT_8864a2b_2026-09-27.md"
 REVIEW_SHA256 = "b3faa0eaceca62b2c7991791cdb348e0530359466b7aca29e9da4dafd8ae16e8"
+HOLD_REVIEW = "FINAM_P1F_O1_OPERATIONAL_REVIEW_645cb35_2026-09-27.md"
+HOLD_REVIEW_SHA256 = "00f39e8f1c87e6e4d58e6704a7557ff146e8d347a0537dccf664db9fd4b5525a"
 OUTER_SHA256 = "d8f9695bdb7a29b220dfe1396e31856fa7e71fb8a932dea126cd13e79c78e985"
 BUNDLE_SHA256 = "f90fea1357a0f959d119027ef07becd4e1175995223037c83ed9e70c93db73c1"
 BINARY_SHA256 = "cee324a4e4f251227a25d4a7b23dda332a94522b45407671982f4fc896614406"
@@ -27,15 +33,17 @@ PROBE = "scripts/stage8b_p1f_o1_readonly_probe.sh"
 COLLECTOR = "scripts/stage8b_p1f_o1_collect.py"
 CHECKER = "scripts/stage8b_p1f_o1_operational_check.py"
 NEGATIVE = "scripts/stage8b_p1f_o1_operational_negative_harness.py"
+SYSTEMD_BEHAVIOR = "scripts/stage8b_p1f_o1_systemd_behavioral_test.py"
 GATE = "scripts/stage8b_p1f_o1_operational_gate.sh"
 HANDOFF = "scripts/make_stage8b_p1f_o1_operational_handoff.py"
 SAFETY = "scripts/stage8b_p1f_o1_operational_handoff_safety_check.py"
 STATUS = "docs/current-status.md"
 ROADMAP = "docs/roadmap.md"
 ALLOWED_CHANGES = {
-    EVIDENCE, DOCUMENT, MATRIX, PRE_RAW, POST_RAW, PROBE, COLLECTOR,
-    CHECKER, NEGATIVE, GATE, HANDOFF, SAFETY, STATUS, ROADMAP,
+    EVIDENCE, DOCUMENT, POST_RAW, PROBE, COLLECTOR,
+    CHECKER, NEGATIVE, SYSTEMD_BEHAVIOR, GATE, HANDOFF, SAFETY, STATUS, ROADMAP,
 }
+RETAINED_REQUIRED = {MATRIX, PRE_RAW}
 
 
 class CheckError(RuntimeError):
@@ -69,17 +77,23 @@ def validate(root: Path = ROOT) -> None:
     evidence = read_json(root / EVIDENCE)
     require(evidence.get("schema_version") == 1, "schema drift")
     require(evidence.get("stage") == "Stage 8B-P1-f O1 non-activating provisioning operational evidence", "stage drift")
-    require(evidence.get("status") == "O1_OPERATIONAL_EVIDENCE_REVIEW_CANDIDATE", "status drift")
+    require(evidence.get("status") == "O1_OPERATIONAL_EVIDENCE_R1_CORRECTION_REVIEW_CANDIDATE", "status drift")
     accepted = evidence.get("accepted_package")
     require(isinstance(accepted, dict), "accepted package missing")
     require(accepted == {
-        "source_ref": BASE,
+        "source_ref": PACKAGE_REF,
         "outer_sha256": OUTER_SHA256,
         "nested_bundle_sha256": BUNDLE_SHA256,
         "binary_sha256": BINARY_SHA256,
         "acceptance_review": REVIEW,
         "acceptance_review_sha256": REVIEW_SHA256,
     }, "accepted package drift")
+    require(evidence.get("held_operational_evidence") == {
+        "source_ref": BASE,
+        "review": HOLD_REVIEW,
+        "review_sha256": HOLD_REVIEW_SHA256,
+        "findings": ["P1-O1E01", "P1-O1E02"],
+    }, "held operational evidence drift")
 
     execution = evidence.get("installation_execution")
     require(isinstance(execution, dict), "installation execution missing")
@@ -95,6 +109,11 @@ def validate(root: Path = ROOT) -> None:
     require(isinstance(pre, dict) and isinstance(post, dict), "pre/post evidence missing")
     pre_raw = (root / PRE_RAW).read_bytes()
     post_raw = (root / POST_RAW).read_bytes()
+    rebuilt_pre = o0.build(o0.parse(pre_raw), pre_raw)
+    rebuilt = collector.build(
+        collector.parse(post_raw), post_raw, rebuilt_pre, pre_raw
+    )
+    require(evidence == rebuilt, "retained evidence is not the deterministic raw rebuild")
     require(pre.get("raw_probe_path") == PRE_RAW and pre.get("raw_probe_sha256") == sha256(pre_raw), "pre raw mismatch")
     require(post.get("raw_probe_path") == POST_RAW and post.get("raw_probe_sha256") == sha256(post_raw), "post raw mismatch")
     require(pre.get("all_required_checks_passed") is True, "fresh O0 did not pass")
@@ -123,12 +142,12 @@ def validate(root: Path = ROOT) -> None:
     require(all(item.get("present") is False for item in post.get("operator_files", [])), "operator material present")
     require(post.get("state_extra_entry_count") == 0 and post.get("quarantine_entry_count") == 0, "durable state initialized")
     require(post.get("p1_process_count") == 0 and post.get("p1_recovery_instances") == "", "P1 process/recovery active")
-    require(all(item.get("active") != "active" and item.get("enabled") != "enabled" for item in post.get("p1_units", [])), "P1 unit activated")
+    require(collector.p1_systemd_inactive(post.get("p1_units", []), post.get("p1_systemd_query_ok") is True), "P1 systemd observation invalid or activated")
     require(all(item.get("active_state") == "active" and item.get("sub_state") == "running" for item in post.get("p0_services", {}).values()), "P0 not running")
     require(post.get("redis", {}).get("db15_size") == 0, "post DB15 not empty")
     require(evidence.get("all_required_checks_passed") is True, "required checks did not pass")
     checks = evidence.get("checks")
-    require(isinstance(checks, dict) and len(checks) == 15 and all(value is True for value in checks.values()), "check matrix drift")
+    require(isinstance(checks, dict) and set(checks) == set(collector.REQUIRED_CHECKS) and all(value is True for value in checks.values()), "check matrix drift")
     closed = evidence.get("closed_surfaces")
     require(isinstance(closed, dict) and len(closed) == 9 and all(value is False for value in closed.values()), "surface opened")
 
@@ -137,10 +156,10 @@ def validate(root: Path = ROOT) -> None:
     require(len(rows) == 20 and [row["id"] for row in rows] == [f"O1O-{index:02d}" for index in range(1, 21)], "acceptance matrix drift")
     document = (root / DOCUMENT).read_text()
     for phrase in (
-        "OPERATIONAL EVIDENCE REVIEW CANDIDATE",
+        "R1 CORRECTION REVIEW CANDIDATE",
         "installed once",
         "EXACT_INSTALLED",
-        "No `systemctl daemon-reload`, enable or start was performed",
+        "No reinstall, rollback, `systemctl daemon-reload`, enable or start was",
         "O1 does not authorize O2",
         "FINAM POST/DELETE",
     ):
@@ -148,10 +167,26 @@ def validate(root: Path = ROOT) -> None:
     probe = (root / PROBE).read_text()
     for forbidden in ("redis-cli SET", "redis-cli XADD", "systemctl daemon-reload", "systemctl enable", "systemctl start"):
         require(forbidden not in probe, f"mutating probe command present: {forbidden}")
+    begin = "# P1_SYSTEMD_BEHAVIOR_BEGIN"
+    end = "# P1_SYSTEMD_BEHAVIOR_END"
+    require(probe.count(begin) == 1 and probe.count(end) == 1, "P1 systemd behavior markers drift")
+    block = probe.split(begin, 1)[1].split(end, 1)[0]
+    require("|| true" not in block, "P1 systemd query suppresses failure")
+    for phrase in (
+        'if ! p1_unit_file_inventory="$(systemctl list-unit-files',
+        'if ! load_state="$(unit_value "$unit" LoadState)"',
+        'if ! active_state="$(unit_value "$unit" ActiveState)"',
+        'if ! unit_file_state="$(p1_unit_file_state "$unit")"',
+        'if ! fragment_path="$(unit_value "$unit" FragmentPath)"',
+        "kv p1_unit_2_load_state not-applicable",
+        "kv p1_unit_2_active_state not-applicable",
+        "kv p1_systemd_query_ok true",
+    ):
+        require(phrase in block, f"fail-closed P1 systemd contract missing: {phrase}")
     status = (root / STATUS).read_text()
     roadmap = (root / ROADMAP).read_text()
-    require("O1 operational evidence review candidate" in status, "current status not updated")
-    require("O1 operational evidence review candidate" in roadmap, "roadmap not updated")
+    require("O1 operational evidence R1 correction review candidate" in status, "current status not updated")
+    require("O1 operational evidence R1 correction review candidate" in roadmap, "roadmap not updated")
 
 
 def main() -> None:

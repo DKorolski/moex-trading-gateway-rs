@@ -29,9 +29,12 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 The accepted P1F-O1 package `8864a2b` has been installed once on the isolated
 target under its authorized non-activating boundary. The
-O1 operational evidence review candidate records a fresh passing O0, exact installed
+O1 operational evidence R1 correction review candidate records a fresh passing O0, exact installed
 bytes/custody, `EXACT_INSTALLED`, unchanged running P0, empty DB15 and no
-reload/enable/start. Independent O1 operational acceptance is required before
+reload/enable/start. It rebuilds the complete normalized evidence from retained
+raw bytes and fail-closes exact systemd query/state evidence after the first
+candidate was held for P1-O1E01/P1-O1E02. Independent O1 operational
+acceptance is required before
 a separate O2 fresh-materialization/bootstrap package may be prepared or
 executed. O2, provider execution, FINAM send, broker dispatch, runtime-live and
 real orders remain closed.

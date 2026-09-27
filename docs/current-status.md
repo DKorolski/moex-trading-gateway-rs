@@ -16,12 +16,15 @@ The O1 immutable package at
 `8864a2bbba64ef930073fae4e71dfcde82ceba58` is independently accepted. Its
 authorized non-activating provisioning has now been executed once on the exact
 isolated target after a fresh passing O0 observation. The retained
-O1 operational evidence review candidate proves `EXACT_INSTALLED`, exact managed
+O1 operational evidence R1 correction review candidate proves `EXACT_INSTALLED`, exact managed
 bytes/custody, unchanged active P0 unit identities, empty DB15, absent operator
-material and no P1 activation. The installer did not contact Redis or FINAM
-and did not reload, enable or start systemd. O1 remains operationally open
-until this evidence receives independent acceptance; O2 and all execution
-surfaces remain closed.
+material and no P1 activation. The first evidence commit `645cb35` is held for
+P1-O1E01/P1-O1E02. R1 deterministically rebuilds the complete O0/O1 model from
+retained raw bytes and uses status-checked exact systemd classification; it
+performs only a fresh read-only post-install observation. The installer did
+not contact Redis or FINAM and did not reload, enable or start systemd. O1
+remains operationally open until this correction receives independent
+acceptance; O2 and all execution surfaces remain closed.
 
 Stage 8B-P1-e I1 aggregate candidate
 `a9bcd940635b62c2a13f8d378453e6ca21511e30` is independently
@@ -63,7 +66,7 @@ O0 has observation authority only. The immutable O1 package binds the accepted
 Ie runtime source, accepted fixed installer and its five public payloads. The
 first package `f2fe5a2` was held for P2-O101; corrected package `8864a2b` was
 accepted and is the exact source of the retained installation. O1 operational
-evidence remains a review candidate and does not itself authorize O2.
+evidence correction remains a review candidate and does not itself authorize O2.
 Source authority is not activation authority.
 Operational installation or service start, Redis DB15/DB0 activation, VPS
 deployment, paper-provider execution, FINAM POST/DELETE/send, broker dispatch,

@@ -20,9 +20,10 @@ MANIFEST = PREFIX + "source-tree-manifest.json"
 COMMIT_RAW = PREFIX + "source-commit.raw"
 EVIDENCE = PREFIX + "stage8b-p1f-o1-operational-handoff-evidence.json"
 GATE = PREFIX + "stage8b-p1f-o1-operational-gate.txt"
-REVIEW = PREFIX + "reviews/" + source_check.REVIEW
-GENERATED = {MARKER, MANIFEST, COMMIT_RAW, EVIDENCE, GATE, REVIEW}
-REQUIRED = GENERATED | source_check.ALLOWED_CHANGES
+PACKAGE_REVIEW = PREFIX + "reviews/" + source_check.REVIEW
+HOLD_REVIEW = PREFIX + "reviews/" + source_check.HOLD_REVIEW
+GENERATED = {MARKER, MANIFEST, COMMIT_RAW, EVIDENCE, GATE, PACKAGE_REVIEW, HOLD_REVIEW}
+REQUIRED = GENERATED | source_check.ALLOWED_CHANGES | source_check.RETAINED_REQUIRED
 ALLOWED_REPORTS = {
     "reports/stage8b/stage8b-p1f-o0-readonly-probe.txt",
     source_check.PRE_RAW,
@@ -92,7 +93,7 @@ def check(path: str) -> dict[str, object]:
         require(marker["stage"] == STAGE, "stage mismatch")
         require(marker["archive_name"] == PurePosixPath(path).name, "archive-name mismatch")
         require(marker["source_parent"] == source_check.BASE, "source parent mismatch")
-        require(marker["accepted_package_ref"] == source_check.BASE, "accepted package mismatch")
+        require(marker["accepted_package_ref"] == source_check.PACKAGE_REF, "accepted package mismatch")
         require(marker["branch"] == source_check.BRANCH, "branch mismatch")
         require(marker["source_ref"].startswith(marker["source_short_ref"]), "short ref mismatch")
 
@@ -124,21 +125,26 @@ def check(path: str) -> dict[str, object]:
         handoff = json.loads(files[EVIDENCE], object_pairs_hook=strict_object)
         require(handoff["source_ref"] == marker["source_ref"] and handoff["source_tree"] == marker["source_tree"], "handoff source mismatch")
         require(handoff["source_parent"] == source_check.BASE, "handoff parent mismatch")
-        require(handoff["accepted_package_ref"] == source_check.BASE, "handoff package mismatch")
-        require(handoff["review_sha256"] == source_check.REVIEW_SHA256, "handoff review mismatch")
+        require(handoff["status"] == "O1_OPERATIONAL_EVIDENCE_R1_CORRECTION_REVIEW_CANDIDATE", "handoff status mismatch")
+        require(handoff["accepted_package_ref"] == source_check.PACKAGE_REF, "handoff package mismatch")
+        require(handoff["package_review_sha256"] == source_check.REVIEW_SHA256, "handoff package review mismatch")
+        require(handoff["hold_review_sha256"] == source_check.HOLD_REVIEW_SHA256, "handoff HOLD review mismatch")
+        require(handoff["held_operational_ref"] == source_check.BASE, "held operational ref mismatch")
         require(handoff["changed_paths"] == sorted(source_check.ALLOWED_CHANGES), "changed paths drift")
         require(handoff["remote_mutation_performed"] is True, "installation not declared")
         require(handoff["activation_performed"] is False and handoff["o2_authorized"] is False, "activation/O2 opened")
-        require(handoff["required_checks"] == 15 and handoff["negative_cases"] == 20 and handoff["acceptance_rows"] == 20, "test count drift")
+        require(handoff["required_checks"] == 15 and handoff["negative_cases"] == 29 and handoff["systemd_behavioral_controls"] == 7 and handoff["acceptance_rows"] == 20, "test count drift")
         require(handoff["manifest_sha256"] == sha256(files[MANIFEST]), "manifest digest mismatch")
         require(handoff["gate_sha256"] == sha256(files[GATE]), "gate digest mismatch")
         require(handoff["operational_evidence_sha256"] == sha256(files[source_check.EVIDENCE]), "operational evidence digest mismatch")
         require(handoff["pre_raw_sha256"] == sha256(files[source_check.PRE_RAW]), "pre raw digest mismatch")
         require(handoff["post_raw_sha256"] == sha256(files[source_check.POST_RAW]), "post raw digest mismatch")
-        require(sha256(files[REVIEW]) == source_check.REVIEW_SHA256, "review digest mismatch")
+        require(sha256(files[PACKAGE_REVIEW]) == source_check.REVIEW_SHA256, "package review digest mismatch")
+        require(sha256(files[HOLD_REVIEW]) == source_check.HOLD_REVIEW_SHA256, "HOLD review digest mismatch")
         for expected in (
             b"PASS stage8b-p1f-o1-operational-check",
-            b"PASS stage8b-p1f-o1-operational-negative-harness 20/20",
+            b"PASS stage8b-p1f-o1-operational-negative-harness 29/29",
+            b"PASS stage8b-p1f-o1-systemd-behavioral-test controls=7",
             b"PASS stage8b-p1f-o1-operational-gate",
         ):
             require(expected in files[GATE], f"gate marker missing: {expected!r}")
