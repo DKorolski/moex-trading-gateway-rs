@@ -27,6 +27,15 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
+The accepted P1F-O1 package `8864a2b` has been installed once on the isolated
+target under its authorized non-activating boundary. The
+O1 operational evidence review candidate records a fresh passing O0, exact installed
+bytes/custody, `EXACT_INSTALLED`, unchanged running P0, empty DB15 and no
+reload/enable/start. Independent O1 operational acceptance is required before
+a separate O2 fresh-materialization/bootstrap package may be prepared or
+executed. O2, provider execution, FINAM send, broker dispatch, runtime-live and
+real orders remain closed.
+
 Stage 8B-P1-a, P1-b and P1-c are independently accepted and closed. P1-d0 is
 independently accepted at `0d59d54d42fc29ae7b31359c1ded8efbd3a348fd` as the
 deterministic paper-execution policy baseline. P1-d1 is formally closed and
