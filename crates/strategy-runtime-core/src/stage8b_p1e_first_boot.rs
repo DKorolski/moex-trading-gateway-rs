@@ -72,6 +72,36 @@ pub struct Stage8bP1eFirstBootCompositionV1 {
     fresh_runtime: HybridIntradayRuntimeStrategy,
 }
 
+/// Rebuilds the source-compatible High180 session observations used by the
+/// wire-V2 first-boot bundle. This facade is pure: it has no filesystem,
+/// Redis, broker or runtime-effect authority and delegates to the same shadow
+/// kernel that the accepted first-boot composition cross-validates.
+pub fn rebuild_stage8b_p1e_riskgate_observations_v1(
+    runtime: &HybridIntradayRuntimeStrategy,
+    history_bars: &[Stage8bP1eFirstBootBarInputV1],
+) -> Result<Vec<Stage8bP1eRiskGateObservationInputV1>, Stage8bP1eFirstBootCompositionError> {
+    let oracle_bars = history_bars
+        .iter()
+        .map(history_bar_event)
+        .collect::<Result<Vec<_>, _>>()?;
+    runtime
+        .stage8b_p1_rebuild_riskgate_history(&oracle_bars)
+        .map_err(|_| Stage8bP1eFirstBootCompositionError::RiskGate)?
+        .into_iter()
+        .map(|observation| {
+            let shadow_pnl_points = crate::hybrid_intraday::format_riskgate_authority_decimal(
+                observation.shadow_pnl_points,
+            )
+            .map_err(|_| Stage8bP1eFirstBootCompositionError::RiskGate)?;
+            Ok(Stage8bP1eRiskGateObservationInputV1 {
+                session_date: observation.session_date,
+                shadow_pnl_points,
+                shadow_trade_count: observation.shadow_trade_count,
+            })
+        })
+        .collect()
+}
+
 impl Stage8bP1eFirstBootCompositionV1 {
     pub fn into_parts(
         self,

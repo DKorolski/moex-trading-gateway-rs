@@ -287,6 +287,7 @@ mod stage8b_p1e_schedule_source;
 mod stage8b_p1f_fixed_redis;
 mod stage8b_p1f_guardian;
 mod stage8b_p1f_local_supervision;
+mod stage8b_p1f_o2_systemd;
 
 pub use recovery::{
     spawn_stage7b_supervised_task, P1SemanticPrepublicationPending, P1SemanticZeroIntentAckPending,
@@ -442,13 +443,13 @@ pub use stage8b_p1_supervisor::{
 };
 pub use stage8b_p1e_first_boot_source::{
     build_stage8b_p1_first_boot_source_v1, load_stage8b_p1e_first_boot_source_v1,
-    Stage8bP1eFirstBootBarV1, Stage8bP1eFirstBootBuildError, Stage8bP1eFirstBootSourceError,
-    Stage8bP1ePreparedFirstBootV1, Stage8bP1eRiskGateObservationV1,
-    Stage8bP1eValidatedFirstBootSourceV1, STAGE8B_P1E_FIRST_BOOT_MIN_HISTORY_SESSIONS,
-    STAGE8B_P1E_FIRST_BOOT_MIN_RISKGATE_SESSIONS, STAGE8B_P1E_FIRST_BOOT_SOURCE_DOMAIN,
-    STAGE8B_P1E_FIRST_BOOT_SOURCE_GROUP, STAGE8B_P1E_FIRST_BOOT_SOURCE_MAX_BYTES,
-    STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V2_SHA256, STAGE8B_P1E_FIRST_BOOT_SOURCE_SCHEMA_VERSION,
-    STAGE8B_P1E_FIRST_BOOT_TRUTH_MAX_AGE_SECONDS,
+    validate_stage8b_p1e_first_boot_source_bytes_v1, Stage8bP1eFirstBootBarV1,
+    Stage8bP1eFirstBootBuildError, Stage8bP1eFirstBootSourceError, Stage8bP1ePreparedFirstBootV1,
+    Stage8bP1eRiskGateObservationV1, Stage8bP1eValidatedFirstBootSourceV1,
+    STAGE8B_P1E_FIRST_BOOT_MIN_HISTORY_SESSIONS, STAGE8B_P1E_FIRST_BOOT_MIN_RISKGATE_SESSIONS,
+    STAGE8B_P1E_FIRST_BOOT_SOURCE_DOMAIN, STAGE8B_P1E_FIRST_BOOT_SOURCE_GROUP,
+    STAGE8B_P1E_FIRST_BOOT_SOURCE_MAX_BYTES, STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V2_SHA256,
+    STAGE8B_P1E_FIRST_BOOT_SOURCE_SCHEMA_VERSION, STAGE8B_P1E_FIRST_BOOT_TRUTH_MAX_AGE_SECONDS,
 };
 pub use stage8b_p1e_first_boot_transaction::{
     admit_stage8b_p1e_ordinary_run_v1, authorize_stage8b_p1e_pre_seal_recovery_v5,
@@ -549,21 +550,33 @@ pub use stage8b_p1f_fixed_redis::{
 #[doc(hidden)]
 pub use stage8b_p1f_guardian::Stage8bP1fIeLinkedFixtureV1;
 pub use stage8b_p1f_guardian::{
-    execute_stage8b_p1f_permitted_restore_v1, Stage8bP1fActivationCertificateV1,
+    execute_stage8b_p1f_permitted_restore_v1, sign_stage8b_p1f_activation_certificate_v1,
+    sign_stage8b_p1f_genesis_manifest_v1, sign_stage8b_p1f_phase_manifest_v1,
+    stage8b_p1f_authority_public_key_hex, Stage8bP1fActivationCertificateV1,
     Stage8bP1fAuthorityErrorV1, Stage8bP1fAuthorityInspectionV1, Stage8bP1fAuthorityStoreV1,
     Stage8bP1fClaimDispositionV1, Stage8bP1fClaimReceiptV1, Stage8bP1fDeadlineDecisionV1,
     Stage8bP1fGenesisManifestV1, Stage8bP1fGenesisReceiptV1, Stage8bP1fMaterializedSetReceiptV1,
-    Stage8bP1fPhaseManifestV1, Stage8bP1fPhaseStateV1, Stage8bP1fPhaseV1,
-    Stage8bP1fQuarantineReceiptV1, Stage8bP1fRestorePlanV1, Stage8bP1fRestoreWriteV1,
-    Stage8bP1fRunPermitV1, Stage8bP1fStoppingReceiptV1, Stage8bP1fTerminalReceiptV1,
-    STAGE8B_P1F_AUTHORITY_CONTROL_ROOT, STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
-    STAGE8B_P1F_CONFIG_ROOT, STAGE8B_P1F_SERVICE_USER, STAGE8B_P1F_SOURCE_SHA256_TEMPLATE_SENTINEL,
+    Stage8bP1fOperatorStopCauseV1, Stage8bP1fPhaseManifestV1, Stage8bP1fPhaseStateV1,
+    Stage8bP1fPhaseV1, Stage8bP1fQuarantineReceiptV1, Stage8bP1fRestorePlanV1,
+    Stage8bP1fRestoreWriteV1, Stage8bP1fRunPermitV1, Stage8bP1fStoppingReceiptV1,
+    Stage8bP1fTerminalReceiptV1, STAGE8B_P1F_AUTHORITY_CONTROL_ROOT,
+    STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION, STAGE8B_P1F_CONFIG_ROOT, STAGE8B_P1F_MAX_AUTHORITY_BYTES,
+    STAGE8B_P1F_SERVICE_USER, STAGE8B_P1F_SOURCE_SHA256_TEMPLATE_SENTINEL,
     STAGE8B_P1F_TARGET_HOST_ID,
 };
 pub use stage8b_p1f_local_supervision::{
     run_stage8b_p1f_local_supervisor_v1, Stage8bP1fLocalSupervisionDispositionV1,
     Stage8bP1fLocalSupervisionErrorV1, Stage8bP1fLocalSupervisionResultV1,
     STAGE8B_P1F_I1_BINARY_PATH,
+};
+pub use stage8b_p1f_o2_systemd::{
+    collect_stage8b_p1f_o2_readonly_evidence_v1, collect_stage8b_p1f_o2_unit_evidence_v1,
+    run_stage8b_p1f_o2_cleanup_v1, run_stage8b_p1f_o2_fixed_cleanup_v1,
+    run_stage8b_p1f_o2_fixed_systemd_runner_v1, run_stage8b_p1f_o2_systemd_runner_v1,
+    stage8b_p1f_o2_active_manifest_sha256_v1, Stage8bP1fO2ReadOnlyEvidenceV1,
+    Stage8bP1fO2RunnerErrorV1, Stage8bP1fO2RunnerResultV1, Stage8bP1fO2UnitEvidenceV1,
+    STAGE8B_P1F_O2_ACTIVE_MANIFEST_PATH, STAGE8B_P1F_O2_RUNNER_BINARY_PATH,
+    STAGE8B_P1F_O2_RUNNER_UNIT,
 };
 
 use std::{

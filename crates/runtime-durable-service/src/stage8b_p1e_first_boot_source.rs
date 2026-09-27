@@ -586,6 +586,25 @@ pub fn load_stage8b_p1e_first_boot_source_v1(
     )
 }
 
+/// Validates already materialized wire-V2 source bytes through the exact
+/// production first-boot parser. This read-only O2 boundary grants no
+/// file-system, guardian, Redis or runtime authority; the expected source
+/// digest is derived from the supplied bytes themselves.
+pub fn validate_stage8b_p1e_first_boot_source_bytes_v1(
+    bytes: &[u8],
+    expected_operational_identity_sha256: &str,
+    expected_account_id: &str,
+    trusted_now: DateTime<Utc>,
+) -> Result<Stage8bP1eValidatedFirstBootSourceV1, Stage8bP1eFirstBootSourceError> {
+    parse_stage8b_p1e_first_boot_source_v1(
+        bytes,
+        &sha256_hex(bytes),
+        expected_operational_identity_sha256,
+        expected_account_id,
+        trusted_now,
+    )
+}
+
 fn read_protected_first_boot_source<F>(
     path: &Path,
     expected_uid: u32,

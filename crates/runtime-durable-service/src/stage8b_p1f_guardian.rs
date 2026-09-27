@@ -22,13 +22,10 @@ use std::{
 };
 
 use chrono::{DateTime, SecondsFormat, Utc};
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-
-#[cfg(feature = "stage8b-p1-test-fixtures")]
-use ed25519_dalek::{Signer, SigningKey};
 
 #[cfg(test)]
 use std::sync::atomic::{AtomicU8, Ordering as AtomicOrdering};
@@ -304,7 +301,8 @@ pub enum Stage8bP1fClaimDispositionV1 {
     ContinuedExisting(Stage8bP1fClaimReceiptV1),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Stage8bP1fAuthorityInspectionV1 {
     pub authority_generation: u64,
     pub latest_sequence: u64,
@@ -342,6 +340,15 @@ pub enum Stage8bP1fDeadlineDecisionV1 {
     Continue,
     BeginStopping,
     ForceKill,
+}
+
+/// A local stop request which can only narrow an already admitted linear
+/// permit. It cannot create, extend or reacquire phase authority.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage8bP1fOperatorStopCauseV1 {
+    Sigterm,
+    Sigint,
+    SupervisionFailure,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -383,6 +390,25 @@ impl Stage8bP1fRunPermitV1 {
         self.poll_deadline_at_elapsed(trusted_wall_now, self.admitted_monotonic.elapsed())
     }
 
+    pub fn request_operator_stop(
+        &mut self,
+        cause: Stage8bP1fOperatorStopCauseV1,
+        trusted_wall_now: DateTime<Utc>,
+    ) -> Result<Stage8bP1fDeadlineDecisionV1, Stage8bP1fAuthorityErrorV1> {
+        let cause = match cause {
+            Stage8bP1fOperatorStopCauseV1::Sigterm => Stage8bP1fLocalStopCauseV1::Sigterm,
+            Stage8bP1fOperatorStopCauseV1::Sigint => Stage8bP1fLocalStopCauseV1::Sigint,
+            Stage8bP1fOperatorStopCauseV1::SupervisionFailure => {
+                Stage8bP1fLocalStopCauseV1::SupervisionFailure
+            }
+        };
+        self.request_local_stop(cause, trusted_wall_now)
+    }
+
+    pub fn stopping_reason_code(&self) -> Option<&str> {
+        self.stopping_reason_code.as_deref()
+    }
+
     pub(crate) fn request_local_stop(
         &mut self,
         cause: Stage8bP1fLocalStopCauseV1,
@@ -422,10 +448,6 @@ impl Stage8bP1fRunPermitV1 {
         self.stopping_reason_code = Some(reason_code.to_string());
         self.last_trusted_wall = trusted_wall_now;
         Ok(Stage8bP1fDeadlineDecisionV1::BeginStopping)
-    }
-
-    pub(crate) fn stopping_reason_code(&self) -> Option<&str> {
-        self.stopping_reason_code.as_deref()
     }
 
     #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
@@ -1935,6 +1957,90 @@ impl Stage8bP1fAuthorityStoreV1 {
         self.continue_terminal_transaction(&pending)
     }
 
+    /// Continues only an already durable pending-terminal transaction. This
+    /// is the runner-loss/lost-response path: it never chooses a new terminal
+    /// state, reason or timestamp and therefore cannot reclassify an old
+    /// decision against the current wall clock.
+    pub fn resume_pending_terminal(
+        &self,
+        manifest_sha256: &str,
+    ) -> Result<Option<Stage8bP1fTerminalReceiptV1>, Stage8bP1fAuthorityErrorV1> {
+        let _lease = self.acquire_lease()?;
+        self.reject_quarantine()?;
+        if !valid_sha256(manifest_sha256) {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        let pending_path = self
+            .root
+            .join(AUTHORITY_DIRECTORY)
+            .join(PENDING_TERMINAL_FILE);
+        if !pending_path.exists() {
+            return Ok(None);
+        }
+        let pending: PendingTerminalV1 = self.read_authority_file(&pending_path, 0o440)?;
+        if pending.schema_version != STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION
+            || pending.domain != "stage8b-p1f-pending-terminal-v1"
+            || pending.manifest_sha256 != manifest_sha256
+            || parse_timestamp(&pending.recorded_at_utc).is_err()
+            || !matches!(
+                pending.terminal_state,
+                Stage8bP1fPhaseStateV1::Completed
+                    | Stage8bP1fPhaseStateV1::Failed
+                    | Stage8bP1fPhaseStateV1::Expired
+            )
+            || !canonical_token(&pending.reason_code)
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::PendingRecoveryRequired);
+        }
+        self.continue_terminal_transaction(&pending).map(Some)
+    }
+
+    /// Returns the already committed terminal receipt for an exact manifest.
+    /// This is a read-only idempotence path for systemd `ExecStopPost`; it
+    /// cannot select or commit a terminal outcome.
+    pub fn terminal_receipt(
+        &self,
+        manifest_sha256: &str,
+    ) -> Result<Option<Stage8bP1fTerminalReceiptV1>, Stage8bP1fAuthorityErrorV1> {
+        if !valid_sha256(manifest_sha256) {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        let inspection = self.validate_history(true)?;
+        if !matches!(
+            inspection.state,
+            Stage8bP1fPhaseStateV1::Completed
+                | Stage8bP1fPhaseStateV1::Failed
+                | Stage8bP1fPhaseStateV1::Expired
+        ) {
+            return Ok(None);
+        }
+        let path = self
+            .root
+            .join(AUTHORITY_DIRECTORY)
+            .join(MANIFESTS_DIRECTORY)
+            .join(manifest_sha256)
+            .join(format!(
+                "terminal-receipt-{:020}.json",
+                inspection.latest_sequence
+            ));
+        if !path.exists() {
+            return Ok(None);
+        }
+        let receipt: Stage8bP1fTerminalReceiptV1 = self.read_authority_file(&path, 0o440)?;
+        if receipt.schema_version != STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION
+            || receipt.domain != "stage8b-p1f-terminal-receipt-v1"
+            || receipt.manifest_sha256 != manifest_sha256
+            || receipt.authority_generation != inspection.authority_generation
+            || receipt.authority_sequence != inspection.latest_sequence
+            || receipt.terminal_state != inspection.state
+            || parse_timestamp(&receipt.recorded_at_utc).is_err()
+            || !canonical_token(&receipt.reason_code)
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+        }
+        Ok(Some(receipt))
+    }
+
     fn continue_terminal_transaction(
         &self,
         pending: &PendingTerminalV1,
@@ -3303,6 +3409,95 @@ where
     Ok(value)
 }
 
+/// Returns the lowercase Ed25519 public identity corresponding to an offline
+/// authority key. The secret key is never serialized by this API.
+pub fn stage8b_p1f_authority_public_key_hex(signing_key: &SigningKey) -> String {
+    lower_hex(signing_key.verifying_key().as_bytes())
+}
+
+/// Canonically signs one genesis manifest for the accepted guardian domain.
+/// Existing signature bytes are always discarded before signing.
+pub fn sign_stage8b_p1f_genesis_manifest_v1(
+    mut document: Stage8bP1fGenesisManifestV1,
+    signing_key: &SigningKey,
+) -> Result<Vec<u8>, Stage8bP1fAuthorityErrorV1> {
+    document.signature_ed25519_hex.clear();
+    if document.schema_version != STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION
+        || document.domain != "stage8b-p1f-genesis-manifest-v1"
+        || document.genesis_head_sha256 != genesis_head_sha256(&document)
+        || !canonical_token(&document.issuer_key_id)
+    {
+        return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+    }
+    sign_authority_document(
+        SIGNED_GENESIS_DOMAIN,
+        &mut document,
+        signing_key,
+        |value, signature| {
+            value.signature_ed25519_hex = signature;
+        },
+    )
+}
+
+/// Canonically signs one activation certificate for the accepted guardian
+/// domain. The caller must bind the exact retained genesis receipt hashes.
+pub fn sign_stage8b_p1f_activation_certificate_v1(
+    mut document: Stage8bP1fActivationCertificateV1,
+    signing_key: &SigningKey,
+) -> Result<Vec<u8>, Stage8bP1fAuthorityErrorV1> {
+    document.signature_ed25519_hex.clear();
+    if document.schema_version != STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION
+        || document.domain != "stage8b-p1f-activation-certificate-v1"
+        || !canonical_token(&document.issuer_key_id)
+    {
+        return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+    }
+    sign_authority_document(
+        SIGNED_ACTIVATION_DOMAIN,
+        &mut document,
+        signing_key,
+        |value, signature| value.signature_ed25519_hex = signature,
+    )
+}
+
+/// Canonically signs one phase manifest for the accepted guardian domain.
+pub fn sign_stage8b_p1f_phase_manifest_v1(
+    mut document: Stage8bP1fPhaseManifestV1,
+    signing_key: &SigningKey,
+) -> Result<Vec<u8>, Stage8bP1fAuthorityErrorV1> {
+    document.signature_ed25519_hex.clear();
+    if document.schema_version != STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION
+        || document.domain != "stage8b-p1f-phase-manifest-v1"
+        || !canonical_token(&document.issuer_key_id)
+    {
+        return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+    }
+    sign_authority_document(
+        SIGNED_PHASE_DOMAIN,
+        &mut document,
+        signing_key,
+        |value, signature| {
+            value.signature_ed25519_hex = signature;
+        },
+    )
+}
+
+fn sign_authority_document<T, F>(
+    domain: &[u8],
+    value: &mut T,
+    signing_key: &SigningKey,
+    set_signature: F,
+) -> Result<Vec<u8>, Stage8bP1fAuthorityErrorV1>
+where
+    T: Serialize,
+    F: FnOnce(&mut T, String),
+{
+    let mut payload = domain.to_vec();
+    payload.extend(canonical_json(value)?);
+    set_signature(value, lower_hex(&signing_key.sign(&payload).to_bytes()));
+    canonical_json(value)
+}
+
 fn genesis_head_sha256(manifest: &Stage8bP1fGenesisManifestV1) -> String {
     let mut digest = Sha256::new();
     digest.update(GENESIS_DOMAIN);
@@ -3695,12 +3890,22 @@ impl Stage8bP1fIeLinkedFixtureV1 {
         {
             return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
         }
-        store.finish_phase(
+        let stopped = crate::stage8b_p1f_o2_systemd::parse_unit_evidence(
+            b"ActiveState=inactive\nSubState=dead\nResult=success\nExecMainStatus=0\nMainPID=0\nControlPID=0\nJob=\nControlGroup=\n",
+        )
+        .map_err(|_| Stage8bP1fAuthorityErrorV1::HistoryConflict)?;
+        if !stopped.stopped_proven {
+            return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+        }
+        let terminal = store.finish_phase(
             &manifest_sha256,
             Stage8bP1fPhaseStateV1::Completed,
             "ie-o2-materialized",
             trusted_now + chrono::Duration::milliseconds(1),
         )?;
+        if store.terminal_receipt(&manifest_sha256)?.as_ref() != Some(&terminal) {
+            return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+        }
         Ok(Self {
             root,
             config_root,

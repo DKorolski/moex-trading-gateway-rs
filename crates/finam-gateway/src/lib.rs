@@ -18,6 +18,7 @@ mod stage8a4_reconciliation;
 mod stage8b_no_send;
 mod stage8b_p1e_schedule_publisher;
 mod stage8b_p1f_fixed_producers;
+mod stage8b_p1f_o2_materializer;
 #[cfg(feature = "stage8b-r2a7-source-adapter")]
 mod stage8b_r2a7_source_adapter;
 
@@ -79,6 +80,11 @@ pub use stage8b_p1f_fixed_producers::{
     Stage8bP1fM10PrepareOutcomeV1, Stage8bP1fM10ProducerLineageV1, Stage8bP1fM10ProducerPhaseV1,
     Stage8bP1fM10ProducerStateV1, Stage8bP1fM10PublicationPortV1, Stage8bP1fO3ScheduleInputV1,
     Stage8bP1fProducerErrorV1, Stage8bP1fProducerPhaseV1,
+};
+pub use stage8b_p1f_o2_materializer::{
+    collect_stage8b_p1f_o2_source_v1, materialize_stage8b_p1f_o2_source_v1,
+    Stage8bP1fO2MaterializationEvidenceV1, Stage8bP1fO2MaterializedSourceV1,
+    Stage8bP1fO2MaterializerErrorV1, Stage8bP1fO2RouteEvidenceV1,
 };
 #[cfg(feature = "stage8b-r2a7-source-adapter")]
 pub use stage8b_r2a7_source_adapter::{

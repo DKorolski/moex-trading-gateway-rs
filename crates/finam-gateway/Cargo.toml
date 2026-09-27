@@ -83,6 +83,10 @@ path = "src/bin/stage8b-r2a7-controlled-seeder.rs"
 required-features = ["stage8b-r2a7-controlled-qualification"]
 
 [[bin]]
+name = "stage8b-p1f-o2-materializer"
+path = "src/bin/stage8b-p1f-o2-materializer.rs"
+
+[[bin]]
 name = "stage8b-r2b-creator-chain-seeder"
 path = "src/bin/stage8b-r2b-creator-chain-seeder.rs"
 required-features = ["stage8b-r2a7-controlled-qualification"]
