@@ -2141,3 +2141,15 @@ empty-quarantine rollback semantics, a real CLI filesystem matrix and a
 self-contained evidence runner. Accepted units and Rust telemetry/process
 semantics are unchanged. Aggregate I1 and every operational/live surface stay
 closed pending a new immutable source/material acceptance.
+
+## GOV-CI detached Stage 8A-5 temporal replay repair (2026-09-27)
+
+The accepted source/governance PR at `8f771d7` exposed a historical detached
+Stage 7B fixture whose fixed persisted timestamp expired on 2026-09-21. The
+active repair is governance-only: the immutable Stage 8A-5 gate remains exact,
+and a SHA-bound cargo wrapper applies the already accepted `e7ae487` test-only
+chronology normalization solely inside the 10 exact cargo-test checkouts in the
+executed inherited Stage 6/7/8A-5 graph that share the accepted source pre-image.
+Current production Rust/Cargo bytes and all closed operational/live surfaces
+remain unchanged. This repair requires a narrow independent review before the
+PR head is advanced and merged.

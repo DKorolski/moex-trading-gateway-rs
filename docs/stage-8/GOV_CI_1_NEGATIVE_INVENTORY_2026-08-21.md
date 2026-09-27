@@ -35,3 +35,13 @@
 33. GOV-CI-N33 — change the exact Rust release.
 34. GOV-CI-N34 — remove the canonical Rust-job `RUST_MIN_STACK` binding.
 35. GOV-CI-N35 — change the canonical Rust-job `RUST_MIN_STACK` value.
+36. GOV-CI-N36 — disable the detached Stage 8A-5 temporal-compatibility wrapper.
+37. GOV-CI-N37 — bypass the reviewed compatibility cargo wrapper in the replay gate.
+38. GOV-CI-N38 — change the exact detached Stage 7B ref while refreshing the control manifest.
+39. GOV-CI-N39 — change the accepted pre-repair source digest while refreshing the control manifest.
+40. GOV-CI-N40 — change the accepted post-repair source digest while refreshing the control manifest.
+41. GOV-CI-N41 — change the authority binding for the accepted temporal repair.
+42. GOV-CI-N42 — remove the mandatory post-test chronology restoration.
+43. GOV-CI-N43 — mask a failing wrapped cargo-test exit status.
+44. GOV-CI-N44 — bypass the post-restoration clean-worktree assertion.
+45. GOV-CI-N45 — broaden normalization beyond workspace all-targets tests.

@@ -480,3 +480,13 @@ and resource limits protect P0 without false whole-DB0 equality.
 Operational install/start, Redis DB15/DB0 activation, VPS deployment,
 paper-provider execution, FINAM send, broker dispatch, runtime-live and real
 orders remain downstream and require separate authority.
+
+## Current CI repair before O2 rebuild (2026-09-27)
+
+Before merging the accepted ALOR/FINAM source authority and building O2, close
+the time-expired Stage 8A-5 detached replay fixture with the exact accepted
+`e7ae487` test-only normalization. Required order: local full current-tree gate,
+narrow immutable handoff, independent governance acceptance, update PR 9,
+green `rust` plus `redis-smoke`, merge to `main`, then build the non-activating
+O2 package from the exact merge commit. No operational activation is opened by
+this repair.

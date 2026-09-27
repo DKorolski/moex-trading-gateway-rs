@@ -1,5 +1,5 @@
 {
-  "acceptance_rows": 33,
+  "acceptance_rows": 36,
   "accepted_predecessor": "1dea519cbf2affc3d99866fdae66bbddbafefa24",
   "accepted_stage8a5_replay": {
     "current_i4_negative_cases": 28,
@@ -8,7 +8,28 @@
     "gate_sha256": "1361ad49d41351484cf61c86822deb640818e755b7b35bda44592fd437ff69f8",
     "inherited_stage8_negative_cases": 544,
     "source_ref": "bf58b47fdef8af774a4107455dfcc6204e594283",
-    "stage8a5_negative_cases": 20
+    "stage8a5_negative_cases": 20,
+    "temporal_compatibility": {
+      "detached_stage7b_ref": "a1044e0dbe324c722b637498ca80ffafd9f0cbee",
+      "diff_sha256": "4b1f165f785ff72336002d8bfa90bd8535f9e6087a8769347afd72cc2ea07a83",
+      "normalized_source_refs": [
+        "10e357825a701193d964975bb5769bd0745d4986",
+        "2b6371adb905654e0ddd8b6714159bcef737b577",
+        "2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64",
+        "8418cfb63ecee6702bf8a2873592b7cad1e711ee",
+        "8d4c1f437c02cfb023aa75fb4a411b9394d2d293",
+        "a1044e0dbe324c722b637498ca80ffafd9f0cbee",
+        "bf58b47fdef8af774a4107455dfcc6204e594283",
+        "e0bf9b7d9eb209e19b875f199511a493ddcd0da9",
+        "e10d8fb0f9e095a849b1e56779a0597606d22111",
+        "ec71791563a933889eb825f6f8f0846915ba6415"
+      ],
+      "post_repair_sha256": "a8caa83eacd4337c8562d24560c18cdd23d1f48f23115b5ec4c7b7561d38b6be",
+      "pre_repair_sha256": "90ab3f9253c0b96fee8ea2c2aeb5e0eb9b0e4c99a3dfb0c404648b588c205eb2",
+      "repair_source_ref": "e7ae487f9897be297bd9fabcee9ffad302e6dd3e",
+      "source_path": "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+      "status": "required-test-only-chronology-normalization"
+    }
   },
   "active_workflow_manifest": {
     "canonical_ci_triggers": [
@@ -33,7 +54,7 @@
     "stage8b_s_authorized": false
   },
   "governance_control_plane_manifest": {
-    "aggregate_sha256": "1ac6552745923d86515a157e3d47a47da16b1e34124750081469d18ca3aff6df",
+    "aggregate_sha256": "7499742e49a341b6731e7442facb7bd33ca2a7209131fa51fb4f6bc3c66b146c",
     "entries": {
       ".github/workflows/ci.yml": {
         "mode": "100644",
@@ -47,13 +68,13 @@
       },
       "docs/current-status.md": {
         "mode": "100644",
-        "sha256": "2087ce02ef9394b633058e4fcf563ead8fd06696f69686951ba232f0bc6b5cd2",
-        "size": 140965
+        "sha256": "48c05a1e7bb0d1a355cc6fe39954f583251d92826ac5316156e21fa44e95f9c5",
+        "size": 141693
       },
       "docs/roadmap.md": {
         "mode": "100644",
-        "sha256": "62ecdee0d963250be8aca78f8fdb2e083f4b57026bfc2ef5169571f0620df35f",
-        "size": 30151
+        "sha256": "2444ead8dddbf15a8c97b3b38b55468be33aa8f26eee6760611a3d0249cde876",
+        "size": 30687
       },
       "docs/stage-5/stage5f-authority-rotation.json": {
         "mode": "100644",
@@ -75,35 +96,50 @@
         "sha256": "00c8518f52a31b94c4b6b1c675d6cc3b49c1a17b8598997327d60d1d3a4e1a46",
         "size": 2404
       },
+      "docs/stage-8/GOV_CI_1B_STAGE8A5_TEMPORAL_REPLAY_REPAIR_2026-09-27.md": {
+        "mode": "100644",
+        "sha256": "2ffd80649de6441ae3ee76e9ccbce7e86bc67354d13bf341efff32cdd03a8373",
+        "size": 3179
+      },
       "docs/stage-8/GOV_CI_1_ACCEPTANCE_MATRIX_2026-08-21.csv": {
         "mode": "100644",
-        "sha256": "72b7ce076afa687e898622037da2243d9a6aaa8667db4e9689e1d10b2a870d68",
-        "size": 2953
+        "sha256": "d53c245fabd6cc726ad7c8f309550c393a30be40fc8b138f5f4637ce021b9a1f",
+        "size": 3395
       },
       "docs/stage-8/GOV_CI_1_CURRENT_TREE_AUTHORITY_2026-08-21.md": {
         "mode": "100644",
-        "sha256": "3d035fc21c93437a7c70378138d07af4a9ccc0886498c5e2a0b9d74cb7360f42",
-        "size": 3516
+        "sha256": "3edc87c255ef01d292111a9f291c525b1dd1f123adb1b2bad7e6d14605bee7f0",
+        "size": 4095
       },
       "docs/stage-8/GOV_CI_1_NEGATIVE_INVENTORY_2026-08-21.md": {
         "mode": "100644",
-        "sha256": "35ec275c2ae04383ac502d288d0e20376b9042640dda57cad294b6a5dec4da0e",
-        "size": 2591
+        "sha256": "54a46ba178ce2f4f2037e2d7d6cdb219eb632179310d468a618d41a44450ad3f",
+        "size": 3437
       },
       "scripts/current_tree_authority_check.py": {
         "mode": "100755",
-        "sha256": "3426e6efa3412140e61fa6c3b857a8628b2413f2894b4c65b1762ed1ef23caea",
-        "size": 14588
+        "sha256": "811195906e34bd365e1cf9577703c3599fee0cc7bb0d091472a9babfbddefdf5",
+        "size": 19117
       },
       "scripts/current_tree_authority_negative_harness.py": {
         "mode": "100755",
-        "sha256": "edb0e73cb202ff36143f86d804531c50f172c504cbc9d2bd865ac19afe8fb4b7",
-        "size": 10501
+        "sha256": "38e54c443d9ac049da8e632db70fcfb5600cda9c967444cca9633277db3cccc9",
+        "size": 13901
       },
       "scripts/current_tree_ci_gate.sh": {
         "mode": "100755",
-        "sha256": "b65c55abe8453be99e0182ea8a5ab248133f911063ba8e92d31e2223f878296e",
-        "size": 2907
+        "sha256": "309f7c6ecd5058efca7618724df4237b3a43c3f12e326fe17492c3afe7c2fbed",
+        "size": 3620
+      },
+      "scripts/current_tree_stage8a5_replay_cargo.sh": {
+        "mode": "100755",
+        "sha256": "2fb80a0ece419dcaff60f3c9c3484c3eb6d8679f878346b80de0865113396692",
+        "size": 1861
+      },
+      "scripts/current_tree_stage8a5_replay_compat.py": {
+        "mode": "100755",
+        "sha256": "a595cf207ed2ad1456757713c05a566e02db2911288778556afd16d33c9ac6ac",
+        "size": 9691
       },
       "scripts/gov_ci_1_handoff_safety_check.py": {
         "mode": "100755",
@@ -136,9 +172,9 @@
         "size": 841
       }
     },
-    "file_count": 20
+    "file_count": 23
   },
-  "negative_cases": 35,
+  "negative_cases": 45,
   "production_code_manifest": {
     "aggregate_sha256": "67645df05e9c17c67d72da9788704e856c9bc641c8e345efb83767e75bfd35d0",
     "content_sha256": "6d26add0487aa000635a897f4a4a2217e72d5a618c7924f3032ab759f9da024d",
@@ -878,6 +914,7 @@
   },
   "requirements": {
     "accepted_stage8a5_immutable_replay_required": true,
+    "accepted_stage8a5_temporal_compatibility_normalization_required": true,
     "current_tree_authority_required": true,
     "current_tree_negative_harness_required": true,
     "exact_rust_toolchain_required": true,
