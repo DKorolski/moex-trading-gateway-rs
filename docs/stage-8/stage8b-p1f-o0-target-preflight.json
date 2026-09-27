@@ -1,4 +1,5 @@
 {
+  "accepted_ie_closure": "3a46a460ea4bd5c85c5befd036510c580941a265",
   "all_required_checks_passed": true,
   "checks": {
     "db15_empty": true,
@@ -19,8 +20,16 @@
     "redis_db15_or_db0_mutation": false,
     "runtime_live": false
   },
+  "hold_review": {
+    "file": "FINAM_P1F_O0_REVIEW_e6b2f2d_2026-09-27.md",
+    "findings": [
+      "P1-O001",
+      "P1-O002"
+    ],
+    "sha256": "5b4e2f04c9427b67857ec564878185b08214a4d56aa2db88fe1160eb8480ce6b"
+  },
   "next_after_acceptance": "P1F-O1 non-activating provisioning; still requires separate immutable authorization",
-  "observed_at_utc": "2026-09-27T06:51:17Z",
+  "observed_at_utc": "2026-09-27T07:23:20Z",
   "p0_services": {
     "moex-finam-paper-runtime.service": {
       "active_state": "active",
@@ -45,15 +54,7 @@
       "present": false
     },
     {
-      "path": "/etc/moex-finam-p1-paper",
-      "present": false
-    },
-    {
-      "path": "/var/lib/moex-finam-p1-paper",
-      "present": false
-    },
-    {
-      "path": "/var/lib/moex-finam-p1-paper-control",
+      "path": "/usr/local/share/moex/stage8b-p1e/installation-v1.json",
       "present": false
     },
     {
@@ -63,9 +64,94 @@
     {
       "path": "/etc/systemd/system/moex-finam-p1-paper-bootstrap.service",
       "present": false
+    },
+    {
+      "path": "/etc/systemd/system/moex-finam-p1-paper-bootstrap-recover@.service",
+      "present": false
+    },
+    {
+      "path": "/usr/lib/sysusers.d/moex-finam-p1-paper.conf",
+      "present": false
+    },
+    {
+      "path": "/usr/lib/tmpfiles.d/moex-finam-p1-paper.conf",
+      "present": false
+    },
+    {
+      "path": "/etc/moex-finam-p1-paper",
+      "present": false
+    },
+    {
+      "path": "/etc/moex-finam-p1-paper/bootstrap",
+      "present": false
+    },
+    {
+      "path": "/etc/moex-finam-p1-paper/credentials",
+      "present": false
+    },
+    {
+      "path": "/etc/moex-finam-p1-paper/supervisor.json",
+      "present": false
+    },
+    {
+      "path": "/etc/moex-finam-p1-paper/bootstrap/stage8b-p1-first-boot-source-v1.json",
+      "present": false
+    },
+    {
+      "path": "/etc/moex-finam-p1-paper/credentials/stage8b-p1-lifecycle.key",
+      "present": false
+    },
+    {
+      "path": "/var/lib/moex-finam-p1-paper",
+      "present": false
+    },
+    {
+      "path": "/var/lib/moex-finam-p1-paper/state",
+      "present": false
+    },
+    {
+      "path": "/var/lib/moex-finam-p1-paper/state/.stage8b-p1-first-boot-quarantine",
+      "present": false
+    },
+    {
+      "path": "/var/lib/moex-finam-p1-paper-control",
+      "present": false
     }
   ],
+  "p1_recovery_instances": {
+    "count": 0,
+    "names": "",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "p1_service_group_present": false,
   "p1_service_user_present": false,
+  "p1_systemd_query_ok": true,
+  "p1_units": [
+    {
+      "active_state": "inactive",
+      "fragment_path": "",
+      "kind": "regular",
+      "load_state": "not-found",
+      "name": "moex-finam-p1-paper.service",
+      "unit_file_state": "not-found"
+    },
+    {
+      "active_state": "inactive",
+      "fragment_path": "",
+      "kind": "regular",
+      "load_state": "not-found",
+      "name": "moex-finam-p1-paper-bootstrap.service",
+      "unit_file_state": "not-found"
+    },
+    {
+      "active_state": "not-applicable",
+      "fragment_path": "",
+      "kind": "template",
+      "load_state": "not-applicable",
+      "name": "moex-finam-p1-paper-bootstrap-recover@.service",
+      "unit_file_state": "not-found"
+    }
+  ],
   "platform": {
     "architecture": "x86_64",
     "cpu_count": 2,
@@ -73,16 +159,17 @@
     "ntp_synchronized": "yes",
     "os_id": "ubuntu",
     "os_version_id": "24.04",
-    "root_free_kib": 28615048,
+    "root_free_kib": 28614480,
     "systemd_major": 255
   },
   "raw_probe_path": "reports/stage8b/stage8b-p1f-o0-readonly-probe.txt",
-  "raw_probe_sha256": "f0a07d349113f8c4be63167c4b01ef6c7afe285399ea6f5d0388c39aa9e0e46a",
+  "raw_probe_sha256": "ec13c3f4d8f0cd0d60efeb8d6af47448b800837fd410128759292d4cf8f9ae93",
   "redis": {
     "appendonly": "yes",
     "bind": "127.0.0.1 -::1",
+    "cli_version": "7.0.15",
     "databases": 16,
-    "db0_keyspace_sha256": "028f8b7d63c62b1a56cc520d6485b8cf700aeed85ffa55e0b771f3f7d9982a19",
+    "db0_keyspace_sha256": "46abf439bf841d100146eca8e2abded8417ce5f9d82e3a83feb91bdc7004d5e7",
     "db0_size": 6,
     "db15_keyspace_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "db15_size": 0,
@@ -90,13 +177,13 @@
     "listeners": "127.0.0.1:6379,[::1]:6379",
     "ping": "PONG",
     "protected_mode": "yes",
-    "version": "7.0.15"
+    "server_version": "7.0.15"
   },
   "remote_mutation_performed": false,
   "schema_version": 1,
-  "source_baseline": "3a46a460ea4bd5c85c5befd036510c580941a265",
+  "source_baseline": "e6b2f2dd2a35145dda4db0b2ae09e0581f56d989",
   "stage": "Stage 8B-P1-f O0 immutable read-only target preflight",
-  "status": "REVIEW_CANDIDATE_READY_FOR_O1_REVIEW_NO_MUTATION",
+  "status": "REVIEW_CANDIDATE_CORRECTION_P1_O001_P1_O002_NO_MUTATION",
   "target": {
     "hostname": "nektodk1.ispvds.com",
     "ipv4": "45.150.11.252",

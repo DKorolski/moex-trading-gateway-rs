@@ -22,7 +22,7 @@ kv() {
 }
 
 unit_value() {
-  systemctl show "$1" -p "$2" --value 2>/dev/null || true
+  systemctl show "$1" -p "$2" --value
 }
 
 unit_hash() {
@@ -63,7 +63,16 @@ kv memory_kib "$(awk '/MemTotal/{print $2}' /proc/meminfo)"
 kv root_free_kib "$(df -Pk / | awk 'NR==2{print $4}')"
 kv ntp_synchronized "$(timedatectl show -p NTPSynchronized --value 2>/dev/null || printf unknown)"
 kv redis_cli "$(command -v redis-cli || true)"
-kv redis_version "$(redis-cli --version | awk '{print $2}')"
+kv redis_cli_version "$(redis-cli --version | awk '{print $2}')"
+redis_server_version="$(
+  redis-cli -h 127.0.0.1 -p 6379 --raw INFO server |
+    awk -F: '$1 == "redis_version" {gsub(/\r/, "", $2); count += 1; value = $2} END {if (count != 1 || value == "") exit 1; print value}'
+)"
+[[ "$redis_server_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+  echo "invalid Redis server version evidence" >&2
+  exit 1
+}
+kv redis_server_version "$redis_server_version"
 kv redis_ping "$(redis-cli -h 127.0.0.1 -p 6379 -n 15 --raw PING)"
 kv redis_bind "$(redis-cli -h 127.0.0.1 -p 6379 --raw CONFIG GET bind | tail -1)"
 kv redis_protected_mode "$(redis-cli -h 127.0.0.1 -p 6379 --raw CONFIG GET protected-mode | tail -1)"
@@ -92,14 +101,30 @@ if getent passwd moex-p1-paper >/dev/null; then
 else
   kv p1_service_user_present false
 fi
+if getent group moex-p1-paper >/dev/null; then
+  kv p1_service_group_present true
+else
+  kv p1_service_group_present false
+fi
 
 paths=(
   /usr/local/libexec/moex/stage8b-p1-paper-supervisor
-  /etc/moex-finam-p1-paper
-  /var/lib/moex-finam-p1-paper
-  /var/lib/moex-finam-p1-paper-control
+  /usr/local/share/moex/stage8b-p1e/installation-v1.json
   /etc/systemd/system/moex-finam-p1-paper.service
   /etc/systemd/system/moex-finam-p1-paper-bootstrap.service
+  /etc/systemd/system/moex-finam-p1-paper-bootstrap-recover@.service
+  /usr/lib/sysusers.d/moex-finam-p1-paper.conf
+  /usr/lib/tmpfiles.d/moex-finam-p1-paper.conf
+  /etc/moex-finam-p1-paper
+  /etc/moex-finam-p1-paper/bootstrap
+  /etc/moex-finam-p1-paper/credentials
+  /etc/moex-finam-p1-paper/supervisor.json
+  /etc/moex-finam-p1-paper/bootstrap/stage8b-p1-first-boot-source-v1.json
+  /etc/moex-finam-p1-paper/credentials/stage8b-p1-lifecycle.key
+  /var/lib/moex-finam-p1-paper
+  /var/lib/moex-finam-p1-paper/state
+  /var/lib/moex-finam-p1-paper/state/.stage8b-p1-first-boot-quarantine
+  /var/lib/moex-finam-p1-paper-control
 )
 for index in "${!paths[@]}"; do
   path="${paths[$index]}"
@@ -110,6 +135,61 @@ for index in "${!paths[@]}"; do
     kv "p1_path_${index}_present" false
   fi
 done
+
+p1_unit_file_inventory="$(systemctl list-unit-files --no-legend --no-pager --type=service)"
+p1_unit_file_state() {
+  local unit="$1"
+  awk -v expected="$unit" '
+    $1 == expected {count += 1; state = $2}
+    END {
+      if (count > 1) exit 2
+      if (count == 1) print state
+      else print "not-found"
+    }
+  ' <<<"$p1_unit_file_inventory"
+}
+
+p1_units=(
+  moex-finam-p1-paper.service
+  moex-finam-p1-paper-bootstrap.service
+)
+for index in "${!p1_units[@]}"; do
+  unit="${p1_units[$index]}"
+  kv "p1_unit_${index}_name" "$unit"
+  kv "p1_unit_${index}_kind" regular
+  kv "p1_unit_${index}_load_state" "$(unit_value "$unit" LoadState)"
+  kv "p1_unit_${index}_active_state" "$(unit_value "$unit" ActiveState)"
+  kv "p1_unit_${index}_unit_file_state" "$(p1_unit_file_state "$unit")"
+  kv "p1_unit_${index}_fragment_path" "$(unit_value "$unit" FragmentPath)"
+done
+
+template=moex-finam-p1-paper-bootstrap-recover@.service
+kv p1_unit_2_name "$template"
+kv p1_unit_2_kind template
+kv p1_unit_2_load_state not-applicable
+kv p1_unit_2_active_state not-applicable
+kv p1_unit_2_unit_file_state "$(p1_unit_file_state "$template")"
+kv p1_unit_2_fragment_path ""
+
+recovery_raw="$(
+  systemctl list-units --all --type=service --plain --no-legend \
+    'moex-finam-p1-paper-bootstrap-recover@*.service'
+)"
+recovery_instances="$(
+  printf '%s\n' "$recovery_raw" |
+    awk 'NF {print $1}' |
+    LC_ALL=C sort -u |
+    paste -sd, -
+)"
+if [[ -n "$recovery_instances" ]]; then
+  recovery_count="$(awk -F, '{print NF}' <<<"$recovery_instances")"
+else
+  recovery_count=0
+fi
+kv p1_recovery_instances_count "$recovery_count"
+kv p1_recovery_instances "$recovery_instances"
+kv p1_recovery_instances_sha256 "$(printf '%s' "$recovery_instances" | sha256sum | awk '{print $1}')"
+kv p1_systemd_query_ok true
 
 kv remote_mutation_performed false
 REMOTE

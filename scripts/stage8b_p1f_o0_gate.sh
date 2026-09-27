@@ -13,6 +13,6 @@ python3 -m py_compile \
   scripts/stage8b_p1f_o0_handoff_safety_check.py
 PYTHONPATH=scripts python3 scripts/stage8b_p1f_o0_check.py
 PYTHONPATH=scripts python3 scripts/stage8b_p1f_o0_negative_harness.py
-git diff --check 3a46a460ea4bd5c85c5befd036510c580941a265 --
+git diff --check e6b2f2dd2a35145dda4db0b2ae09e0581f56d989 --
 
-echo "PASS stage8b-p1f-o0-gate rows=20 negative_cases=20 remote_mutation=false o1_authorized=false rust_changes=0 cargo_changes=0"
+echo "PASS stage8b-p1f-o0-gate rows=22 negative_cases=27 redis_server=exact p1_inventory=complete remote_mutation=false o1_authorized=false rust_changes=0 cargo_changes=0"

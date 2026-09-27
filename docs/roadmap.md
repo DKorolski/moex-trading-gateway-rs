@@ -413,9 +413,10 @@ is independently source-accepted at
 correction is independently SOURCE ACCEPTED at
 `940377ab2bd406be31547200ca0b8cc3bb0f3e22`; its acceptance review SHA-256 is
 `94b224e56c30e4ad54b5db6d0d744b1fd7fbf06897e58af9be3382a3c9d5af96`.
-P1F-Ia through Ie are closed as the accepted source baseline. P1F-O0 has an
-immutable read-only target-preflight candidate; it performs no remote mutation
-and cannot authorize O1 without independent acceptance. The remaining order is
+P1F-Ia through Ie are closed as the accepted source baseline. P1F-O0 correction has an immutable read-only target-preflight candidate
+with Redis server evidence and complete fixed-install P1 absence inventory; it
+performs no remote mutation and cannot authorize O1 without independent
+acceptance. The remaining order is
 non-activating provisioning, one-shot network-isolated
 bootstrap, bounded synthetic paper session/restart acceptance, separately
 authorized read-only FINAM-bar session, then aggregate P1 acceptance. Each

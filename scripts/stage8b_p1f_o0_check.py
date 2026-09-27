@@ -16,11 +16,14 @@ import stage8b_p1f_o0_collect as collect
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE = "3a46a460ea4bd5c85c5befd036510c580941a265"
+BASE = "e6b2f2dd2a35145dda4db0b2ae09e0581f56d989"
+IE_CLOSURE = "3a46a460ea4bd5c85c5befd036510c580941a265"
 BRANCH = "stage8b-paper-shadow-resumption"
 ACCEPTED_IE = "940377ab2bd406be31547200ca0b8cc3bb0f3e22"
 IE_REVIEW = "FINAM_P1F_IE_SOURCE_ACCEPT_940377a_2026-09-27.md"
 IE_REVIEW_SHA256 = "94b224e56c30e4ad54b5db6d0d744b1fd7fbf06897e58af9be3382a3c9d5af96"
+O0_HOLD_REVIEW = "FINAM_P1F_O0_REVIEW_e6b2f2d_2026-09-27.md"
+O0_HOLD_REVIEW_SHA256 = "5b4e2f04c9427b67857ec564878185b08214a4d56aa2db88fe1160eb8480ce6b"
 
 DOCUMENT = "docs/stage-8/stage8b-p1f-o0-target-preflight.md"
 EVIDENCE = "docs/stage-8/stage8b-p1f-o0-target-preflight.json"
@@ -40,14 +43,7 @@ ALLOWED_CHANGES = {
     DOCUMENT, EVIDENCE, MATRIX, RAW, STATUS, ROADMAP, PROBE, COLLECTOR,
     CHECKER, NEGATIVE, GATE, BUILDER, SAFETY,
 }
-EXPECTED_PATHS = [
-    "/usr/local/libexec/moex/stage8b-p1-paper-supervisor",
-    "/etc/moex-finam-p1-paper",
-    "/var/lib/moex-finam-p1-paper",
-    "/var/lib/moex-finam-p1-paper-control",
-    "/etc/systemd/system/moex-finam-p1-paper.service",
-    "/etc/systemd/system/moex-finam-p1-paper-bootstrap.service",
-]
+EXPECTED_PATHS = list(collect.P1_PATHS)
 EXPECTED_SERVICES = {
     "moex-finam-paper-runtime.service": {
         "fragment_sha256": "8f8f2854191887a75317869c8e6ff3c8edd4197c1ae594fa93c0b56fc35585fc",
@@ -96,7 +92,7 @@ def git(root: Path, *args: str) -> str:
 def validate_lineage(root: Path) -> None:
     head = git(root, "rev-parse", "HEAD")
     if head != BASE:
-        require(git(root, "rev-parse", "HEAD^") == BASE, "O0 commit must be a direct child of Ie closure")
+        require(git(root, "rev-parse", "HEAD^") == BASE, "O0 correction must be a direct child of held O0")
     require(git(root, "branch", "--show-current") == BRANCH, "branch drift")
     changed = set(git(root, "diff", "--name-only", BASE, "--").splitlines())
     changed |= set(git(root, "ls-files", "--others", "--exclude-standard").splitlines())
@@ -108,6 +104,11 @@ def validate_probe(root: Path) -> None:
     require('target="root@45.150.11.252"' in text, "probe target drift")
     require("StrictHostKeyChecking=yes" in text and "BatchMode=yes" in text, "SSH fail-closed options missing")
     require(text.count("remote_mutation_performed false") == 1, "mutation marker drift")
+    require("INFO server" in text and "redis_server_version" in text, "Redis server-version observation missing")
+    require("redis-cli --version" in text and "redis_cli_version" in text, "Redis CLI diagnostic missing")
+    require("p1_service_group_present" in text, "P1 group observation missing")
+    require("p1_systemd_query_ok true" in text, "systemd query completion marker missing")
+    require("|| true" not in text.split("p1_unit_file_inventory=", 1)[1], "systemd query error can be hidden")
     forbidden = (
         r"\b(?:sudo|scp|rsync|curl|wget|docker|podman|useradd|groupadd|mkdir|install|chmod|chown)\b",
         r"systemctl\s+(?:start|stop|restart|reload|enable|disable|daemon-reload)",
@@ -125,12 +126,16 @@ def validate_evidence(root: Path) -> None:
     expected = collect.build(values, raw)
     actual = read_json(root)
     require(actual == expected, "normalized evidence is not an exact raw-probe rebuild")
-    require(actual["source_baseline"] == BASE, "baseline drift")
-    require(actual["status"] == "REVIEW_CANDIDATE_READY_FOR_O1_REVIEW_NO_MUTATION", "self-acceptance/status drift")
+    require(actual["source_baseline"] == BASE, "correction baseline drift")
+    require(actual["accepted_ie_closure"] == IE_CLOSURE, "accepted Ie closure drift")
+    require(actual["hold_review"] == {"file": O0_HOLD_REVIEW, "sha256": O0_HOLD_REVIEW_SHA256, "findings": ["P1-O001", "P1-O002"]}, "HOLD review binding drift")
+    require(actual["status"] == "REVIEW_CANDIDATE_CORRECTION_P1_O001_P1_O002_NO_MUTATION", "self-acceptance/status drift")
     require(actual["all_required_checks_passed"] is True, "required check failed")
     require(actual["remote_mutation_performed"] is False, "remote mutation declared")
     require(actual["platform"]["ntp_synchronized"] == "yes", "NTP is not synchronized")
     require(actual["redis"]["listener_sha256"] == "b417199e5def64d046d05097b8e2faaed813a1e45bb2a2ea2d544a674c08d4a1", "Redis listener evidence drift")
+    require(actual["redis"]["server_version"] == "7.0.15", "Redis server version drift")
+    require(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", actual["redis"]["cli_version"]) is not None, "invalid Redis CLI diagnostic")
     require(actual["redis"]["db15_size"] == 0, "DB15 is not empty")
     require(actual["redis"]["db15_keyspace_sha256"] == collect.EMPTY_SHA256, "DB15 digest drift")
     require(type(actual["redis"]["db0_size"]) is int and actual["redis"]["db0_size"] >= 0, "invalid DB0 observation")
@@ -138,6 +143,20 @@ def validate_evidence(root: Path) -> None:
     require([item["path"] for item in actual["p1_paths"]] == EXPECTED_PATHS, "P1 path inventory drift")
     require(all(item["present"] is False for item in actual["p1_paths"]), "P1 path exists")
     require(actual["p1_service_user_present"] is False, "P1 user exists")
+    require(actual["p1_service_group_present"] is False, "P1 group exists")
+    require(actual["p1_systemd_query_ok"] is True, "P1 systemd query incomplete")
+    require(actual["p1_units"] == [
+        {
+            "name": name,
+            "kind": kind,
+            "load_state": "not-found" if kind == "regular" else "not-applicable",
+            "active_state": "inactive" if kind == "regular" else "not-applicable",
+            "unit_file_state": "not-found",
+            "fragment_path": "",
+        }
+        for name, kind in collect.P1_UNITS
+    ], "P1 systemd unit inventory is not fresh-absent")
+    require(actual["p1_recovery_instances"] == {"count": 0, "names": "", "sha256": collect.EMPTY_SHA256}, "P1 recovery instance exists")
     require(set(actual["p0_services"]) == set(EXPECTED_SERVICES), "P0 service inventory drift")
     for name, hashes in EXPECTED_SERVICES.items():
         service = actual["p0_services"][name]
@@ -155,7 +174,7 @@ def validate_matrix(root: Path) -> None:
     except OSError as error:
         raise CheckFailure(f"cannot read matrix: {error}") from error
     require(rows and list(rows[0]) == ["id", "area", "requirement", "status"], "matrix header drift")
-    require([row["id"] for row in rows] == [f"P1FO0-{index:03}" for index in range(1, 21)], "matrix row inventory drift")
+    require([row["id"] for row in rows] == [f"P1FO0-{index:03}" for index in range(1, 23)], "matrix row inventory drift")
     require(all(row["status"] == "REQUIRED" for row in rows), "optional matrix row")
 
 
@@ -163,13 +182,13 @@ def validate_docs(root: Path) -> None:
     document = (root / DOCUMENT).read_text()
     status = (root / STATUS).read_text()
     roadmap = (root / ROADMAP).read_text()
-    for value in (BASE, ACCEPTED_IE, IE_REVIEW_SHA256, "REVIEW_CANDIDATE_READY_FOR_O1_REVIEW_NO_MUTATION"):
+    for value in (BASE, IE_CLOSURE, ACCEPTED_IE, IE_REVIEW_SHA256, O0_HOLD_REVIEW_SHA256, "REVIEW_CANDIDATE_CORRECTION_P1_O001_P1_O002_NO_MUTATION"):
         require(value in document, f"O0 document binding missing: {value}")
     require("O0 does not authorize O1" in document, "O1 boundary missing")
-    require("P1F-O0 has now produced an immutable read-only target" in status, "status not updated")
-    require("P1F-O1 provisioning and every activation surface remain closed" in status, "status boundary drift")
-    require("P1F-O0 has an\nimmutable read-only target-preflight candidate" in roadmap, "roadmap not updated")
-    require("cannot authorize O1 without independent acceptance" in roadmap, "roadmap boundary drift")
+    require("P1F-O0 correction has now produced a replacement immutable read-only target" in status, "status not updated")
+    require("P1F-O1 provisioning" in status and "independent O0 correction acceptance" in status, "status boundary drift")
+    require("P1F-O0 correction has an immutable read-only target-preflight candidate" in roadmap, "roadmap not updated")
+    require("cannot authorize O1 without independent" in roadmap, "roadmap boundary drift")
 
 
 def validate(root: Path = ROOT, check_lineage: bool = True) -> None:
@@ -187,7 +206,7 @@ def main() -> None:
     except (CheckFailure, OSError, UnicodeDecodeError, ValueError, KeyError, TypeError) as error:
         print(f"stage8b-p1f-o0-check: FAIL {error}")
         raise SystemExit(1)
-    print("PASS stage8b-p1f-o0-check rows=20 target=exact db15=empty remote_mutation=false o1_authorized=false")
+    print("PASS stage8b-p1f-o0-check rows=22 target=exact redis_server=exact p1_inventory=complete db15=empty remote_mutation=false o1_authorized=false")
 
 
 if __name__ == "__main__":

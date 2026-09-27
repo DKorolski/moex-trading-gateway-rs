@@ -20,8 +20,9 @@ MANIFEST = PREFIX + "source-tree-manifest.json"
 COMMIT_RAW = PREFIX + "source-commit.raw"
 EVIDENCE = PREFIX + "stage8b-p1f-o0-handoff-evidence.json"
 GATE = PREFIX + "stage8b-p1f-o0-gate.txt"
-REVIEW = PREFIX + "reviews/" + source_check.IE_REVIEW
-GENERATED = {MARKER, MANIFEST, COMMIT_RAW, EVIDENCE, GATE, REVIEW}
+IE_REVIEW = PREFIX + "reviews/" + source_check.IE_REVIEW
+HOLD_REVIEW = PREFIX + "reviews/" + source_check.O0_HOLD_REVIEW
+GENERATED = {MARKER, MANIFEST, COMMIT_RAW, EVIDENCE, GATE, IE_REVIEW, HOLD_REVIEW}
 REQUIRED = GENERATED | source_check.ALLOWED_CHANGES
 
 
@@ -128,9 +129,11 @@ def check(path: str) -> dict[str, object]:
         require(evidence["source_ref"] == marker["source_ref"], "evidence source mismatch")
         require(evidence["source_parent"] == source_check.BASE, "evidence parent mismatch")
         require(evidence["source_tree"] == marker["source_tree"], "evidence tree mismatch")
-        require(evidence["status"] == "O0_REVIEW_CANDIDATE_NO_REMOTE_MUTATION", "handoff status mismatch")
+        require(evidence["status"] == "O0_CORRECTION_REVIEW_CANDIDATE_P1_O001_P1_O002_NO_REMOTE_MUTATION", "handoff status mismatch")
+        require(evidence["accepted_ie_closure"] == source_check.IE_CLOSURE, "Ie closure mismatch")
+        require(evidence["hold_review"] == {"file": source_check.O0_HOLD_REVIEW, "sha256": source_check.O0_HOLD_REVIEW_SHA256, "findings": ["P1-O001", "P1-O002"]}, "HOLD review evidence mismatch")
         require(evidence["changed_paths"] == sorted(source_check.ALLOWED_CHANGES), "changed-path drift")
-        require(evidence["negative_cases"] == 20 and evidence["acceptance_matrix_rows"] == 20, "test count drift")
+        require(evidence["negative_cases"] == 27 and evidence["acceptance_matrix_rows"] == 22, "test count drift")
         require(evidence["rust_changes"] == 0 and evidence["cargo_changes"] == 0, "source scope opened")
         require(evidence["remote_mutation_performed"] is False, "remote mutation opened")
         require(evidence["o1_authorized"] is False, "O1 opened")
@@ -139,12 +142,13 @@ def check(path: str) -> dict[str, object]:
         require(evidence["gate_sha256"] == sha256(files[GATE]), "gate digest mismatch")
         require(evidence["target_evidence_sha256"] == sha256(files[source_check.EVIDENCE]), "target evidence digest mismatch")
         require(evidence["raw_probe_sha256"] == sha256(files[source_check.RAW]), "raw probe digest mismatch")
-        require(sha256(files[REVIEW]) == source_check.IE_REVIEW_SHA256, "Ie review digest mismatch")
+        require(sha256(files[IE_REVIEW]) == source_check.IE_REVIEW_SHA256, "Ie review digest mismatch")
+        require(sha256(files[HOLD_REVIEW]) == source_check.O0_HOLD_REVIEW_SHA256, "O0 HOLD review digest mismatch")
         for expected in (
             b"PASS stage8b-p1f-o0-check",
             b"PASS positive-control",
             b"PASS nonsemantic-control",
-            b"PASS stage8b-p1f-o0-negative-harness 20/20",
+            b"PASS stage8b-p1f-o0-negative-harness 27/27",
             b"PASS stage8b-p1f-o0-gate",
         ):
             require(expected in files[GATE], f"gate marker missing: {expected!r}")

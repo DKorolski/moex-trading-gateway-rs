@@ -15,12 +15,36 @@ RAW = ROOT / "reports/stage8b/stage8b-p1f-o0-readonly-probe.txt"
 EVIDENCE = ROOT / "docs/stage-8/stage8b-p1f-o0-target-preflight.json"
 PROBE = ROOT / "scripts/stage8b_p1f_o0_readonly_probe.sh"
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
+P1_PATHS = (
+    "/usr/local/libexec/moex/stage8b-p1-paper-supervisor",
+    "/usr/local/share/moex/stage8b-p1e/installation-v1.json",
+    "/etc/systemd/system/moex-finam-p1-paper.service",
+    "/etc/systemd/system/moex-finam-p1-paper-bootstrap.service",
+    "/etc/systemd/system/moex-finam-p1-paper-bootstrap-recover@.service",
+    "/usr/lib/sysusers.d/moex-finam-p1-paper.conf",
+    "/usr/lib/tmpfiles.d/moex-finam-p1-paper.conf",
+    "/etc/moex-finam-p1-paper",
+    "/etc/moex-finam-p1-paper/bootstrap",
+    "/etc/moex-finam-p1-paper/credentials",
+    "/etc/moex-finam-p1-paper/supervisor.json",
+    "/etc/moex-finam-p1-paper/bootstrap/stage8b-p1-first-boot-source-v1.json",
+    "/etc/moex-finam-p1-paper/credentials/stage8b-p1-lifecycle.key",
+    "/var/lib/moex-finam-p1-paper",
+    "/var/lib/moex-finam-p1-paper/state",
+    "/var/lib/moex-finam-p1-paper/state/.stage8b-p1-first-boot-quarantine",
+    "/var/lib/moex-finam-p1-paper-control",
+)
+P1_UNITS = (
+    ("moex-finam-p1-paper.service", "regular"),
+    ("moex-finam-p1-paper-bootstrap.service", "regular"),
+    ("moex-finam-p1-paper-bootstrap-recover@.service", "template"),
+)
 
 EXPECTED_KEYS = {
     "schema_version", "probe_kind", "observed_at_utc", "target_id", "hostname",
     "ipv4", "ssh_ed25519_fingerprint", "os_id", "os_version_id", "architecture",
     "systemd_major", "cpu_count", "memory_kib", "root_free_kib", "ntp_synchronized",
-    "redis_cli", "redis_version", "redis_ping", "redis_bind", "redis_protected_mode",
+    "redis_cli", "redis_cli_version", "redis_server_version", "redis_ping", "redis_bind", "redis_protected_mode",
     "redis_databases", "redis_appendonly", "redis_listeners", "redis_listener_sha256", "redis_db0_size",
     "redis_db0_keyspace_sha256", "redis_db15_size", "redis_db15_keyspace_sha256",
     "moex_finam_paper_runtime_load_state", "moex_finam_paper_runtime_active_state",
@@ -29,9 +53,15 @@ EXPECTED_KEYS = {
     "moex_finam_paper_ws_load_state", "moex_finam_paper_ws_active_state",
     "moex_finam_paper_ws_sub_state", "moex_finam_paper_ws_unit_file_state",
     "moex_finam_paper_ws_fragment_sha256", "moex_finam_paper_ws_execstart_sha256",
-    "p1_service_user_present", "remote_mutation_performed",
-} | {f"p1_path_{index}" for index in range(6)} | {
-    f"p1_path_{index}_present" for index in range(6)
+    "p1_service_user_present", "p1_service_group_present", "p1_systemd_query_ok",
+    "p1_recovery_instances_count", "p1_recovery_instances",
+    "p1_recovery_instances_sha256", "remote_mutation_performed",
+} | {f"p1_path_{index}" for index in range(len(P1_PATHS))} | {
+    f"p1_path_{index}_present" for index in range(len(P1_PATHS))
+} | {
+    f"p1_unit_{index}_{field}"
+    for index in range(len(P1_UNITS))
+    for field in ("name", "kind", "load_state", "active_state", "unit_file_state", "fragment_path")
 }
 
 
@@ -61,7 +91,7 @@ def build(values: dict[str, str], raw: bytes) -> dict[str, object]:
             "path": values[f"p1_path_{index}"],
             "present": boolean(values[f"p1_path_{index}_present"]),
         }
-        for index in range(6)
+        for index in range(len(P1_PATHS))
     ]
     services = {}
     for name, prefix in (
@@ -76,6 +106,24 @@ def build(values: dict[str, str], raw: bytes) -> dict[str, object]:
             "fragment_sha256": values[f"{prefix}_fragment_sha256"],
             "execstart_sha256": values[f"{prefix}_execstart_sha256"],
         }
+    p1_units = [
+        {
+            field: values[f"p1_unit_{index}_{field}"]
+            for field in ("name", "kind", "load_state", "active_state", "unit_file_state", "fragment_path")
+        }
+        for index in range(len(P1_UNITS))
+    ]
+    p1_units_absent = all(
+        unit["name"] == expected_name
+        and unit["kind"] == expected_kind
+        and unit["unit_file_state"] == "not-found"
+        and unit["fragment_path"] == ""
+        and (
+            (expected_kind == "regular" and unit["load_state"] == "not-found" and unit["active_state"] == "inactive")
+            or (expected_kind == "template" and unit["load_state"] == "not-applicable" and unit["active_state"] == "not-applicable")
+        )
+        for unit, (expected_name, expected_kind) in zip(p1_units, P1_UNITS)
+    )
     checks = {
         "target_identity_exact": values["target_id"] == "stage8b-p1f-isolated-vps-1"
         and values["hostname"] == "nektodk1.ispvds.com"
@@ -90,7 +138,7 @@ def build(values: dict[str, str], raw: bytes) -> dict[str, object]:
         and int(values["cpu_count"]) >= 2
         and int(values["memory_kib"]) >= 3_670_016
         and int(values["root_free_kib"]) >= 20 * 1024 * 1024,
-        "redis_prerequisites": values["redis_version"] == "7.0.15"
+        "redis_prerequisites": values["redis_server_version"] == "7.0.15"
         and values["redis_ping"] == "PONG"
         and values["redis_bind"] == "127.0.0.1 -::1"
         and values["redis_protected_mode"] == "yes"
@@ -108,14 +156,27 @@ def build(values: dict[str, str], raw: bytes) -> dict[str, object]:
             for service in services.values()
         ),
         "p1_identity_absent": not boolean(values["p1_service_user_present"])
-        and all(not item["present"] for item in p1_paths),
+        and not boolean(values["p1_service_group_present"])
+        and [item["path"] for item in p1_paths] == list(P1_PATHS)
+        and all(not item["present"] for item in p1_paths)
+        and boolean(values["p1_systemd_query_ok"])
+        and p1_units_absent
+        and int(values["p1_recovery_instances_count"]) == 0
+        and values["p1_recovery_instances"] == ""
+        and values["p1_recovery_instances_sha256"] == EMPTY_SHA256,
         "probe_declares_no_remote_mutation": not boolean(values["remote_mutation_performed"]),
     }
     return {
         "schema_version": 1,
         "stage": "Stage 8B-P1-f O0 immutable read-only target preflight",
-        "status": "REVIEW_CANDIDATE_READY_FOR_O1_REVIEW_NO_MUTATION",
-        "source_baseline": "3a46a460ea4bd5c85c5befd036510c580941a265",
+        "status": "REVIEW_CANDIDATE_CORRECTION_P1_O001_P1_O002_NO_MUTATION",
+        "source_baseline": "e6b2f2dd2a35145dda4db0b2ae09e0581f56d989",
+        "accepted_ie_closure": "3a46a460ea4bd5c85c5befd036510c580941a265",
+        "hold_review": {
+            "file": "FINAM_P1F_O0_REVIEW_e6b2f2d_2026-09-27.md",
+            "sha256": "5b4e2f04c9427b67857ec564878185b08214a4d56aa2db88fe1160eb8480ce6b",
+            "findings": ["P1-O001", "P1-O002"],
+        },
         "observed_at_utc": values["observed_at_utc"],
         "raw_probe_path": str(RAW.relative_to(ROOT)),
         "raw_probe_sha256": hashlib.sha256(raw).hexdigest(),
@@ -136,7 +197,8 @@ def build(values: dict[str, str], raw: bytes) -> dict[str, object]:
             "ntp_synchronized": values["ntp_synchronized"],
         },
         "redis": {
-            "version": values["redis_version"],
+            "server_version": values["redis_server_version"],
+            "cli_version": values["redis_cli_version"],
             "ping": values["redis_ping"],
             "bind": values["redis_bind"],
             "protected_mode": values["redis_protected_mode"],
@@ -151,7 +213,15 @@ def build(values: dict[str, str], raw: bytes) -> dict[str, object]:
         },
         "p0_services": services,
         "p1_service_user_present": boolean(values["p1_service_user_present"]),
+        "p1_service_group_present": boolean(values["p1_service_group_present"]),
         "p1_paths": p1_paths,
+        "p1_units": p1_units,
+        "p1_recovery_instances": {
+            "count": int(values["p1_recovery_instances_count"]),
+            "names": values["p1_recovery_instances"],
+            "sha256": values["p1_recovery_instances_sha256"],
+        },
+        "p1_systemd_query_ok": boolean(values["p1_systemd_query_ok"]),
         "checks": checks,
         "all_required_checks_passed": all(checks.values()),
         "remote_mutation_performed": boolean(values["remote_mutation_performed"]),
