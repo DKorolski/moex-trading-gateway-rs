@@ -681,6 +681,7 @@ mod stage5d_pair_binding_restore_tests {
                     crate::hybrid_intraday_runtime::HybridIntradayProfile::BaselineRuntimeHybrid,
                 mr_variant:
                     crate::hybrid_intraday_runtime::MeanReversionVariant::ClassicPrevDayRange,
+                live_mr_entries_enabled: true,
                 mr_gate_policy: crate::hybrid_intraday_runtime::MrGatePolicy::Disabled,
                 risk_gate_mode: crate::hybrid_intraday_runtime::RiskGateMode::Disabled,
                 risk_gate_seed_file: None,
@@ -1525,6 +1526,7 @@ mod stage5e_retryable_bridge_tests {
                     crate::hybrid_intraday_runtime::HybridIntradayProfile::BaselineRuntimeHybrid,
                 mr_variant:
                     crate::hybrid_intraday_runtime::MeanReversionVariant::ClassicPrevDayRange,
+                live_mr_entries_enabled: true,
                 mr_gate_policy: crate::hybrid_intraday_runtime::MrGatePolicy::Disabled,
                 risk_gate_mode: crate::hybrid_intraday_runtime::RiskGateMode::Disabled,
                 risk_gate_seed_file: None,
@@ -1614,6 +1616,7 @@ mod stage5e_retryable_bridge_tests {
         let semantic_bar_identity =
             stage5e_b3c_semantic_bar_identity(&bar, stage3_provenance_identity);
         Stage5cAcceptedSemanticBar {
+            strategy_model_bar_label_utc: bar.close_time_utc,
             bar,
             tick_size: 0.5,
             origin,
@@ -1785,6 +1788,7 @@ pub(crate) mod stage5f_test_seams {
                 receipt: recovery_receipt,
             },
             Stage5cAcceptedSemanticBar {
+                strategy_model_bar_label_utc: bar.close_time_utc,
                 bar,
                 tick_size,
                 origin: broker_core::HybridRuntimeBarOrigin::Live,
@@ -2805,6 +2809,10 @@ pub struct Stage5cSemanticBarInput {
 
 pub struct Stage5cAcceptedSemanticBar {
     bar: broker_core::HybridRuntimeBarEvent,
+    // Durable ordering and semantic identity remain bound to `bar.close_time_utc`.
+    // This separate label is exposed only to the strategy callback because the
+    // accepted ALOR Hybrid model names candles by their opening instant.
+    strategy_model_bar_label_utc: i64,
     tick_size: f64,
     origin: broker_core::HybridRuntimeBarOrigin,
     // STAGE5D-ADDITIVE-BRIDGE-BEGIN: stage5e-b3c-semantic-identity-fields
@@ -2813,6 +2821,45 @@ pub struct Stage5cAcceptedSemanticBar {
     #[allow(dead_code)] // Consumed by the closed Stage 5E sequence issuer.
     semantic_bar_identity: [u8; 32],
     // STAGE5D-ADDITIVE-BRIDGE-END: stage5e-b3c-semantic-identity-fields
+}
+impl Stage5cAcceptedSemanticBar {
+    /// Binds the strategy-only candle label without changing the accepted
+    /// close-bound bar, its semantic identity, or its persistence ordering.
+    pub fn with_strategy_model_bar_label_utc(
+        mut self,
+        strategy_model_bar_label_utc: i64,
+    ) -> Result<Self, Stage5cSemanticBarError> {
+        let timeframe_sec = i64::from(self.bar.timeframe_sec);
+        if strategy_model_bar_label_utc <= 0
+            || timeframe_sec <= 0
+            || strategy_model_bar_label_utc.rem_euclid(timeframe_sec) != 0
+            || strategy_model_bar_label_utc.checked_add(timeframe_sec)
+                != Some(self.bar.close_time_utc)
+        {
+            return Err(Stage5cSemanticBarError::InvalidStrategyModelBarLabel);
+        }
+        self.strategy_model_bar_label_utc = strategy_model_bar_label_utc;
+        Ok(self)
+    }
+
+    pub fn canonical_close_time_utc(&self) -> i64 {
+        self.bar.close_time_utc
+    }
+
+    pub fn strategy_model_bar_label_utc(&self) -> i64 {
+        self.strategy_model_bar_label_utc
+    }
+
+    fn strategy_callback_bar(
+        &self,
+        strategy: &HybridIntradayRuntimeStrategy,
+    ) -> broker_core::HybridRuntimeBarEvent {
+        let mut callback_bar = self.bar.clone();
+        if strategy.stage8b_p1f_uses_start_model_bar_label() {
+            callback_bar.close_time_utc = self.strategy_model_bar_label_utc;
+        }
+        callback_bar
+    }
 }
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: stage5e-b3e-test-corruption-seams
 #[cfg(test)]
@@ -2837,6 +2884,7 @@ pub enum Stage5cSemanticBarError {
     StaleOrDuplicateBar,
     FutureBar,
     InvalidTimestamp,
+    InvalidStrategyModelBarLabel,
     CallbackValidationFailed,
     UnalignedTimestamp,
     InvalidOhlc,
@@ -4847,6 +4895,7 @@ pub(crate) fn resolve_stage8b_p1d3_semantic_bar_bridge(
         return Err(Stage8bP1d3CallbackBridgeError::ScopeMismatch);
     }
     let bar_close_ts = accepted.bar.close_time_utc;
+    let callback_bar = accepted.strategy_callback_bar(&strategy);
     let pre_callback_cleanup_ledger =
         stage5cj_cleanup_attribution_ledger(Strategy::state(&strategy), &input.strategy_id);
     let context = stage5cf_semantic_context_from_binding(
@@ -4862,7 +4911,7 @@ pub(crate) fn resolve_stage8b_p1d3_semantic_bar_bridge(
         &mut strategy,
         broker_core::HybridRuntimeCallbackInput {
             context,
-            payload: accepted.bar,
+            payload: callback_bar,
         },
     )
     .map_err(|_| Stage8bP1d3CallbackBridgeError::CallbackValidationFailed)?;
@@ -7194,6 +7243,7 @@ pub fn accept_stage5c_semantic_bar(
         stage5e_b3c_semantic_bar_identity(&input.bar, stage3_provenance_identity);
     // STAGE5D-ADDITIVE-BRIDGE-END: stage5e-b3c-semantic-identity-admission
     Ok(Stage5cAcceptedSemanticBar {
+        strategy_model_bar_label_utc: input.bar.close_time_utc,
         origin: input.bar.origin,
         bar: input.bar,
         tick_size: input.tick_size,
@@ -7386,6 +7436,7 @@ pub(crate) fn stage5e_test_nonempty_intent_sequence_inputs(
             symbol: "IMOEXF".to_string(),
             profile: crate::hybrid_intraday_runtime::HybridIntradayProfile::BaselineRuntimeHybrid,
             mr_variant: crate::hybrid_intraday_runtime::MeanReversionVariant::Author41BoundaryShort,
+            live_mr_entries_enabled: true,
             mr_gate_policy: crate::hybrid_intraday_runtime::MrGatePolicy::Disabled,
             risk_gate_mode: crate::hybrid_intraday_runtime::RiskGateMode::Disabled,
             risk_gate_seed_file: None,
@@ -7501,6 +7552,7 @@ pub(crate) fn stage5e_test_nonempty_intent_sequence_inputs(
             receipt: recovery_receipt,
         },
         Stage5cAcceptedSemanticBar {
+            strategy_model_bar_label_utc: bar.close_time_utc,
             bar,
             tick_size: 0.5,
             origin: broker_core::HybridRuntimeBarOrigin::Live,
@@ -7551,12 +7603,13 @@ pub(crate) fn consume_stage5c_for_authorized_callback(
         accepted.bar.close_time_utc,
         callback_now,
     );
+    let callback_bar = accepted.strategy_callback_bar(&strategy);
     Ok(Stage5eStage5cAuthorizedCallbackMaterial {
         strategy,
         recovery_receipt,
         callback_input: broker_core::HybridRuntimeCallbackInput {
             context,
-            payload: accepted.bar,
+            payload: callback_bar,
         },
         attribution_snapshot,
         retained_bar_metadata,
@@ -8082,13 +8135,14 @@ fn apply_stage5c_semantic_bar_at_with_replay_boundary(
         stage5cj_cleanup_attribution_ledger(Strategy::state(&strategy), admission.strategy_id());
     let context = stage5cf_semantic_context(&strategy, admission, accepted.bar.close_time_utc, now);
     let bar_close_ts = accepted.bar.close_time_utc;
+    let callback_bar = accepted.strategy_callback_bar(&strategy);
     let origin = accepted.origin;
     let execution_eligible = origin == broker_core::HybridRuntimeBarOrigin::Live;
     let intents = crate::BrokerNeutralHybridStrategy::on_broker_bar(
         &mut strategy,
         broker_core::HybridRuntimeCallbackInput {
             context,
-            payload: accepted.bar,
+            payload: callback_bar,
         },
     )
     .map_err(|_| Stage5cSemanticBarError::CallbackValidationFailed)?;
@@ -12013,6 +12067,7 @@ mod bootstrap_notification_tests {
             symbol: symbol.to_string(),
             profile: HybridIntradayProfile::BaselineRuntimeHybrid,
             mr_variant: MeanReversionVariant::ClassicPrevDayRange,
+            live_mr_entries_enabled: true,
             mr_gate_policy: MrGatePolicy::Disabled,
             risk_gate_mode: RiskGateMode::Disabled,
             risk_gate_seed_file: None,
@@ -19080,6 +19135,7 @@ mod stage5g_r2ca_r2_tests {
             symbol: "IMOEXF".to_string(),
             profile: HybridIntradayProfile::ImoexfPrimaryRiskgateHigh180Lb120,
             mr_variant: MeanReversionVariant::High180,
+            live_mr_entries_enabled: true,
             mr_gate_policy: MrGatePolicy::ShadowPnlLb120Positive,
             risk_gate_mode: RiskGateMode::NormalAppend,
             risk_gate_seed_file: None,
@@ -19204,6 +19260,7 @@ mod stage5g_r2ca_r2_tests {
             symbol: "IMOEXF".to_string(),
             profile: HybridIntradayProfile::BaselineRuntimeHybrid,
             mr_variant: MeanReversionVariant::Author41BoundaryShort,
+            live_mr_entries_enabled: true,
             mr_gate_policy: MrGatePolicy::Disabled,
             risk_gate_mode: RiskGateMode::Disabled,
             risk_gate_seed_file: None,
@@ -20129,6 +20186,7 @@ mod stage5g_r2ca_r3_tests {
             symbol: "IMOEXF".to_string(),
             profile: HybridIntradayProfile::BaselineRuntimeHybrid,
             mr_variant: MeanReversionVariant::Author41BoundaryShort,
+            live_mr_entries_enabled: true,
             mr_gate_policy: MrGatePolicy::Disabled,
             risk_gate_mode: RiskGateMode::Disabled,
             risk_gate_seed_file: None,

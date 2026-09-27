@@ -7037,6 +7037,7 @@ mod tests {
             symbol: "IMOEXF".to_string(),
             profile: crate::hybrid_intraday_runtime::HybridIntradayProfile::BaselineRuntimeHybrid,
             mr_variant: crate::hybrid_intraday_runtime::MeanReversionVariant::ClassicPrevDayRange,
+            live_mr_entries_enabled: true,
             mr_gate_policy: crate::hybrid_intraday_runtime::MrGatePolicy::Disabled,
             risk_gate_mode: crate::hybrid_intraday_runtime::RiskGateMode::Disabled,
             risk_gate_seed_file: None,

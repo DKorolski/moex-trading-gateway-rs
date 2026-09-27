@@ -4433,6 +4433,7 @@ pub(crate) mod tests {
             } else {
                 MeanReversionVariant::High180
             },
+            live_mr_entries_enabled: true,
             mr_gate_policy: if risk_gate_mode == RiskGateMode::Disabled {
                 MrGatePolicy::Disabled
             } else {

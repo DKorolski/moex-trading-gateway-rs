@@ -38,9 +38,9 @@ use redis::{
 };
 
 pub const STAGE8B_P1E_SUPERVISOR_CONFIG_SCHEMA_VERSION: u16 = 1;
-pub const STAGE8B_P1E_RUNTIME_PROFILE_ID: &str = "imoexf-hybrid-high180-paper-v1";
+pub const STAGE8B_P1E_RUNTIME_PROFILE_ID: &str = "imoexf-baseline07-bo-only-paper-v1";
 pub const STAGE8B_P1E_RUNTIME_PROFILE_SHA256: &str =
-    "dd5a211e708db0d40175d19ed1eeb51db26497d344a553b41d7afbfdddde0ef6";
+    "8f346b730760c8a70c4ab8576da60147a80a7c0668ba2068783ea2e5a2637872";
 pub const STAGE8B_P1E_REDIS_RUNTIME_POLICY_ID: &str = "imoexf-hybrid-paper-db15-runtime-v2";
 pub const STAGE8B_P1E_REDIS_RUNTIME_POLICY_SHA256: &str =
     "c39decbea8af3f305da1e930f1220a54c46e060d972fbb9bbc0c599e8c40ab1f";
@@ -1052,6 +1052,7 @@ impl Stage8bP1RuntimeProfileV1 {
                 "high180" => MeanReversionVariant::High180,
                 _ => return Err(Stage8bP1eSupervisorConfigError::InvalidRuntimeProfile),
             },
+            live_mr_entries_enabled: semantic.live_mr_entries_enabled,
             mr_gate_policy: match semantic.mr_gate_policy.as_str() {
                 "shadow_pnl_lb120_positive" => MrGatePolicy::ShadowPnlLb120Positive,
                 _ => return Err(Stage8bP1eSupervisorConfigError::InvalidRuntimeProfile),
@@ -1757,6 +1758,7 @@ struct RuntimeSemanticConfig {
     symbol: String,
     profile: String,
     mr_variant: String,
+    live_mr_entries_enabled: bool,
     mr_gate_policy: String,
     risk_gate_mode: String,
     risk_gate_seed_file: Option<String>,

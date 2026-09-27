@@ -1,17 +1,18 @@
 {
   "schema_version": 1,
   "domain": "moex.stage8b.p1e.runtime-profile.v1",
-  "profile_id": "imoexf-hybrid-high180-paper-v1",
+  "profile_id": "imoexf-baseline07-bo-only-paper-v1",
   "constructor": "Stage8bP1RuntimeProfileV1::build_hybrid_runtime",
   "semantic_config": {
     "symbol": "IMOEXF",
     "profile": "imoexf_primary_riskgate_high180_lb120",
     "mr_variant": "high180",
+    "live_mr_entries_enabled": false,
     "mr_gate_policy": "shadow_pnl_lb120_positive",
     "risk_gate_mode": "normal_append",
     "risk_gate_seed_file": null,
     "risk_gate_ledger_key": null,
-    "model_session_start_time": "09:00:00",
+    "model_session_start_time": "07:00:00",
     "model_session_end_time": "23:49:59",
     "qty": "1.0",
     "live_order_style": "market",
@@ -41,7 +42,7 @@
       "take_k_short": "0.16",
       "stop_k_short": "0.43",
       "tick_size": "0.5",
-      "session_end_time": "11:59:00",
+      "session_end_time": "09:59:00",
       "exit_offset_seconds": 600
     },
     "breakout": {

@@ -249,6 +249,12 @@ impl Stage8bP1ValidatedCanonicalM10 {
         self.envelope.payload.close_ts_utc_ms
     }
 
+    /// Strategy time follows the accepted ALOR candle-start convention. The
+    /// canonical Redis identity and delivery eligibility remain close-bound.
+    pub fn strategy_model_bar_label_utc_ms(&self) -> i64 {
+        self.envelope.payload.open_ts_utc_ms
+    }
+
     pub fn canonical_bytes(&self) -> &[u8] {
         &self.canonical_bytes
     }
@@ -316,6 +322,7 @@ impl Stage8bP1ValidatedCanonicalM10 {
     pub fn into_stage5c_semantic_bar(
         self,
     ) -> Result<Stage5cAcceptedSemanticBar, Stage8bP1CanonicalM10Error> {
+        let model_bar_label_utc_ms = self.strategy_model_bar_label_utc_ms();
         let payload = self.envelope.payload;
         let parse = |value: &str| {
             value
@@ -343,6 +350,9 @@ impl Stage8bP1ValidatedCanonicalM10 {
             tick_size: STAGE8B_P1_TICK_SIZE
                 .parse::<f64>()
                 .expect("fixed P1 tick is valid"),
+        })
+        .and_then(|accepted| {
+            accepted.with_strategy_model_bar_label_utc(model_bar_label_utc_ms.div_euclid(1_000))
         })
         .map_err(|_| Stage8bP1CanonicalM10Error::Stage5cRejected)
     }
@@ -1147,6 +1157,32 @@ mod tests {
             source_m1: source_m1(close - M10_MILLIS),
         })
         .unwrap()
+    }
+
+    #[test]
+    fn canonical_m10_keeps_close_bound_identity_but_uses_start_model_label() {
+        let parsed = parse_stage8b_p1_canonical_m10(&canonical_bytes(), &"11".repeat(32))
+            .expect("canonical fixture must parse");
+        assert_eq!(
+            parsed.strategy_model_bar_label_utc_ms(),
+            parsed.open_ts_utc_ms()
+        );
+        assert_eq!(
+            parsed.close_ts_utc_ms() - parsed.strategy_model_bar_label_utc_ms(),
+            M10_MILLIS
+        );
+        assert_eq!(parsed.redis_id(), format!("{}-0", parsed.close_ts_utc_ms()));
+        let accepted = parsed
+            .into_stage5c_semantic_bar()
+            .expect("start-labelled semantic bar must remain admissible");
+        assert_eq!(
+            accepted.canonical_close_time_utc(),
+            1_785_628_200_000_i64.div_euclid(1_000)
+        );
+        assert_eq!(
+            accepted.strategy_model_bar_label_utc(),
+            1_785_627_600_000_i64.div_euclid(1_000)
+        );
     }
 
     fn temp_directory(label: &str) -> PathBuf {

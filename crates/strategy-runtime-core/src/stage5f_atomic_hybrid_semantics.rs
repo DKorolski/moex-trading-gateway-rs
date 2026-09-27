@@ -662,6 +662,7 @@ impl Stage5fTargetConfigV1 {
             symbol: self.symbol,
             profile: HybridIntradayProfile::ImoexfPrimaryRiskgateHigh180Lb120,
             mr_variant: MeanReversionVariant::High180,
+            live_mr_entries_enabled: true,
             mr_gate_policy: MrGatePolicy::ShadowPnlLb120Positive,
             risk_gate_mode: RiskGateMode::NormalAppend,
             risk_gate_seed_file: self.risk_gate_seed_file,

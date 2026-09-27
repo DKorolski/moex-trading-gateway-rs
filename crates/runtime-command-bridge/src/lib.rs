@@ -1758,6 +1758,7 @@ mod tests {
             symbol: "IMOEXF".to_string(),
             profile: HybridIntradayProfile::BaselineRuntimeHybrid,
             mr_variant: MeanReversionVariant::ClassicPrevDayRange,
+            live_mr_entries_enabled: true,
             mr_gate_policy: MrGatePolicy::Disabled,
             risk_gate_mode: RiskGateMode::Disabled,
             risk_gate_seed_file: None,
