@@ -36,6 +36,20 @@ def main() -> None:
         ("wire", lambda value: value["source_contract"].update(wire_schema_version=1)),
         ("target", lambda value: value["target"].update(ipv4="127.0.0.1")),
         ("facade-drop", lambda value: value["facades_required_in_later_execution_artifact"].pop()),
+        ("closed-empty", lambda value: value.update(closed_surfaces={})),
+        ("boundary-empty", lambda value: value.update(package_boundary={})),
+        ("orders-route-drop", lambda value: value["materializer_network_policy"]["route_allowlist"].pop(1)),
+        ("orders-assumed", lambda value: value["materializer_network_policy"].update(complete_orders_truth_may_be_assumed=True)),
+        ("write-method", lambda value: value["materializer_network_policy"]["method_allowlist"].append("POST")),
+        ("unlisted-route", lambda value: value["materializer_network_policy"].update(unlisted_routes_allowed=True)),
+        ("account-unbound", lambda value: value["materializer_network_policy"].update(exact_account_binding="any account")),
+        ("blocking-runner", lambda value: value["bootstrap_supervision"].pop("permit_and_unit_poll_interval_ms")),
+        ("client-exit-proof", lambda value: value["bootstrap_supervision"].update(systemctl_child_exit_is_unit_stop_proof=True)),
+        ("no-runner-cleanup", lambda value: value["bootstrap_supervision"].update(runner_loss_action="none")),
+        ("failed-after-deadline", lambda value: value["terminal_outcomes"].update(deadline_reached_or_terminal_recovery_at_or_after_deadline="Failed")),
+        ("terminal-retry-open", lambda value: value["terminal_outcomes"].update(new_admission_while_nonterminal_or_pending=True)),
+        ("key-ordering", lambda value: value["authority_key_ordering"].update(current_patch_generates_or_reuses_private_key=True)),
+        ("control-root-content", lambda value: value["control_root_skeleton"]["permitted_initial_entries"].append("authority")),
     ]
     failures = [name for name, mutation in cases if not rejected(document, mutation)]
     if failures:
@@ -45,4 +59,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

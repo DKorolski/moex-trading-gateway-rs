@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stage": "Stage 8B-P1-f O2 fresh materialization and isolated bootstrap package",
-  "status": "R0_EXECUTION_CONTRACT_REVIEW_CANDIDATE_DO_NOT_EXECUTE",
+  "status": "R1_EXECUTION_CONTRACT_CORRECTION_REVIEW_CANDIDATE_DO_NOT_EXECUTE",
   "accepted_predecessor": {
     "o1_operational_commit": "997e8a1d201048fcdec0e948660f32a0bee3cceb",
     "o1_governance_closure_commit": "e11744e31f11d567633716f21211c484bb9045eb",
@@ -36,8 +36,8 @@
   "subphases": [
     {
       "id": "P1F-O2-M",
-      "effect": "read-only FINAM GET source collection followed by guardian materialize_o2",
-      "network": "documented FINAM read-only GET plus DNS/TLS only; no Redis and no order endpoint",
+      "effect": "exact-account allowlisted read-only FINAM GET source collection followed by guardian materialize_o2",
+      "network": "exact method-plus-route allowlist including GET account orders snapshot; no Redis and no order execution endpoint",
       "terminal_output": "ReadyForBootstrap materialized-set receipt"
     },
     {
@@ -59,16 +59,57 @@
     "broker_truth_max_age_seconds_at_bootstrap": 300,
     "stale_action": "guardian Failed; zero bootstrap mutation; retain evidence; require new manifest"
   },
+  "authority_key_ordering": {
+    "current_patch_generates_or_reuses_private_key": false,
+    "private_key_preparation_timing": "after R1 design acceptance and before execution-artifact finalization",
+    "final_execution_artifact_requires_preselected_public_key": true,
+    "private_bytes_location": "designated offline medium only",
+    "private_bytes_in_git_handoff_target_or_logs": false
+  },
+  "control_root_skeleton": {
+    "required_before_open_production": true,
+    "path": "/var/lib/moex-finam-p1-paper-control",
+    "create_if_absent": true,
+    "owner": "root",
+    "group": "moex-p1-paper",
+    "mode": "0750",
+    "permitted_initial_entries": [],
+    "existing_nonempty_or_wrong_custody_action": "fail before open_production and genesis",
+    "repeated_genesis_or_authority_replacement_allowed": false
+  },
+  "materializer_network_policy": {
+    "base_url": "https://api.finam.ru",
+    "exact_account_binding": "configured account id only",
+    "exact_venue_symbol": "IMOEXF@RTSX",
+    "method_allowlist": ["GET"],
+    "route_allowlist": [
+      {"method":"GET","route":"/v1/accounts/{account_id}","query_keys":[]},
+      {"method":"GET","route":"/v1/accounts/{account_id}/orders","query_keys":[]},
+      {"method":"GET","route":"/v1/assets/{venue_symbol}/params","query_keys":["account_id"]},
+      {"method":"GET","route":"/v1/assets/{venue_symbol}/schedule","query_keys":[]},
+      {"method":"GET","route":"/v1/instruments/{venue_symbol}/bars","query_keys":["timeframe","interval.start_time","interval.end_time"]}
+    ],
+    "bars_timeframe": "TIME_FRAME_M1",
+    "enforcement": "facade validates method route query account and symbol before dedicated GET-only transport",
+    "host_or_ip_filter_alone_is_sufficient": false,
+    "complete_orders_truth_may_be_assumed": false,
+    "orders_snapshot_is_read_only_truth_not_execution": true,
+    "forbidden_methods": ["POST", "PUT", "PATCH", "DELETE"],
+    "unlisted_routes_allowed": false,
+    "redirects_allowed": false,
+    "system_proxy_allowed": false,
+    "redis_allowed": false
+  },
   "facades_required_in_later_execution_artifact": [
     "offline canonical Ed25519 signer with no secret output",
     "root target guardian CLI over accepted Stage8bP1fAuthorityStoreV1 APIs only",
     "read-only wire-V2 first-boot source materializer over accepted parsers/oracles",
-    "root O2-B runner holding the guardian permit across exact systemd one-shot",
-    "read-only redacted O2 evidence collector"
+    "root O2-B systemd-supervised runner holding the guardian permit and polling the exact bootstrap unit",
+    "read-only redacted O2 evidence collector with no lifecycle authority"
   ],
   "source_contract": {
     "wire_schema_version": 2,
-    "broker_truth": "flat exact account and IMOEXF@RTSX complete positions/orders; price step 0.5",
+    "broker_truth": "flat exact account and IMOEXF@RTSX complete positions plus GET account orders snapshot; active_orders_complete is observed and never assumed; price step 0.5",
     "history": "at least 121 explicit Moscow sessions; final FINAM M1 aggregated through accepted M1-to-M10 path",
     "riskgate": "at least 120 source-compatible high180 observations rebuilt and cross-validated",
     "candidate": "one later canonical final M10; exact ten-M1 provenance; zero intents"
@@ -76,10 +117,39 @@
   "bootstrap": {
     "daemon_reload_allowed_once_after_full_reread": true,
     "enable_allowed": false,
-    "command": "systemctl start --wait moex-finam-p1-paper-bootstrap.service",
+    "command": "/usr/bin/systemctl start --wait moex-finam-p1-paper-bootstrap.service",
     "ordinary_service_start_allowed": false,
     "redis_contact_allowed": false,
     "finam_contact_allowed": false
+  },
+  "bootstrap_supervision": {
+    "runner_unit": "moex-finam-p1-paper-o2-bootstrap-runner.service",
+    "runner_unit_material": "exact bytes and hash required in later execution artifact",
+    "runner_process": "one root foreground runner independent of SSH",
+    "bootstrap_start_child": "/usr/bin/systemctl start --wait moex-finam-p1-paper-bootstrap.service",
+    "systemctl_child_exit_is_unit_stop_proof": false,
+    "permit_and_unit_poll_interval_ms": 250,
+    "permit_poll_method": "Stage8bP1fRunPermitV1::poll_deadline",
+    "unit_observation": ["ActiveState", "SubState", "Result", "ExecMainStatus", "MainPID", "ControlPID", "Job", "ControlGroup"],
+    "begin_stopping_command": "/usr/bin/systemctl stop --no-block moex-finam-p1-paper-bootstrap.service",
+    "force_kill_command": "/usr/bin/systemctl kill --kill-who=all --signal=SIGKILL moex-finam-p1-paper-bootstrap.service",
+    "stopped_proof": "no pending job; MainPID=0; ControlPID=0; inactive-or-failed state; empty ControlGroup cgroup.procs",
+    "stop_grace_seconds": 30,
+    "runner_signal_action": "stop bootstrap unit immediately; prove stopped; terminalize Failed before deadline or Expired at-or-after deadline",
+    "runner_loss_action": "systemd ExecStopPost invokes the same pinned runner binary cleanup mode to stop then bounded-kill and prove the bootstrap unit absent",
+    "host_restart_action": "bootstrap and runner remain disabled; recovery proves no unit process or job before V5 classification",
+    "cleanup_failure_action": "retain Active-or-Stopping authority plus diagnostics; no terminal receipt and no new admission",
+    "ssh_loss_changes_supervision": false
+  },
+  "terminal_outcomes": {
+    "verified_success_before_deadline": "Completed",
+    "verified_failure_or_operator_stop_before_deadline": "Failed",
+    "deadline_reached_or_terminal_recovery_at_or_after_deadline": "Expired",
+    "completed_or_failed_at_or_after_deadline_allowed": false,
+    "terminal_receipt_write_failure": "retain exact pending-terminal transaction; replay only identical state and reason after stopped proof",
+    "lost_bootstrap_response": "prove unit stopped then use exact durable marker and receipt with accepted V5 classification; never blind retry",
+    "new_admission_while_nonterminal_or_pending": false,
+    "deadline_extension_allowed": false
   },
   "package_boundary": {
     "execution_authorized": false,

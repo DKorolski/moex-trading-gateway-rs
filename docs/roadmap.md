@@ -36,10 +36,13 @@ separate O2 fresh-materialization/bootstrap package may now be prepared for
 review. O2 execution, provider execution, FINAM send, broker dispatch,
 runtime-live and real orders remain closed.
 
-The active O2 R0 work is an execution-contract package, not an activation. It
-freezes the exact authority/materialization/bootstrap/evidence sequence and the
-thin facades that a later immutable execution artifact must contain. Review of
-that contract precedes artifact construction; artifact acceptance precedes any
+O2 R0 at `b8d573a` is held on two contract inconsistencies; accepted O1 is
+unchanged. The active O2 R1 correction remains an execution-contract package,
+not an activation. It fixes unit-level bootstrap supervision and terminal
+deadline outcomes, permits only the exact-account GET orders snapshot needed
+for complete broker truth, and otherwise preserves the exact
+authority/materialization/bootstrap/evidence sequence and five thin facades.
+Review of R1 precedes artifact construction; artifact acceptance precedes any
 target mutation.
 
 Stage 8B-P1-a, P1-b and P1-c are independently accepted and closed. P1-d0 is

@@ -24,10 +24,14 @@ of one separate O2 fresh-materialization/bootstrap package is authorized; O2
 execution and all provider/live surfaces remain closed pending independent
 acceptance of that package.
 
-The active O2 R0 candidate freezes the execution contract only. It specifies
-the existing guardian/API facades, offline authority ceremony, fresh wire-V2
-source materialization, fixed-path lifecycle credential, 300-second admission,
-AF_UNIX-only bootstrap one-shot and retained evidence. It performs no key
+The O2 R0 contract at `b8d573ab940e7a9ae5162e2da63faad4f6e38dab`
+is held by independent review for `P1-O2C01` and `P1-O2C02`; it did not execute
+O2 and does not affect accepted O1. The active O2 R1 correction candidate
+defines unit-level systemd runner supervision with exact
+`Completed`/`Failed`/`Expired` deadline semantics and an exact-account FINAM
+GET method/route allowlist that includes the complete orders snapshot but no
+order execution. It also fixes public-key ordering, the empty control-root
+skeleton and the fifth read-only evidence facade. It performs no key
 generation, target/FINAM/Redis contact, daemon reload or service start. A later
 immutable execution artifact and its actual execution each require separate
 acceptance.

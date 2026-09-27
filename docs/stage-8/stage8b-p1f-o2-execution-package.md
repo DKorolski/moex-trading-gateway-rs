@@ -1,6 +1,10 @@
 # Stage 8B-P1-f O2 — fresh materialization and isolated bootstrap package
 
-Status: **R0 EXECUTION-CONTRACT REVIEW CANDIDATE — DO NOT EXECUTE**.
+Status: **R1 EXECUTION-CONTRACT CORRECTION REVIEW CANDIDATE — DO NOT EXECUTE**.
+
+R1 closes `P1-O2C01` and `P1-O2C02` from the independent R0 review. It
+defines unit-level bootstrap supervision and the exact read-only FINAM
+method/route allowlist. It does not change production Rust or authorize O2.
 
 Accepted predecessor: O1 operational evidence at
 `997e8a1d201048fcdec0e948660f32a0bee3cceb`; governance closure at
@@ -55,9 +59,12 @@ The O2 package may add only thin facades over accepted code:
   `initialize_authority`, `activate_authority`, `claim_phase`,
   `materialize_o2`, `admit_active_phase`, `finish_phase` and `inspect` APIs;
 - a read-only source materializer that emits exactly the accepted wire-V2
-  first-boot source bundle and cannot call Redis or FINAM order endpoints;
-- an O2-B runner that holds the linear guardian permit while systemd waits for
-  the exact bootstrap one-shot to complete.
+  first-boot source bundle, can call only the method/route allowlist below and
+  cannot call Redis or any FINAM order-execution endpoint;
+- an O2-B systemd-supervised runner that holds and polls the linear guardian
+  permit while independently observing and controlling the exact bootstrap
+  unit; and
+- a read-only redacted evidence collector that has no lifecycle authority.
 
 The facades may not reimplement signature verification, first-boot parsing,
 runtime bootstrap, riskgate rebuilding or durable-root creation. The target
@@ -76,7 +83,21 @@ conflict stops before mutation.
 
 ### 1. Authority genesis and activation
 
-Create the phase-authority private key only on the designated offline medium.
+After R1 design acceptance, but before the execution artifact is finalized,
+the operator either creates the phase-authority private key on the designated
+offline medium or reuses the explicitly selected offline key. The final
+execution artifact contains the resulting exact public identity. Private bytes
+remain offline and are absent from Git, handoff, target and logs. This R1
+contract commit performs no key operation.
+
+Before `open_production`, create the otherwise empty fixed control-root
+skeleton `/var/lib/moex-finam-p1-paper-control` if absent, with exact custody
+`root:moex-p1-paper 0750`, after validating its parent chain. If it already
+exists, require the same custody and an empty permitted-entry inventory. Any
+unexpected content, link, owner or mode fails before open/genesis. Skeleton
+creation is not genesis and grants no phase authority; repeated genesis or
+authority replacement remains forbidden.
+
 Install only the package-pinned public identity on the target. The offline
 registry records one Prepared generation and unique ceremony nonce.
 
@@ -98,9 +119,32 @@ effect.
 ### 3. O2-M fresh materialization
 
 The materializer receives the FINAM token through a transient root-owned
-credential file. Its network policy permits only documented read-only FINAM
-GET endpoints and DNS/TLS required for those endpoints. Redis connections,
-FINAM POST/DELETE and every order endpoint are forbidden.
+credential file. The facade validates the HTTP method, normalized route,
+query-key inventory, exact configured account and exact `IMOEXF@RTSX` symbol
+before a dedicated GET-only transport can send the request. The base URL is
+exactly `https://api.finam.ru`; redirects and system proxies are disabled.
+Host/IP filtering alone is not accepted as method enforcement.
+
+The complete allowlist is:
+
+| Method | Route | Permitted query keys | Purpose |
+| --- | --- | --- | --- |
+| GET | `/v1/accounts/{account_id}` | none | complete exact-account positions |
+| GET | `/v1/accounts/{account_id}/orders` | none | complete account-wide active-order snapshot |
+| GET | `/v1/assets/{venue_symbol}/params` | `account_id` | exact-account instrument parameters / price step |
+| GET | `/v1/assets/{venue_symbol}/schedule` | none | explicit session windows |
+| GET | `/v1/instruments/{venue_symbol}/bars` | `timeframe`, `interval.start_time`, `interval.end_time` | bounded final M1 history |
+
+`account_id` must byte-match the accepted configured account and
+`venue_symbol` must be `IMOEXF@RTSX`; bars use `TIME_FRAME_M1`. All unlisted
+routes and query keys are denied before transport. Every method except GET is
+denied, including POST, PUT, PATCH and DELETE. The orders-snapshot GET is
+broker-truth observation, not order execution. Placement, replacement,
+cancellation, exact-order mutation and every other order route remain closed.
+Redis connections remain forbidden. In particular,
+`active_orders_complete=true` and both zero order counts must come from the
+complete GET snapshot; they may never be constants inferred from a flat
+position.
 
 It creates the wire-V2 source bundle from:
 
@@ -124,25 +168,61 @@ revoked. The source must still be no more than 300 seconds old at O2-B
 admission. At 301 seconds the phase fails with zero bootstrap mutation and a
 new manifest is required; no freshness exception is permitted.
 
-### 4. O2-B isolated one-shot
+### 4. O2-B isolated supervised one-shot
 
-The root runner rereads and cross-validates the Active claim,
-`ReadyForBootstrap` receipt, source/config bytes, custody, installation and
-freshness, then holds the linear guardian permit. One reviewed
+The root runner is the foreground process of the fixed
+`moex-finam-p1-paper-o2-bootstrap-runner.service`; its exact unit bytes and
+hash are part of the later execution artifact. It rereads and cross-validates
+the Active claim, `ReadyForBootstrap` receipt, source/config bytes, custody,
+installation and freshness, then holds the linear guardian permit. One reviewed
 `systemctl daemon-reload` is allowed only to load the already installed exact
 unit bytes. Enabling any unit remains forbidden.
 
-The runner executes exactly:
+The runner spawns the following exact command as a child; the runner itself
+does not block its supervision loop:
 
 ```text
-systemctl start --wait moex-finam-p1-paper-bootstrap.service
+/usr/bin/systemctl start --wait moex-finam-p1-paper-bootstrap.service
 ```
 
+Every 250 ms the runner calls `Stage8bP1fRunPermitV1::poll_deadline`, checks
+the child non-blockingly and reads the bootstrap unit's `ActiveState`,
+`SubState`, `Result`, `ExecMainStatus`, `MainPID`, `ControlPID`, `Job` and
+`ControlGroup`. Exiting or killing the `systemctl` client is never treated as
+proof that the bootstrap service stopped.
+
+On `BeginStopping`, SIGTERM, SIGINT or supervision failure, the runner issues
+`/usr/bin/systemctl stop --no-block moex-finam-p1-paper-bootstrap.service` and
+continues permit/unit polling. At `ForceKill` it issues
+`/usr/bin/systemctl kill --kill-who=all --signal=SIGKILL
+moex-finam-p1-paper-bootstrap.service`. The accepted 30-second permit grace is
+not extended. Stopped proof requires no pending Job, `MainPID=0`,
+`ControlPID=0`, inactive-or-failed unit state and an empty `cgroup.procs` for
+the reported ControlGroup.
+
+The runner service's pinned `ExecStopPost` invokes the same runner binary in a
+cleanup mode, so unexpected runner death causes stop, bounded kill and stopped
+proof independently of SSH. It is not a sixth facade. After host restart both
+units remain disabled; recovery first proves there is no bootstrap process or
+job. If cleanup cannot prove absence, authority stays Active or Stopping,
+diagnostics are retained, and neither a terminal receipt nor a new admission
+is allowed.
+
 The bootstrap unit has `PrivateNetwork=yes` and
-`RestrictAddressFamilies=AF_UNIX`; it cannot contact Redis or FINAM. Success
-requires systemd result `success`, exit status 0, one accepted first-boot
-receipt and exact durable-root reread. The guardian then records `Completed`.
-Any failure records `Failed` without starting the ordinary service.
+`RestrictAddressFamilies=AF_UNIX`; it cannot contact Redis or FINAM. Terminal
+state is selected according to the accepted guardian API:
+
+| Observed outcome at terminal write | Guardian terminal state |
+| --- | --- |
+| systemd success, accepted receipt and exact durable-root reread before deadline | `Completed` |
+| verified failure, operator stop or rejected durable root before deadline | `Failed` |
+| deadline reached, or recovery attempts terminal write at/after deadline | `Expired` |
+| unit/process absence cannot be proved | no terminal write; retain Active/Stopping diagnostics |
+
+`Completed` and `Failed` are forbidden at or after the deadline. A terminal
+write failure leaves the exact pending-terminal transaction and permits only
+byte-identical state/reason continuation after stopped proof. It never creates
+a new admission. Ordinary P1 service is not started.
 
 ### 5. Retained evidence
 
@@ -170,9 +250,16 @@ acceptance.
   neither state admits bootstrap.
 - Lost O2-M response rereads exact retained bytes and receipts; it never
   recollects under the same claim with a different source.
-- Lost O2-B response classifies the durable first-boot marker/receipt through
-  the accepted V5 recovery contract. Ordinary bootstrap is never blindly
-  repeated.
+- Lost O2-B response first proves the bootstrap unit/job/cgroup absent, then
+  classifies the exact durable first-boot marker/receipt through the accepted
+  V5 recovery contract. Before the deadline, an exact committed result may
+  become `Completed` and a verified failure becomes `Failed`; at or after the
+  deadline the only API-valid terminal state is `Expired`, even when a durable
+  root was created. The root and evidence are retained and bootstrap is never
+  blindly repeated.
+- Runner loss is handled by the fixed systemd runner unit's `ExecStopPost` and
+  the same bounded cleanup mode. Recovery does not infer service termination
+  from runner or SSH termination.
 - A completed, failed, expired or spent manifest cannot be claimed again.
 - Rollback never deletes the authority root or a created durable root. Any
   post-effect correction requires a separately reviewed recovery package.
@@ -186,4 +273,3 @@ exact public authority identity, policy/template, commands and safety result
 and receives independent execution acceptance. O3/O4, paper-provider order
 execution, FINAM POST/DELETE, broker dispatch, runtime-live and real orders
 remain closed.
-
