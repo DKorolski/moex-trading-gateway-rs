@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the immutable Stage 8B-P1-f O2 R0 contract review handoff."""
+"""Create the immutable Stage 8B-P1-f O2 R1 correction review handoff."""
 
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def main() -> None:
     if source_parent != safety.CONTRACT_REF:
         raise SystemExit("stage8b-p1f-o2-handoff: FAIL source parent drift")
     changed = set(
-        git("diff", "--name-only", safety.O1_CLOSURE_REF, source_ref, "--")
+        git("diff", "--name-only", safety.R0_HANDOFF_REF, source_ref, "--")
         .decode()
         .splitlines()
     )
@@ -61,9 +61,9 @@ def main() -> None:
             "stage8b-p1f-o2-handoff: FAIL changed paths "
             f"{sorted(changed ^ safety.EXPECTED_CHANGES)}"
         )
-    review = (DOWNLOADS / safety.O1_REVIEW_NAME).read_bytes()
-    if sha256(review) != safety.O1_REVIEW_SHA256:
-        raise SystemExit("stage8b-p1f-o2-handoff: FAIL O1 acceptance review digest")
+    review = (DOWNLOADS / safety.R0_REVIEW_NAME).read_bytes()
+    if sha256(review) != safety.R0_REVIEW_SHA256:
+        raise SystemExit("stage8b-p1f-o2-handoff: FAIL R0 HOLD review digest")
 
     gate = run_capture(["bash", "scripts/stage8b_p1f_o2_gate.sh"])
     if (
@@ -74,8 +74,8 @@ def main() -> None:
 
     short = source_ref[:7]
     archive_name = (
-        f"moex-trading-project-{short}-stage8b-p1f-o2-r0-"
-        "execution-contract-review-package.zip"
+        f"moex-trading-project-{short}-stage8b-p1f-o2-r1-"
+        "execution-contract-correction-review-package.zip"
     )
     archive_path = OUTPUT / archive_name
     manifest, entries = common.source_manifest(source_ref)
@@ -89,14 +89,15 @@ def main() -> None:
         "branch": branch,
         "archive_name": archive_name,
         "contract_ref": safety.CONTRACT_REF,
+        "r0_handoff_ref": safety.R0_HANDOFF_REF,
         "o1_closure_ref": safety.O1_CLOSURE_REF,
-        "o1_review_name": safety.O1_REVIEW_NAME,
-        "o1_review_sha256": safety.O1_REVIEW_SHA256,
+        "r0_review_name": safety.R0_REVIEW_NAME,
+        "r0_review_sha256": safety.R0_REVIEW_SHA256,
         "changed_paths": sorted(changed),
         "manifest_sha256": sha256(manifest),
         "gate_sha256": sha256(gate),
         "acceptance_rows": 30,
-        "negative_cases": 14,
+        "negative_cases": 28,
         "rust_tests": 3,
         "rust_changes": 0,
         "cargo_changes": 0,
@@ -132,6 +133,7 @@ def main() -> None:
         f"source_tree={source_tree}\n"
         f"branch={branch}\n"
         f"contract_ref={safety.CONTRACT_REF}\n"
+        f"r0_handoff_ref={safety.R0_HANDOFF_REF}\n"
         f"o1_closure_ref={safety.O1_CLOSURE_REF}\n"
         f"archive_name={archive_name}\n"
     ).encode()
@@ -141,7 +143,7 @@ def main() -> None:
         safety.COMMIT_RAW: git("cat-file", "commit", source_ref),
         safety.EVIDENCE: (json.dumps(evidence, indent=2, sort_keys=True) + "\n").encode(),
         safety.GATE: gate,
-        safety.O1_REVIEW: review,
+        safety.R0_REVIEW: review,
     }
 
     OUTPUT.mkdir(parents=True, exist_ok=True)

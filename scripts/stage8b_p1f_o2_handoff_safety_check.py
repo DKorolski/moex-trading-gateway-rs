@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the immutable Stage 8B-P1-f O2 R0 contract handoff."""
+"""Validate the immutable Stage 8B-P1-f O2 R1 correction handoff."""
 
 from __future__ import annotations
 
@@ -13,12 +13,13 @@ import stage8b_p1e_i1a_handoff_safety_check as common
 
 
 STAGE = "Stage 8B-P1-f O2 fresh materialization and isolated bootstrap package"
-STATUS = "O2_R0_EXECUTION_CONTRACT_REVIEW_CANDIDATE_DO_NOT_EXECUTE"
+STATUS = "O2_R1_EXECUTION_CONTRACT_CORRECTION_REVIEW_CANDIDATE_DO_NOT_EXECUTE"
 BRANCH = "stage8b-paper-shadow-resumption"
-CONTRACT_REF = "5e30c8ecee39c35f08a79b4df2fc524b64362fe1"
+CONTRACT_REF = "8c39c279445201dd470040d0efaf71407f2d6341"
+R0_HANDOFF_REF = "b8d573ab940e7a9ae5162e2da63faad4f6e38dab"
 O1_CLOSURE_REF = "e11744e31f11d567633716f21211c484bb9045eb"
-O1_REVIEW_NAME = "FINAM_P1F_O1_OPERATIONAL_ACCEPT_997e8a1_2026-09-27.md"
-O1_REVIEW_SHA256 = "59fce7a8048b1c39eeb24f89a759d5cfd8c756af77443bd6d9bb8b1bede34742"
+R0_REVIEW_NAME = "FINAM_P1F_O2_R0_EXECUTION_CONTRACT_REVIEW_b8d573a_2026-09-27.md"
+R0_REVIEW_SHA256 = "02990bb637b3433980b8d25d16bbe819eeef43c409737d9076df17ce11713949"
 
 PREFIX = "handoff-evidence/"
 MARKER = "handoff-commit.txt"
@@ -26,10 +27,10 @@ MANIFEST = PREFIX + "source-tree-manifest.json"
 COMMIT_RAW = PREFIX + "source-commit.raw"
 EVIDENCE = PREFIX + "stage8b-p1f-o2-handoff-evidence.json"
 GATE = PREFIX + "stage8b-p1f-o2-gate.txt"
-O1_REVIEW = PREFIX + "reviews/" + O1_REVIEW_NAME
-GENERATED = {MARKER, MANIFEST, COMMIT_RAW, EVIDENCE, GATE, O1_REVIEW}
+R0_REVIEW = PREFIX + "reviews/" + R0_REVIEW_NAME
+GENERATED = {MARKER, MANIFEST, COMMIT_RAW, EVIDENCE, GATE, R0_REVIEW}
 
-CONTRACT_FILES = {
+O2_REQUIRED_FILES = {
     "docs/current-status.md",
     "docs/roadmap.md",
     "docs/stage-8/stage8b-p1f-o2-acceptance-matrix.csv",
@@ -43,8 +44,16 @@ PACKAGING_FILES = {
     "scripts/make_stage8b_p1f_o2_handoff.py",
     "scripts/stage8b_p1f_o2_handoff_safety_check.py",
 }
-EXPECTED_CHANGES = CONTRACT_FILES | PACKAGING_FILES
-REQUIRED = GENERATED | EXPECTED_CHANGES | {
+EXPECTED_CHANGES = {
+    "docs/current-status.md",
+    "docs/roadmap.md",
+    "docs/stage-8/stage8b-p1f-o2-acceptance-matrix.csv",
+    "docs/stage-8/stage8b-p1f-o2-execution-package.json",
+    "docs/stage-8/stage8b-p1f-o2-execution-package.md",
+    "scripts/stage8b_p1f_o2_check.py",
+    "scripts/stage8b_p1f_o2_negative_harness.py",
+} | PACKAGING_FILES
+REQUIRED = GENERATED | O2_REQUIRED_FILES | PACKAGING_FILES | {
     "docs/stage-8/stage8b-p1f-o1-governance-closure.json",
     "docs/stage-8/stage8b-p1f-isolated-operational-acceptance-design.json",
     "docs/stage-8/stage8b-p1e-first-boot-source-plan-v2.json",
@@ -55,6 +64,25 @@ ALLOWED_REPORTS = {
     "reports/stage8b/stage8b-p1f-o0-readonly-probe.txt",
     "reports/stage8b/stage8b-p1f-o1-pre-o0-readonly-probe.txt",
     "reports/stage8b/stage8b-p1f-o1-post-install-readonly-probe.txt",
+}
+EXPECTED_EFFECTS = {
+    "remote_mutation_performed": False,
+    "key_generation_performed": False,
+    "finam_contact_performed": False,
+    "redis_contact_performed": False,
+    "systemd_reload_or_start_performed": False,
+}
+EXPECTED_CLOSED_SURFACES = {
+    "o2_execution": False,
+    "o3_synthetic_session": False,
+    "o4_finam_bars_session": False,
+    "ordinary_p1_service": False,
+    "redis_db15_or_db0_mutation": False,
+    "paper_provider_order_execution": False,
+    "finam_post_or_delete": False,
+    "broker_dispatch": False,
+    "runtime_live": False,
+    "real_orders": False,
 }
 
 
@@ -118,6 +146,7 @@ def parse_marker(raw: bytes) -> dict[str, str]:
             "source_tree",
             "branch",
             "contract_ref",
+            "r0_handoff_ref",
             "o1_closure_ref",
             "archive_name",
         },
@@ -145,6 +174,7 @@ def check(path: str) -> dict[str, object]:
         require(marker["archive_name"] == PurePosixPath(path).name, "archive-name mismatch")
         require(marker["source_parent"] == CONTRACT_REF, "source parent mismatch")
         require(marker["contract_ref"] == CONTRACT_REF, "contract ref mismatch")
+        require(marker["r0_handoff_ref"] == R0_HANDOFF_REF, "R0 handoff mismatch")
         require(marker["o1_closure_ref"] == O1_CLOSURE_REF, "O1 closure mismatch")
         require(marker["branch"] == BRANCH, "branch mismatch")
         require(marker["source_ref"].startswith(marker["source_short_ref"]), "short ref mismatch")
@@ -182,28 +212,32 @@ def check(path: str) -> dict[str, object]:
         require(evidence["source_ref"] == marker["source_ref"], "evidence source mismatch")
         require(evidence["source_parent"] == CONTRACT_REF, "evidence parent mismatch")
         require(evidence["source_tree"] == marker["source_tree"], "evidence tree mismatch")
+        require(evidence["r0_handoff_ref"] == R0_HANDOFF_REF, "evidence R0 handoff mismatch")
         require(evidence["o1_closure_ref"] == O1_CLOSURE_REF, "evidence O1 closure mismatch")
         require(evidence["changed_paths"] == sorted(EXPECTED_CHANGES), "changed paths drift")
         require(evidence["manifest_sha256"] == sha256(files[MANIFEST]), "manifest digest mismatch")
         require(evidence["gate_sha256"] == sha256(files[GATE]), "gate digest mismatch")
-        require(evidence["o1_review_sha256"] == O1_REVIEW_SHA256, "review digest record mismatch")
-        require(sha256(files[O1_REVIEW]) == O1_REVIEW_SHA256, "review digest mismatch")
-        require(evidence["acceptance_rows"] == 30 and evidence["negative_cases"] == 14, "test counts drift")
+        require(evidence["r0_review_sha256"] == R0_REVIEW_SHA256, "review digest record mismatch")
+        require(sha256(files[R0_REVIEW]) == R0_REVIEW_SHA256, "review digest mismatch")
+        require(evidence["acceptance_rows"] == 30 and evidence["negative_cases"] == 28, "test counts drift")
         require(evidence["rust_tests"] == 3, "Rust test count drift")
         require(evidence["rust_changes"] == 0 and evidence["cargo_changes"] == 0, "Rust/Cargo boundary opened")
-        require(all(value is False for value in evidence["effects"].values()), "package declares an effect")
-        require(all(value is False for value in evidence["closed_surfaces"].values()), "closed surface opened")
+        require(evidence["effects"] == EXPECTED_EFFECTS, "effect inventory drift")
+        require(evidence["closed_surfaces"] == EXPECTED_CLOSED_SURFACES, "closed surface drift")
 
         contract = json.loads(
             files["docs/stage-8/stage8b-p1f-o2-execution-package.json"],
             object_pairs_hook=strict_object,
         )
-        require(contract["status"] == "R0_EXECUTION_CONTRACT_REVIEW_CANDIDATE_DO_NOT_EXECUTE", "contract status opened")
-        require(all(value is False for value in contract["package_boundary"].values()), "contract performed an effect")
-        require(all(value is False for value in contract["closed_surfaces"].values()), "contract surface opened")
+        require(contract["status"] == "R1_EXECUTION_CONTRACT_CORRECTION_REVIEW_CANDIDATE_DO_NOT_EXECUTE", "contract status opened")
+        require(contract["package_boundary"] == {
+            "execution_authorized": False,
+            **EXPECTED_EFFECTS,
+        }, "contract effect inventory drift")
+        require(contract["closed_surfaces"] == EXPECTED_CLOSED_SURFACES, "contract surface drift")
         for expected in (
-            b"PASS stage8b-p1f-o2-check rows=30 execution=false",
-            b"PASS stage8b-p1f-o2-negative-harness 14/14",
+            b"PASS stage8b-p1f-o2-check revision=R1 rows=30 execution=false",
+            b"PASS stage8b-p1f-o2-negative-harness 28/28",
             b"PASS stage8b-p1f-o2-gate execution=false",
         ):
             require(expected in files[GATE], f"gate marker missing: {expected!r}")
@@ -217,6 +251,7 @@ def check(path: str) -> dict[str, object]:
             "source_ref": marker["source_ref"],
             "source_tree": marker["source_tree"],
             "contract_ref": CONTRACT_REF,
+            "r0_handoff_ref": R0_HANDOFF_REF,
             "result": "PASS",
         }
 
