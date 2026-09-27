@@ -1,0 +1,2079 @@
+{
+  "schema_version": 2,
+  "domain": "moex.stage8b.p1e.first-boot-source-bundle.v2",
+  "operational_identity_sha256": "9b3572618c2540b32e7fd2fb256b5604fd48aec74b7de63a1e01d498b4b962c0",
+  "runtime_profile_sha256": "dd5a211e708db0d40175d19ed1eeb51db26497d344a553b41d7afbfdddde0ef6",
+  "instrument_map_fingerprint_sha256": "ba4e7b1190dc2686559b6d7c0df0185e96a10dfac6b13f6a582a349b14198558",
+  "source_bundle_generation": 1,
+  "captured_at_utc": "1970-01-01T00:00:00Z",
+  "broker_truth": {
+    "account_id": "INJECT_FROM_ACCOUNT_CREDENTIAL"
+  },
+  "history_provenance": {},
+  "history_coverage": {
+    "source_mode": "config-bound-explicit-session-windows-v1",
+    "sessions_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "sessions": [
+      {
+        "session_date": "2026-04-10",
+        "windows": [
+          {
+            "first_close_time_utc": 1775801400,
+            "last_close_time_utc": 1775818200
+          },
+          {
+            "first_close_time_utc": 1775820000,
+            "last_close_time_utc": 1775836200
+          },
+          {
+            "first_close_time_utc": 1775838000,
+            "last_close_time_utc": 1775854200
+          }
+        ]
+      },
+      {
+        "session_date": "2026-04-13",
+        "windows": [
+          {
+            "first_close_time_utc": 1776060600,
+            "last_close_time_utc": 1776077400
+          },
+          {
+            "first_close_time_utc": 1776079200,
+            "last_close_time_utc": 1776095400
+          },
+          {
+            "first_close_time_utc": 1776097200,
+            "last_close_time_utc": 1776113400
+          }
+        ]
+      },
+      {
+        "session_date": "2026-04-14",
+        "windows": [
+          {
+            "first_close_time_utc": 1776147000,
+            "last_close_time_utc": 1776163800
+          },
+          {
+            "first_close_time_utc": 1776165600,
+            "last_close_time_utc": 1776181800
+          },
+          {
+            "first_close_time_utc": 1776183600,
+            "last_close_time_utc": 1776199800
+          }
+        ]
+      },
+      {
+        "session_date": "2026-04-15",
+        "windows": [
+          {
+            "first_close_time_utc": 1776233400,
+            "last_close_time_utc": 1776250200
+          },
+          {
+            "first_close_time_utc": 1776252000,
+            "last_close_time_utc": 1776268200
+          },
+          {
+            "first_close_time_utc": 1776270000,
+            "last_close_time_utc": 1776286200
+          }
+        ]
+      },
+      {
+        "session_date": "2026-04-16",
+        "windows": [
+          {
+            "first_close_time_utc": 1776319800,
+            "last_close_time_utc": 1776336600
+          },
+          {
+            "first_close_time_utc": 1776338400,
+            "last_close_time_utc": 1776354600
+          },
+          {
+            "first_close_time_utc": 1776356400,
+            "last_close_time_utc": 1776372600
+          }
+        ]
+      },
+      {
+        "session_date": "2026-04-17",
+        "windows": [
+          {
+            "first_close_time_utc": 1776406200,
+            "last_close_time_utc": 1776423000
+          },
+          {
+            "first_close_time_utc": 1776424800,
+            "last_close_time_utc": 1776441000
+          },
+          {
+            "first_close_time_utc": 1776442800,
+            "last_close_time_utc": 1776459000
+          }
+        ]
+      },
+      {
+        "session_date": "2026-04-20",
+        "windows": [
+          {
+            "first_close_time_utc": 1776665400,
+            "last_close_time_utc": 1776682200
+          },
+          {
+            "first_close_time_utc": 1776684000,
+            "last_close_time_utc": 1776700200
+          },
+          {
+            "first_close_time_utc": 1776702000,
+            "last_close_time_utc": 1776718200
+          }
+        ]
+      },
+      {
+        "session_date": "2026-04-21",
+        "windows": [
+          {
+            "first_close_time_utc": 1776751800,
+            "last_close_time_utc": 1776768600
+          },
+          {
+            "first_close_time_utc": 1776770400,
+            "last_close_time_utc": 1776786600
+          },
+          {
+            "first_close_time_utc": 1776788400,
+            "last_close_time_utc": 1776804600
+          }
+        ]
+      },
+      {
+        "session_date": "2026-04-22",
+        "windows": [
+          {
+            "first_close_time_utc": 1776838200,
+            "last_close_time_utc": 1776855000
+          },
+          {
+            "first_close_time_utc": 1776856800,
+            "last_close_time_utc": 1776873000
+          },
+          {
+            "first_close_time_utc": 1776874800,
+            "last_close_time_utc": 1776891000
+          }
+        ]
+      },
+      {
+        "session_date": "2026-04-23",
+        "windows": [
+          {
+            "first_close_time_utc": 1776924600,
+            "last_close_time_utc": 1776941400
+          },
+          {
+            "first_close_time_utc": 1776943200,
+            "last_close_time_utc": 1776959400
+          },
+          {
+            "first_close_time_utc": 1776961200,
+            "last_close_time_utc": 1776977400
+          }
+        ]
+      },
+      {
+        "session_date": "2026-04-24",
+        "windows": [
+          {
+            "first_close_time_utc": 1777011000,
+            "last_close_time_utc": 1777027800
+          },
+          {
+            "first_close_time_utc": 1777029600,
+            "last_close_time_utc": 1777045800
+          },
+          {
+            "first_close_time_utc": 1777047600,
+            "last_close_time_utc": 1777063800
+          }
+        ]
+      },
+      {
+        "session_date": "2026-04-27",
+        "windows": [
+          {
+            "first_close_time_utc": 1777270200,
+            "last_close_time_utc": 1777287000
+          },
+          {
+            "first_close_time_utc": 1777288800,
+            "last_close_time_utc": 1777305000
+          },
+          {
+            "first_close_time_utc": 1777306800,
+            "last_close_time_utc": 1777323000
+          }
+        ]
+      },
+      {
+        "session_date": "2026-04-28",
+        "windows": [
+          {
+            "first_close_time_utc": 1777356600,
+            "last_close_time_utc": 1777373400
+          },
+          {
+            "first_close_time_utc": 1777375200,
+            "last_close_time_utc": 1777391400
+          },
+          {
+            "first_close_time_utc": 1777393200,
+            "last_close_time_utc": 1777409400
+          }
+        ]
+      },
+      {
+        "session_date": "2026-04-29",
+        "windows": [
+          {
+            "first_close_time_utc": 1777443000,
+            "last_close_time_utc": 1777459800
+          },
+          {
+            "first_close_time_utc": 1777461600,
+            "last_close_time_utc": 1777477800
+          },
+          {
+            "first_close_time_utc": 1777479600,
+            "last_close_time_utc": 1777495800
+          }
+        ]
+      },
+      {
+        "session_date": "2026-04-30",
+        "windows": [
+          {
+            "first_close_time_utc": 1777529400,
+            "last_close_time_utc": 1777546200
+          },
+          {
+            "first_close_time_utc": 1777548000,
+            "last_close_time_utc": 1777564200
+          },
+          {
+            "first_close_time_utc": 1777566000,
+            "last_close_time_utc": 1777582200
+          }
+        ]
+      },
+      {
+        "session_date": "2026-05-01",
+        "windows": [
+          {
+            "first_close_time_utc": 1777615800,
+            "last_close_time_utc": 1777632600
+          },
+          {
+            "first_close_time_utc": 1777634400,
+            "last_close_time_utc": 1777650600
+          },
+          {
+            "first_close_time_utc": 1777652400,
+            "last_close_time_utc": 1777668600
+          }
+        ]
+      },
+      {
+        "session_date": "2026-05-04",
+        "windows": [
+          {
+            "first_close_time_utc": 1777875000,
+            "last_close_time_utc": 1777891800
+          },
+          {
+            "first_close_time_utc": 1777893600,
+            "last_close_time_utc": 1777909800
+          },
+          {
+            "first_close_time_utc": 1777911600,
+            "last_close_time_utc": 1777927800
+          }
+        ]
+      },
+      {
+        "session_date": "2026-05-05",
+        "windows": [
+          {
+            "first_close_time_utc": 1777961400,
+            "last_close_time_utc": 1777978200
+          },
+          {
+            "first_close_time_utc": 1777980000,
+            "last_close_time_utc": 1777996200
+          },
+          {
+            "first_close_time_utc": 1777998000,
+            "last_close_time_utc": 1778014200
+          }
+        ]
+      },
+      {
+        "session_date": "2026-05-06",
+        "windows": [
+          {
+            "first_close_time_utc": 1778047800,
+            "last_close_time_utc": 1778064600
+          },
+          {
+            "first_close_time_utc": 1778066400,
+            "last_close_time_utc": 1778082600
+          },
+          {
+            "first_close_time_utc": 1778084400,
+            "last_close_time_utc": 1778100600
+          }
+        ]
+      },
+      {
+        "session_date": "2026-05-07",
+        "windows": [
+          {
+            "first_close_time_utc": 1778134200,
+            "last_close_time_utc": 1778151000
+          },
+          {
+            "first_close_time_utc": 1778152800,
+            "last_close_time_utc": 1778169000
+          },
+          {
+            "first_close_time_utc": 1778170800,
+            "last_close_time_utc": 1778187000
+          }
+        ]
+      },
+      {
+        "session_date": "2026-05-08",
+        "windows": [
+          {
+            "first_close_time_utc": 1778220600,
+            "last_close_time_utc": 1778237400
+          },
+          {
+            "first_close_time_utc": 1778239200,
+            "last_close_time_utc": 1778255400
+          },
+          {
+            "first_close_time_utc": 1778257200,
+            "last_close_time_utc": 1778273400
+          }
+        ]
+      },
+      {
+        "session_date": "2026-05-11",
+        "windows": [
+          {
+            "first_close_time_utc": 1778479800,
+            "last_close_time_utc": 1778496600
+          },
+          {
+            "first_close_time_utc": 1778498400,
+            "last_close_time_utc": 1778514600
+          },
+          {
+            "first_close_time_utc": 1778516400,
+            "last_close_time_utc": 1778532600
+          }
+        ]
+      },
+      {
+        "session_date": "2026-05-12",
+        "windows": [
+          {
+            "first_close_time_utc": 1778566200,
+            "last_close_time_utc": 1778583000
+          },
+          {
+            "first_close_time_utc": 1778584800,
+            "last_close_time_utc": 1778601000
+          },
+          {
+            "first_close_time_utc": 1778602800,
+            "last_close_time_utc": 1778619000
+          }
+        ]
+      },
+      {
+        "session_date": "2026-05-13",
+        "windows": [
+          {
+            "first_close_time_utc": 1778652600,
+            "last_close_time_utc": 1778669400
+          },
+          {
+            "first_close_time_utc": 1778671200,
+            "last_close_time_utc": 1778687400
+          },
+          {
+            "first_close_time_utc": 1778689200,
+            "last_close_time_utc": 1778705400
+          }
+        ]
+      },
+      {
+        "session_date": "2026-05-14",
+        "windows": [
+          {
+            "first_close_time_utc": 1778739000,
+            "last_close_time_utc": 1778755800
+          },
+          {
+            "first_close_time_utc": 1778757600,
+            "last_close_time_utc": 1778773800
+          },
+          {
+            "first_close_time_utc": 1778775600,
+            "last_close_time_utc": 1778791800
+          }
+        ]
+      },
+      {
+        "session_date": "2026-05-15",
+        "windows": [
+          {
+            "first_close_time_utc": 1778825400,
+            "last_close_time_utc": 1778842200
+          },
+          {
+            "first_close_time_utc": 1778844000,
+            "last_close_time_utc": 1778860200
+          },
+          {
+            "first_close_time_utc": 1778862000,
+            "last_close_time_utc": 1778878200
+          }
+        ]
+      },
+      {
+        "session_date": "2026-05-18",
+        "windows": [
+          {
+            "first_close_time_utc": 1779084600,
+            "last_close_time_utc": 1779101400
+          },
+          {
+            "first_close_time_utc": 1779103200,
+            "last_close_time_utc": 1779119400
+          },
+          {
+            "first_close_time_utc": 1779121200,
+            "last_close_time_utc": 1779137400
+          }
+        ]
+      },
+      {
+        "session_date": "2026-05-19",
+        "windows": [
+          {
+            "first_close_time_utc": 1779171000,
+            "last_close_time_utc": 1779187800
+          },
+          {
+            "first_close_time_utc": 1779189600,
+            "last_close_time_utc": 1779205800
+          },
+          {
+            "first_close_time_utc": 1779207600,
+            "last_close_time_utc": 1779223800
+          }
+        ]
+      },
+      {
+        "session_date": "2026-05-20",
+        "windows": [
+          {
+            "first_close_time_utc": 1779257400,
+            "last_close_time_utc": 1779274200
+          },
+          {
+            "first_close_time_utc": 1779276000,
+            "last_close_time_utc": 1779292200
+          },
+          {
+            "first_close_time_utc": 1779294000,
+            "last_close_time_utc": 1779310200
+          }
+        ]
+      },
+      {
+        "session_date": "2026-05-21",
+        "windows": [
+          {
+            "first_close_time_utc": 1779343800,
+            "last_close_time_utc": 1779360600
+          },
+          {
+            "first_close_time_utc": 1779362400,
+            "last_close_time_utc": 1779378600
+          },
+          {
+            "first_close_time_utc": 1779380400,
+            "last_close_time_utc": 1779396600
+          }
+        ]
+      },
+      {
+        "session_date": "2026-05-22",
+        "windows": [
+          {
+            "first_close_time_utc": 1779430200,
+            "last_close_time_utc": 1779447000
+          },
+          {
+            "first_close_time_utc": 1779448800,
+            "last_close_time_utc": 1779465000
+          },
+          {
+            "first_close_time_utc": 1779466800,
+            "last_close_time_utc": 1779483000
+          }
+        ]
+      },
+      {
+        "session_date": "2026-05-25",
+        "windows": [
+          {
+            "first_close_time_utc": 1779689400,
+            "last_close_time_utc": 1779706200
+          },
+          {
+            "first_close_time_utc": 1779708000,
+            "last_close_time_utc": 1779724200
+          },
+          {
+            "first_close_time_utc": 1779726000,
+            "last_close_time_utc": 1779742200
+          }
+        ]
+      },
+      {
+        "session_date": "2026-05-26",
+        "windows": [
+          {
+            "first_close_time_utc": 1779775800,
+            "last_close_time_utc": 1779792600
+          },
+          {
+            "first_close_time_utc": 1779794400,
+            "last_close_time_utc": 1779810600
+          },
+          {
+            "first_close_time_utc": 1779812400,
+            "last_close_time_utc": 1779828600
+          }
+        ]
+      },
+      {
+        "session_date": "2026-05-27",
+        "windows": [
+          {
+            "first_close_time_utc": 1779862200,
+            "last_close_time_utc": 1779879000
+          },
+          {
+            "first_close_time_utc": 1779880800,
+            "last_close_time_utc": 1779897000
+          },
+          {
+            "first_close_time_utc": 1779898800,
+            "last_close_time_utc": 1779915000
+          }
+        ]
+      },
+      {
+        "session_date": "2026-05-28",
+        "windows": [
+          {
+            "first_close_time_utc": 1779948600,
+            "last_close_time_utc": 1779965400
+          },
+          {
+            "first_close_time_utc": 1779967200,
+            "last_close_time_utc": 1779983400
+          },
+          {
+            "first_close_time_utc": 1779985200,
+            "last_close_time_utc": 1780001400
+          }
+        ]
+      },
+      {
+        "session_date": "2026-05-29",
+        "windows": [
+          {
+            "first_close_time_utc": 1780035000,
+            "last_close_time_utc": 1780051800
+          },
+          {
+            "first_close_time_utc": 1780053600,
+            "last_close_time_utc": 1780069800
+          },
+          {
+            "first_close_time_utc": 1780071600,
+            "last_close_time_utc": 1780087800
+          }
+        ]
+      },
+      {
+        "session_date": "2026-06-01",
+        "windows": [
+          {
+            "first_close_time_utc": 1780294200,
+            "last_close_time_utc": 1780311000
+          },
+          {
+            "first_close_time_utc": 1780312800,
+            "last_close_time_utc": 1780329000
+          },
+          {
+            "first_close_time_utc": 1780330800,
+            "last_close_time_utc": 1780347000
+          }
+        ]
+      },
+      {
+        "session_date": "2026-06-02",
+        "windows": [
+          {
+            "first_close_time_utc": 1780380600,
+            "last_close_time_utc": 1780397400
+          },
+          {
+            "first_close_time_utc": 1780399200,
+            "last_close_time_utc": 1780415400
+          },
+          {
+            "first_close_time_utc": 1780417200,
+            "last_close_time_utc": 1780433400
+          }
+        ]
+      },
+      {
+        "session_date": "2026-06-03",
+        "windows": [
+          {
+            "first_close_time_utc": 1780467000,
+            "last_close_time_utc": 1780483800
+          },
+          {
+            "first_close_time_utc": 1780485600,
+            "last_close_time_utc": 1780501800
+          },
+          {
+            "first_close_time_utc": 1780503600,
+            "last_close_time_utc": 1780519800
+          }
+        ]
+      },
+      {
+        "session_date": "2026-06-04",
+        "windows": [
+          {
+            "first_close_time_utc": 1780553400,
+            "last_close_time_utc": 1780570200
+          },
+          {
+            "first_close_time_utc": 1780572000,
+            "last_close_time_utc": 1780588200
+          },
+          {
+            "first_close_time_utc": 1780590000,
+            "last_close_time_utc": 1780606200
+          }
+        ]
+      },
+      {
+        "session_date": "2026-06-05",
+        "windows": [
+          {
+            "first_close_time_utc": 1780639800,
+            "last_close_time_utc": 1780656600
+          },
+          {
+            "first_close_time_utc": 1780658400,
+            "last_close_time_utc": 1780674600
+          },
+          {
+            "first_close_time_utc": 1780676400,
+            "last_close_time_utc": 1780692600
+          }
+        ]
+      },
+      {
+        "session_date": "2026-06-08",
+        "windows": [
+          {
+            "first_close_time_utc": 1780899000,
+            "last_close_time_utc": 1780915800
+          },
+          {
+            "first_close_time_utc": 1780917600,
+            "last_close_time_utc": 1780933800
+          },
+          {
+            "first_close_time_utc": 1780935600,
+            "last_close_time_utc": 1780951800
+          }
+        ]
+      },
+      {
+        "session_date": "2026-06-09",
+        "windows": [
+          {
+            "first_close_time_utc": 1780985400,
+            "last_close_time_utc": 1781002200
+          },
+          {
+            "first_close_time_utc": 1781004000,
+            "last_close_time_utc": 1781020200
+          },
+          {
+            "first_close_time_utc": 1781022000,
+            "last_close_time_utc": 1781038200
+          }
+        ]
+      },
+      {
+        "session_date": "2026-06-10",
+        "windows": [
+          {
+            "first_close_time_utc": 1781071800,
+            "last_close_time_utc": 1781088600
+          },
+          {
+            "first_close_time_utc": 1781090400,
+            "last_close_time_utc": 1781106600
+          },
+          {
+            "first_close_time_utc": 1781108400,
+            "last_close_time_utc": 1781124600
+          }
+        ]
+      },
+      {
+        "session_date": "2026-06-11",
+        "windows": [
+          {
+            "first_close_time_utc": 1781158200,
+            "last_close_time_utc": 1781175000
+          },
+          {
+            "first_close_time_utc": 1781176800,
+            "last_close_time_utc": 1781193000
+          },
+          {
+            "first_close_time_utc": 1781194800,
+            "last_close_time_utc": 1781211000
+          }
+        ]
+      },
+      {
+        "session_date": "2026-06-12",
+        "windows": [
+          {
+            "first_close_time_utc": 1781244600,
+            "last_close_time_utc": 1781261400
+          },
+          {
+            "first_close_time_utc": 1781263200,
+            "last_close_time_utc": 1781279400
+          },
+          {
+            "first_close_time_utc": 1781281200,
+            "last_close_time_utc": 1781297400
+          }
+        ]
+      },
+      {
+        "session_date": "2026-06-15",
+        "windows": [
+          {
+            "first_close_time_utc": 1781503800,
+            "last_close_time_utc": 1781520600
+          },
+          {
+            "first_close_time_utc": 1781522400,
+            "last_close_time_utc": 1781538600
+          },
+          {
+            "first_close_time_utc": 1781540400,
+            "last_close_time_utc": 1781556600
+          }
+        ]
+      },
+      {
+        "session_date": "2026-06-16",
+        "windows": [
+          {
+            "first_close_time_utc": 1781590200,
+            "last_close_time_utc": 1781607000
+          },
+          {
+            "first_close_time_utc": 1781608800,
+            "last_close_time_utc": 1781625000
+          },
+          {
+            "first_close_time_utc": 1781626800,
+            "last_close_time_utc": 1781643000
+          }
+        ]
+      },
+      {
+        "session_date": "2026-06-17",
+        "windows": [
+          {
+            "first_close_time_utc": 1781676600,
+            "last_close_time_utc": 1781693400
+          },
+          {
+            "first_close_time_utc": 1781695200,
+            "last_close_time_utc": 1781711400
+          },
+          {
+            "first_close_time_utc": 1781713200,
+            "last_close_time_utc": 1781729400
+          }
+        ]
+      },
+      {
+        "session_date": "2026-06-18",
+        "windows": [
+          {
+            "first_close_time_utc": 1781763000,
+            "last_close_time_utc": 1781779800
+          },
+          {
+            "first_close_time_utc": 1781781600,
+            "last_close_time_utc": 1781797800
+          },
+          {
+            "first_close_time_utc": 1781799600,
+            "last_close_time_utc": 1781815800
+          }
+        ]
+      },
+      {
+        "session_date": "2026-06-19",
+        "windows": [
+          {
+            "first_close_time_utc": 1781849400,
+            "last_close_time_utc": 1781866200
+          },
+          {
+            "first_close_time_utc": 1781868000,
+            "last_close_time_utc": 1781884200
+          },
+          {
+            "first_close_time_utc": 1781886000,
+            "last_close_time_utc": 1781902200
+          }
+        ]
+      },
+      {
+        "session_date": "2026-06-22",
+        "windows": [
+          {
+            "first_close_time_utc": 1782108600,
+            "last_close_time_utc": 1782125400
+          },
+          {
+            "first_close_time_utc": 1782127200,
+            "last_close_time_utc": 1782143400
+          },
+          {
+            "first_close_time_utc": 1782145200,
+            "last_close_time_utc": 1782161400
+          }
+        ]
+      },
+      {
+        "session_date": "2026-06-23",
+        "windows": [
+          {
+            "first_close_time_utc": 1782195000,
+            "last_close_time_utc": 1782211800
+          },
+          {
+            "first_close_time_utc": 1782213600,
+            "last_close_time_utc": 1782229800
+          },
+          {
+            "first_close_time_utc": 1782231600,
+            "last_close_time_utc": 1782247800
+          }
+        ]
+      },
+      {
+        "session_date": "2026-06-24",
+        "windows": [
+          {
+            "first_close_time_utc": 1782281400,
+            "last_close_time_utc": 1782298200
+          },
+          {
+            "first_close_time_utc": 1782300000,
+            "last_close_time_utc": 1782316200
+          },
+          {
+            "first_close_time_utc": 1782318000,
+            "last_close_time_utc": 1782334200
+          }
+        ]
+      },
+      {
+        "session_date": "2026-06-25",
+        "windows": [
+          {
+            "first_close_time_utc": 1782367800,
+            "last_close_time_utc": 1782384600
+          },
+          {
+            "first_close_time_utc": 1782386400,
+            "last_close_time_utc": 1782402600
+          },
+          {
+            "first_close_time_utc": 1782404400,
+            "last_close_time_utc": 1782420600
+          }
+        ]
+      },
+      {
+        "session_date": "2026-06-26",
+        "windows": [
+          {
+            "first_close_time_utc": 1782454200,
+            "last_close_time_utc": 1782471000
+          },
+          {
+            "first_close_time_utc": 1782472800,
+            "last_close_time_utc": 1782489000
+          },
+          {
+            "first_close_time_utc": 1782490800,
+            "last_close_time_utc": 1782507000
+          }
+        ]
+      },
+      {
+        "session_date": "2026-06-29",
+        "windows": [
+          {
+            "first_close_time_utc": 1782713400,
+            "last_close_time_utc": 1782730200
+          },
+          {
+            "first_close_time_utc": 1782732000,
+            "last_close_time_utc": 1782748200
+          },
+          {
+            "first_close_time_utc": 1782750000,
+            "last_close_time_utc": 1782766200
+          }
+        ]
+      },
+      {
+        "session_date": "2026-06-30",
+        "windows": [
+          {
+            "first_close_time_utc": 1782799800,
+            "last_close_time_utc": 1782816600
+          },
+          {
+            "first_close_time_utc": 1782818400,
+            "last_close_time_utc": 1782834600
+          },
+          {
+            "first_close_time_utc": 1782836400,
+            "last_close_time_utc": 1782852600
+          }
+        ]
+      },
+      {
+        "session_date": "2026-07-01",
+        "windows": [
+          {
+            "first_close_time_utc": 1782886200,
+            "last_close_time_utc": 1782903000
+          },
+          {
+            "first_close_time_utc": 1782904800,
+            "last_close_time_utc": 1782921000
+          },
+          {
+            "first_close_time_utc": 1782922800,
+            "last_close_time_utc": 1782939000
+          }
+        ]
+      },
+      {
+        "session_date": "2026-07-02",
+        "windows": [
+          {
+            "first_close_time_utc": 1782972600,
+            "last_close_time_utc": 1782989400
+          },
+          {
+            "first_close_time_utc": 1782991200,
+            "last_close_time_utc": 1783007400
+          },
+          {
+            "first_close_time_utc": 1783009200,
+            "last_close_time_utc": 1783025400
+          }
+        ]
+      },
+      {
+        "session_date": "2026-07-03",
+        "windows": [
+          {
+            "first_close_time_utc": 1783059000,
+            "last_close_time_utc": 1783075800
+          },
+          {
+            "first_close_time_utc": 1783077600,
+            "last_close_time_utc": 1783093800
+          },
+          {
+            "first_close_time_utc": 1783095600,
+            "last_close_time_utc": 1783111800
+          }
+        ]
+      },
+      {
+        "session_date": "2026-07-06",
+        "windows": [
+          {
+            "first_close_time_utc": 1783318200,
+            "last_close_time_utc": 1783335000
+          },
+          {
+            "first_close_time_utc": 1783336800,
+            "last_close_time_utc": 1783353000
+          },
+          {
+            "first_close_time_utc": 1783354800,
+            "last_close_time_utc": 1783371000
+          }
+        ]
+      },
+      {
+        "session_date": "2026-07-07",
+        "windows": [
+          {
+            "first_close_time_utc": 1783404600,
+            "last_close_time_utc": 1783421400
+          },
+          {
+            "first_close_time_utc": 1783423200,
+            "last_close_time_utc": 1783439400
+          },
+          {
+            "first_close_time_utc": 1783441200,
+            "last_close_time_utc": 1783457400
+          }
+        ]
+      },
+      {
+        "session_date": "2026-07-08",
+        "windows": [
+          {
+            "first_close_time_utc": 1783491000,
+            "last_close_time_utc": 1783507800
+          },
+          {
+            "first_close_time_utc": 1783509600,
+            "last_close_time_utc": 1783525800
+          },
+          {
+            "first_close_time_utc": 1783527600,
+            "last_close_time_utc": 1783543800
+          }
+        ]
+      },
+      {
+        "session_date": "2026-07-09",
+        "windows": [
+          {
+            "first_close_time_utc": 1783577400,
+            "last_close_time_utc": 1783594200
+          },
+          {
+            "first_close_time_utc": 1783596000,
+            "last_close_time_utc": 1783612200
+          },
+          {
+            "first_close_time_utc": 1783614000,
+            "last_close_time_utc": 1783630200
+          }
+        ]
+      },
+      {
+        "session_date": "2026-07-10",
+        "windows": [
+          {
+            "first_close_time_utc": 1783663800,
+            "last_close_time_utc": 1783680600
+          },
+          {
+            "first_close_time_utc": 1783682400,
+            "last_close_time_utc": 1783698600
+          },
+          {
+            "first_close_time_utc": 1783700400,
+            "last_close_time_utc": 1783716600
+          }
+        ]
+      },
+      {
+        "session_date": "2026-07-13",
+        "windows": [
+          {
+            "first_close_time_utc": 1783923000,
+            "last_close_time_utc": 1783939800
+          },
+          {
+            "first_close_time_utc": 1783941600,
+            "last_close_time_utc": 1783957800
+          },
+          {
+            "first_close_time_utc": 1783959600,
+            "last_close_time_utc": 1783975800
+          }
+        ]
+      },
+      {
+        "session_date": "2026-07-14",
+        "windows": [
+          {
+            "first_close_time_utc": 1784009400,
+            "last_close_time_utc": 1784026200
+          },
+          {
+            "first_close_time_utc": 1784028000,
+            "last_close_time_utc": 1784044200
+          },
+          {
+            "first_close_time_utc": 1784046000,
+            "last_close_time_utc": 1784062200
+          }
+        ]
+      },
+      {
+        "session_date": "2026-07-15",
+        "windows": [
+          {
+            "first_close_time_utc": 1784095800,
+            "last_close_time_utc": 1784112600
+          },
+          {
+            "first_close_time_utc": 1784114400,
+            "last_close_time_utc": 1784130600
+          },
+          {
+            "first_close_time_utc": 1784132400,
+            "last_close_time_utc": 1784148600
+          }
+        ]
+      },
+      {
+        "session_date": "2026-07-16",
+        "windows": [
+          {
+            "first_close_time_utc": 1784182200,
+            "last_close_time_utc": 1784199000
+          },
+          {
+            "first_close_time_utc": 1784200800,
+            "last_close_time_utc": 1784217000
+          },
+          {
+            "first_close_time_utc": 1784218800,
+            "last_close_time_utc": 1784235000
+          }
+        ]
+      },
+      {
+        "session_date": "2026-07-17",
+        "windows": [
+          {
+            "first_close_time_utc": 1784268600,
+            "last_close_time_utc": 1784285400
+          },
+          {
+            "first_close_time_utc": 1784287200,
+            "last_close_time_utc": 1784303400
+          },
+          {
+            "first_close_time_utc": 1784305200,
+            "last_close_time_utc": 1784321400
+          }
+        ]
+      },
+      {
+        "session_date": "2026-07-20",
+        "windows": [
+          {
+            "first_close_time_utc": 1784527800,
+            "last_close_time_utc": 1784544600
+          },
+          {
+            "first_close_time_utc": 1784546400,
+            "last_close_time_utc": 1784562600
+          },
+          {
+            "first_close_time_utc": 1784564400,
+            "last_close_time_utc": 1784580600
+          }
+        ]
+      },
+      {
+        "session_date": "2026-07-21",
+        "windows": [
+          {
+            "first_close_time_utc": 1784614200,
+            "last_close_time_utc": 1784631000
+          },
+          {
+            "first_close_time_utc": 1784632800,
+            "last_close_time_utc": 1784649000
+          },
+          {
+            "first_close_time_utc": 1784650800,
+            "last_close_time_utc": 1784667000
+          }
+        ]
+      },
+      {
+        "session_date": "2026-07-22",
+        "windows": [
+          {
+            "first_close_time_utc": 1784700600,
+            "last_close_time_utc": 1784717400
+          },
+          {
+            "first_close_time_utc": 1784719200,
+            "last_close_time_utc": 1784735400
+          },
+          {
+            "first_close_time_utc": 1784737200,
+            "last_close_time_utc": 1784753400
+          }
+        ]
+      },
+      {
+        "session_date": "2026-07-23",
+        "windows": [
+          {
+            "first_close_time_utc": 1784787000,
+            "last_close_time_utc": 1784803800
+          },
+          {
+            "first_close_time_utc": 1784805600,
+            "last_close_time_utc": 1784821800
+          },
+          {
+            "first_close_time_utc": 1784823600,
+            "last_close_time_utc": 1784839800
+          }
+        ]
+      },
+      {
+        "session_date": "2026-07-24",
+        "windows": [
+          {
+            "first_close_time_utc": 1784873400,
+            "last_close_time_utc": 1784890200
+          },
+          {
+            "first_close_time_utc": 1784892000,
+            "last_close_time_utc": 1784908200
+          },
+          {
+            "first_close_time_utc": 1784910000,
+            "last_close_time_utc": 1784926200
+          }
+        ]
+      },
+      {
+        "session_date": "2026-07-27",
+        "windows": [
+          {
+            "first_close_time_utc": 1785132600,
+            "last_close_time_utc": 1785149400
+          },
+          {
+            "first_close_time_utc": 1785151200,
+            "last_close_time_utc": 1785167400
+          },
+          {
+            "first_close_time_utc": 1785169200,
+            "last_close_time_utc": 1785185400
+          }
+        ]
+      },
+      {
+        "session_date": "2026-07-28",
+        "windows": [
+          {
+            "first_close_time_utc": 1785219000,
+            "last_close_time_utc": 1785235800
+          },
+          {
+            "first_close_time_utc": 1785237600,
+            "last_close_time_utc": 1785253800
+          },
+          {
+            "first_close_time_utc": 1785255600,
+            "last_close_time_utc": 1785271800
+          }
+        ]
+      },
+      {
+        "session_date": "2026-07-29",
+        "windows": [
+          {
+            "first_close_time_utc": 1785305400,
+            "last_close_time_utc": 1785322200
+          },
+          {
+            "first_close_time_utc": 1785324000,
+            "last_close_time_utc": 1785340200
+          },
+          {
+            "first_close_time_utc": 1785342000,
+            "last_close_time_utc": 1785358200
+          }
+        ]
+      },
+      {
+        "session_date": "2026-07-30",
+        "windows": [
+          {
+            "first_close_time_utc": 1785391800,
+            "last_close_time_utc": 1785408600
+          },
+          {
+            "first_close_time_utc": 1785410400,
+            "last_close_time_utc": 1785426600
+          },
+          {
+            "first_close_time_utc": 1785428400,
+            "last_close_time_utc": 1785444600
+          }
+        ]
+      },
+      {
+        "session_date": "2026-07-31",
+        "windows": [
+          {
+            "first_close_time_utc": 1785478200,
+            "last_close_time_utc": 1785495000
+          },
+          {
+            "first_close_time_utc": 1785496800,
+            "last_close_time_utc": 1785513000
+          },
+          {
+            "first_close_time_utc": 1785514800,
+            "last_close_time_utc": 1785531000
+          }
+        ]
+      },
+      {
+        "session_date": "2026-08-03",
+        "windows": [
+          {
+            "first_close_time_utc": 1785737400,
+            "last_close_time_utc": 1785754200
+          },
+          {
+            "first_close_time_utc": 1785756000,
+            "last_close_time_utc": 1785772200
+          },
+          {
+            "first_close_time_utc": 1785774000,
+            "last_close_time_utc": 1785790200
+          }
+        ]
+      },
+      {
+        "session_date": "2026-08-04",
+        "windows": [
+          {
+            "first_close_time_utc": 1785823800,
+            "last_close_time_utc": 1785840600
+          },
+          {
+            "first_close_time_utc": 1785842400,
+            "last_close_time_utc": 1785858600
+          },
+          {
+            "first_close_time_utc": 1785860400,
+            "last_close_time_utc": 1785876600
+          }
+        ]
+      },
+      {
+        "session_date": "2026-08-05",
+        "windows": [
+          {
+            "first_close_time_utc": 1785910200,
+            "last_close_time_utc": 1785927000
+          },
+          {
+            "first_close_time_utc": 1785928800,
+            "last_close_time_utc": 1785945000
+          },
+          {
+            "first_close_time_utc": 1785946800,
+            "last_close_time_utc": 1785963000
+          }
+        ]
+      },
+      {
+        "session_date": "2026-08-06",
+        "windows": [
+          {
+            "first_close_time_utc": 1785996600,
+            "last_close_time_utc": 1786013400
+          },
+          {
+            "first_close_time_utc": 1786015200,
+            "last_close_time_utc": 1786031400
+          },
+          {
+            "first_close_time_utc": 1786033200,
+            "last_close_time_utc": 1786049400
+          }
+        ]
+      },
+      {
+        "session_date": "2026-08-07",
+        "windows": [
+          {
+            "first_close_time_utc": 1786083000,
+            "last_close_time_utc": 1786099800
+          },
+          {
+            "first_close_time_utc": 1786101600,
+            "last_close_time_utc": 1786117800
+          },
+          {
+            "first_close_time_utc": 1786119600,
+            "last_close_time_utc": 1786135800
+          }
+        ]
+      },
+      {
+        "session_date": "2026-08-10",
+        "windows": [
+          {
+            "first_close_time_utc": 1786342200,
+            "last_close_time_utc": 1786359000
+          },
+          {
+            "first_close_time_utc": 1786360800,
+            "last_close_time_utc": 1786377000
+          },
+          {
+            "first_close_time_utc": 1786378800,
+            "last_close_time_utc": 1786395000
+          }
+        ]
+      },
+      {
+        "session_date": "2026-08-11",
+        "windows": [
+          {
+            "first_close_time_utc": 1786428600,
+            "last_close_time_utc": 1786445400
+          },
+          {
+            "first_close_time_utc": 1786447200,
+            "last_close_time_utc": 1786463400
+          },
+          {
+            "first_close_time_utc": 1786465200,
+            "last_close_time_utc": 1786481400
+          }
+        ]
+      },
+      {
+        "session_date": "2026-08-12",
+        "windows": [
+          {
+            "first_close_time_utc": 1786515000,
+            "last_close_time_utc": 1786531800
+          },
+          {
+            "first_close_time_utc": 1786533600,
+            "last_close_time_utc": 1786549800
+          },
+          {
+            "first_close_time_utc": 1786551600,
+            "last_close_time_utc": 1786567800
+          }
+        ]
+      },
+      {
+        "session_date": "2026-08-13",
+        "windows": [
+          {
+            "first_close_time_utc": 1786601400,
+            "last_close_time_utc": 1786618200
+          },
+          {
+            "first_close_time_utc": 1786620000,
+            "last_close_time_utc": 1786636200
+          },
+          {
+            "first_close_time_utc": 1786638000,
+            "last_close_time_utc": 1786654200
+          }
+        ]
+      },
+      {
+        "session_date": "2026-08-14",
+        "windows": [
+          {
+            "first_close_time_utc": 1786687800,
+            "last_close_time_utc": 1786704600
+          },
+          {
+            "first_close_time_utc": 1786706400,
+            "last_close_time_utc": 1786722600
+          },
+          {
+            "first_close_time_utc": 1786724400,
+            "last_close_time_utc": 1786740600
+          }
+        ]
+      },
+      {
+        "session_date": "2026-08-17",
+        "windows": [
+          {
+            "first_close_time_utc": 1786947000,
+            "last_close_time_utc": 1786963800
+          },
+          {
+            "first_close_time_utc": 1786965600,
+            "last_close_time_utc": 1786981800
+          },
+          {
+            "first_close_time_utc": 1786983600,
+            "last_close_time_utc": 1786999800
+          }
+        ]
+      },
+      {
+        "session_date": "2026-08-18",
+        "windows": [
+          {
+            "first_close_time_utc": 1787033400,
+            "last_close_time_utc": 1787050200
+          },
+          {
+            "first_close_time_utc": 1787052000,
+            "last_close_time_utc": 1787068200
+          },
+          {
+            "first_close_time_utc": 1787070000,
+            "last_close_time_utc": 1787086200
+          }
+        ]
+      },
+      {
+        "session_date": "2026-08-19",
+        "windows": [
+          {
+            "first_close_time_utc": 1787119800,
+            "last_close_time_utc": 1787136600
+          },
+          {
+            "first_close_time_utc": 1787138400,
+            "last_close_time_utc": 1787154600
+          },
+          {
+            "first_close_time_utc": 1787156400,
+            "last_close_time_utc": 1787172600
+          }
+        ]
+      },
+      {
+        "session_date": "2026-08-20",
+        "windows": [
+          {
+            "first_close_time_utc": 1787206200,
+            "last_close_time_utc": 1787223000
+          },
+          {
+            "first_close_time_utc": 1787224800,
+            "last_close_time_utc": 1787241000
+          },
+          {
+            "first_close_time_utc": 1787242800,
+            "last_close_time_utc": 1787259000
+          }
+        ]
+      },
+      {
+        "session_date": "2026-08-21",
+        "windows": [
+          {
+            "first_close_time_utc": 1787292600,
+            "last_close_time_utc": 1787309400
+          },
+          {
+            "first_close_time_utc": 1787311200,
+            "last_close_time_utc": 1787327400
+          },
+          {
+            "first_close_time_utc": 1787329200,
+            "last_close_time_utc": 1787345400
+          }
+        ]
+      },
+      {
+        "session_date": "2026-08-24",
+        "windows": [
+          {
+            "first_close_time_utc": 1787551800,
+            "last_close_time_utc": 1787568600
+          },
+          {
+            "first_close_time_utc": 1787570400,
+            "last_close_time_utc": 1787586600
+          },
+          {
+            "first_close_time_utc": 1787588400,
+            "last_close_time_utc": 1787604600
+          }
+        ]
+      },
+      {
+        "session_date": "2026-08-25",
+        "windows": [
+          {
+            "first_close_time_utc": 1787638200,
+            "last_close_time_utc": 1787655000
+          },
+          {
+            "first_close_time_utc": 1787656800,
+            "last_close_time_utc": 1787673000
+          },
+          {
+            "first_close_time_utc": 1787674800,
+            "last_close_time_utc": 1787691000
+          }
+        ]
+      },
+      {
+        "session_date": "2026-08-26",
+        "windows": [
+          {
+            "first_close_time_utc": 1787724600,
+            "last_close_time_utc": 1787741400
+          },
+          {
+            "first_close_time_utc": 1787743200,
+            "last_close_time_utc": 1787759400
+          },
+          {
+            "first_close_time_utc": 1787761200,
+            "last_close_time_utc": 1787777400
+          }
+        ]
+      },
+      {
+        "session_date": "2026-08-27",
+        "windows": [
+          {
+            "first_close_time_utc": 1787811000,
+            "last_close_time_utc": 1787827800
+          },
+          {
+            "first_close_time_utc": 1787829600,
+            "last_close_time_utc": 1787845800
+          },
+          {
+            "first_close_time_utc": 1787847600,
+            "last_close_time_utc": 1787863800
+          }
+        ]
+      },
+      {
+        "session_date": "2026-08-28",
+        "windows": [
+          {
+            "first_close_time_utc": 1787897400,
+            "last_close_time_utc": 1787914200
+          },
+          {
+            "first_close_time_utc": 1787916000,
+            "last_close_time_utc": 1787932200
+          },
+          {
+            "first_close_time_utc": 1787934000,
+            "last_close_time_utc": 1787950200
+          }
+        ]
+      },
+      {
+        "session_date": "2026-08-31",
+        "windows": [
+          {
+            "first_close_time_utc": 1788156600,
+            "last_close_time_utc": 1788173400
+          },
+          {
+            "first_close_time_utc": 1788175200,
+            "last_close_time_utc": 1788191400
+          },
+          {
+            "first_close_time_utc": 1788193200,
+            "last_close_time_utc": 1788209400
+          }
+        ]
+      },
+      {
+        "session_date": "2026-09-01",
+        "windows": [
+          {
+            "first_close_time_utc": 1788243000,
+            "last_close_time_utc": 1788259800
+          },
+          {
+            "first_close_time_utc": 1788261600,
+            "last_close_time_utc": 1788277800
+          },
+          {
+            "first_close_time_utc": 1788279600,
+            "last_close_time_utc": 1788295800
+          }
+        ]
+      },
+      {
+        "session_date": "2026-09-02",
+        "windows": [
+          {
+            "first_close_time_utc": 1788329400,
+            "last_close_time_utc": 1788346200
+          },
+          {
+            "first_close_time_utc": 1788348000,
+            "last_close_time_utc": 1788364200
+          },
+          {
+            "first_close_time_utc": 1788366000,
+            "last_close_time_utc": 1788382200
+          }
+        ]
+      },
+      {
+        "session_date": "2026-09-03",
+        "windows": [
+          {
+            "first_close_time_utc": 1788415800,
+            "last_close_time_utc": 1788432600
+          },
+          {
+            "first_close_time_utc": 1788434400,
+            "last_close_time_utc": 1788450600
+          },
+          {
+            "first_close_time_utc": 1788452400,
+            "last_close_time_utc": 1788468600
+          }
+        ]
+      },
+      {
+        "session_date": "2026-09-04",
+        "windows": [
+          {
+            "first_close_time_utc": 1788502200,
+            "last_close_time_utc": 1788519000
+          },
+          {
+            "first_close_time_utc": 1788520800,
+            "last_close_time_utc": 1788537000
+          },
+          {
+            "first_close_time_utc": 1788538800,
+            "last_close_time_utc": 1788555000
+          }
+        ]
+      },
+      {
+        "session_date": "2026-09-07",
+        "windows": [
+          {
+            "first_close_time_utc": 1788761400,
+            "last_close_time_utc": 1788778200
+          },
+          {
+            "first_close_time_utc": 1788780000,
+            "last_close_time_utc": 1788796200
+          },
+          {
+            "first_close_time_utc": 1788798000,
+            "last_close_time_utc": 1788814200
+          }
+        ]
+      },
+      {
+        "session_date": "2026-09-08",
+        "windows": [
+          {
+            "first_close_time_utc": 1788847800,
+            "last_close_time_utc": 1788864600
+          },
+          {
+            "first_close_time_utc": 1788866400,
+            "last_close_time_utc": 1788882600
+          },
+          {
+            "first_close_time_utc": 1788884400,
+            "last_close_time_utc": 1788900600
+          }
+        ]
+      },
+      {
+        "session_date": "2026-09-09",
+        "windows": [
+          {
+            "first_close_time_utc": 1788934200,
+            "last_close_time_utc": 1788951000
+          },
+          {
+            "first_close_time_utc": 1788952800,
+            "last_close_time_utc": 1788969000
+          },
+          {
+            "first_close_time_utc": 1788970800,
+            "last_close_time_utc": 1788987000
+          }
+        ]
+      },
+      {
+        "session_date": "2026-09-10",
+        "windows": [
+          {
+            "first_close_time_utc": 1789020600,
+            "last_close_time_utc": 1789037400
+          },
+          {
+            "first_close_time_utc": 1789039200,
+            "last_close_time_utc": 1789055400
+          },
+          {
+            "first_close_time_utc": 1789057200,
+            "last_close_time_utc": 1789073400
+          }
+        ]
+      },
+      {
+        "session_date": "2026-09-11",
+        "windows": [
+          {
+            "first_close_time_utc": 1789107000,
+            "last_close_time_utc": 1789123800
+          },
+          {
+            "first_close_time_utc": 1789125600,
+            "last_close_time_utc": 1789141800
+          },
+          {
+            "first_close_time_utc": 1789143600,
+            "last_close_time_utc": 1789159800
+          }
+        ]
+      },
+      {
+        "session_date": "2026-09-14",
+        "windows": [
+          {
+            "first_close_time_utc": 1789366200,
+            "last_close_time_utc": 1789383000
+          },
+          {
+            "first_close_time_utc": 1789384800,
+            "last_close_time_utc": 1789401000
+          },
+          {
+            "first_close_time_utc": 1789402800,
+            "last_close_time_utc": 1789419000
+          }
+        ]
+      },
+      {
+        "session_date": "2026-09-15",
+        "windows": [
+          {
+            "first_close_time_utc": 1789452600,
+            "last_close_time_utc": 1789469400
+          },
+          {
+            "first_close_time_utc": 1789471200,
+            "last_close_time_utc": 1789487400
+          },
+          {
+            "first_close_time_utc": 1789489200,
+            "last_close_time_utc": 1789505400
+          }
+        ]
+      },
+      {
+        "session_date": "2026-09-16",
+        "windows": [
+          {
+            "first_close_time_utc": 1789539000,
+            "last_close_time_utc": 1789555800
+          },
+          {
+            "first_close_time_utc": 1789557600,
+            "last_close_time_utc": 1789573800
+          },
+          {
+            "first_close_time_utc": 1789575600,
+            "last_close_time_utc": 1789591800
+          }
+        ]
+      },
+      {
+        "session_date": "2026-09-17",
+        "windows": [
+          {
+            "first_close_time_utc": 1789625400,
+            "last_close_time_utc": 1789642200
+          },
+          {
+            "first_close_time_utc": 1789644000,
+            "last_close_time_utc": 1789660200
+          },
+          {
+            "first_close_time_utc": 1789662000,
+            "last_close_time_utc": 1789678200
+          }
+        ]
+      },
+      {
+        "session_date": "2026-09-18",
+        "windows": [
+          {
+            "first_close_time_utc": 1789711800,
+            "last_close_time_utc": 1789728600
+          },
+          {
+            "first_close_time_utc": 1789730400,
+            "last_close_time_utc": 1789746600
+          },
+          {
+            "first_close_time_utc": 1789748400,
+            "last_close_time_utc": 1789764600
+          }
+        ]
+      },
+      {
+        "session_date": "2026-09-21",
+        "windows": [
+          {
+            "first_close_time_utc": 1789971000,
+            "last_close_time_utc": 1789987800
+          },
+          {
+            "first_close_time_utc": 1789989600,
+            "last_close_time_utc": 1790005800
+          },
+          {
+            "first_close_time_utc": 1790007600,
+            "last_close_time_utc": 1790023800
+          }
+        ]
+      },
+      {
+        "session_date": "2026-09-22",
+        "windows": [
+          {
+            "first_close_time_utc": 1790057400,
+            "last_close_time_utc": 1790074200
+          },
+          {
+            "first_close_time_utc": 1790076000,
+            "last_close_time_utc": 1790092200
+          },
+          {
+            "first_close_time_utc": 1790094000,
+            "last_close_time_utc": 1790110200
+          }
+        ]
+      },
+      {
+        "session_date": "2026-09-23",
+        "windows": [
+          {
+            "first_close_time_utc": 1790143800,
+            "last_close_time_utc": 1790160600
+          },
+          {
+            "first_close_time_utc": 1790162400,
+            "last_close_time_utc": 1790178600
+          },
+          {
+            "first_close_time_utc": 1790180400,
+            "last_close_time_utc": 1790196600
+          }
+        ]
+      },
+      {
+        "session_date": "2026-09-24",
+        "windows": [
+          {
+            "first_close_time_utc": 1790230200,
+            "last_close_time_utc": 1790247000
+          },
+          {
+            "first_close_time_utc": 1790248800,
+            "last_close_time_utc": 1790265000
+          },
+          {
+            "first_close_time_utc": 1790266800,
+            "last_close_time_utc": 1790283000
+          }
+        ]
+      },
+      {
+        "session_date": "2026-09-25",
+        "windows": [
+          {
+            "first_close_time_utc": 1790316600,
+            "last_close_time_utc": 1790333400
+          },
+          {
+            "first_close_time_utc": 1790335200,
+            "last_close_time_utc": 1790351400
+          },
+          {
+            "first_close_time_utc": 1790353200,
+            "last_close_time_utc": 1790369400
+          }
+        ]
+      }
+    ]
+  },
+  "history_bars": [],
+  "riskgate_history": {},
+  "candidate": {}
+}
