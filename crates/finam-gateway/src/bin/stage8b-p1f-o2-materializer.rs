@@ -30,6 +30,7 @@ struct MaterializationPolicyV1 {
     schema_version: u16,
     domain: String,
     account_id_sha256: String,
+    account_alias: String,
     venue_symbol: String,
     bars_start_utc: String,
     bars_end_utc: String,
@@ -194,6 +195,7 @@ fn validate_policy(policy: &MaterializationPolicyV1) -> Result<(), String> {
     if policy.schema_version != 1
         || policy.domain != "stage8b-p1f-o2-materialization-policy-v1"
         || policy.venue_symbol != broker_finam::STAGE8B_P1F_O2_VENUE_SYMBOL
+        || policy.account_alias != finam_gateway::STAGE8B_P1F_O2_ACCOUNT_ALIAS
         || !valid_sha256(&policy.account_id_sha256)
     {
         return Err("materialization policy identity is invalid".into());

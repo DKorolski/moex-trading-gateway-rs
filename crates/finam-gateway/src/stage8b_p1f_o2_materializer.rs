@@ -24,6 +24,7 @@ const MAX_CANDIDATE_AGE_SECONDS: i64 = 900;
 const MAX_BARS_CHUNK_SECONDS: i64 = 7 * 24 * 60 * 60;
 const MAX_BARS_RANGE_SECONDS: i64 = 400 * 24 * 60 * 60;
 pub const STAGE8B_P1F_O2_ACCOUNT_TEMPLATE_SENTINEL: &str = "INJECT_FROM_ACCOUNT_CREDENTIAL";
+pub const STAGE8B_P1F_O2_ACCOUNT_ALIAS: &str = "finam-paper-primary";
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -175,6 +176,7 @@ pub async fn collect_stage8b_p1f_o2_source_v1(
     materialize_stage8b_p1f_o2_source_v1(
         source_template_bytes,
         account_id,
+        STAGE8B_P1F_O2_ACCOUNT_ALIAS,
         account,
         orders,
         params,
@@ -189,6 +191,7 @@ pub async fn collect_stage8b_p1f_o2_source_v1(
 pub fn materialize_stage8b_p1f_o2_source_v1(
     source_template_bytes: &[u8],
     expected_account_id: &str,
+    source_account_alias: &str,
     account: AccountResponse,
     orders: AccountOrdersResponse,
     params: AssetParamsResponse,
@@ -212,6 +215,7 @@ pub fn materialize_stage8b_p1f_o2_source_v1(
         .and_then(Value::as_str)
         .ok_or(Stage8bP1fO2MaterializerErrorV1::Template)?;
     if template_account != STAGE8B_P1F_O2_ACCOUNT_TEMPLATE_SENTINEL
+        || source_account_alias != STAGE8B_P1F_O2_ACCOUNT_ALIAS
         || account.account_id != expected_account_id
     {
         return Err(Stage8bP1fO2MaterializerErrorV1::AccountTruth);
@@ -253,7 +257,7 @@ pub fn materialize_stage8b_p1f_o2_source_v1(
     source["captured_at_utc"] = Value::String(captured_at.clone());
     source["broker_truth"] = json!({
         "checked_at_utc": captured_at,
-        "account_id": expected_account_id,
+        "account_id": source_account_alias,
         "instrument": STAGE8B_P1F_O2_VENUE_SYMBOL,
         "target_position_qty": "0",
         "target_positions_complete": true,
@@ -291,7 +295,7 @@ pub fn materialize_stage8b_p1f_o2_source_v1(
     let validated = runtime_durable_service::validate_stage8b_p1e_first_boot_source_bytes_v1(
         &exact_source_bytes,
         &operational_identity,
-        expected_account_id,
+        source_account_alias,
         trusted_now,
     )
     .map_err(|_| Stage8bP1fO2MaterializerErrorV1::SourceRejected)?;
@@ -1105,6 +1109,7 @@ mod tests {
         let materialized = materialize_stage8b_p1f_o2_source_v1(
             &serde_json::to_vec(&template).unwrap(),
             account_id,
+            STAGE8B_P1F_O2_ACCOUNT_ALIAS,
             account,
             orders,
             params,
@@ -1115,6 +1120,14 @@ mod tests {
         )
         .unwrap();
         let value: Value = serde_json::from_slice(&materialized.exact_source_bytes).unwrap();
+        assert_eq!(
+            value["broker_truth"]["account_id"],
+            STAGE8B_P1F_O2_ACCOUNT_ALIAS
+        );
+        assert_eq!(
+            materialized.evidence.account_id_sha256,
+            sha256_hex(account_id.as_bytes())
+        );
         assert_eq!(value["history_bars"].as_array().unwrap().len(), 121);
         assert!(
             value["riskgate_history"]["session_observations"]
