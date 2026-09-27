@@ -1,0 +1,19 @@
+id,requirement,evidence,expected
+O1-01,O0 accepted and governance closure exact,provisioning JSON,exact accepted refs and review digest
+O1-02,current Rust and Cargo equal accepted Ie source,source checker,no diff
+O1-03,installer equals accepted fixed-install source,source checker,byte exact
+O1-04,five public payloads equal accepted fixed-install source,source checker,byte exact
+O1-05,release Linux x86_64 binary built from accepted Ie source,build evidence,exit 0 and ELF x86-64
+O1-06,binary and every payload have exact SHA-256,bundle manifest,all digests match
+O1-07,target and SSH host key are exact,provisioning and bundle manifests,exact fixed identity
+O1-08,package excludes operator config first-boot source and credential,bundle safety,all absent
+O1-09,package contains no activation or phase manifest,bundle safety,all absent
+O1-10,install is fixed-path and non-activating,accepted installer plus package contract,no reload enable start
+O1-11,status requires exact installed custody,accepted installer,status EXACT_INSTALLED
+O1-12,rollback is accepted fail-closed rollback,accepted installer,exact preflight twice and public package only
+O1-13,pre-mutation fresh O0 is mandatory,package contract,true
+O1-14,P0 and DB0 are read-only comparison surfaces,package contract,no mutation
+O1-15,DB15 remains empty through O1,package contract,no Redis contact
+O1-16,review candidate performs no SSH or remote mutation,build and handoff evidence,false
+O1-17,separate independent review precedes execution,package contract,execution authorized false
+O1-18,FINAM broker runtime-live and real orders remain closed,package contract,all false

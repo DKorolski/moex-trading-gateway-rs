@@ -419,7 +419,10 @@ independently closed as an accepted immutable read-only target preflight at
 the complete fixed-install P1 absence inventory and behaviorally proven
 fail-closed systemd query handling, and performed no remote mutation.
 Preparation of one immutable O1 package is now open, but provisioning execution
-still requires separate independent acceptance. The remaining order is
+still requires separate independent acceptance. The active O1 candidate is a
+non-activating bundle of a fresh Linux/amd64 binary from accepted Ie source and
+the byte-exact accepted fixed installer/systemd material; package construction
+performs no SSH or target mutation. The remaining order is
 non-activating provisioning, one-shot network-isolated
 bootstrap, bounded synthetic paper session/restart acceptance, separately
 authorized read-only FINAM-bar session, then aggregate P1 acceptance. Each

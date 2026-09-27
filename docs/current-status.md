@@ -51,6 +51,11 @@ empty stdout plus nonzero query status.
 O0 has observation authority only. Preparation of one immutable P1F-O1
 non-activating provisioning package is open for independent review; execution
 of that package and every activation surface remain closed.
+The O1 package candidate binds the accepted Ie runtime source, accepted fixed
+installer and its five public payloads. Its handoff builder produces a fresh
+Linux/amd64 release binary and a hash-bound nested provisioning bundle without
+SSH or remote mutation. Independent O1 package acceptance is required before
+that bundle may be copied to or executed on the target.
 Source authority is not activation authority.
 Operational installation or service start, Redis DB15/DB0 activation, VPS
 deployment, paper-provider execution, FINAM POST/DELETE/send, broker dispatch,
