@@ -37,17 +37,20 @@ P1F-Ie is independently `CLOSED / SOURCE ACCEPTED` at
 `940377ab2bd406be31547200ca0b8cc3bb0f3e22`; its acceptance review SHA-256 is
 `94b224e56c30e4ad54b5db6d0d744b1fd7fbf06897e58af9be3382a3c9d5af96`.
 P1-IE01 and P2-IE02 are closed, so P1F-Ia through P1F-Ie form the accepted
-source baseline. P1F-O0 R2 correction has now produced a replacement immutable read-only target
-preflight candidate for `stage8b-p1f-isolated-vps-1` after the residual HOLD
-at `609f999ae1184c53de6320125a52b93bfdad9ace`. Its retained observation uses
+source baseline. P1F-O0 is independently `CLOSED / READ-ONLY PREFLIGHT
+ACCEPTED` at `98148b80dacddf44c58204c1af9403bb6b47f8d3`; its acceptance review
+SHA-256 is
+`a357514bf2d36ae2a47276da268d87bbd785ee65d00fcb86dcf6f57421061498`.
+Its retained observation of `stage8b-p1f-isolated-vps-1` uses
 `INFO server` for Redis server version and covers the complete fixed-install
 P1 user/group, path, systemd unit/template and recovery-instance inventory in
 addition to target identity, resources, empty DB15 and retained P0 identities.
 Every P1 systemd query is status-checked before evidence emission; an executed
 two-case behavioral control distinguishes successful empty FragmentPath from
 empty stdout plus nonzero query status.
-O0 has observation authority only; P1F-O1 provisioning and every activation
-surface remain closed pending independent O0 correction acceptance.
+O0 has observation authority only. Preparation of one immutable P1F-O1
+non-activating provisioning package is open for independent review; execution
+of that package and every activation surface remain closed.
 Source authority is not activation authority.
 Operational installation or service start, Redis DB15/DB0 activation, VPS
 deployment, paper-provider execution, FINAM POST/DELETE/send, broker dispatch,
