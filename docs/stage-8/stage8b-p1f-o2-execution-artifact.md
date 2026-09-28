@@ -28,6 +28,15 @@ The exact source/build identities, binary and unit hashes, fixed paths and
 commands are machine-readable in
 `stage8b-p1f-o2-execution-artifact.json`.
 
+All payloads are built from synchronized merge
+`9d9bd1192467532d0ee48350d3c531d9e156dee3`. A third payload,
+`stage8b-p1-paper-supervisor`, is the baseline07 bootstrap-runtime prerequisite,
+not a new facade role. The O1 installed supervisor predates baseline07 and
+cannot be retained for this corrected configuration. Its separate reviewed
+non-activating replacement is required and is NOT authorized by this package.
+See [artifact-resumption](stage8b-p1f-o2-artifact-resumption.md) for hashes,
+lineage and the evidence limits. Historical O1/O2 contracts are not rewritten.
+
 ## Account and secret boundary
 
 The FINAM account id and read-only token are transient systemd credentials.
@@ -50,8 +59,8 @@ this artifact.
 - `stage8b-p1f-o2-source-template.json` contains 121 strictly ordered Moscow
   session dates and explicit aligned M10 windows. Every requested M1 bucket
   must exist; a missing holiday/window/bar fails closed before mutation.
-- `stage8b-p1f-o2-supervisor-template.json` binds the accepted Hybrid High180
-  runtime, DB15 policy, generation-2 schedule issuer, broker-neutral account
+- `stage8b-p1f-o2-supervisor-template.json` binds the accepted baseline07
+  BO-only runtime (High180 riskgate shadow retained), DB15 policy, generation-2 schedule issuer, broker-neutral account
   alias and the sole allowed source-hash sentinel.
 - `stage8b-p1f-o2-authority-public-key.hex` is the selected generation-1 O2
   authority public key. Its offline private seed is not part of the artifact.
@@ -92,8 +101,16 @@ only when selecting a new terminal transaction.
 The artifact gate runs the exact GET/materializer/supervisor tests, the
 guardian crash/replay tests relevant to O2, and the linked local O2
 materialization → isolated bootstrap → durable root/receipt → stopped proof →
-terminal receipt witness. The handoff safety checker reconstructs the Git tree
-and verifies both ELF payloads and both O2 units.
+terminal receipt witness. The handoff safety checker reconstructs the packaging
+and compiled Git trees independently and verifies all three ELF payloads, both
+O2 units and the unchanged bootstrap unit. Raw Linux build logs are retained.
+
+Exact-ELF Linux smoke probes fixed-path custody, no-capabilities preparation,
+admission failure exit 70 and supervisor baseline07 config validation. It is
+explicitly not a running systemd/cgroup proof (`systemd_runtime_tested=false`).
+Typed StopNotProven remains API code 72; the operator process maps failures to
+70. Source tests exercise stopped-proof handling, separately from this Linux
+admission smoke. No successful target bootstrap or execution is claimed.
 
 After artifact acceptance, a separate O2 execution permission is required.
 Only then may an operator issue the time-bounded signed documents, install the

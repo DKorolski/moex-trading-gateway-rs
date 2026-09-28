@@ -496,10 +496,14 @@ this repair.
 The two O2 recovery findings are independently SOURCE ACCEPTED at `5b8f878`:
 retained account-alias replay and guardian-bound manifest selector publication.
 The [narrow authority successor](stage-8/stage8b-p1f-o2-recovery-authority-closure.md)
-binds the accepted tree. Fresh PR #9 checks precede history-preserving merge.
-Next development deliverable: an exact-merge O2 Linux artifact with renewed
-binary/source/profile/unit identities and bounded local witnesses, then artifact
-review. Non-activating installation and O2 execution remain separate permissions.
+binds the accepted tree. Fresh PR #9 checks passed in run `36460100665`;
+history-preserving merge `9d9bd1192467532d0ee48350d3c531d9e156dee3` is on `main`.
+The [corrected artifact candidate](stage-8/stage8b-p1f-o2-artifact-resumption.md)
+is built from this exact merge with renewed binary/source/profile/unit identities
+and bounded local witnesses. It additionally carries the bootstrap supervisor
+from the same source because the O1 installed runtime predates baseline07.
+Next: artifact review including this dependency, separately permitted
+non-activating replacement/installation, then one bounded O2 execution gate.
 No historical re-audit or roadmap renumbering is needed. The operational goal
 remains bounded paper sessions against ALOR-live, followed by separately admitted
 FINAM live micro; O3/O4 and FINAM write surfaces are not opened here.

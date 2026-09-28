@@ -17,11 +17,15 @@ is independently SOURCE ACCEPTED at `5b8f878833dbf71fa7614152a4a5fb03cbf40b65`.
 Both retained account-alias replay and active-manifest selector replacement
 findings are closed. The [authority successor](stage-8/stage8b-p1f-o2-recovery-authority-closure.md)
 binds these accepted bytes without Rust/Cargo, workflow or deployment changes.
-Fresh required PR #9 checks still precede history-preserving merge; the old green
-run `36380295678` at `38c7b82` is not evidence for this successor. After merge,
-rebuild the O2 artifact from the exact synchronized commit, preserving the accepted
-baseline07 BO-only profile. Artifact review and separately authorized installation
-and execution follow; this successor performs none of those operational actions.
+Fresh required PR #9 checks (`rust` and `redis-smoke`) passed in run `36460100665`.
+History-preserving merge `9d9bd1192467532d0ee48350d3c531d9e156dee3` is now on
+`main`; its tree equals the accepted PR head. The [corrected O2 artifact candidate](stage-8/stage8b-p1f-o2-artifact-resumption.md)
+builds from that exact merge and preserves baseline07 BO-only. In addition to
+the two O2 facades it includes the same-source bootstrap supervisor: the O1
+installed supervisor predates baseline07. Its non-activating replacement is
+explicitly required, but not authorized. Artifact review, separate installation
+acceptance/permission and bounded O2 execution still precede O3/O4. No VPS,
+operational Redis, FINAM or signed-authority action is performed here.
 
 The O1 immutable package at
 `8864a2bbba64ef930073fae4e71dfcde82ceba58` and its operational-evidence

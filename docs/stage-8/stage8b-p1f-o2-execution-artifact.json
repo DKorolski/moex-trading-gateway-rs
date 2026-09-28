@@ -3,7 +3,7 @@
   "domain": "moex.stage8b.p1f.o2.execution-artifact.v1",
   "status": "REVIEW_CANDIDATE_EXECUTION_NOT_AUTHORIZED",
   "accepted_contract_ref": "a9f8fe30a45752c943f9e399775322d83fcd8a36",
-  "implementation_ref": "9e7f44d119cac63e33d5d5437ff972e49922c797",
+  "implementation_ref": "9d9bd1192467532d0ee48350d3c531d9e156dee3",
   "execution_authorized": false,
   "target_mutation_performed": false,
   "authority": {
@@ -65,26 +65,49 @@
       "-p",
       "runtime-durable-service",
       "--bin",
-      "stage8b-p1f-o2-operator"
+      "stage8b-p1f-o2-operator",
+      "--bin",
+      "stage8b-p1-paper-supervisor"
     ],
     "binaries": [
       {
         "name": "stage8b-p1f-o2-materializer",
-        "sha256": "9716b77de5918e4be3882c6babce1b76ce9b19ba57e4d4b63d3e4ab347b1b45a",
-        "size": 8304208,
+        "sha256": "00171bed636f12a88f45187ed4408ab21ab42d58158e92a1ebc3610d0586b083",
+        "size": 8332904,
         "elf_machine": "x86-64",
-        "build_id_sha1": "435fd7f634a5812ee801371e205dfb94c98618be"
+        "build_id_sha1": "492d2feace23ba437ac123cfd7b822bef199b894"
       },
       {
         "name": "stage8b-p1f-o2-operator",
-        "sha256": "782f8dcfb135e70f2217de9b66a3be9d27c252063c5f6024019c9bd28713431e",
-        "size": 3334152,
+        "sha256": "8a048913895b31737796fb0f78fd8917ef702c8a8aaae08114c4e3268f8393c2",
+        "size": 3387256,
         "elf_machine": "x86-64",
-        "build_id_sha1": "0513d1f9c4875ad790b40c27e896e5fb912f2e1d"
+        "build_id_sha1": "e2d3e7af064b07ed4c1dbdcb2d567750f6bb37ba"
+      },
+      {
+        "name": "stage8b-p1-paper-supervisor",
+        "sha256": "3e336dffa2446f79318fb95a3f6135fa96dd3abeef6ad2dd47494c68b9415f82",
+        "size": 13115456,
+        "elf_machine": "x86-64",
+        "build_id_sha1": "db9cef16a704c7c7031386876a087b6e9945f6e7"
       }
     ]
   },
+  "bootstrap_runtime_prerequisite": {
+    "binary": "stage8b-p1-paper-supervisor",
+    "sha256": "3e336dffa2446f79318fb95a3f6135fa96dd3abeef6ad2dd47494c68b9415f82",
+    "source_ref": "9d9bd1192467532d0ee48350d3c531d9e156dee3",
+    "superseded_installed_sha256": "cee324a4e4f251227a25d4a7b23dda332a94522b45407671982f4fc896614406",
+    "replacement_required": true,
+    "replacement_authorized": false,
+    "install_path": "/usr/local/libexec/moex/stage8b-p1-paper-supervisor",
+    "bootstrap_unit_path": "deploy/stage8b-p1e/moex-finam-p1-paper-bootstrap.service"
+  },
   "public_inputs": {
+    "bootstrap_unit": {
+      "path": "deploy/stage8b-p1e/moex-finam-p1-paper-bootstrap.service",
+      "sha256": "f5f6db6e08d45f39fa3976701f78526a55e1485f3398f4140d13eaba1b2bc62b"
+    },
     "authority_public_key": {
       "path": "docs/stage-8/stage8b-p1f-o2-authority-public-key.hex",
       "sha256": "b92f0006e6f8571cf4ce13f7cb32d460a4e633228a5015b1d1d2ebfb0261886b"
@@ -95,11 +118,15 @@
     },
     "source_template": {
       "path": "docs/stage-8/stage8b-p1f-o2-source-template.json",
-      "sha256": "670dac4798805df5f21c0f9b6dd6f058a8c0e86290ae6f3d478bbba925ab4d56"
+      "sha256": "17a2112a59d85008a7eabe6d2f46af582a865d92a1a07f2e81f22869ce379f2d"
     },
     "supervisor_template": {
       "path": "docs/stage-8/stage8b-p1f-o2-supervisor-template.json",
-      "sha256": "21bf696ca6ffc054e21fbcaf4e6fb7d88dcdcc12b6225d7aa5b533eb60be5573"
+      "sha256": "489cbaa7ca1c88f2cffe64146e8251b249a2bde7155d8865aa34d6ccb28ff121"
+    },
+    "runtime_profile": {
+      "path": "docs/stage-8/stage8b-p1e-runtime-profile-v1.json",
+      "sha256": "79b024baa71bbffb3b46211f13e34937a171884b4a7867369dddadde8eb044ef"
     }
   },
   "source_files": [
@@ -109,7 +136,7 @@
     },
     {
       "path": "crates/finam-gateway/src/bin/stage8b-p1f-o2-materializer.rs",
-      "sha256": "4142f74a0790c6abf2168f7887a6f12751401bf30afb18ef1c5a0539ca3f6a96"
+      "sha256": "9b55a87ec26585666b2c9c0af84e7e85ee53096583c48cf764e33103628e08e0"
     },
     {
       "path": "crates/finam-gateway/src/stage8b_p1f_o2_materializer.rs",
@@ -117,11 +144,31 @@
     },
     {
       "path": "crates/runtime-durable-service/src/bin/stage8b-p1f-o2-operator.rs",
-      "sha256": "7b890107dda35c6064ed8bd66ca471487752b45f2935c7c899557b4135c8fd50"
+      "sha256": "38ca14c085707dd798acb6d5eb29edce272e44ccfdd15174d37405cf8564baab"
     },
     {
       "path": "crates/runtime-durable-service/src/stage8b_p1f_o2_systemd.rs",
-      "sha256": "000edab71f0aee3146116703285e2f4082acd167a13319e80a71a69649adaf29"
+      "sha256": "83815a35a2450e900bd0881d70e9aa1b854d8354ef0c8564a3ace08588cd420b"
+    },
+    {
+      "path": "crates/runtime-durable-service/src/stage8b_p1f_guardian.rs",
+      "sha256": "00565d667b9cbe7e3da7308ca76a2946376835e238de17428df355e4fe2e783f"
+    },
+    {
+      "path": "crates/runtime-durable-service/src/stage8b_p1_supervisor.rs",
+      "sha256": "0200064b8f72cc88fbca8c5911f19ba4d9385d2733a78ebd924d88d9b014bb98"
+    },
+    {
+      "path": "crates/runtime-durable-service/src/stage8b_p1e_first_boot_source.rs",
+      "sha256": "d603fbb73f0fd90c217e60ea6419a8d53776b78c5fe33944c31ebd803ab65156"
+    },
+    {
+      "path": "crates/strategy-runtime-core/src/stage8b_p1e_first_boot.rs",
+      "sha256": "256ca2682139e3a7f6fe6c03169bf3e2caad5e7789da4184df258c49e0ef1aec"
+    },
+    {
+      "path": "Cargo.lock",
+      "sha256": "f299d92e101ad50cae35770ae4b596333300a0325aae090788e0f5f8e613106a"
     }
   ],
   "units": [
@@ -135,7 +182,7 @@
       "unit": "moex-finam-p1-paper-o2-bootstrap-runner.service",
       "path": "deploy/stage8b-p1e/moex-finam-p1-paper-o2-bootstrap-runner.service",
       "install_path": "/etc/systemd/system/moex-finam-p1-paper-o2-bootstrap-runner.service",
-      "sha256": "6268fe56d6ed5dda28297cb497aba3a0b0dea882dc1b79447629c196a1ca0134"
+      "sha256": "545e7ff1667529012eaed2a0793319565c1865d201a204b187597429225c94ff"
     }
   ],
   "get_guard": {
@@ -200,5 +247,12 @@
     "stage8b_p1f_o3": false,
     "stage8b_p1f_o4": false,
     "ordinary_p1_run": false
-  }
+  },
+  "implementation_tree": "0e1ee00d73e23460dc0c4af5a13296d6e2ad12e3",
+  "runtime_profile": {
+    "profile_id": "imoexf-baseline07-bo-only-paper-v1",
+    "canonical_sha256": "8f346b730760c8a70c4ab8576da60147a80a7c0668ba2068783ea2e5a2637872",
+    "runtime_config_fingerprint_sha256": "6ac8994e5fc8777035c48c0b871b2d15a6662cdae6be88220f2bcdcadf0a244d"
+  },
+  "operator_runner_failure_exit_code": 70
 }
