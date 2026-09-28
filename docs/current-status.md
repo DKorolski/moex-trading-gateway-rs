@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-09-27.
+Status date: 2026-09-28.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -11,6 +11,15 @@ an accepted macro-stage into smaller patch gates, but it does not renumber or
 replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 ## Active Stage 8B-P1-f source boundary
+
+PR #9 baseline `38c7b825863d8a54c018eb5581ed8e243e017cfe` passed both
+GitHub CI checks (`36380295678`). Merge is temporarily held for two subsequently
+confirmed O2 recovery findings: retained source account alias validation and
+active-manifest selector replacement. The [narrow source correction](stage-8/stage8b-p1f-o2-recovery-source-correction.md)
+is review-pending; it changes three production files and leaves the accepted
+authority manifest unchanged. After source acceptance: narrow authority rebind,
+fresh PR CI, history-preserving merge, exact-merge O2 artifact rebuild. No O2
+installation or execution is authorized by this correction.
 
 The O1 immutable package at
 `8864a2bbba64ef930073fae4e71dfcde82ceba58` and its operational-evidence

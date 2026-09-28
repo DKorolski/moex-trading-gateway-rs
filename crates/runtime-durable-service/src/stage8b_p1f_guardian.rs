@@ -1060,6 +1060,110 @@ impl Stage8bP1fAuthorityStoreV1 {
         Ok(Stage8bP1fClaimDispositionV1::Claimed(receipt))
     }
 
+    /// Publishes the fixed O2 selector as a projection of the committed claim.
+    /// Retrying after claim commit or selector rename does not consume authority.
+    /// Publication and terminal transitions share the guardian lease; a delayed
+    /// publisher cannot roll the selector back to a superseded claim.
+    pub fn publish_o2_active_manifest_selector(
+        &self,
+        manifest_sha256: &str,
+        trusted_now: DateTime<Utc>,
+    ) -> Result<(), Stage8bP1fAuthorityErrorV1> {
+        self.publish_o2_selector_at(
+            Path::new(crate::STAGE8B_P1F_O2_ACTIVE_MANIFEST_PATH),
+            manifest_sha256,
+            trusted_now,
+        )
+    }
+
+    fn publish_o2_selector_at(
+        &self,
+        path: &Path,
+        manifest_sha256: &str,
+        trusted_now: DateTime<Utc>,
+    ) -> Result<(), Stage8bP1fAuthorityErrorV1> {
+        let _lease = self.acquire_lease()?;
+        self.reject_quarantine()?;
+        let head = self.validate_history(true)?;
+        if head.state != Stage8bP1fPhaseStateV1::Active
+            || head.active_manifest_sha256.as_deref() != Some(manifest_sha256)
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::ActiveConflict);
+        }
+        let claim = self.read_claim_receipt(manifest_sha256)?;
+        if claim.phase != Stage8bP1fPhaseV1::O2MaterializeBootstrap {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        validate_not_expired(&claim.deadline_utc, trusted_now)?;
+        let parent = path
+            .parent()
+            .ok_or(Stage8bP1fAuthorityErrorV1::InvalidPath)?;
+        if fs::canonicalize(parent)? != parent {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidPath);
+        }
+        self.validate_directory(parent)?;
+        let expected = format!("{manifest_sha256}\n").into_bytes();
+        match fs::symlink_metadata(path) {
+            Ok(_) => {
+                let retained = self.read_authority_bytes(path, 0o440)?;
+                if retained == expected {
+                    // Also completes durability after rename-before-directory-sync.
+                    return sync_directory(parent);
+                }
+                // A lost publisher can leave the selector more than one claim
+                // behind. Accept only an exact terminal O2 ancestor in the
+                // history just validated, never an arbitrary root-owned hash.
+                let retained_hash = std::str::from_utf8(&retained)
+                    .ok()
+                    .and_then(|value| value.strip_suffix('\n'))
+                    .filter(|value| valid_sha256(value))
+                    .ok_or(Stage8bP1fAuthorityErrorV1::HistoryConflict)?;
+                let old_claim = self.read_claim_receipt(retained_hash)?;
+                let mut terminal_ancestor = false;
+                if old_claim.phase == Stage8bP1fPhaseV1::O2MaterializeBootstrap
+                    && old_claim.authority_generation == claim.authority_generation
+                    && old_claim.authority_sequence < claim.authority_sequence
+                {
+                    for sequence in
+                        ((old_claim.authority_sequence + 1)..claim.authority_sequence).rev()
+                    {
+                        let event: AuthorityEventV1 = self.read_authority_file(
+                            &event_path(&self.root.join(AUTHORITY_DIRECTORY), sequence),
+                            0o440,
+                        )?;
+                        if event.manifest_sha256 == retained_hash
+                            && event.event_kind == "PHASE_TERMINAL"
+                            && matches!(
+                                event.state,
+                                Stage8bP1fPhaseStateV1::Completed
+                                    | Stage8bP1fPhaseStateV1::Failed
+                                    | Stage8bP1fPhaseStateV1::Expired
+                            )
+                        {
+                            terminal_ancestor = true;
+                            break;
+                        }
+                    }
+                }
+                if !terminal_ancestor {
+                    return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+                }
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+        // Manifest-scoped temp names keep an interrupted, subsequently expired
+        // phase from blocking a new claim. Old projections carry no authority.
+        let prepared = parent.join(format!(".o2-selector-{manifest_sha256}"));
+        self.write_create_new(&prepared, &expected, 0o440)?;
+        fs::rename(&prepared, path)?;
+        sync_directory(parent)?;
+        if self.read_authority_bytes(path, 0o440)? != expected {
+            return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+        }
+        Ok(())
+    }
+
     fn continue_claim_transaction(
         &self,
         manifest: &Stage8bP1fPhaseManifestV1,
@@ -4271,6 +4375,310 @@ mod tests {
         let signature = lower_hex(&key.sign(&payload).to_bytes());
         set_signature(value, signature);
         canonical_json(value).unwrap()
+    }
+
+    #[test]
+    fn o2_selector_create_exact_replay_and_foreign_claim_rejection() {
+        let setup = Setup::new();
+        let head = setup.initialize_and_activate();
+        let phase = setup.phase(&head, Stage8bP1fPhaseV1::O2MaterializeBootstrap);
+        let hash = sha256_hex(&phase);
+        let path = setup.root.join("active-manifest.sha256");
+        assert!(setup
+            .store
+            .publish_o2_selector_at(&path, &hash, setup.now)
+            .is_err());
+        assert!(!path.exists());
+        setup
+            .store
+            .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+            .unwrap();
+        let before = setup.store.inspect().unwrap();
+        for _ in 0..2 {
+            setup
+                .store
+                .publish_o2_selector_at(&path, &hash, setup.now)
+                .unwrap();
+            assert_eq!(fs::read(&path).unwrap(), format!("{hash}\n").as_bytes());
+            let metadata = path.metadata().unwrap();
+            assert_eq!(metadata.uid(), setup.store.expected_uid);
+            assert_eq!(metadata.gid(), setup.store.service_gid);
+            assert_eq!(metadata.permissions().mode() & 0o777, 0o440);
+            assert_eq!(metadata.nlink(), 1);
+        }
+        assert!(setup
+            .store
+            .publish_o2_selector_at(&path, &"f".repeat(64), setup.now)
+            .is_err());
+        assert_eq!(before, setup.store.inspect().unwrap());
+        assert_eq!(fs::read(&path).unwrap(), format!("{hash}\n").as_bytes());
+    }
+
+    #[test]
+    fn o2_selector_rotates_after_each_terminal_state_and_claim_restart() {
+        for terminal in [
+            Stage8bP1fPhaseStateV1::Completed,
+            Stage8bP1fPhaseStateV1::Failed,
+            Stage8bP1fPhaseStateV1::Expired,
+        ] {
+            let mut setup = Setup::new();
+            let head = setup.initialize_and_activate();
+            let phase = setup.phase(&head, Stage8bP1fPhaseV1::O2MaterializeBootstrap);
+            let old = sha256_hex(&phase);
+            let path = setup.root.join("active-manifest.sha256");
+            setup
+                .store
+                .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+                .unwrap();
+            setup
+                .store
+                .publish_o2_selector_at(&path, &old, setup.now)
+                .unwrap();
+            setup.now += Duration::seconds(if terminal == Stage8bP1fPhaseStateV1::Expired {
+                1800
+            } else {
+                1
+            });
+            setup
+                .store
+                .finish_phase(&old, terminal, "test-terminal", setup.now)
+                .unwrap();
+            assert!(setup
+                .store
+                .publish_o2_selector_at(&path, &old, setup.now)
+                .is_err());
+            let next = setup.phase(
+                &setup.store.inspect().unwrap(),
+                Stage8bP1fPhaseV1::O2MaterializeBootstrap,
+            );
+            let next_hash = sha256_hex(&next);
+            setup
+                .store
+                .claim_phase(&next, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+                .unwrap();
+            // Crash frontier: new claim is durable, selector is still old.
+            assert_eq!(fs::read(&path).unwrap(), format!("{old}\n").as_bytes());
+            let reopened = Stage8bP1fAuthorityStoreV1::open_at(
+                &setup.root,
+                setup.store.expected_uid,
+                setup.store.service_gid,
+            )
+            .unwrap();
+            assert!(matches!(
+                reopened
+                    .claim_phase(&next, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+                    .unwrap(),
+                Stage8bP1fClaimDispositionV1::ContinuedExisting(_)
+            ));
+            let before = reopened.inspect().unwrap();
+            reopened
+                .publish_o2_selector_at(&path, &next_hash, setup.now)
+                .unwrap();
+            assert_eq!(
+                fs::read(&path).unwrap(),
+                format!("{next_hash}\n").as_bytes()
+            );
+            assert_eq!(before, reopened.inspect().unwrap());
+            assert!(reopened
+                .publish_o2_selector_at(&path, &old, setup.now)
+                .is_err());
+            assert_eq!(
+                fs::read(&path).unwrap(),
+                format!("{next_hash}\n").as_bytes()
+            );
+        }
+    }
+
+    #[test]
+    fn o2_selector_recovers_when_an_intermediate_claim_never_published() {
+        let mut setup = Setup::new();
+        let mut head = setup.initialize_and_activate();
+        let path = setup.root.join("active-manifest.sha256");
+        let mut first_hash = String::new();
+        for index in 0..3 {
+            let phase = setup.phase(&head, Stage8bP1fPhaseV1::O2MaterializeBootstrap);
+            let hash = sha256_hex(&phase);
+            setup
+                .store
+                .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+                .unwrap();
+            if index == 0 {
+                setup
+                    .store
+                    .publish_o2_selector_at(&path, &hash, setup.now)
+                    .unwrap();
+                first_hash = hash.clone();
+            } else if index == 1 {
+                // Prepared publication never renamed before this phase failed.
+                setup
+                    .store
+                    .write_create_new(
+                        &setup.root.join(format!(".o2-selector-{hash}")),
+                        format!("{hash}\n").as_bytes(),
+                        0o440,
+                    )
+                    .unwrap();
+            } else {
+                assert_eq!(
+                    fs::read(&path).unwrap(),
+                    format!("{first_hash}\n").as_bytes()
+                );
+                setup
+                    .store
+                    .publish_o2_selector_at(&path, &hash, setup.now)
+                    .unwrap();
+                assert_eq!(fs::read(&path).unwrap(), format!("{hash}\n").as_bytes());
+                break;
+            }
+            setup.now += Duration::seconds(1);
+            setup
+                .store
+                .finish_phase(
+                    &hash,
+                    Stage8bP1fPhaseStateV1::Failed,
+                    "lost-publisher",
+                    setup.now,
+                )
+                .unwrap();
+            head = setup.store.inspect().unwrap();
+        }
+    }
+
+    #[test]
+    fn o2_selector_recovers_exact_prepared_temp_and_rename_response_loss() {
+        let setup = Setup::new();
+        let head = setup.initialize_and_activate();
+        let phase = setup.phase(&head, Stage8bP1fPhaseV1::O2MaterializeBootstrap);
+        let hash = sha256_hex(&phase);
+        setup
+            .store
+            .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+            .unwrap();
+        let path = setup.root.join("active-manifest.sha256");
+        let bytes = format!("{hash}\n").into_bytes();
+        for name in [
+            format!("..o2-selector-{hash}.p1f-create"),
+            format!(".o2-selector-{hash}"),
+        ] {
+            if path.exists() {
+                fs::remove_file(&path).unwrap();
+            }
+            setup
+                .store
+                .write_create_new(&setup.root.join(&name), &bytes, 0o440)
+                .unwrap();
+            let reopened = Stage8bP1fAuthorityStoreV1::open_at(
+                &setup.root,
+                setup.store.expected_uid,
+                setup.store.service_gid,
+            )
+            .unwrap();
+            reopened
+                .publish_o2_selector_at(&path, &hash, setup.now)
+                .unwrap();
+            assert_eq!(fs::read(&path).unwrap(), bytes);
+            assert!(!setup.root.join(name).exists());
+            // Lost success response after rename: replay is exact and read-only
+            // with respect to authority, and syncs the selector directory again.
+            reopened
+                .publish_o2_selector_at(&path, &hash, setup.now)
+                .unwrap();
+            assert_eq!(reopened.inspect().unwrap().latest_sequence, 1);
+        }
+    }
+
+    #[test]
+    fn o2_selector_rejects_foreign_bytes_symlink_hardlink_mode_and_temp() {
+        let setup = Setup::new();
+        let head = setup.initialize_and_activate();
+        let phase = setup.phase(&head, Stage8bP1fPhaseV1::O2MaterializeBootstrap);
+        let hash = sha256_hex(&phase);
+        setup
+            .store
+            .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+            .unwrap();
+        let before = setup.store.inspect().unwrap();
+        let path = setup.root.join("active-manifest.sha256");
+        let other = setup.root.join("other");
+        setup
+            .store
+            .write_create_new(&other, b"foreign\n", 0o440)
+            .unwrap();
+        std::os::unix::fs::symlink(&other, &path).unwrap();
+        assert!(setup
+            .store
+            .publish_o2_selector_at(&path, &hash, setup.now)
+            .is_err());
+        fs::remove_file(&path).unwrap();
+        fs::hard_link(&other, &path).unwrap();
+        assert!(setup
+            .store
+            .publish_o2_selector_at(&path, &hash, setup.now)
+            .is_err());
+        fs::remove_file(&path).unwrap();
+        setup
+            .store
+            .write_create_new(&path, b"foreign\n", 0o440)
+            .unwrap();
+        assert!(setup
+            .store
+            .publish_o2_selector_at(&path, &hash, setup.now)
+            .is_err());
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+        assert!(setup
+            .store
+            .publish_o2_selector_at(&path, &hash, setup.now)
+            .is_err());
+        fs::remove_file(&path).unwrap();
+        let temp = setup.root.join(format!(".o2-selector-{hash}"));
+        setup
+            .store
+            .write_create_new(&temp, b"foreign\n", 0o440)
+            .unwrap();
+        assert!(setup
+            .store
+            .publish_o2_selector_at(&path, &hash, setup.now)
+            .is_err());
+        assert!(!path.exists());
+        assert_eq!(fs::read(&other).unwrap(), b"foreign\n");
+        assert_eq!(fs::read(&temp).unwrap(), b"foreign\n");
+        assert_eq!(before, setup.store.inspect().unwrap());
+    }
+
+    #[test]
+    fn o2_selector_uses_guardian_lease_and_rejects_non_o2_and_expired_claims() {
+        for phase_kind in [
+            Stage8bP1fPhaseV1::O2MaterializeBootstrap,
+            Stage8bP1fPhaseV1::O3SyntheticPaper,
+        ] {
+            let setup = Setup::new();
+            let head = setup.initialize_and_activate();
+            let phase = setup.phase(&head, phase_kind);
+            let hash = sha256_hex(&phase);
+            setup
+                .store
+                .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+                .unwrap();
+            let path = setup.root.join("active-manifest.sha256");
+            {
+                let _lease = setup.store.acquire_lease().unwrap();
+                assert!(setup
+                    .store
+                    .publish_o2_selector_at(&path, &hash, setup.now)
+                    .is_err());
+            }
+            assert!(setup
+                .store
+                .publish_o2_selector_at(&path, &hash, setup.now + Duration::seconds(1800))
+                .is_err());
+            if phase_kind == Stage8bP1fPhaseV1::O3SyntheticPaper {
+                assert!(setup
+                    .store
+                    .publish_o2_selector_at(&path, &hash, setup.now)
+                    .is_err());
+            }
+            assert!(!path.exists());
+        }
     }
 
     #[test]

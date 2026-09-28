@@ -490,3 +490,12 @@ narrow immutable handoff, independent governance acceptance, update PR 9,
 green `rust` plus `redis-smoke`, merge to `main`, then build the non-activating
 O2 package from the exact merge commit. No operational activation is opened by
 this repair.
+
+## Current checkpoint — 2026-09-28
+
+PR #9 CI is green at `38c7b82`. Before merge, close the two concrete O2 recovery
+findings in the [source-correction slice](stage-8/stage8b-p1f-o2-recovery-source-correction.md):
+retained account-alias replay and guardian-bound manifest selector publication.
+This does not renumber or reopen the roadmap. Source review, accepted-source
+authority rebind and green PR checks precede merge; exact-merge O2 artifact review
+precedes any separately authorized installation/execution.

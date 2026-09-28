@@ -3,7 +3,6 @@ use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
-use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::process::ExitCode;
 
@@ -114,7 +113,9 @@ fn run() -> Result<(), String> {
             let disposition = store
                 .claim_phase(&manifest_bytes, &fixed_public_key()?, O2_KEY_ID, Utc::now())
                 .map_err(|error| error.to_string())?;
-            write_active_manifest_selector(&sha256_hex(&manifest_bytes))?;
+            store
+                .publish_o2_active_manifest_selector(&sha256_hex(&manifest_bytes), Utc::now())
+                .map_err(|error| error.to_string())?;
             match disposition {
                 Stage8bP1fClaimDispositionV1::Claimed(receipt)
                 | Stage8bP1fClaimDispositionV1::ContinuedExisting(receipt) => print_json(&receipt)?,
@@ -415,50 +416,6 @@ fn require_root() -> Result<(), String> {
     } else {
         Err("root is required".into())
     }
-}
-
-fn write_active_manifest_selector(manifest_sha256: &str) -> Result<(), String> {
-    let path = Path::new(runtime_durable_service::STAGE8B_P1F_O2_ACTIVE_MANIFEST_PATH);
-    let bytes = format!("{manifest_sha256}\n").into_bytes();
-    if path.exists() {
-        let existing = read_root_owned(path, 65, 0o440)?;
-        if existing == bytes {
-            return Ok(());
-        }
-        return Err("active manifest selector conflicts with claimed phase".into());
-    }
-    let gid = service_group_gid()?;
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o440)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(path)
-        .map_err(|error| error.to_string())?;
-    let result = (|| {
-        if unsafe { libc::fchown(file.as_raw_fd(), 0, gid) } != 0 {
-            return Err("active manifest selector chown failed".into());
-        }
-        if unsafe { libc::fchmod(file.as_raw_fd(), 0o440) } != 0 {
-            return Err("active manifest selector mode failed".into());
-        }
-        file.write_all(&bytes).map_err(|error| error.to_string())?;
-        file.sync_all().map_err(|error| error.to_string())
-    })();
-    drop(file);
-    if let Err(error) = result {
-        let _ = fs::remove_file(path);
-        return Err(error);
-    }
-    let parent = path
-        .parent()
-        .ok_or("active manifest selector parent is missing")?;
-    OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW)
-        .open(parent)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|error| error.to_string())
 }
 
 fn service_group_gid() -> Result<u32, String> {

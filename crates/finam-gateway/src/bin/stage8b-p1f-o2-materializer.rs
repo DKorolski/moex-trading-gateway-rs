@@ -156,8 +156,19 @@ fn validate_existing(
     account_id: &str,
 ) -> Result<MaterializerResultV1, String> {
     let bytes = read_protected(path, MAX_STAGED_BYTES, false)?;
+    validate_retained_bytes(&bytes, manifest_sha256, policy, account_id, Utc::now())
+}
+
+fn validate_retained_bytes(
+    bytes: &[u8],
+    manifest_sha256: &str,
+    policy: &MaterializationPolicyV1,
+    account_id: &str,
+    trusted_now: DateTime<Utc>,
+) -> Result<MaterializerResultV1, String> {
+    validate_policy(policy)?;
     let staged: StagedMaterializationV1 =
-        serde_json::from_slice(&bytes).map_err(|_| "invalid retained staged package")?;
+        serde_json::from_slice(bytes).map_err(|_| "invalid retained staged package")?;
     if staged.schema_version != 1
         || staged.domain != "stage8b-p1f-o2-staged-materialization-v1"
         || staged.manifest_sha256 != manifest_sha256
@@ -177,8 +188,8 @@ fn validate_existing(
     runtime_durable_service::validate_stage8b_p1e_first_boot_source_bytes_v1(
         staged.exact_source_json.as_bytes(),
         identity,
-        account_id,
-        Utc::now(),
+        &policy.account_alias,
+        trusted_now,
     )
     .map_err(|_| "retained source no longer satisfies fresh admission")?;
     Ok(MaterializerResultV1 {
@@ -186,7 +197,7 @@ fn validate_existing(
         domain: "stage8b-p1f-o2-materializer-result-v1",
         manifest_sha256: manifest_sha256.to_string(),
         source_bundle_sha256: staged.source_bundle_sha256,
-        staged_package_sha256: sha256_hex(&bytes),
+        staged_package_sha256: sha256_hex(bytes),
         disposition: "EXACT_RETAINED_REPLAY",
     })
 }
@@ -336,4 +347,145 @@ fn valid_sha256(value: &str) -> bool {
 
 fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    const ACCOUNT: &str = "ACC_TEST_0001";
+
+    fn fixture() -> (
+        StagedMaterializationV1,
+        MaterializationPolicyV1,
+        DateTime<Utc>,
+    ) {
+        let fixture = runtime_durable_service::Stage8bP1fIeLinkedFixtureV1::materialize().unwrap();
+        let mut source: serde_json::Value =
+            serde_json::from_slice(&fs::read(fixture.source_path()).unwrap()).unwrap();
+        source["broker_truth"]["account_id"] = json!(finam_gateway::STAGE8B_P1F_O2_ACCOUNT_ALIAS);
+        let now = canonical_time(source["captured_at_utc"].as_str().unwrap()).unwrap();
+        let source_json = serde_json::to_string(&source).unwrap();
+        let source_hash = sha256_hex(source_json.as_bytes());
+        let staged = StagedMaterializationV1 {
+            schema_version: 1,
+            domain: "stage8b-p1f-o2-staged-materialization-v1".into(),
+            manifest_sha256: "a".repeat(64),
+            source_bundle_sha256: source_hash.clone(),
+            exact_source_json: source_json,
+            evidence: serde_json::from_value(json!({
+                "schema_version": 1,
+                "domain": "stage8b-p1f-o2-materialization-evidence-v1",
+                "captured_at_utc": source["captured_at_utc"],
+                "account_id_sha256": sha256_hex(ACCOUNT.as_bytes()),
+                "venue_symbol": broker_finam::STAGE8B_P1F_O2_VENUE_SYMBOL,
+                "target_position_qty": "0", "target_active_orders_count": 0,
+                "account_active_orders_count": 0, "active_orders_complete": true,
+                "selected_m1_count": 10,
+                "candidate_redis_id": source["candidate"]["redis_id"],
+                "candidate_semantic_id_sha256": source["candidate"]["semantic_id_sha256"],
+                "source_bundle_sha256": source_hash, "route_evidence": []
+            }))
+            .unwrap(),
+        };
+        let policy = MaterializationPolicyV1 {
+            schema_version: 1,
+            domain: "stage8b-p1f-o2-materialization-policy-v1".into(),
+            account_id_sha256: sha256_hex(ACCOUNT.as_bytes()),
+            account_alias: finam_gateway::STAGE8B_P1F_O2_ACCOUNT_ALIAS.into(),
+            venue_symbol: broker_finam::STAGE8B_P1F_O2_VENUE_SYMBOL.into(),
+            bars_start_utc: "2026-01-01T00:00:00Z".into(),
+            bars_end_utc: "2026-07-15T00:00:00Z".into(),
+        };
+        (staged, policy, now)
+    }
+
+    #[test]
+    fn retained_replay_uses_alias_and_preserves_exact_package_bytes() {
+        let (staged, policy, now) = fixture();
+        let bytes = serde_json::to_vec(&staged).unwrap();
+        for _ in 0..2 {
+            let result =
+                validate_retained_bytes(&bytes, &staged.manifest_sha256, &policy, ACCOUNT, now)
+                    .unwrap();
+            assert_eq!(result.disposition, "EXACT_RETAINED_REPLAY");
+            assert_eq!(result.staged_package_sha256, sha256_hex(&bytes));
+            assert_eq!(result.source_bundle_sha256, staged.source_bundle_sha256);
+        }
+    }
+
+    #[test]
+    fn retained_replay_rejects_account_manifest_hash_and_alias_conflicts() {
+        let (mut staged, mut policy, now) = fixture();
+        let bytes = serde_json::to_vec(&staged).unwrap();
+        assert!(validate_retained_bytes(
+            &bytes,
+            &staged.manifest_sha256,
+            &policy,
+            "OTHER_ACCOUNT",
+            now
+        )
+        .is_err());
+        assert!(validate_retained_bytes(&bytes, &"b".repeat(64), &policy, ACCOUNT, now).is_err());
+        policy.account_alias = "foreign-alias".into();
+        assert!(
+            validate_retained_bytes(&bytes, &staged.manifest_sha256, &policy, ACCOUNT, now)
+                .is_err()
+        );
+        policy.account_alias = finam_gateway::STAGE8B_P1F_O2_ACCOUNT_ALIAS.into();
+        staged.source_bundle_sha256 = "f".repeat(64);
+        assert!(validate_retained_bytes(
+            &serde_json::to_vec(&staged).unwrap(),
+            &staged.manifest_sha256,
+            &policy,
+            ACCOUNT,
+            now
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn retained_replay_keeps_freshness_boundary() {
+        let (staged, policy, _) = fixture();
+        let source: serde_json::Value = serde_json::from_str(&staged.exact_source_json).unwrap();
+        let now =
+            canonical_time(source["broker_truth"]["checked_at_utc"].as_str().unwrap()).unwrap();
+        let bytes = serde_json::to_vec(&staged).unwrap();
+        assert!(validate_retained_bytes(
+            &bytes,
+            &staged.manifest_sha256,
+            &policy,
+            ACCOUNT,
+            now + chrono::Duration::seconds(300)
+        )
+        .is_ok());
+        assert!(validate_retained_bytes(
+            &bytes,
+            &staged.manifest_sha256,
+            &policy,
+            ACCOUNT,
+            now + chrono::Duration::seconds(301)
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn retained_replay_rejects_raw_account_in_source_even_with_matching_hashes() {
+        let (mut staged, policy, now) = fixture();
+        let mut source: serde_json::Value =
+            serde_json::from_str(&staged.exact_source_json).unwrap();
+        source["broker_truth"]["account_id"] = json!(ACCOUNT);
+        staged.exact_source_json = serde_json::to_string(&source).unwrap();
+        staged.source_bundle_sha256 = sha256_hex(staged.exact_source_json.as_bytes());
+        staged.evidence.source_bundle_sha256 = staged.source_bundle_sha256.clone();
+        assert!(validate_retained_bytes(
+            &serde_json::to_vec(&staged).unwrap(),
+            &staged.manifest_sha256,
+            &policy,
+            ACCOUNT,
+            now
+        )
+        .is_err());
+    }
 }
