@@ -1,6 +1,11 @@
 # P1F O2 — retained replay and selector recovery correction
 
-Status: source review pending. Baseline: `38c7b825863d8a54c018eb5581ed8e243e017cfe`.
+Status: SOURCE ACCEPTED at `5b8f878833dbf71fa7614152a4a5fb03cbf40b65`.
+Baseline: `38c7b825863d8a54c018eb5581ed8e243e017cfe`.
+Independent review: `FINAM_5b8f878_O2_RECOVERY_SOURCE_REVIEW_2026-09-28.md`,
+SHA-256 `4759f46e8b878bd9a86ee13de46d968ca52e4c4e827501524ef081563b59d177`.
+The [authority successor](stage8b-p1f-o2-recovery-authority-closure.md) records
+the next transition; SOURCE ACCEPT does not itself authorize merge or execution.
 This is the two-finding correction for PR #9, not an O2 activation package.
 The baseline CI jobs `rust` and `redis-smoke` passed in run `36380295678`.
 That CI result does not certify this subsequent source change.
@@ -69,7 +74,8 @@ durable crash frontiers, not a new SIGKILL or Linux multi-UID claim. Operational
 paths are never used by the tests. No VPS, FINAM or operational Redis is contacted.
 Inherited isolated Redis regression tests may start their own local test servers.
 
-From a clean committed tree:
+Reproduce this historical source gate from a clean checkout of the accepted
+source commit `5b8f878` (it deliberately expects the pre-rebind authority):
 
 ```sh
 python3 scripts/stage8b_p1f_o2_recovery_review.py gate tmp/o2-recovery-UNIQUE
@@ -94,12 +100,12 @@ existing fixture features. The original failed log is retained locally under
 
 ## Merge and operational boundary
 
-The accepted production authority remains pinned to the previous baseline. Its
+At source-review time the production authority remained pinned to the previous baseline. Its
 current-tree checker is expected to reject exactly the three changed production
 entries; the evidence records that rejection explicitly, not as authority PASS.
 No authority/checker/workflow files are changed by this source patch.
 
-Next: independent review of these two fixes, then the normal narrow authority
+Source review is now accepted. Next: the normal narrow authority
 rebind for the accepted source and fresh PR checks, followed by history-preserving
 merge. Rebuild O2 from the exact merged source with reviewed profile/unit identity.
 O2 artifact review, non-activating installation and operational permission remain

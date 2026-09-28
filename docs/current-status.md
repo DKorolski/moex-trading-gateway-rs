@@ -12,14 +12,16 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 ## Active Stage 8B-P1-f source boundary
 
-PR #9 baseline `38c7b825863d8a54c018eb5581ed8e243e017cfe` passed both
-GitHub CI checks (`36380295678`). Merge is temporarily held for two subsequently
-confirmed O2 recovery findings: retained source account alias validation and
-active-manifest selector replacement. The [narrow source correction](stage-8/stage8b-p1f-o2-recovery-source-correction.md)
-is review-pending; it changes three production files and leaves the accepted
-authority manifest unchanged. After source acceptance: narrow authority rebind,
-fresh PR CI, history-preserving merge, exact-merge O2 artifact rebuild. No O2
-installation or execution is authorized by this correction.
+The [narrow O2 recovery source correction](stage-8/stage8b-p1f-o2-recovery-source-correction.md)
+is independently SOURCE ACCEPTED at `5b8f878833dbf71fa7614152a4a5fb03cbf40b65`.
+Both retained account-alias replay and active-manifest selector replacement
+findings are closed. The [authority successor](stage-8/stage8b-p1f-o2-recovery-authority-closure.md)
+binds these accepted bytes without Rust/Cargo, workflow or deployment changes.
+Fresh required PR #9 checks still precede history-preserving merge; the old green
+run `36380295678` at `38c7b82` is not evidence for this successor. After merge,
+rebuild the O2 artifact from the exact synchronized commit, preserving the accepted
+baseline07 BO-only profile. Artifact review and separately authorized installation
+and execution follow; this successor performs none of those operational actions.
 
 The O1 immutable package at
 `8864a2bbba64ef930073fae4e71dfcde82ceba58` and its operational-evidence

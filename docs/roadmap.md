@@ -493,9 +493,13 @@ this repair.
 
 ## Current checkpoint — 2026-09-28
 
-PR #9 CI is green at `38c7b82`. Before merge, close the two concrete O2 recovery
-findings in the [source-correction slice](stage-8/stage8b-p1f-o2-recovery-source-correction.md):
+The two O2 recovery findings are independently SOURCE ACCEPTED at `5b8f878`:
 retained account-alias replay and guardian-bound manifest selector publication.
-This does not renumber or reopen the roadmap. Source review, accepted-source
-authority rebind and green PR checks precede merge; exact-merge O2 artifact review
-precedes any separately authorized installation/execution.
+The [narrow authority successor](stage-8/stage8b-p1f-o2-recovery-authority-closure.md)
+binds the accepted tree. Fresh PR #9 checks precede history-preserving merge.
+Next development deliverable: an exact-merge O2 Linux artifact with renewed
+binary/source/profile/unit identities and bounded local witnesses, then artifact
+review. Non-activating installation and O2 execution remain separate permissions.
+No historical re-audit or roadmap renumbering is needed. The operational goal
+remains bounded paper sessions against ALOR-live, followed by separately admitted
+FINAM live micro; O3/O4 and FINAM write surfaces are not opened here.
