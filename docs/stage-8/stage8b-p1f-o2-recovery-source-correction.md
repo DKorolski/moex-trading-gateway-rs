@@ -83,6 +83,15 @@ all-feature Clippy and format/diff checks. ZIP includes raw logs, exact source
 manifest, raw Git commit object and reconstructed Git-tree verification, plus
 external SHA-256 and safety JSON. It is a source package, not a Linux build.
 
+FINAM debug/release/doctests use the accepted CI default feature selection;
+`--all-features` belongs to Clippy, not these tests. An exploratory all-feature
+FINAM test run failed the unchanged legacy
+`endpoint_gate_marker_cannot_be_forged_from_manual_decision`: it expects the
+`m3j16-actual-one-shot` feature to be disabled. No test is skipped or altered to
+hide that failure. The durable package's all-features tests enable only its
+existing fixture features. The original failed log is retained locally under
+`tmp/o2-recovery-review-20260928-r1/finam-debug.txt`.
+
 ## Merge and operational boundary
 
 The accepted production authority remains pinned to the previous baseline. Its

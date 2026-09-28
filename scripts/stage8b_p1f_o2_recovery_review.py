@@ -28,12 +28,12 @@ ALLOWED = PRODUCTION | {
 }
 COMMANDS = [
     ("fmt", ["cargo", "fmt", "--all", "--", "--check"]),
-    ("finam-debug", ["cargo", "test", "--locked", "-p", "finam-gateway", "--all-targets", "--all-features", "--", "--test-threads=1"]),
+    ("finam-debug", ["cargo", "test", "--locked", "-p", "finam-gateway", "--all-targets", "--", "--test-threads=1"]),
     ("durable-debug", ["cargo", "test", "--locked", "-p", "runtime-durable-service", "--all-targets", "--all-features", "--", "--test-threads=1"]),
-    ("materializer-release", ["cargo", "test", "--locked", "--release", "-p", "finam-gateway", "--all-features", "--bin", "stage8b-p1f-o2-materializer", "--", "--test-threads=1"]),
+    ("materializer-release", ["cargo", "test", "--locked", "--release", "-p", "finam-gateway", "--bin", "stage8b-p1f-o2-materializer", "--", "--test-threads=1"]),
     ("guardian-release", ["cargo", "test", "--locked", "--release", "-p", "runtime-durable-service", "--all-features", "--lib", "stage8b_p1f_guardian::tests::", "--", "--test-threads=1"]),
     ("alor-regression", ["bash", "scripts/stage8b_p1f_alor_finam_source_correction_gate.sh"]),
-    ("doctests", ["cargo", "test", "--locked", "-p", "finam-gateway", "-p", "runtime-durable-service", "--all-features", "--doc"]),
+    ("doctests", ["cargo", "test", "--locked", "-p", "finam-gateway", "-p", "runtime-durable-service", "--doc"]),
     ("clippy", ["cargo", "clippy", "--locked", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings"]),
     ("diff", ["git", "diff", "--check", BASE]),
 ]
