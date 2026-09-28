@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+python3 scripts/test_stage8b_p1f_o2_profile_binding.py
 python3 scripts/stage8b_p1f_o2_artifact_check.py
 python3 scripts/stage8b_p1f_o2_artifact_negative_harness.py
 python3 -m py_compile \

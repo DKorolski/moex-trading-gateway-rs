@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "runtime_profile_id": "imoexf-hybrid-high180-paper-v1",
-  "runtime_profile_sha256": "dd5a211e708db0d40175d19ed1eeb51db26497d344a553b41d7afbfdddde0ef6",
+  "runtime_profile_id": "imoexf-baseline07-bo-only-paper-v1",
+  "runtime_profile_sha256": "8f346b730760c8a70c4ab8576da60147a80a7c0668ba2068783ea2e5a2637872",
   "first_boot_source_bundle_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
   "schedule_registry_version": "imoexf-v1",
   "schedule_registry_identity_sha256": "ba4e7b1190dc2686559b6d7c0df0185e96a10dfac6b13f6a582a349b14198558",
@@ -22,7 +22,7 @@
     "exchange": "moex",
     "market": "futures",
     "tick_size": "0.5",
-    "runtime_config_fingerprint_sha256": "60793364de8e60744235b7270a3324d0b9868fc93290c480c81a5d88f6ac6b24",
+    "runtime_config_fingerprint_sha256": "6ac8994e5fc8777035c48c0b871b2d15a6662cdae6be88220f2bcdcadf0a244d",
     "instrument_map_fingerprint_sha256": "ba4e7b1190dc2686559b6d7c0df0185e96a10dfac6b13f6a582a349b14198558",
     "deployment_id": "finam-imoexf-paper-p1",
     "deployment_generation": 1,

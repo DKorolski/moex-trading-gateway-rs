@@ -25,6 +25,9 @@ ACCOUNT_ALIAS = "finam-paper-primary"
 SOURCE_SENTINEL = "f" * 64
 TEMPLATE_ACCOUNT_SENTINEL = "INJECT_FROM_ACCOUNT_CREDENTIAL"
 EXPECTED_MATRIX_IDS = [f"O2A-{index:03d}" for index in range(1, 31)]
+PROFILE_ID = "imoexf-baseline07-bo-only-paper-v1"
+PROFILE_SHA256 = "8f346b730760c8a70c4ab8576da60147a80a7c0668ba2068783ea2e5a2637872"
+RUNTIME_CONFIG_SHA256 = "6ac8994e5fc8777035c48c0b871b2d15a6662cdae6be88220f2bcdcadf0a244d"
 
 
 class ArtifactError(ValueError):
@@ -147,6 +150,25 @@ def validate_document(document: dict[str, Any], *, verify_files: bool = True) ->
     require(all(value is False for value in document["closed_surfaces"].values()), "closed surface opened")
 
 
+def validate_profile_binding(profile: dict, source: dict, config: dict) -> None:
+    """Bind both templates to the independently accepted baseline07 profile.
+
+    This is a public-input check, not broker freshness or executable evidence.
+    Source schema stays v2; only the accepted profile binding changes.
+    """
+    require(profile["profile_id"] == PROFILE_ID, "accepted profile id drift")
+    raw = json.dumps(profile, sort_keys=True, separators=(",", ":")).encode()
+    require(hashlib.sha256(raw).hexdigest() == PROFILE_SHA256, "accepted profile content drift")
+    require(source["schema_version"] == 2 and source["domain"] == "moex.stage8b.p1e.first-boot-source-bundle.v2", "source schema drift")
+    require(source["runtime_profile_sha256"] == PROFILE_SHA256, "source profile binding drift")
+    require(config["schema_version"] == 1, "supervisor schema drift")
+    require(config["runtime_profile_id"] == PROFILE_ID, "supervisor profile id drift")
+    require(config["runtime_profile_sha256"] == PROFILE_SHA256, "supervisor profile binding drift")
+    require(config["bootstrap"]["runtime_config_fingerprint_sha256"] == RUNTIME_CONFIG_SHA256, "runtime config fingerprint drift")
+    require(config["first_boot_source_bundle_sha256"] == SOURCE_SENTINEL, "template source sentinel drift")
+    require(config["bootstrap"]["account_id"] == ACCOUNT_ALIAS, "template account alias drift")
+
+
 def validate_files() -> None:
     policy = load_json(ROOT / "docs/stage-8/stage8b-p1f-o2-materialization-policy.json")
     require(policy == {
@@ -182,6 +204,8 @@ def validate_files() -> None:
             previous_close = last
 
     config = load_json(ROOT / "docs/stage-8/stage8b-p1f-o2-supervisor-template.json")
+    profile = load_json(ROOT / "docs/stage-8/stage8b-p1e-runtime-profile-v1.json")
+    validate_profile_binding(profile, source, config)
     require(config["first_boot_source_bundle_sha256"] == SOURCE_SENTINEL, "source hash sentinel drift")
     bootstrap = config["bootstrap"]
     require(bootstrap["account_id"] == ACCOUNT_ALIAS, "broker-neutral account alias drift")
