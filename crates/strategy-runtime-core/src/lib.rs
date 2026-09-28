@@ -292,6 +292,7 @@ mod stage5g_fresh_broker_truth;
 mod stage5g_lifecycle_freeze;
 mod stage5g_mock_ack;
 mod stage5g_order_position;
+mod stage5g_p1_semantic;
 mod stage5g_protective_completion;
 mod stage5g_timer;
 mod stage6_durable_identity;
@@ -299,6 +300,11 @@ mod stage6_journal_backend;
 mod stage6_reconciliation_v2;
 mod stage6_replay;
 mod stage6d_live_core;
+mod stage8b_p1d1_paper_provider;
+mod stage8b_p1d2_market_feedback;
+mod stage8b_p1d3_working_limit;
+mod stage8b_p1d4_generated_market;
+mod stage8b_p1e_first_boot;
 
 pub use hybrid_intraday_runtime::{
     BrokerNeutralHybridCallbackResult, BrokerNeutralHybridStrategy, HybridIntradayProfile,
@@ -314,6 +320,9 @@ pub use runtime_compat::{
     MarketBuyAndCloseLiveOrderStyle as BrokerNeutralMarketOrderStyle,
     OrderSide as BrokerNeutralOrderSide, StopLimitCondition as BrokerNeutralStopLimitCondition,
 };
+#[cfg(feature = "stage5g-artifact-fixtures")]
+#[doc(hidden)]
+pub use stage5c_paper_host::stage8b_p1d3_test_materialize_host_cancel_command;
 pub use stage6_durable_identity::{
     Stage6CancelOutcomeV1, Stage6ConflictKindV1, Stage6DurableActionKind,
     Stage6DurableCommandSnapshotV1, Stage6DurableIdentityError, Stage6DurablePlaceOrderShapeV1,
@@ -335,14 +344,16 @@ pub use stage6_journal_backend::{
 pub use stage6_reconciliation_v2::stage8a4_test_transition_fixture;
 pub use stage6_reconciliation_v2::{
     Stage6AccountSafetySummaryV2, Stage6BrokerOrderFactV2, Stage6ExactLookupEvidenceV2,
-    Stage6ExactOrderObservationV2, Stage6JournalEventKindV2, Stage6JournalRecordV2,
+    Stage6ExactOrderObservationV2, Stage6JournalEventKindV2, Stage6JournalEventKindV3,
+    Stage6JournalRecordV2, Stage6JournalRecordV3, Stage6JournalRecordV4,
     Stage6JournalRecordVersioned, Stage6MaterialTradeFactV2, Stage6MixedReplayEngineV2,
     Stage6MixedReplaySnapshotV2, Stage6PendingReconciliationBatchV2, Stage6PreAppendPreconditionV2,
     Stage6ReconciliationBatchCompletionV2, Stage6ReconciliationEndpointKindV2,
     Stage6ReconciliationFillEffectV2, Stage6ReconciliationLifecycleV2,
     Stage6ReconciliationTransitionKindV2, Stage6ReconciliationTransitionPayloadV2,
-    Stage6ReconciliationV2Error, Stage6SuffixManifestEntryV2, Stage6SuffixManifestV2,
-    Stage6VersionedJournalReader, STAGE6_DURABLE_RECORD_SCHEMA_VERSION_V2,
+    Stage6ReconciliationV2Error, Stage6ScheduleM10IdentityV4, Stage6SuffixManifestEntryV2,
+    Stage6SuffixManifestV2, Stage6VersionedJournalReader, STAGE6_DURABLE_RECORD_SCHEMA_VERSION_V2,
+    STAGE6_DURABLE_RECORD_SCHEMA_VERSION_V3, STAGE6_DURABLE_RECORD_SCHEMA_VERSION_V4,
 };
 pub use stage6_replay::{
     Stage6DispatchSafetyStateV1, Stage6RecoveredRequestV1, Stage6ReplayEngineV1, Stage6ReplayError,
@@ -351,30 +362,73 @@ pub use stage6_replay::{
 #[cfg(feature = "stage5g-artifact-fixtures")]
 #[doc(hidden)]
 pub use stage6d_live_core::stage8a4_test_attest_validated_entry;
+#[cfg(feature = "stage5g-artifact-fixtures")]
+#[doc(hidden)]
+pub use stage6d_live_core::stage8b_p1d3_test_inject_one_intent_transition;
+#[cfg(feature = "stage5g-artifact-fixtures")]
+#[doc(hidden)]
+pub use stage6d_live_core::stage8b_p1d3_test_latest_outcome_broker_order_id;
+#[cfg(feature = "stage5g-artifact-fixtures")]
+#[doc(hidden)]
+pub use stage6d_live_core::stage8b_p1d3_test_working_book_attribution;
 pub use stage6d_live_core::{
-    admit_stage7a_paper_command, advance_stage6d_restart_package,
-    apply_stage6e_accepted_fresh_truth, apply_stage8a4_validated_writer_entry,
-    authorize_stage6d_first_boot, execute_stage6d_paper_outcome, finalize_stage7a_paper_request,
-    finalize_stage7a_replayed_paper_request, first_boot_stage6d_paper,
+    admit_stage7a_p1d1_market_dispatch, admit_stage7a_paper_command,
+    advance_stage6d_restart_package, apply_stage6e_accepted_fresh_truth,
+    apply_stage8a4_validated_writer_entry, apply_stage8b_p1_semantic_transition,
+    apply_stage8b_p1d2_ack_transition, apply_stage8b_p1d2_recovered_ack_transition,
+    apply_stage8b_p1d2_truth_transition, apply_stage8b_p1d3_cancel_transition,
+    apply_stage8b_p1d3_initial_limit_ack_transition,
+    apply_stage8b_p1d3_initial_limit_truth_transition, apply_stage8b_p1d3_later_limit_transition,
+    apply_stage8b_p1d3_semantic_transition, apply_stage8b_p1d4_ack_transition,
+    apply_stage8b_p1d4_publication_reservation, apply_stage8b_p1d4_recovered_ack_transition,
+    apply_stage8b_p1d4_truth_transition, authenticate_stage8b_p1d4_restart_package_state,
+    authorize_stage6d_first_boot, classify_stage8b_p1_journal_ahead_candidate,
+    classify_stage8b_p1d2_journal_ahead_candidate, classify_stage8b_p1d3_dispatch_only_candidate,
+    classify_stage8b_p1d3_journal_ahead_candidate,
+    classify_stage8b_p1d4_generated_market_journal_ahead_candidate,
+    classify_stage8b_p1e_schedule_journal_ahead_candidate,
+    continue_stage8b_p1d3_cancel_after_target_transition, execute_stage6d_paper_outcome,
+    finalize_stage7a_paper_request, finalize_stage7a_replayed_paper_request,
+    first_boot_stage6d_paper,
     first_boot_stage6d_paper_from_validated_stage5g_seed_with_owned_journal,
     first_boot_stage6d_paper_with_owned_journal,
-    issue_stage6e_paper_fresh_broker_truth_for_request, prepare_stage6d_paper_dispatch,
-    refresh_stage7b_durable_frontier, resolve_stage7a_cancel_command_context,
-    restart_stage6d_paper, restart_stage6d_paper_with_owned_journal, seal_stage6d_restart_package,
+    inspect_stage8b_p1e_authenticated_restart_package_v2,
+    issue_stage6e_paper_fresh_broker_truth_for_request, migrate_stage8b_p1d3_runtime_from_p1d2,
+    prepare_stage6d_paper_dispatch, refresh_stage7b_durable_frontier,
+    replace_stage5g_in_stage6d_restart_package, replace_stage5g_in_stage6d_restart_package_v2,
+    resolve_stage7a_cancel_command_context, restart_stage6d_paper,
+    restart_stage6d_paper_with_owned_journal, resume_stage8b_p1d3_dispatch_only_cancel_transition,
+    resume_stage8b_p1d3_dispatch_only_limit_transition,
+    resume_stage8b_p1d3_initial_limit_ack_transition, resume_stage8b_p1d3_journal_ahead_transition,
+    seal_stage6d_restart_package, seal_stage6d_restart_package_v2,
     stage6_frontier_fingerprint_sha256, stage6d_operational_identity_sha256,
     stage7b_finalized_request_facts, stage8a4_completed_transition_facts,
     stage8a4_writer_entry_attestation_sha256, Stage6DurableRequestAuthorityV1,
     Stage6Stage8a4BatchAppendReceipt, Stage6Stage8a4DurableBatch, Stage6Stage8a4PendingRecovery,
-    Stage6Stage8a4ValidatedWriteEntry, Stage6dBootMode, Stage6dDurableRuntimeRecovered,
-    Stage6dFirstBootAuthorization, Stage6dFirstBootConfig, Stage6dFreshTruthApplicationReport,
-    Stage6dFreshTruthTransition, Stage6dLiveCoreError, Stage6dOperationalIdentityConfig,
-    Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport, Stage6dPaperOutcome,
-    Stage6eAcceptedFreshBrokerTruth, Stage6eFreshBrokerTruthProviderBoundary,
+    Stage6Stage8a4ValidatedWriteEntry, Stage6Stage8bP1JournalAheadCandidate,
+    Stage6Stage8bP1SealSourceV1, Stage6Stage8bP1SemanticCommitEvidenceV1,
+    Stage6Stage8bP1SemanticTransition, Stage6Stage8bP1d2AckTransition,
+    Stage6Stage8bP1d2JournalAheadCandidate, Stage6Stage8bP1d2SourceM10Binding,
+    Stage6Stage8bP1d2TruthTransition, Stage6Stage8bP1d3AckTransition,
+    Stage6Stage8bP1d3CancelTransition, Stage6Stage8bP1d3DispatchOnlyCandidate,
+    Stage6Stage8bP1d3JournalAheadCandidate, Stage6Stage8bP1d3LaterTransition,
+    Stage6Stage8bP1d3MigrationTransition, Stage6Stage8bP1d3RecoveredTransition,
+    Stage6Stage8bP1d3RestartPhase, Stage6Stage8bP1d3TruthTransition,
+    Stage6Stage8bP1d4AckTransition, Stage6Stage8bP1d4JournalAheadCandidate,
+    Stage6Stage8bP1d4JournalAheadKind, Stage6Stage8bP1d4PrepublicationTransition,
+    Stage6Stage8bP1d4TruthTransition, Stage6Stage8bP1eScheduleBindingPending, Stage6dBootMode,
+    Stage6dDurableRuntimeRecovered, Stage6dFirstBootAuthorization, Stage6dFirstBootConfig,
+    Stage6dFreshTruthApplicationReport, Stage6dFreshTruthTransition, Stage6dLiveCoreError,
+    Stage6dOperationalIdentityConfig, Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport,
+    Stage6dPaperOutcome, Stage6eAcceptedFreshBrokerTruth, Stage6eFreshBrokerTruthProviderBoundary,
     Stage6ePaperFreshBrokerTruthInput, Stage7aPaperAdmission, Stage7aPaperAdmissionDecision,
     Stage7aPaperCommandContext, Stage7aPaperHoldReason, Stage7aPaperPolicyRejection,
     Stage7bFinalizedRequestFacts, Stage8a4CompletedTransitionFacts,
-    STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION, STAGE6D_INTEGRATION_FINGERPRINT_SCHEMA_VERSION,
-    STAGE6E_ACCEPTED_FRESH_TRUTH_SCHEMA_VERSION,
+    Stage8bP1eAuthenticatedRestartPackageV2Audit, Stage8bP1eFirstBootProvenanceV1,
+    STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION, STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION_V2,
+    STAGE6D_INTEGRATION_FINGERPRINT_SCHEMA_VERSION, STAGE6E_ACCEPTED_FRESH_TRUTH_SCHEMA_VERSION,
+    STAGE8B_P1E_FIRST_BOOT_PROVENANCE_SCHEMA_VERSION,
+    STAGE8B_P1_REQUEST_ACCEPTED_BINDING_SCHEMA_VERSION,
 };
 #[cfg(feature = "stage5g-artifact-fixtures")]
 #[doc(hidden)]
@@ -382,7 +436,25 @@ pub use stage6d_live_core::{
     stage7b_test_authenticated_cancel_restart_fixture,
     stage7b_test_authenticated_working_restart_fixture,
     stage8a4_test_append_durable_batch_with_suffix_limit, stage8a4_test_set_journal_failpoint,
-    Stage7bTestExtraStage6History, Stage7bTestRestartFixture,
+    stage8b_p1_test_append_dispatch_attempt, stage8b_p1d4_test_append_current_semantic_dispatch,
+    stage8b_p1d4_test_migrate_position_synced_p1d2, Stage7bTestExtraStage6History,
+    Stage7bTestRestartFixture, Stage8bP1d4PackageAuditV1, Stage8bP1d4RuntimeAuditV1,
+    Stage8bP1d4SequenceAllocationAuditV1,
+};
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+#[doc(hidden)]
+pub use stage8b_p1d1_paper_provider::{
+    stage8b_p1d1_test_eligible, stage8b_p1d1_test_eligible_from_decision,
+    stage8b_p1d1_test_schedule_authority,
+};
+pub use stage8b_p1d1_paper_provider::{
+    Stage8bP1d1AwaitingExecutionBar, Stage8bP1d1CanonicalExecutionAuthority,
+    Stage8bP1d1CanonicalM10Evidence, Stage8bP1d1CommandDecisionBinding,
+    Stage8bP1d1ExecutionEligibilityBlockReason, Stage8bP1d1ExecutionEligibilityBlocked,
+    Stage8bP1d1ExecutionEligible, Stage8bP1d1ExecutionObservation,
+    Stage8bP1d1ExecutionScheduleAuthority, Stage8bP1d1MarketDispatchReady,
+    Stage8bP1d1MarketOutcomeBundle, Stage8bP1d1ProviderError, STAGE8B_P1D1_EXECUTION_POLICY_DOMAIN,
+    STAGE8B_P1D1_ORDER_ID_DOMAIN, STAGE8B_P1D1_TRADE_ID_DOMAIN,
 };
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: lib-stage5e-b3f-doctest-facade
 #[cfg(doctest)]
@@ -533,6 +605,37 @@ pub use stage5c_paper_host::{
     Stage5cWarmedPaperStrategy, STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION,
     STAGE5C_RUNTIME_STATE_RESTORE_SCHEMA_VERSION,
 };
+pub use stage5e_no_io_lifecycle::p1e_schedule_source::{
+    authenticate_stage8b_p1e_schedule_observation_v3,
+    recover_stage8b_p1e_schedule_binding_candidate_v4, recover_stage8b_p1e_schedule_high_water_v4,
+    stage8b_p1e_canonical_json, stage8b_p1e_schedule_payload_sha256,
+    stage8b_p1e_schedule_semantic_sha256, stage8b_p1e_schedule_unsigned_signature_sha256,
+    verify_stage8b_p1e_schedule_envelope_v3, Stage8bP1eAcceptedScheduleSourceV1,
+    Stage8bP1eAuthenticatedScheduleObservationV1, Stage8bP1eCommittedScheduleBindingV1,
+    Stage8bP1eDayBoundaryProofV1, Stage8bP1eM10IdentityV1, Stage8bP1eNormalizedScheduleV2,
+    Stage8bP1eRequestOrOrderBindingV1, Stage8bP1eScheduleAuthorityKindV1,
+    Stage8bP1eScheduleBindingCandidateV1, Stage8bP1eScheduleEnvelopeV3,
+    Stage8bP1eScheduleEvidenceKindV1, Stage8bP1eScheduleHighWaterV1,
+    Stage8bP1eScheduleInstrumentV1, Stage8bP1eSchedulePayloadV2, Stage8bP1eScheduleProgressionV1,
+    Stage8bP1eScheduleRegistryV1, Stage8bP1eScheduleSemanticIdentityV1,
+    Stage8bP1eScheduleSessionTypeV1, Stage8bP1eScheduleSessionV1, Stage8bP1eScheduleSourceError,
+    Stage8bP1eScheduleStateV1, Stage8bP1eScheduleTransitionKindV1,
+    Stage8bP1eScheduleVerificationContextV1, Stage8bP1eStage4EvidenceV2,
+    Stage8bP1eStage4SemanticStateV1, STAGE8B_P1E_SCHEDULE_KEY_VALID_FROM_UTC,
+    STAGE8B_P1E_SCHEDULE_KEY_VALID_UNTIL_UTC, STAGE8B_P1E_SCHEDULE_PUBLIC_KEY_ED25519_HEX,
+    STAGE8B_P1E_SCHEDULE_STREAM,
+};
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+#[doc(hidden)]
+pub use stage5e_no_io_lifecycle::p1e_schedule_source::{
+    stage8b_p1e_test_authenticate_schedule_observation_with_key,
+    stage8b_p1e_test_market_binding_candidate, stage8b_p1e_test_market_binding_candidate_for,
+    stage8b_p1e_test_recover_schedule_binding_candidate_v4_with_key,
+    stage8b_p1e_test_recover_schedule_high_water_v4_with_key,
+    stage8b_p1e_test_verify_schedule_envelope_with_key,
+    stage8b_p1e_test_working_limit_binding_candidate,
+    stage8b_p1e_test_working_limit_binding_candidate_for,
+};
 pub use stage5g_clean_restart::{
     export_stage5g_clean_restart, restore_stage5g_clean_restart, Stage5gCleanRestartError,
     Stage5gCleanRestartExportInput, Stage5gCleanRestartLifecycleKind, Stage5gCleanRestartSource,
@@ -562,6 +665,12 @@ pub use stage5g_order_position::{
     Stage5gOrderPositionEvidence, Stage5gOrderPositionFailure, Stage5gOrderPositionSession,
     Stage5gOrderPositionSummary, Stage5gOrderPositionTerminal, Stage5gOrderPositionTransition,
     STAGE5G_ORDER_POSITION_SCHEMA_VERSION,
+};
+pub use stage5g_p1_semantic::{
+    continue_stage5g_p1_semantic, export_stage5g_p1_one_intent, export_stage5g_p1_zero_intent,
+    Stage5gP1MultiIntentBlocked, Stage5gP1OneIntentPrepublication, Stage5gP1SemanticBindingInput,
+    Stage5gP1SemanticFailure, Stage5gP1SemanticTransition, Stage5gP1ZeroIntentCommitted,
+    STAGE5G_P1_SEMANTIC_COMMIT_SCHEMA_VERSION,
 };
 #[cfg(feature = "stage5g-artifact-fixtures")]
 #[doc(hidden)]
@@ -594,21 +703,24 @@ pub use stage5g_protective_completion::{
     stage5g_f_gprt_artifact_json_pretty, stage5g_f_gprt_artifact_rows,
     stage5g_f_gprt_artifact_rows_parallel_verified,
 };
+#[cfg(feature = "stage5g-artifact-fixtures")]
+#[doc(hidden)]
+pub use stage5g_timer::stage8b_p1_test_first_boot_material;
 pub use stage5g_timer::{
     apply_stage5g_exact_replay_to_session, apply_stage5g_new_package_candidate,
     apply_stage5g_timer_checkpoint, apply_stage5g_timer_mock_ack,
-    attach_stage5g_market_terminal_timer_session, attach_stage5g_timer_generated_mock_ack,
-    attach_stage5g_timer_order_position_session, attach_stage5g_timer_session,
-    classify_stage5g_post_checkpoint_evidence, continue_stage5g_timer_with_bar,
-    continue_stage5g_timer_with_timer, settle_stage5g_bar_continuation,
-    validate_stage5g_timer_checkpoint, Stage5gBarContinuationPaperStrategy,
-    Stage5gBarContinuationTransition, Stage5gCheckpointReplayDisposition,
-    Stage5gCheckpointReplayError, Stage5gCheckpointReplayResult,
-    Stage5gCommittedAwaitingOrderPosition, Stage5gCommittedConvergedOrderPosition,
-    Stage5gCommittedExactReplaySession, Stage5gCommittedMarketTerminalOrderPosition,
-    Stage5gExactReplayApplyBlockReason, Stage5gExactReplayApplyBlocked,
-    Stage5gExactReplayApplyFailure, Stage5gExactReplayCheckpoint,
-    Stage5gExactReplayInvariantFailure, Stage5gExactReplayTerminal,
+    attach_stage5g_initial_zero_intent_timer_ready, attach_stage5g_market_terminal_timer_session,
+    attach_stage5g_timer_generated_mock_ack, attach_stage5g_timer_order_position_session,
+    attach_stage5g_timer_session, classify_stage5g_post_checkpoint_evidence,
+    continue_stage5g_timer_with_bar, continue_stage5g_timer_with_timer,
+    settle_stage5g_bar_continuation, validate_stage5g_timer_checkpoint,
+    Stage5gBarContinuationPaperStrategy, Stage5gBarContinuationTransition,
+    Stage5gCheckpointReplayDisposition, Stage5gCheckpointReplayError,
+    Stage5gCheckpointReplayResult, Stage5gCommittedAwaitingOrderPosition,
+    Stage5gCommittedConvergedOrderPosition, Stage5gCommittedExactReplaySession,
+    Stage5gCommittedMarketTerminalOrderPosition, Stage5gExactReplayApplyBlockReason,
+    Stage5gExactReplayApplyBlocked, Stage5gExactReplayApplyFailure, Stage5gExactReplayCheckpoint,
+    Stage5gExactReplayInvariantFailure, Stage5gExactReplayTerminal, Stage5gInitialTimerReadyError,
     Stage5gNewPackageApplyBlockReason, Stage5gNewPackageApplyBlocked,
     Stage5gNewPackageApplyFailure, Stage5gNewPackageApplyResult, Stage5gNewPackageCandidate,
     Stage5gNewPackageCommitError, Stage5gNewPackageCommitMismatch, Stage5gNewPackageTerminal,
@@ -620,6 +732,32 @@ pub use stage5g_timer::{
     Stage5gTimerOrderPositionAdmissionBlocked, Stage5gTimerReadyPaperStrategy,
     Stage5gTimerResolvedMockAckPaperStrategy, Stage5gTimerSession, Stage5gTimerTransition,
     STAGE5G_TIMER_CHECKPOINT_SCHEMA_VERSION,
+};
+pub use stage8b_p1d2_market_feedback::{
+    Stage8bP1d2AckRestartSource, Stage8bP1d2FeedbackAuditCoreV1, Stage8bP1d2MarketFeedbackError,
+    Stage8bP1d2TruthRestartSource, STAGE8B_P1D2_AVG_PRICE_SCALE,
+    STAGE8B_P1D2_MARKET_FEEDBACK_SCHEMA_VERSION,
+};
+#[cfg(feature = "stage5g-artifact-fixtures")]
+#[doc(hidden)]
+pub use stage8b_p1d3_working_limit::{
+    stage8b_p1d3_test_expiry_authority, stage8b_p1d3_test_step_authority,
+};
+pub use stage8b_p1d3_working_limit::{
+    Stage8bP1d3CanonicalM10Evidence, Stage8bP1d3DayExpiryAuthority, Stage8bP1d3Error,
+    Stage8bP1d3InitialObservation, Stage8bP1d3LaterObservation, Stage8bP1d3MigrationResult,
+    Stage8bP1d3ScheduleStepAuthority, Stage8bP1d3SemanticSourceBinding,
+};
+pub use stage8b_p1d4_generated_market::{
+    stage8b_p1d4_immediate_redis_successor, Stage8bP1d4CommandPublicationBindingV1,
+    Stage8bP1d4CommandPublicationReservationV1, Stage8bP1d4GeneratedMarketError,
+    Stage8bP1d4GeneratedMarketPackageState,
+};
+pub use stage8b_p1e_first_boot::{
+    build_stage8b_p1_first_boot_composition_v1, rebuild_stage8b_p1e_riskgate_observations_v1,
+    Stage8bP1eFirstBootBarInputV1, Stage8bP1eFirstBootCompositionError,
+    Stage8bP1eFirstBootCompositionInputV1, Stage8bP1eFirstBootCompositionV1,
+    Stage8bP1eRiskGateObservationInputV1,
 };
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: lib-stage5d-exports
 pub use stage5d_persistence::{

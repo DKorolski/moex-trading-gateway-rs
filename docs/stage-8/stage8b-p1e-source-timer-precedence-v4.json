@@ -1,0 +1,23 @@
+{
+  "schema_version": 4,
+  "domain": "moex.stage8b.p1e.source-timer-precedence.v4",
+  "base_contract": {"path":"docs/stage-8/stage8b-p1e-source-timer-precedence-v3.json","sha256":"5083a6a12ba8e31c817966647aa5110aa8559b0f2260a0784282a2b82c67e7ff"},
+  "rule": "SOURCE_FIRST_LATCH_CHECK_TIMER_RECLASSIFICATION_LATCH_CHECK_TIMER_EXECUTION_LATER",
+  "simultaneous_due_timer": {
+    "source_variants": ["one_exact_pending_source_any_idle_age", "source_already_acknowledged_with_continuous_frontier"],
+    "first_transition": "resolve-terminal-source-without-reclaim",
+    "first_checkpoint": "authenticated-returned-owner-plus-source-disposition",
+    "first_latch_recheck": "if-set-stop-and-retain-original-authenticated-timer-with-zero-timer-mutation",
+    "second_transition_if_clear": "reclassify-original-timer-against-returned-authenticated-owner",
+    "second_checkpoint": "SourceResolvedThenTimerReclassified-or-StaleTimerDiscarded",
+    "second_latch_recheck": "required-before-any-timer-execution",
+    "timer_execution": "separate-next-owner-loop-step-only-if-latch-clear",
+    "timer_before_source": "forbidden"
+  },
+  "exact_proof_cases": [
+    "cancel-recovered-pending-plus-due-timer",
+    "cancel-recovered-already-acknowledged-plus-due-timer",
+    "latch-set-after-source-before-reclassification-retains-timer-zero-mutation",
+    "latch-set-after-reclassification-before-execution-zero-timer-execution"
+  ]
+}

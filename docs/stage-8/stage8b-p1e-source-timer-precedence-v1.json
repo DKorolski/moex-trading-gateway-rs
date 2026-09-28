@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "domain": "moex.stage8b.p1e.source-timer-precedence.v1",
+  "rule": "SOURCE_FIRST_TIMER_DEFERRED",
+  "source_bearing_owner_derivation": {
+    "ready": [
+      "Ready"
+    ],
+    "non_ready": [
+      "P1SemanticPrepublicationPending",
+      "P1SemanticPrepublicationReady",
+      "P1SemanticZeroIntentAckPending",
+      "P1d2PreAckPending",
+      "P1d2AckCommitted",
+      "P1d2TruthCommitted",
+      "P1d4GeneratedMarketPrepublicationPending",
+      "P1d4GeneratedMarketDispatchPending",
+      "P1d4GeneratedMarketOrderPending",
+      "P1d4GeneratedMarketPreFinalizationPending",
+      "P1d4GeneratedMarketPreAckPending",
+      "P1d4GeneratedMarketAckCommitted",
+      "P1d4GeneratedMarketTruthCommitted",
+      "P1d3DispatchPending",
+      "P1d3PreAckPending",
+      "P1d3AckCommitted",
+      "P1d3TruthCommitted",
+      "P1d3CancelContinuationPending",
+      "P1d3SemanticPending"
+    ],
+    "logical_cancel_recovered_representation": {
+      "restart_variant": "P1d3TruthCommitted",
+      "authenticated_package_phase": "p1d3_s_cancel_recovered",
+      "meaning": "cancel-recovered-is-an-authenticated-phase-not-an-invented-restart-enum-variant"
+    },
+    "exact_derivation": "owner-is-in-ready-or-non-ready-set-and-source-class-is-one-exact-claimable-or-one-exact-not-yet-claimable-or-source-already-acknowledged-with-continuous-frontier"
+  },
+  "simultaneous_due_timer": {
+    "precondition": "exact-source-derived-and-same-owner-has-exact-due-Day-expiry-timer",
+    "first_transition": "perform-the-exact-source-continuation-to-its-authorized-durable-boundary",
+    "source_xack": "perform-only-when-the-source-lifecycle-normal-XACK-last-rule-authorizes-it",
+    "timer_transition": "reclassify-the-original-timer-against-the-returned-authenticated-owner-after-source-completion",
+    "premature_actions_forbidden": [
+      "issue-Day-expiry-authority",
+      "persist-expiry-outcome",
+      "persist-expiry-truth",
+      "perform-terminal-book-transition",
+      "invoke-a-new-callback-evaluation"
+    ]
+  },
+  "post_source_timer_reclassification": {
+    "execute_only_if": [
+      "same-working-Day-order-still-exists",
+      "same-working-order-identity-is-exact",
+      "timer-is-still-due",
+      "boundary-still-belongs-to-current-trading-day",
+      "returned-owner-authorizes-the-expiry-transition"
+    ],
+    "discard_as_stale_if": [
+      "order-filled",
+      "order-canceled",
+      "order-expired",
+      "working-order-identity-changed",
+      "target-working-order-absent",
+      "boundary-not-current-trading-day"
+    ]
+  },
+  "unlisted_tuple": {
+    "condition": "tuple-is-neither-an-exact-listed-operational-cell-nor-derived-by-the-source-bearing-owner-rule",
+    "disposition": "exit-67-before-transition",
+    "ready_fallback_allowed": false,
+    "fresh_poll_fallback_allowed": false,
+    "filesystem_mutation_allowed": false,
+    "redis_mutation_allowed": false,
+    "callback_allowed": false
+  },
+  "required_tests": [
+    "P1d3AckCommitted-plus-exact-source-plus-due-timer",
+    "P1d3PreAckPending-plus-exact-source-plus-due-timer",
+    "Ready-plus-exact-source-plus-due-timer",
+    "P1d4GeneratedMarket-partial-owner-plus-source-plus-due-timer",
+    "source-completion-removes-working-order-and-discards-stale-timer",
+    "source-completion-retains-same-working-order-and-then-executes-timer",
+    "unlisted-tuple-exits-67-before-transition"
+  ],
+  "test_invariants": {
+    "source_transition_precedes_timer": true,
+    "successful_source_acquisition_max": 1,
+    "callback_max": 1,
+    "premature_expiry_count": 0,
+    "timer_reclassified_against_returned_owner": true
+  }
+}

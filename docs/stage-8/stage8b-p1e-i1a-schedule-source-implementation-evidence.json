@@ -1,0 +1,53 @@
+{
+  "acceptance_rows": 81,
+  "accepted_design_ref": "aa24e840ed8b7d18c80be6f1fdd8f50facf5b6d4",
+  "closed_surfaces": {
+    "broker_dispatch": false,
+    "finam_post_delete": false,
+    "generation_2_execution_activation": false,
+    "operational_redis_db0": false,
+    "operational_redis_db15": false,
+    "private_key_installation": false,
+    "real_orders": false,
+    "runtime_live": false,
+    "vps_activation": false
+  },
+  "compatibility": {
+    "old_package_frontier_unchanged": true,
+    "v1_wire_and_replay_unchanged": true,
+    "v2_wire_and_replay_unchanged": true,
+    "v3_wire_and_replay_unchanged": true,
+    "v4_record_kind": "schedule_evidence_bound"
+  },
+  "next_stage_authorized": false,
+  "source_review_closure": {
+    "consumer_snapshot_progression": true,
+    "guarded_restart_continuation": true,
+    "inherited_p1d3_goldens_unchanged": true,
+    "exact_m10_effect_binding": true,
+    "journal_ahead_effect_continuation": true,
+    "mandatory_latch_e_observable": true,
+    "route_restriction_reaches_effect": true,
+    "signed_v4_effect_routes": [
+      "market",
+      "working_untouched",
+      "working_fill",
+      "cancel",
+      "day_expiry"
+    ],
+    "v4_prefixed_outcome_recovery": true
+  },
+  "r2_overlay_rows": 8,
+  "reviewed_source_ref": "848bff061c33e6fb8e8ab36eb596a2bba8f50ba9",
+  "schema_version": 1,
+  "source_negative_cases": 100,
+  "stage": "Stage 8B-P1-e I1A source implementation",
+  "status": "SOURCE_CORRECTION_REVIEW_CANDIDATE",
+  "verification_contract": {
+    "design_gate": "required",
+    "full_rust_tests": "required",
+    "inherited_p1d4_sigkill": "105x2-required",
+    "source_negative_harness": "required",
+    "strict_clippy": "required"
+  }
+}

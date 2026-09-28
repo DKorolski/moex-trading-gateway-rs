@@ -9,22 +9,26 @@ rust-version.workspace = true
 [features]
 default = []
 stage8a4-i3-test-fixtures = ["strategy-runtime-core/stage5g-artifact-fixtures"]
+stage8b-p1-test-fixtures = ["strategy-runtime-core/stage5g-artifact-fixtures"]
 
 [dependencies]
 broker-core = { path = "../broker-core" }
 chrono.workspace = true
+ed25519-dalek.workspace = true
 libc.workspace = true
 redis.workspace = true
+rust_decimal.workspace = true
 runtime-command-bridge = { path = "../runtime-command-bridge" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+signal-hook-registry = "1.4"
 strategy-runtime-core = { path = "../strategy-runtime-core" }
 thiserror.workspace = true
 tokio.workspace = true
 uuid = { workspace = true, features = ["v4"] }
+zeroize.workspace = true
 
 [dev-dependencies]
-ed25519-dalek.workspace = true
 serde_json.workspace = true
 strategy-runtime-core = { path = "../strategy-runtime-core", features = ["stage5g-artifact-fixtures"] }

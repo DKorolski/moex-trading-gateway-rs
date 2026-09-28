@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "domain": "moex.stage8b.p1e.redis-deployment-manifest.v1",
+  "manifest_key": "finam_imoexf_paper:{finam-imoexf-p1}:deployment-manifest",
+  "redis_url_allowlist": [
+    "redis://127.0.0.1:6379/15",
+    "redis://[::1]:6379/15"
+  ],
+  "redis_db_index": 15,
+  "operational_identity_sha256": "CONFIG_BOUND_SHA256",
+  "runtime_config_fingerprint_sha256": "PROFILE_CONSTRUCTOR_BOUND_FINGERPRINT",
+  "instrument_map_fingerprint_sha256": "ba4e7b1190dc2686559b6d7c0df0185e96a10dfac6b13f6a582a349b14198558",
+  "deployment_generation": "CONFIG_BOUND_POSITIVE_U64",
+  "consumer_generation": "CONFIG_COMMAND_CONSUMER_GENERATION_BOUND_POSITIVE_U64",
+  "namespace_digest_sha256": "18efd270fb03fa68f92b8288968f6cf16e8f529330c4335cb86cdaaba0b826ed",
+  "keys": [
+    {"name": "finam_imoexf_paper:{finam-imoexf-p1}:market-data:m10", "type": "stream", "groups": ["finam-imoexf-p1-m10-lifecycle-v1"]},
+    {"name": "finam_imoexf_paper:{finam-imoexf-p1}:stage7b:commands", "type": "stream", "groups": ["stage7b-paper-command-consumer-v1"]},
+    {"name": "finam_imoexf_paper:{finam-imoexf-p1}:stage7b:acks", "type": "stream", "groups": []},
+    {"name": "finam_imoexf_paper:{finam-imoexf-p1}:stage7b:dlq", "type": "stream", "groups": []},
+    {"name": "finam_imoexf_paper:{finam-imoexf-p1}:broker:orders", "type": "stream", "groups": []},
+    {"name": "finam_imoexf_paper:{finam-imoexf-p1}:broker:trades", "type": "stream", "groups": []},
+    {"name": "finam_imoexf_paper:{finam-imoexf-p1}:broker:positions", "type": "stream", "groups": []},
+    {"name": "finam_imoexf_paper:{finam-imoexf-p1}:runtime:state", "type": "stream", "groups": []},
+    {"name": "finam_imoexf_paper:{finam-imoexf-p1}:health", "type": "stream", "groups": []},
+    {"name": "finam_imoexf_paper:{finam-imoexf-p1}:readiness", "type": "stream", "groups": []}
+  ],
+  "settlement_key_prefix": "finam_imoexf_paper:{finam-imoexf-p1}:stage7b:settlement",
+  "provisioning_owner": "stage8b-p1f-administrative-boundary",
+  "run_mode": "verify-only",
+  "run_may_create_or_repair": false,
+  "telemetry_write_command": "XADD <health-or-readiness-stream> NOMKSTREAM MAXLEN = 4096 * payload <canonical-json>",
+  "manifest_write_allowed_in_p1e": false
+}

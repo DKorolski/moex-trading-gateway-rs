@@ -1,0 +1,73 @@
+{
+  "schema_version": 2,
+  "domain": "moex.stage6d.authenticated-restart-package.v2",
+  "rust_type": "Stage6dAuthenticatedRestartPackageV2",
+  "canonical_encoding": "serde-json-compact-utf8-with-declared-field-order-and-deny-unknown-duplicate-fields",
+  "package_fields_in_order": [
+    "schema_version",
+    "stage5g_restart_package",
+    "stage5g_restart_package_sha256",
+    "stage6_checkpoint",
+    "stage6_checkpoint_bytes_sha256",
+    "operational_identity",
+    "operational_identity_sha256",
+    "first_boot_provenance_v1",
+    "first_boot_provenance_canonical_sha256",
+    "restart_commitment_sha256",
+    "restart_commitment_hmac_sha256"
+  ],
+  "first_boot_provenance_v1": {
+    "schema_version": 1,
+    "domain": "moex.stage8b.p1e.first-boot-provenance.v1",
+    "fields_in_order": [
+      "schema_version",
+      "domain",
+      "operational_identity_sha256",
+      "runtime_profile_sha256",
+      "runtime_config_fingerprint_sha256",
+      "source_bundle_sha256",
+      "source_bundle_generation",
+      "source_plan_sha256",
+      "history_bars_sha256",
+      "riskgate_session_observations_sha256",
+      "candidate_semantic_id_sha256"
+    ],
+    "canonical_encoding": "serde-json-compact-utf8-with-declared-field-order-and-deny-unknown-duplicate-fields"
+  },
+  "restart_commitment_v2": {
+    "domain": "moex.stage6d.restart-commitment.v2",
+    "ordered_inputs": [
+      "stage5g_restart_package_sha256",
+      "stage6_checkpoint_bytes_sha256",
+      "operational_identity_sha256",
+      "first_boot_provenance_canonical_sha256"
+    ],
+    "hmac_key": "stage8b-p1-lifecycle.key"
+  },
+  "construction": {
+    "first_boot": "seal_stage6d_restart_package_v2-requires-authenticated-first-boot-provenance-and-never-emits-v1",
+    "seal_advance": "advance_stage6d_restart_package_v2-copies-exact-provenance-canonical-bytes-from-authenticated-current-package",
+    "stage5g_replacement": "replace_stage5g_in_stage6d_restart_package_v2-copies-exact-provenance-canonical-bytes-from-authenticated-current-package",
+    "provenance_regeneration_allowed": false,
+    "provenance_substitution_allowed": false,
+    "provenance_omission_allowed": false
+  },
+  "decode_policy": {
+    "p1e_run_accepts_schema_versions": [2],
+    "v1_downgrade_allowed": false,
+    "unknown_version_allowed": false,
+    "missing_provenance_allowed": false,
+    "duplicate_provenance_allowed": false,
+    "validation_order": [
+      "strict-decode-v2",
+      "recompute-embedded-component-hashes",
+      "recompute-first-boot-provenance-canonical-sha256",
+      "recompute-restart-commitment-v2",
+      "verify-restart-commitment-hmac",
+      "cross-bind-operational-identity",
+      "compare-every-provenance-field-to-fixed-supervisor-config",
+      "only-then-allow-redis-contact"
+    ]
+  },
+  "required_round_trip": "bootstrap-v2-then-S_eval-then-S_ack-then-S_truth-then-process-restart-preserves-byte-identical-provenance-canonical-bytes-and-digest"
+}

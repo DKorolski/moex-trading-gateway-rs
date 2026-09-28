@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "domain": "moex.stage8b.p1e.i1.first-boot-governance-closure.v1",
+  "stage": "Stage 8B-P1-e I1 F00-F17 first-boot source correction",
+  "status": "GOVERNANCE_HARNESS_CORRECTION_REVIEW_CANDIDATE",
+  "accepted_source": {
+    "source_ref": "4d7ee64730ffba72d21f9b51a2c65e7d1b8a2721",
+    "source_tree": "9f79fd31c393a1e5b555202e086de290a5819c3f",
+    "parent_hold_ref": "21fda88fefdcae9ca555697e32c677f8623ba6de",
+    "accepted_predecessor": "8360c4701b6abbe75ced988cf8dd2d74487e1846",
+    "review_file": "FINAM_I1_FIRST_BOOT_CORRECTION_REVIEW_4d7ee64_2026-09-13.md",
+    "review_sha256": "d1baa8fe5ca0e6acc37948deceb120bde9906e32aeb14adf75cf7981e80737b1",
+    "verdict": "SOURCE ACCEPT"
+  },
+  "active_contracts": {
+    "source_plan_path": "docs/stage-8/stage8b-p1e-first-boot-source-plan-v2.json",
+    "source_plan_sha256": "2a507577075b8b5315a462ffeee221dd0a7f8a8f61d42516fbdb9346cc3464ca",
+    "wire_schema_path": "docs/stage-8/stage8b-p1e-first-boot-source-bundle-schema-v2.json",
+    "wire_schema_sha256": "e1cbe59f9ac805a8300141d8e2523ed5cf1fee1b9175ef431d053374fb213594",
+    "correction_contract_path": "docs/stage-8/stage8b-p1e-i1-first-boot-correction-contract-v2.md",
+    "correction_contract_sha256": "8272664bb809535b58585087c40e71feb876a1b55fa68e6a961902e3eb6b72a7",
+    "source_gate_path": "scripts/stage8b_p1e_i1_first_boot_correction_gate.sh",
+    "source_gate_sha256": "232297389c8457f026f66d632165e8dc4323b89a768c3a53727896b1a44737df",
+    "wire_schema_version": 2,
+    "wire_domain": "moex.stage8b.p1e.first-boot-source-bundle.v2",
+    "production_facade": "build_stage8b_p1_first_boot_source_v1",
+    "fixed_source_path": "/etc/moex-finam-p1-paper/bootstrap/stage8b-p1-first-boot-source-v1.json",
+    "facade_and_path_v1_names_are_compatibility_names": true,
+    "legacy_v1_wire_accepted": false
+  },
+  "historical_contracts": {
+    "wire_schema_v1_path": "docs/stage-8/stage8b-p1e-first-boot-source-bundle-schema-v1.json",
+    "wire_schema_v1_sha256": "415a3bdc8d20755b519b20de941afcbeeb56986fc77845f0462cab6c3a302a64",
+    "source_plan_v1_path": "docs/stage-8/stage8b-p1e-first-boot-source-plan-v1.json",
+    "source_plan_v1_sha256": "2b8f32db2aadd9a917b526101c7b407918ce4366e1dbed3e12bb96af5831a0bd",
+    "role": "HISTORICAL_REVIEW_EVIDENCE_ONLY"
+  },
+  "source_acceptance": {
+    "P1-FB01_candidate_identity": "CLOSED",
+    "P1-FB02_history_completeness": "CLOSED_WITH_EXPLICIT_WINDOW_AUTHORITY",
+    "P2-FB03_fixed_path_loader_tests": "CLOSED",
+    "transaction_v5_accepted": false,
+    "receipt_v2_and_provenance_accepted": false,
+    "deployable_i1_accepted": false
+  },
+  "next_authorized_slice": {
+    "name": "transaction V5 / receipt V2 / provenance binding",
+    "crash_and_adoption_tests_required": true,
+    "deployable_owner_loop_authorized": false
+  },
+  "governance_harness_correction": {
+    "held_closure_ref": "3d43c89a481abc61c3f7541d0807c52a813fb39f",
+    "held_closure_tree": "7002fe68715ebe8e1b9bb31e5c6188b61e4e7976",
+    "review_file": "FINAM_I1_FIRST_BOOT_GOVERNANCE_REVIEW_3d43c89_2026-09-13.md",
+    "review_sha256": "6ebcd63203cd828cc713938cf77238affebfcbb531dde44c560266d9019966ce",
+    "review_verdict": "HOLD",
+    "artifacts": {
+      "checker": {
+        "path": "scripts/stage8b_p1e_i1_first_boot_governance_check.py",
+        "sha256": "605038ba91243061ed4073c11be130fe856418133cc1913adef24cfa11931760"
+      },
+      "negative_harness": {
+        "path": "scripts/stage8b_p1e_i1_first_boot_governance_negative_harness.py",
+        "sha256": "93df4dea217ae341bbf962a3fa14422cc8aa76291e12a0042f25e2196387f407"
+      },
+      "aggregate_gate": {
+        "path": "scripts/stage8b_p1e_i1_first_boot_governance_gate.sh",
+        "sha256": "0ed1a986a34f35c3f3014162ef36495239de27aef18b266dd8583a6ad1b3b6f1"
+      }
+    },
+    "required_controls": {
+      "positive_fixture_same_check_path": true,
+      "noop_mutation_fails_harness": true,
+      "missing_git_authority_is_infrastructure": true,
+      "semantic_mutation_expected_code_required": true
+    },
+    "semantic_mutation_cases": 15,
+    "rust_or_cargo_changed": false
+  },
+  "closed_surfaces": {
+    "operational_redis_db0_db15": false,
+    "vps_activation": false,
+    "operational_keys": false,
+    "finam_post_delete": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false
+  }
+}

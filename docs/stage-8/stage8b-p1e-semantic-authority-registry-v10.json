@@ -1,0 +1,43 @@
+{
+  "schema_version": 10,
+  "domain": "moex.stage8b.p1e.semantic-authority-registry.v10",
+  "base_registry": {
+    "path": "docs/stage-8/stage8b-p1e-semantic-authority-registry-v9.json",
+    "sha256": "9be4e3ce11ab9c163b59acc0db9bbe6a0be68d5c45db36fe7530f06af3169482",
+    "active_key_count": 34
+  },
+  "conflict_rule": "compose-V9-minus-three-exact-authorities-plus-R10-replacements-and-two-new-authorities",
+  "superseded_active_authorities": {
+    "test.RouteVariantBoundaryCoverage": "thirty-route-cells-bind-forty-six-authenticated-outcome-fixtures-with-exact-effect-counters-owner-source-and-stop-point",
+    "regression.I0CurrentSourceEntryPoint": "accepted-R9-relative-three-file-scope-plus-reusable-P1d4-content-105x2-negatives-P1d2-P1d3-doctests-clippy-on-I0-head",
+    "test.RouteOutcomeNormalizedOracle": "integrity-hash-tests-are-separated-from-redigested-semantic-mutations-rejected-by-independent-normalized-model"
+  },
+  "replacement_active_authorities": {
+    "test.RouteVariantBoundaryCoverage": "forty-six-V1-fixtures-compose-with-V2-counter-amendments-using-a-defined-permit-to-return-window-and-replacement-seal-counter",
+    "regression.I0CurrentSourceEntryPoint": "accepted-R10-relative-three-file-clean-immutable-scope-plus-retained-P1d4-105x2-and-six-execution-verified-exact-tests",
+    "test.RouteOutcomeNormalizedOracle": "integrity-and-redigested-semantic-negatives-cover-composed-fixtures-source-effects-retained-evidence-and-exact-test-execution"
+  },
+  "required_new_keys": [
+    "test.RouteOutcomeSourceEffectOracle",
+    "evidence.I0RetainedEvidence"
+  ],
+  "new_active_authorities": {
+    "test.RouteOutcomeSourceEffectOracle": "accepted-redis-and-recovery-source-sections-prove-FX10-revalidation-and-LR12-LR15-replacement-seal-counts",
+    "evidence.I0RetainedEvidence": "fresh-external-output-atomically-retains-pass-or-fail-log-manifests-digest-crash-evidence-and-exact-tested-ref-tree"
+  },
+  "composed_expectation": {
+    "retained_base_keys": 31,
+    "replacement_keys": 3,
+    "new_keys": 2,
+    "total_active_keys": 36,
+    "active_conflicts": 0
+  },
+  "contract_bindings": {
+    "route_outcome_counter_contract_v2_sha256": "f70bc4f7c0fa732d18647b101789ad6eaa752e87cef37c761a511f61447b5d36",
+    "source_effect_counter_oracle_v1_sha256": "706385dc3684815db75c70f7e293940d31e946206b7f2ed4737f8f9fbfa5c9fc",
+    "i0_regression_gate_v3_sha256": "966e6e7bcab460ce8d459d610d3adfc3a1ecefcdf579b5e80e6b89ad352ebb2d",
+    "i0_regression_script_sha256": "627451b5edb563b45f4dce82e6e3419603a3fdb20dd90005356ca54afd2c97e4",
+    "i0_scope_script_sha256": "f2922d69438e37b9758b93ba28ac94e31a6ff732910c2735b7320cb74a2cfa96",
+    "i0_retained_evidence_script_sha256": "42b9e0f77755206271e1dcdda6113715c4cda2e89033097bc3fa262eb233eedf"
+  }
+}

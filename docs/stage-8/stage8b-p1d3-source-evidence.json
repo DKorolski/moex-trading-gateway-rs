@@ -1,0 +1,209 @@
+{
+  "acceptance_rows": 59,
+  "accepted_design_ref": "df330b2424199739ceb7c261321a5e5ee381c332",
+  "accepted_p1d2_closure_ref": "bcd8db546104968dd0e48ab041e02acf6869d224",
+  "canonical_contracts": {
+    "book": "moex.stage8b.p1d3.working-book.v1",
+    "genesis": "moex.stage8b.p1d3.book-genesis.v1",
+    "outcome_evidence": "moex.stage8b.p1d3.outcome-evidence.v1",
+    "transition": "moex.stage8b.p1d3.book-transition.v1"
+  },
+  "closed_surfaces": {
+    "broker_network_dispatch": false,
+    "deployable_supervisor": false,
+    "finam_post_delete": false,
+    "operational_redis_db0": false,
+    "p1d4_exhaustive_crash_replay": false,
+    "partial_fills": false,
+    "real_orders": false,
+    "runtime_live": false,
+    "vps_paper_activation": false
+  },
+  "current_tree_authority_rebind_deferred": true,
+  "implementation": {
+    "cancel_dcid_tcid_inequality_enforced": true,
+    "cancel_collision_rejected_before_dispatch": true,
+    "canonical_position_reducer": "stage8b_p1d2_market_feedback::resulting_position",
+    "canonical_target_client_order_id_from_authenticated_registry": true,
+    "canonical_registry_order": "broker_order_id_utf8_bytes",
+    "complete_projection_golden_fixture": "fixtures/stage8b-p1d3/projection-golden-v1.json",
+    "complete_projection_golden_fixture_sha256": "938f5ab0a942937e6b58121c34f76e1e2c5a64c9486f53934dc90e978a2603ad",
+    "complete_projection_golden_shapes": 8,
+    "crash_barriers_around_s_cancel_recovered": 2,
+    "fresh_recovery_byte_identical": true,
+    "full_outcome_evidence_in_stage6_v3": true,
+    "golden_shapes": 8,
+    "host_cancel_target_client_order_id_optional": true,
+    "isolated_redis_only": true,
+    "max_order_records_per_generation": 1024,
+    "pending_semantic_slot_survives_order_position_restart": true,
+    "request_accepted_checkpoint_rebound_before_replacement_export": true,
+    "same_bar_callback_after_replacement": true,
+    "service_level_optional_tcid_tests": 3,
+    "source_xack_last": true,
+    "subprocess_sigkill_cancel_recovery_frontiers": 2,
+    "target_first_optional_tcid_restart_safe": true
+  },
+  "client_order_id_collision_regression": {
+    "binding_includes_original_request_and_order_fingerprint": true,
+    "deterministic_across_restart": true,
+    "finam_safe_ascii_alphanumeric": true,
+    "fixed_cancel_client_order_id": "000D60G000000G00G000",
+    "fixed_cancel_request_id": "0000d302-0000-0000-4000-800000000001",
+    "fixed_ids_are_distinct": true,
+    "fixed_place_client_order_id": "000D608000000G00G000",
+    "fixed_place_request_id": "0000d301-0000-0000-4000-800000000001",
+    "legacy_cancel_request_id": "00000000-0000-0000-0000-00000000d302",
+    "legacy_colliding_client_order_id": "00000000000000000000",
+    "legacy_place_request_id": "00000000-0000-0000-0000-00000000d301",
+    "max_length": 20,
+    "global_mapper_truncation_collision_absent": false,
+    "p1d3_cancel_boundary_rejects_dcid_tcid_collision": true,
+    "wall_clock_dependency": false
+  },
+  "outcome_matrix": [
+    {
+      "branch": "initial_limit_to_working",
+      "stage6_outcome": "initial_working",
+      "stage7_request_finalized": "present",
+      "exact_ack_shape": {
+        "status": "Accepted",
+        "reason": null,
+        "client_order_id": "durable_place_client_order_id",
+        "broker_order_id": "deterministic_target_order_id"
+      },
+      "replacement_path": ["S_ack", "S_working"],
+      "broker_truth": "Working order; no trade; no position",
+      "source_xack": "last_after_authenticated_replacement_persist_reread",
+      "golden_fixture": "fixtures/stage8b-p1d3/outcome-golden-v1.json#initial_working",
+      "golden_sha256": "1b7b2b3fe020d04a290a2fdccaea7a91d39f8d5fca28c9728acc6c0e3dd934aa",
+      "fresh_recovery_byte_identical": true
+    },
+    {
+      "branch": "initial_limit_to_filled",
+      "stage6_outcome": "initial_filled",
+      "stage7_request_finalized": "present",
+      "exact_ack_shape": {
+        "status": "Accepted",
+        "reason": null,
+        "client_order_id": "durable_place_client_order_id",
+        "broker_order_id": "deterministic_target_order_id"
+      },
+      "replacement_path": ["S_ack", "S_terminal"],
+      "broker_truth": "Filled order; one trade; target-instrument position",
+      "source_xack": "last_after_authenticated_replacement_persist_reread",
+      "golden_fixture": "fixtures/stage8b-p1d3/outcome-golden-v1.json#initial_filled",
+      "golden_sha256": "7c9cdb8992f538d08f639887a428eb999798e9438c8a7fd81a833fb507a33780",
+      "fresh_recovery_byte_identical": true
+    },
+    {
+      "branch": "initial_limit_to_expired",
+      "stage6_outcome": "initial_expired",
+      "stage7_request_finalized": "present",
+      "exact_ack_shape": {
+        "status": "Accepted",
+        "reason": null,
+        "client_order_id": "durable_place_client_order_id",
+        "broker_order_id": "deterministic_target_order_id"
+      },
+      "replacement_path": ["S_ack", "S_terminal"],
+      "broker_truth": "Expired order; no trade; no position",
+      "source_xack": "last_after_authenticated_replacement_persist_reread",
+      "golden_fixture": "fixtures/stage8b-p1d3/outcome-golden-v1.json#initial_expired",
+      "golden_sha256": "8df9fa9668ea44ff1b9e998c73775d9d77f8b9f0d40df6026ed4e4a78067c08b",
+      "fresh_recovery_byte_identical": true
+    },
+    {
+      "branch": "working_to_later_filled",
+      "stage6_outcome": "later_filled",
+      "stage7_request_finalized": "not_applicable_autonomous_transition",
+      "exact_ack_shape": null,
+      "replacement_path": ["S_terminal"],
+      "broker_truth": "Filled order; one trade; target-instrument position",
+      "source_xack": "last_after_authenticated_replacement_persist_reread",
+      "golden_fixture": "fixtures/stage8b-p1d3/outcome-golden-v1.json#later_filled",
+      "golden_sha256": "01a9c268bffd49b3778122880bd4b9c1932756f9d27334a6be18838528eb3f9e",
+      "fresh_recovery_byte_identical": true
+    },
+    {
+      "branch": "working_to_autonomous_expired",
+      "stage6_outcome": "later_expired",
+      "stage7_request_finalized": "not_applicable_autonomous_transition",
+      "exact_ack_shape": null,
+      "replacement_path": ["S_terminal"],
+      "broker_truth": "Expired order; no trade; no position",
+      "source_xack": "last_after_authenticated_replacement_persist_reread",
+      "golden_fixture": "fixtures/stage8b-p1d3/outcome-golden-v1.json#later_expired",
+      "golden_sha256": "258dd1d7f6f5494435a33e410d692df44c9ddbfaa39c105385d625c0d0b20fbb",
+      "fresh_recovery_byte_identical": true
+    },
+    {
+      "branch": "working_to_cancel_canceled",
+      "stage6_outcome": "cancel_canceled",
+      "stage7_request_finalized": "present",
+      "exact_ack_shape": {
+        "status": "Accepted",
+        "reason": null,
+        "client_order_id": "durable_cancel_request_client_order_id",
+        "broker_order_id": "target_order_id"
+      },
+      "replacement_path": ["S_ack", "S_terminal"],
+      "broker_truth": "Canceled target order; no new trade; no new position",
+      "source_xack": "last_after_authenticated_replacement_persist_reread",
+      "golden_fixture": "fixtures/stage8b-p1d3/outcome-golden-v1.json#cancel_canceled",
+      "golden_sha256": "31f8329854570069172e8070a304916a71210e8c9d655b4fcffee6ff84ad59a7",
+      "fresh_recovery_byte_identical": true
+    },
+    {
+      "branch": "terminal_target_to_cancel_execution_observed",
+      "stage6_outcome": "cancel_execution_observed",
+      "stage7_request_finalized": "present",
+      "exact_ack_shape": {
+        "status": "Recovered",
+        "reason": "RecoveredByBrokerTruth",
+        "client_order_id": "durable_cancel_request_client_order_id",
+        "broker_order_id": "target_order_id"
+      },
+      "replacement_path": ["S_cancel_recovered"],
+      "broker_truth": "No new truth; authenticated Filled target truth retained",
+      "source_xack": "only_and_last_effect_after_S_cancel_recovered_reread",
+      "golden_fixture": "fixtures/stage8b-p1d3/outcome-golden-v1.json#cancel_execution_observed",
+      "golden_sha256": "87b0a0b1c194ba2aba6f162b8aef4103cd7d56ce64b801286ca93391af0c0646",
+      "fresh_recovery_byte_identical": true
+    },
+    {
+      "branch": "terminal_target_to_cancel_already_terminal_non_execution",
+      "stage6_outcome": "cancel_already_terminal_non_execution",
+      "stage7_request_finalized": "present",
+      "exact_ack_shape": {
+        "status": "Recovered",
+        "reason": "RecoveredByBrokerTruth",
+        "client_order_id": "durable_cancel_request_client_order_id",
+        "broker_order_id": "target_order_id"
+      },
+      "replacement_path": ["S_cancel_recovered"],
+      "broker_truth": "No new truth; authenticated Expired/Canceled/Rejected target truth retained",
+      "source_xack": "only_and_last_effect_after_S_cancel_recovered_reread",
+      "golden_fixture": "fixtures/stage8b-p1d3/outcome-golden-v1.json#cancel_already_terminal_non_execution",
+      "golden_sha256": "9a116843f8d37a9c96b304cba4af662885c8d0543ea6d3faa31c6137159f4ab2",
+      "fresh_recovery_byte_identical": true
+    }
+  ],
+  "negative_cases": 43,
+  "next_stage_authorized": false,
+  "schema_version": 1,
+  "source_ref": "",
+  "stage": "Stage 8B-P1-d3 working LIMIT/CANCEL/expiry source",
+  "status": "SOURCE_IMPLEMENTATION_REVIEW_CANDIDATE",
+  "verification": {
+    "aggregate_gate": "PASS",
+    "doctests": "PASS (strategy-runtime-core 65/65; runtime-durable-service 36/36)",
+    "format": "PASS",
+    "golden_manifest": "PASS (8/8 outcome and complete projection fresh/recovery byte-identical)",
+    "negative_harness": "PASS (43/43)",
+    "runtime_durable_service_lib": "PASS (126 passed; 5 ignored child helpers)",
+    "source_scope_checker": "PASS",
+    "strategy_runtime_core_lib": "PASS (1258/1258)",
+    "strict_targeted_clippy": "PASS"
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "schema_version": 8,
+  "domain": "moex.stage8b.p1e.active-acceptance-contract.v8",
+  "accepted_predecessor": "c2a9e1246dfdd59f3a6297268de907dedcb19903",
+  "direct_parent": "7ebdcef45c1c55f4783bd6b2b1502ea78d4d97d7",
+  "base_active_contract": {
+    "path": "docs/stage-8/stage8b-p1e-active-acceptance-contract-v7.json",
+    "sha256": "efbc05783bafe50d9eaee1f0c3e5f8970077480e18df2372b2398b4f81ded3f6",
+    "active_rows": 265
+  },
+  "r8_source": {
+    "path": "docs/stage-8/stage8b-p1e-deployable-supervisor-r8-acceptance-matrix.csv",
+    "sha256": "1e466f9b0b2c882a1aea0daf8dfdd5aa37e794db96427192053627cb88e380ba",
+    "row_count": 27,
+    "superseded_rows": []
+  },
+  "superseded_base_rows": [
+    "P1ER7-002", "P1ER7-003", "P1ER7-004", "P1ER7-005", "P1ER7-006",
+    "P1ER7-012", "P1ER7-020", "P1ER7-021", "P1ER7-022", "P1ER7-025",
+    "P1ER7-027", "P1ER7-028", "P1ER7-030"
+  ],
+  "supersession_map": [
+    {
+      "semantic_key": "r7-lineage-contract-scope",
+      "superseded": ["P1ER7-002", "P1ER7-003", "P1ER7-004", "P1ER7-005", "P1ER7-006"],
+      "replacement": ["P1ER8-002", "P1ER8-003", "P1ER8-004", "P1ER8-005", "P1ER8-006", "P1ER8-007"]
+    },
+    {
+      "semantic_key": "terminal-resolution-observation-protocol",
+      "superseded": ["P1ER7-012", "P1ER7-020", "P1ER7-021", "P1ER7-022"],
+      "replacement": ["P1ER8-012", "P1ER8-013", "P1ER8-014", "P1ER8-015", "P1ER8-016", "P1ER8-017"]
+    },
+    {
+      "semantic_key": "route-variant-boundary-and-shutdown-proof",
+      "superseded": ["P1ER7-025", "P1ER7-027", "P1ER7-028", "P1ER7-030"],
+      "replacement": ["P1ER8-018", "P1ER8-019", "P1ER8-020", "P1ER8-021", "P1ER8-022", "P1ER8-023", "P1ER8-024", "P1ER8-025", "P1ER8-026"]
+    }
+  ],
+  "semantic_authority_registry": "docs/stage-8/stage8b-p1e-semantic-authority-registry-v8.json",
+  "active_contract_expectation": {
+    "base_v7_active_rows": 265,
+    "base_rows_superseded_by_r8": 13,
+    "r8_active_rows": 27,
+    "total_active_rows": 279,
+    "all_status_required": true
+  },
+  "merge_rule": "exact-active-V7-minus-thirteen-listed-rows-plus-all-R8-rows"
+}

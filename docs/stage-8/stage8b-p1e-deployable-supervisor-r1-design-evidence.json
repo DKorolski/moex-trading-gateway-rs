@@ -1,0 +1,117 @@
+{
+  "stage": "Stage 8B-P1-e R1 deployable paper supervisor design correction",
+  "status": "R1_DESIGN_REVIEW_CANDIDATE",
+  "accepted_p1d4_closure_ref": "c2a9e1246dfdd59f3a6297268de907dedcb19903",
+  "accepted_p1d4_review_sha256": "93180e3f633c256ab9bb2cdfa43dd63c3fe7a1b7380eac435feae45cf8969142",
+  "r0_ref": "7a186cd2ac78a57eff1ad8f24aa52b9dab82b68b",
+  "r0_review_sha256": "52a4fb8e4dcaada0ba256c15351895744bb5d483111c1ac95505de119450fbf0",
+  "r0_verdict": "HOLD_SUPERSEDED_BY_R1",
+  "design_only": true,
+  "implementation_authorized": false,
+  "operational_activation_authorized": false,
+  "acceptance_rows": 88,
+  "restart_matrix_rows": 22,
+  "supervisor_event_matrix_rows": 24,
+  "negative_cases": 64,
+  "canonical_contracts": {
+    "runtime_profile_v1_sha256": "dd5a211e708db0d40175d19ed1eeb51db26497d344a553b41d7afbfdddde0ef6",
+    "first_boot_source_bundle_schema_v1_sha256": "aed9219ad0c7e79bc860e7e24d18229c5680213ebb183f4a5ed6e3f4774e2e21",
+    "first_boot_source_plan_v1_sha256": "e6152e46cd5b49414372f51681cd2194faf17cb2862301aaaba7a5d257ff637c",
+    "redis_deployment_manifest_v1_sha256": "080050c53485cf08c86d1055f6ce071d84077baa121440e6e9051d3960ee5d82",
+    "telemetry_contract_v1_sha256": "d2161a02e982a0e5e95b13596d6632a4368b8d74787c3376d5ffa0d11ef120f5",
+    "restart_continuation_matrix_v1_file_sha256": "c64a14ad19f40d4ff5964c359b9131b27dc47917404ac283e4301f36dfddf04a",
+    "supervisor_event_matrix_v1_file_sha256": "37c4f423f80ebba281964f571511ff23c74f3a5b2355b4e7afb78d36d880bcae"
+  },
+  "first_boot_contract": {
+    "profile_id": "imoexf-hybrid-high180-paper-v1",
+    "production_facade": "build_stage8b_p1_first_boot_source_v1",
+    "source_path": "/etc/moex-finam-p1-paper/bootstrap/stage8b-p1-first-boot-source-v1.json",
+    "minimum_history_sessions": 121,
+    "minimum_riskgate_sessions": 120,
+    "riskgate_source": "canonical-history-cross-validated-session-outcome-observations",
+    "riskgate_history_oracle": "Stage8bP1RiskGateHistoryOracleV1::rebuild",
+    "warmup_from_history_is_ledger_source": false,
+    "external_riskgate_derived_fields_allowed": false,
+    "riskgate_stage5d_validation_required": true,
+    "candidate_callback_count": 1,
+    "candidate_intent_count": 0,
+    "candidate_request_count": 0,
+    "test_fixture_feature_allowed": false,
+    "durable_root_created_last": true
+  },
+  "redis_contract": {
+    "database": 15,
+    "allowed_urls": [
+      "redis://127.0.0.1:6379/15",
+      "redis://[::1]:6379/15"
+    ],
+    "manifest_key": "finam_imoexf_paper:{finam-imoexf-p1}:deployment-manifest",
+    "namespace_digest_sha256": "18efd270fb03fa68f92b8288968f6cf16e8f529330c4335cb86cdaaba0b826ed",
+    "verify_only": true,
+    "run_may_create_or_repair": false,
+    "telemetry_nomkstream": true,
+    "telemetry_maxlen": 4096
+  },
+  "systemd_contract": {
+    "restart": "on-failure",
+    "restart_sec": 5,
+    "start_limit_interval_sec": 300,
+    "start_limit_burst": 5,
+    "timeout_stop_sec": 100,
+    "bootstrap_private_network": true,
+    "bootstrap_address_families": ["AF_UNIX"]
+  },
+  "pel_contract": {
+    "startup_attempts": 12,
+    "startup_budget_seconds": 60,
+    "initial_backoff_ms": 250,
+    "maximum_backoff_ms": 5000,
+    "stale_consumer_scan_limit": 16,
+    "stale_consumer_minimum_idle_seconds": 86400,
+    "delconsumer_requires_zero_pending": true,
+    "fresh_read_while_unclaimable_pending": false
+  },
+  "telemetry_contract": {
+    "readiness_phases": ["starting", "paper_ready", "degraded", "draining", "stopped"],
+    "volatile_snapshot_fields": ["observation_ts_utc", "boot_id", "consumer_name"],
+    "xadd_nomkstream": true,
+    "maxlen": 4096,
+    "live_ready_serializable": false
+  },
+  "startup_phases": ["S00", "S01", "S02", "S03", "S04", "S05", "S06", "S06R", "S07", "S08", "S09"],
+  "exit_codes": {
+    "clean": 0,
+    "config_or_credential": 64,
+    "redis_deployment": 66,
+    "redis_lifecycle": 67,
+    "owner_lost": 70,
+    "telemetry": 71,
+    "grace": 72,
+    "signal_task": 73
+  },
+  "closed_surfaces": {
+    "operational_redis_db0": false,
+    "vps_activation": false,
+    "p1f_activation": false,
+    "non_loopback_redis": false,
+    "finam_transport": false,
+    "finam_post": false,
+    "finam_delete": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "partial_fills": false,
+    "protective_orders": false,
+    "p1e_source_implementation": false,
+    "test_fixture_bootstrap": false
+  },
+  "deferred_p2": {
+    "required_bound": "0 < child_pid <= u32::MAX",
+    "blocks_p1e_design": false,
+    "requires_separate_source_hardening_authority": true
+  },
+  "transition": {
+    "next_after_r1_acceptance": "Stage 8B-P1-e source implementation",
+    "next_after_source_acceptance": "Stage 8B-P1-f isolated operational acceptance"
+  }
+}

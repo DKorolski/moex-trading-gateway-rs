@@ -23,15 +23,40 @@ GATE = Path("scripts/current_tree_ci_gate.sh")
 NEGATIVE_HARNESS = Path("scripts/current_tree_authority_negative_harness.py")
 HANDOFF_SAFETY = Path("scripts/gov_ci_1_handoff_safety_check.py")
 HANDOFF_MAKER = Path("scripts/make_gov_ci_1_handoff.py")
+REPLAY_COMPAT_HELPER = Path("scripts/current_tree_stage8a5_replay_compat.py")
+REPLAY_COMPAT_CARGO = Path("scripts/current_tree_stage8a5_replay_cargo.sh")
 
 ACCEPTED_PREDECESSOR = "1dea519cbf2affc3d99866fdae66bbddbafefa24"
 ACCEPTED_STAGE8A5_REF = "bf58b47fdef8af774a4107455dfcc6204e594283"
 ACCEPTED_STAGE8A5_GATE_SHA256 = (
     "1361ad49d41351484cf61c86822deb640818e755b7b35bda44592fd437ff69f8"
 )
+ACCEPTED_STAGE7B_REF = "a1044e0dbe324c722b637498ca80ffafd9f0cbee"
+REPLAY_COMPAT_REFS = tuple(
+    sorted(
+        (
+            "10e357825a701193d964975bb5769bd0745d4986",
+            "2b6371adb905654e0ddd8b6714159bcef737b577",
+            "2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64",
+            "8418cfb63ecee6702bf8a2873592b7cad1e711ee",
+            "8d4c1f437c02cfb023aa75fb4a411b9394d2d293",
+            ACCEPTED_STAGE7B_REF,
+            ACCEPTED_STAGE8A5_REF,
+            "e0bf9b7d9eb209e19b875f199511a493ddcd0da9",
+            "e10d8fb0f9e095a849b1e56779a0597606d22111",
+            "ec71791563a933889eb825f6f8f0846915ba6415",
+        )
+    )
+)
+REPLAY_COMPAT_REPAIR_REF = "e7ae487f9897be297bd9fabcee9ffad302e6dd3e"
+REPLAY_COMPAT_SOURCE_PATH = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+REPLAY_COMPAT_PRE_SHA256 = "90ab3f9253c0b96fee8ea2c2aeb5e0eb9b0e4c99a3dfb0c404648b588c205eb2"
+REPLAY_COMPAT_POST_SHA256 = "a8caa83eacd4337c8562d24560c18cdd23d1f48f23115b5ec4c7b7561d38b6be"
+REPLAY_COMPAT_DIFF_SHA256 = "4b1f165f785ff72336002d8bfa90bd8535f9e6087a8769347afd72cc2ea07a83"
 CHECKOUT_ACTION_SHA = "11d5960a326750d5838078e36cf38b85af677262"
 RUST_TOOLCHAIN_ACTION_SHA = "4360b52568e2003a75bf9bc1d59f33a8e3fc893c"
 RUST_TOOLCHAIN_VERSION = "1.95.0"
+RUST_MIN_STACK_BYTES = "33554432"
 ALLOWED_WORKFLOWS = {CURRENT_WORKFLOW.as_posix(), HISTORICAL_WORKFLOW.as_posix()}
 HISTORICAL_CURRENT_TREE_MARKERS = (
     "bash scripts/forbidden_surface_scan.sh",
@@ -164,6 +189,7 @@ def check(root: Path) -> None:
     required = (
         AUTHORITY, CONTRACT, MATRIX, NEGATIVE, CURRENT_WORKFLOW, HISTORICAL_WORKFLOW,
         GATE, NEGATIVE_HARNESS, HANDOFF_SAFETY, HANDOFF_MAKER,
+        REPLAY_COMPAT_HELPER, REPLAY_COMPAT_CARGO,
     )
     for relative in required:
         require((root / relative).is_file(), f"missing current authority artifact: {relative}")
@@ -178,6 +204,21 @@ def check(root: Path) -> None:
     require(replay.get("source_ref") == ACCEPTED_STAGE8A5_REF, "Stage 8A-5 replay ref drift")
     require(replay.get("gate_path") == "scripts/stage8a5_gate.sh", "Stage 8A-5 gate drift")
     require(replay.get("gate_sha256") == ACCEPTED_STAGE8A5_GATE_SHA256, "Stage 8A-5 gate digest drift")
+    temporal_compat = replay.get("temporal_compatibility", {})
+    require(
+        temporal_compat
+        == {
+            "detached_stage7b_ref": ACCEPTED_STAGE7B_REF,
+            "diff_sha256": REPLAY_COMPAT_DIFF_SHA256,
+            "normalized_source_refs": list(REPLAY_COMPAT_REFS),
+            "post_repair_sha256": REPLAY_COMPAT_POST_SHA256,
+            "pre_repair_sha256": REPLAY_COMPAT_PRE_SHA256,
+            "repair_source_ref": REPLAY_COMPAT_REPAIR_REF,
+            "source_path": REPLAY_COMPAT_SOURCE_PATH,
+            "status": "required-test-only-chronology-normalization",
+        },
+        "Stage 8A-5 temporal compatibility authority drift",
+    )
 
     for key in (
         "current_tree_authority_required",
@@ -188,6 +229,7 @@ def check(root: Path) -> None:
         "handoff_complete_logs_required",
         "immutable_action_pins_required",
         "exact_rust_toolchain_required",
+        "accepted_stage8a5_temporal_compatibility_normalization_required",
     ):
         require(authority.get("requirements", {}).get(key) is True, f"requirement drift: {key}")
     expected_closed = {
@@ -217,6 +259,15 @@ def check(root: Path) -> None:
     )
     current_workflow = (root / CURRENT_WORKFLOW).read_text(encoding="utf-8")
     historical_workflow = (root / HISTORICAL_WORKFLOW).read_text(encoding="utf-8")
+    rust_job = re.search(r"(?ms)^  rust:\s*\n(?P<body>.*?)(?=^  redis-smoke:\s*$)", current_workflow)
+    require(rust_job is not None, "canonical CI Rust job missing")
+    rust_job_body = rust_job.group("body")
+    stack_binding = f'      RUST_MIN_STACK: "{RUST_MIN_STACK_BYTES}"'
+    require(
+        rust_job_body.count(stack_binding) == 1
+        and current_workflow.count("RUST_MIN_STACK:") == 1,
+        "canonical CI Rust stack contract drift",
+    )
     current_triggers = workflow_trigger_block(current_workflow)
     historical_triggers = workflow_trigger_block(historical_workflow)
     require("pull_request:" in current_triggers, "canonical CI pull_request trigger missing")
@@ -264,8 +315,62 @@ def check(root: Path) -> None:
         "python3 scripts/current_tree_authority_negative_harness.py",
         f'accepted_stage8a5_ref="{ACCEPTED_STAGE8A5_REF}"',
         'bash "$replay_root/repo/scripts/stage8a5_gate.sh"',
+        "CURRENT_TREE_STAGE8A5_REPLAY_COMPAT=1",
+        "current_tree_stage8a5_replay_cargo.sh",
+        "--verify-evidence-only",
     ):
         require(gate.count(command) == 1, f"mandatory gate command drift: {command}")
+    require(
+        gate.count("current_tree_stage8a5_replay_compat.py") == 2,
+        "temporal compatibility helper invocation drift",
+    )
+
+    compat_helper = (root / REPLAY_COMPAT_HELPER).read_text(encoding="utf-8")
+    for marker in (
+        f'STAGE8A5_REF = "{ACCEPTED_STAGE8A5_REF}"',
+        f'STAGE7B_REF = "{ACCEPTED_STAGE7B_REF}"',
+        "NORMALIZED_REFS = tuple(",
+        f'REPAIR_SOURCE_REF = "{REPLAY_COMPAT_REPAIR_REF}"',
+        f'SOURCE_PATH = Path("{REPLAY_COMPAT_SOURCE_PATH}")',
+        f'PRE_REPAIR_SHA256 = "{REPLAY_COMPAT_PRE_SHA256}"',
+        f'POST_REPAIR_SHA256 = "{REPLAY_COMPAT_POST_SHA256}"',
+        f'DIFF_SHA256 = "{REPLAY_COMPAT_DIFF_SHA256}"',
+        "OLD_EPOCH = 1_790_000_000",
+        "NEW_EPOCH = 4_102_444_800",
+        'data.count(OLD_BLOCK) != 1',
+        'status != f"M {SOURCE_PATH.as_posix()}"',
+        'numstat != f"4\\t1\\t{SOURCE_PATH.as_posix()}"',
+        "def restore(root: Path, evidence: Path) -> None:",
+        'if clean_status:',
+        'if args.verify_evidence_only and args.restore:',
+    ):
+        expected_count = 2 if marker == 'status != f"M {SOURCE_PATH.as_posix()}"' else 1
+        require(compat_helper.count(marker) == expected_count, f"temporal compatibility helper drift: {marker}")
+    compat_cargo = (root / REPLAY_COMPAT_CARGO).read_text(encoding="utf-8")
+    for marker in (
+        '[[ "${CURRENT_TREE_STAGE8A5_REPLAY_COMPAT:-0}" == "1" ]] && \\',
+        '[[ "${1:-}" == "test" ]] && \\',
+        '[[ "$workspace_test" == "1" ]] && \\',
+        '[[ "$all_targets_test" == "1" ]]',
+        '        "$CURRENT_TREE_REAL_CARGO" "$@"',
+        '          --restore',
+        '        exit "$cargo_status"',
+        'exec "$CURRENT_TREE_REAL_CARGO" "$@"',
+    ):
+        require(compat_cargo.count(marker) == 1, f"temporal compatibility cargo wrapper drift: {marker}")
+    require(
+        compat_cargo.count('python3 "$CURRENT_TREE_STAGE8A5_REPLAY_COMPAT_HELPER"') == 2,
+        "temporal compatibility apply/restore invocation drift",
+    )
+    for source_ref in REPLAY_COMPAT_REFS:
+        require(
+            compat_helper.count(source_ref) == 1,
+            f"temporal compatibility helper ref drift: {source_ref}",
+        )
+        require(
+            compat_cargo.count(source_ref) == 1,
+            f"temporal compatibility cargo ref drift: {source_ref}",
+        )
 
     for crate in ("crates/broker-cli/Cargo.toml", "crates/finam-gateway/Cargo.toml"):
         defaults, names = feature_defaults(root / crate)
@@ -296,6 +401,7 @@ def check(root: Path) -> None:
         "GOV-CI-1A", "GOV-CI-1B", ACCEPTED_PREDECESSOR, ACCEPTED_STAGE8A5_REF,
         "Stage 8B-D R2", "FINAM POST/DELETE", "runtime-live", CHECKOUT_ACTION_SHA,
         RUST_TOOLCHAIN_ACTION_SHA, RUST_TOOLCHAIN_VERSION,
+        RUST_MIN_STACK_BYTES,
     ):
         require(marker in contract, f"governance contract marker missing: {marker}")
 

@@ -1,0 +1,25 @@
+id,category,requirement,status
+P1D4R5-001,lineage,R5 parent is exact R4 design commit ebede1d804f5eff50d6b4b9455edb08735e1be2c,REQUIRED
+P1D4R5-002,decision,R5 chooses Option A and preserves accepted P1-c and P1-d2 source retention,REQUIRED
+P1D4R5-003,source,S05 generated Market retains the same later-bar M10 pending through combined S_truth,REQUIRED
+P1D4R5-004,source,Publication creates no second canonical M10 or PEL source,REQUIRED
+P1D4R5-005,source,Exact retained source XACK is last after combined S_truth persist reread and cross-validation,REQUIRED
+P1D4R5-006,composition,One crate-private Stage8bP1d4GeneratedMarketCompositionV1 binds P1-d3 replacement semantic commit generated Market lifecycle and source M10,REQUIRED
+P1D4R5-007,composition,The composition projection is separate from Stage8bP1d3ReplacementProjectionV1 and contains no raw Stage5C capability,REQUIRED
+P1D4R5-008,composition,Composition phases are exactly Prepublication AckCommitted and TruthCommitted,REQUIRED
+P1D4R5-009,composition,Prepublication phase requires P1-d3 replacement plus one-intent Market semantic commit and forbids P1-d2 feedback,REQUIRED
+P1D4R5-010,composition,AckCommitted phase requires exact P1-d2 ACK feedback and preserves the same P1-d3 replacement,REQUIRED
+P1D4R5-011,composition,TruthCommitted phase requires exact P1-d2 truth feedback and preserves the same P1-d3 replacement,REQUIRED
+P1D4R5-012,authority,Restart owners are exactly P1d4GeneratedMarketPrepublicationPending P1d4GeneratedMarketPreAckPending P1d4GeneratedMarketAckCommitted and P1d4GeneratedMarketTruthCommitted,REQUIRED
+P1D4R5-013,authority,Each owner exposes only its phase-legal continuation and consumes linearly,REQUIRED
+P1D4R5-014,binding,Composition cross-validates package instance operational identity P1-d3 replacement hash semantic commit hash command hash request id source binding and phase feedback hash,REQUIRED
+P1D4R5-015,replay,Callback command XADD provider schedule sequence ACK truth seals and XACK each occur at most once semantically across crash restart,REQUIRED
+P1D4R5-016,coverage,The base 92-cell registry remains traceable and a 10-cell S05 generated-Market submatrix is additionally mandatory,REQUIRED
+P1D4R5-017,coverage,Active P1-d4 proof inventory is exactly 102 cells with all duplicate and conflict variants required,REQUIRED
+P1D4R5-018,override,P1D4D-049 source-XACK-after-publication applies only to zero-intent later-bar paths; S05 one-intent follows P1D4R5-005,REQUIRED
+P1D4R5-019,negative,Missing or changed source PEL entry publication marker command payload group frontier composition binding feedback sequence or seal fails before effects,REQUIRED
+P1D4R5-020,negative,Duplicate callback XADD provider sequence ACK truth or XACK and any phase skip fail closed,REQUIRED
+P1D4R5-021,schema,Only the exact additive crate-private composition projection and typed owners are authorized; no journal record transport or operational schema is added,REQUIRED
+P1D4R5-022,scope,R5 remains design checker and handoff only and excludes saved source WIP,REQUIRED
+P1D4R5-023,scope,Operational Redis DB0 VPS FINAM POST DELETE broker dispatch runtime-live real orders and partial fills remain closed,REQUIRED
+P1D4R5-024,governance,P1-d4 source implementation remains paused until independent R5 design acceptance,REQUIRED

@@ -1,0 +1,54 @@
+{
+  "schema_version": 2,
+  "domain": "moex.stage8b.p1e.latch-route-transition-matrix.v2",
+  "base_matrix": {
+    "path": "docs/stage-8/stage8b-p1e-latch-route-transition-matrix-v1.json",
+    "sha256": "2c467f2ec214b6e636448d210c6bc98b587527f2a8b6ca686ed237860b59c636",
+    "row_count": 30
+  },
+  "composition_rule": "retain-all-V1-fields-and-apply-each-exact-amendment-then-bind-proof-fixtures",
+  "row_count": 30,
+  "logical_route_count": 20,
+  "proof_case_count": 46,
+  "boundary_kinds": {
+    "redis_reattachment_checkpoint": "authenticated-existing-durable-phase-plus-route-bound-transport-and-source-owner;not-a-new-durable-seal",
+    "durable_covering_seal": "newly-committed-and-reread-authenticated-durable-phase",
+    "terminal_source_resolution": "authenticated-source-disposition-and-returned-ready-owner",
+    "terminal_source_then_timer_reclassification": "source-resolved-checkpoint-then-latch-check-then-timer-classification-with-zero-timer-execution"
+  },
+  "signal_precedence": {
+    "before_permit": "RetainForRestart-with-zero-post-acquisition-effect",
+    "after_permit": "finish-only-selected-row-boundary-then-recheck-latch",
+    "reattachment_checkpoint": "if-latch-set-stop-with-source-pending-and-zero-new-seal-zero-XACK",
+    "normal_loop_s_ack": "E05-applies-only-when-S_ack-owner-was-held-by-normal-owner-loop-before-shutdown-request",
+    "forbidden_implicit_progress": "reattachment-checkpoint-must-not-fall-through-to-S_truth-or-XACK"
+  },
+  "exact_row_amendments": [
+    {"cell_id":"LR02-default","boundary_kind":"redis_reattachment_checkpoint","exact_next_covering_boundary":"p1_semantic_prepublication-redis-reattachment-checkpoint","post_permit_signal_stop_policy":"stop-at-reattachment-if-latch-set;zero-publication;source-pending","proof_fixture_ids":["FX02"]},
+    {"cell_id":"LR04-default","boundary_kind":"redis_reattachment_checkpoint","exact_next_covering_boundary":"p1d2_s_ack-redis-reattachment-checkpoint","post_permit_signal_stop_policy":"stop-at-reattachment-if-latch-set;zero-S_truth;zero-XACK;source-pending","proof_fixture_ids":["FX04"]},
+    {"cell_id":"LR10-default","boundary_kind":"redis_reattachment_checkpoint","exact_next_covering_boundary":"p1d4_generated_s_ack-redis-reattachment-checkpoint","post_permit_signal_stop_policy":"stop-at-reattachment-if-latch-set;zero-S_truth;zero-XACK;source-pending","proof_fixture_ids":["FX10"]},
+    {"cell_id":"LR13-default","boundary_kind":"redis_reattachment_checkpoint","exact_next_covering_boundary":"p1d3_s_ack-redis-reattachment-checkpoint","post_permit_signal_stop_policy":"stop-at-reattachment-if-latch-set;zero-S_truth;zero-XACK;source-pending","proof_fixture_ids":["FX23"]},
+    {"cell_id":"LT05-due-day-timer","boundary_kind":"terminal_source_then_timer_reclassification","exact_next_covering_boundary":"p1d3-source-resolved-checkpoint-then-latch-check-then-exact-timer-reclassification-outcome-checkpoint","xack_legality":"pending-branch:one-XACK-reply-1;already-acknowledged-branch:zero-XACK-continuous-frontier-proof","timer_disposition":"SOURCE_FIRST;recheck-latch-after-source-resolution;if-set-retain-original-timer-with-zero-timer-mutation;if-clear-reclassify-to-exact-retained-or-stale-outcome-only;timer-execution-forbidden-until-next-clear-latch-step","post_boundary_latch_recheck":"required-after-source-resolution-before-reclassification-and-after-reclassification-before-any-timer-execution","proof_fixture_ids":["FX41","FX42","FX45","FX46"]}
+  ],
+  "default_row_policy": {
+    "boundary_kind": "durable_covering_seal-or-terminal_source_resolution-as-defined-by-V1-row",
+    "post_permit_signal_stop_policy": "complete-exact-V1-row-boundary-then-recheck-latch;no-unlisted-continuation",
+    "proof_fixture_binding": "exactly-the-fixture-ids-listed-for-cell"
+  },
+  "proof_fixture_ids_by_cell": {
+    "LR01-default":["FX01"], "LR02-default":["FX02"], "LR03-default":["FX03"], "LR04-default":["FX04"],
+    "LR05-default":["FX05"], "LR06-default":["FX06"], "LR07-default":["FX07"], "LR08-default":["FX08"],
+    "LR09-default":["FX09"], "LR10-default":["FX10"], "LR11-limit":["FX11"], "LR11-expiry":["FX12"],
+    "LR11-cancel":["FX13","FX14","FX15"], "LR12-command-source":["FX16","FX17","FX43"],
+    "LR12-candidate-source":["FX18","FX19","FX20","FX21","FX22","FX44"], "LR13-default":["FX23"],
+    "LR14-default":["FX24"], "LR15-s_eval":["FX25","FX26","FX27"], "LR15-s_terminal":["FX28","FX29","FX30"],
+    "LT01-pending":["FX31"], "LT01-already-acknowledged":["FX32"], "LT02-pending":["FX33"],
+    "LT02-already-acknowledged":["FX34"], "LT03-pending":["FX35"], "LT03-already-acknowledged":["FX36"],
+    "LT04-pending":["FX37"], "LT04-already-acknowledged":["FX38"], "LT05-pending":["FX39"],
+    "LT05-already-acknowledged":["FX40"], "LT05-due-day-timer":["FX41","FX42","FX45","FX46"]
+  },
+  "event_matrix_precedence": {
+    "E25": "route-matrix-boundary-wins-for-an-in-flight-permit",
+    "E05": "normal-loop-owned-S_ack-only-and-never-applies-inside-LR04-LR10-LR13-permit-continuation"
+  }
+}

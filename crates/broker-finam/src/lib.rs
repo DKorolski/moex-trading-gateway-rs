@@ -8,15 +8,18 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
+use zeroize::Zeroize;
 
 pub mod dto;
 pub mod instrument_registry;
 pub mod mapper;
+pub mod o2_readonly;
 pub mod order_request;
 pub mod ws;
 pub use dto::*;
 pub use instrument_registry::*;
 pub use mapper::*;
+pub use o2_readonly::*;
 pub use order_request::*;
 pub use ws::*;
 
@@ -781,6 +784,12 @@ impl std::fmt::Debug for AuthResponse {
 #[derive(Clone, PartialEq, Eq, Deserialize)]
 #[serde(transparent)]
 pub struct AccessToken(String);
+
+impl Drop for AccessToken {
+    fn drop(&mut self) {
+        self.0.zeroize();
+    }
+}
 
 impl AccessToken {
     pub fn new(value: impl Into<String>) -> Self {

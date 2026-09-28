@@ -1,0 +1,47 @@
+id,area,case,precondition,expected_owner,expected_effects,expected_readiness,status,supersedes
+I1A-R1-D01-01,durable,canonical-v4-bind,Fresh verified exact source and clear latch-D,ScheduleBindingCommittedOwner,Append V4 at prior sequence plus one then one covering seal at prior generation plus one then reread,None,REQUIRED,
+I1A-R1-D01-02,durable,journal-fsynced-seal-missing,Exact V4 tail durable and covering seal absent,ScheduleBindingJournalAheadOwner,Recover exactly one covering seal with no authority callback provider or XACK,None,REQUIRED,
+I1A-R1-D01-03,durable,seal-durable-reread-pending,Exact V4 and covering seal durable,ScheduleBindingRereadPendingOwner,Reread and cross-validate without second append or seal,None,REQUIRED,
+I1A-R1-D01-04,durable,binding-committed,Exact V4 seal and reread accepted,ScheduleBindingCommittedOwner,Issue exact transition-bound authority only,None,REQUIRED,
+I1A-R1-D01-05,durable,authority-volatile-restart,Authority issued and business transition not durable,AuthorityIssuedLinearOwner,Reissue exact authority for identical transition without duplicate callback provider seal or XACK,None,REQUIRED,
+I1A-R1-D01-06,durable,business-transition-durable,Existing P1-d2 d3 or d4 business record and seal durable,ExistingAcceptedReplacementOwner,Use existing lifecycle recovery without schedule rebind,None,REQUIRED,
+I1A-R1-D01-07,durable,source-xacked-last,Existing terminal business state and source XACK complete,ExistingTerminalOwnerOrDisposition,No further schedule authority callback provider seal or XACK,None,REQUIRED,
+I1A-R1-D01-08,durable,wrong-lifecycle-sequence,V4 sequence is not prior plus one,Retained exact prior owner,Reject before seal or authority,Degraded:ScheduleSourceConflict,REQUIRED,
+I1A-R1-D01-09,durable,wrong-seal-generation,Covering generation is not prior plus one,ScheduleBindingJournalAheadOwner,Reject mismatched seal and recover only exact expected generation,Degraded:ScheduleSourceConflict,REQUIRED,
+I1A-R1-D01-10,compatibility,old-package-without-v4,Accepted V1 V2 V3 package,Exact historical owner,Replay byte and state identically with no synthetic V4,None,REQUIRED,
+I1A-R1-D01-11,compatibility,malformed-or-unknown-v4,Unknown version kind or malformed V4 suffix,No owner issued,Fail closed before authority callback provider or XACK,Blocked,REQUIRED,
+I1A-R1-D01-12,replay,nonidentical-transition-reissue,Historical bound envelope but request order book M10 or transition hash differs,Retained exact bound owner,Reject reissue and do not substitute newest source,Degraded:ScheduleSourceConflict,REQUIRED,
+I1A-R1-D01-13,durable,binding-not-business-terminal,V4 binding alone is covered and reread,ScheduleBindingCommittedOwner,No business completion and no M10 XACK,None,REQUIRED,
+I1A-R1-D02-01,progression,initial-bootstrap,No durable high-water and newest source is valid signed and fresh,Returned exact owner,Accept newest snapshot and bind only with transition,None,REQUIRED,
+I1A-R1-D02-02,progression,ordinary-m10-jump,High-water N and current valid newest N plus 600,Returned exact owner,Accept monotonic snapshot jump without intermediate rows,None,REQUIRED,I1A-S04
+I1A-R1-D02-03,progression,idle-weekend-jump,Large positive jump after idle or weekend with current signed source,Returned exact owner,Accept under identical monotonic jump rule,None,REQUIRED,
+I1A-R1-D02-04,progression,retention-loss,High-water row is outside newest 64 and retention 4096,Returned exact owner,Accept current valid monotonic snapshot without paging,None,REQUIRED,
+I1A-R1-D02-05,progression,same-sequence-same-bytes,Generation sequence and envelope hash equal high-water,Returned exact owner,Idempotent source observation,None,REQUIRED,
+I1A-R1-D02-06,progression,same-sequence-different-bytes,Generation and sequence equal but envelope hash differs,Retained exact owner,Terminal conflict and no older fallback,Degraded:ScheduleSourceConflict,REQUIRED,
+I1A-R1-D02-07,progression,sequence-rollback,Candidate sequence below high-water,Retained exact owner,Reject rollback,Degraded:ScheduleSourceConflict,REQUIRED,
+I1A-R1-D02-08,progression,published-time-rollback,Positive sequence but publication time is not newer,Retained exact owner,Reject time rollback,Degraded:ScheduleSourceConflict,REQUIRED,
+I1A-R1-D02-09,progression,semantic-revision-rollback,Positive sequence but semantic revision decreases,Retained exact owner,Reject semantic rollback,Degraded:ScheduleSourceConflict,REQUIRED,
+I1A-R1-D02-10,progression,semantic-hash-conflict,Semantic revision equal but semantic hash differs,Retained exact owner,Terminal conflict,Degraded:ScheduleSourceConflict,REQUIRED,
+I1A-R1-D02-11,progression,generation-change,Source generation differs from reviewed generation,Retained exact owner,Reject until reviewed trust and config amendment,Blocked,REQUIRED,
+I1A-R1-D02-12,progression,invalid-newest-valid-older,Newest row invalid and older row valid,Retained exact owner,Reject newest and do not fall back,Degraded:ScheduleSourceUntrusted,REQUIRED,
+I1A-R1-D03-01,route,market-open,Fresh signed tradability Open evidence and exact request command M10,Returned authenticated owner,Issue Market authority after durable binding,PaperReady,REQUIRED,
+I1A-R1-D03-02,route,market-closed,Fresh signed day-boundary Closed evidence,Retained exact owner,No Market authority,Degraded:ScheduleStage4EvidenceBlocked,REQUIRED,I1A-E05
+I1A-R1-D03-03,route,working-open,Fresh signed tradability Open evidence and exact working book,Returned working-book owner,Issue Working evaluation authority after durable binding,PaperReady,REQUIRED,
+I1A-R1-D03-04,route,working-closed,Fresh signed day-boundary Closed evidence,Retained working-book owner,No Working evaluation authority,Degraded:ScheduleStage4EvidenceBlocked,REQUIRED,
+I1A-R1-D03-05,route,cancel-open,Fresh signed tradability Open and exact active order book,Returned working-book owner,Issue cancel lifecycle authority after durable binding,PaperReady,REQUIRED,
+I1A-R1-D03-06,route,cancel-closed,Fresh signed day-boundary Closed and exact active order book,Returned working-book owner,Issue cancel risk-reduction authority but no trading eligibility,PaperReady,REQUIRED,
+I1A-R1-D03-07,route,day-expiry-on-time,First fresh Closed boundary snapshot and exact evaluated last eligible M10,Returned working-book owner,Issue Day expiry authority after durable binding,PaperReady,REQUIRED,I1A-P04
+I1A-R1-D03-08,route,day-expiry-delayed,Later fresh Closed snapshot for same day and exact unchanged book and last eligible M10,Returned working-book owner,Issue Day expiry authority after full revalidation,PaperReady,REQUIRED,
+I1A-R1-D03-09,replay,day-restart-before-binding,Restart occurred before durable schedule binding,Retained working-book owner,Require new fresh Closed source and full proof,Degraded until source,REQUIRED,
+I1A-R1-D03-10,replay,day-restart-after-binding,Exact Day binding committed for identical incomplete transition,ScheduleBindingCommittedOwner,Reissue from exact retained envelope despite historical freshness,None,REQUIRED,
+I1A-R1-D03-11,route,day-last-m10-mismatch,Closed proof does not match exact authenticated evaluated M10,Retained working-book owner,Reject Day authority,Degraded:ScheduleStage4EvidenceBlocked,REQUIRED,
+I1A-R1-D03-12,route,day-later-eligible-not-excluded,A later eligible M10 may exist for the trading day,Retained working-book owner,Reject Day authority,Degraded:ScheduleStage4EvidenceBlocked,REQUIRED,
+I1A-R1-D04-01,timer,signal-after-source-before-reclassify,Latch A set immediately after exact source resolution,Exact pre-reclassification owner,No timer mutation schedule read binding seal execution or XACK,Stopped,REQUIRED,I1A-T03
+I1A-R1-D04-02,timer,signal-after-reclassify-before-schedule,Latch B set after timer reclassification,Returned reclassified owner,No schedule read binding seal execution or XACK,Stopped,REQUIRED,
+I1A-R1-D04-03,timer,signal-after-schedule-read-before-binding,Latch D set after volatile verification,Returned reclassified owner,No V4 append seal authority execution or XACK,Stopped,REQUIRED,I1A-T04
+I1A-R1-D04-04,timer,signal-during-noncancellable-binding,Signal arrives after V4 append begins,ScheduleBindingCommittedOwner,Finish or recover exact append seal reread then stop before authority effect,Stopped,REQUIRED,I1A-T05
+I1A-R1-D04-05,timer,signal-after-binding-before-execution,Latch E or F set after committed binding,ScheduleBindingCommittedOwner,No second seal timer execution or XACK,Stopped,REQUIRED,
+I1A-R1-D04-06,timer,normal-three-step-path,Fresh M10 timer and route schedule with all latches clear,Returned post-effect owner,Step1 classify then return step2 bind then return step3 execute at most once,PaperReady,REQUIRED,I1A-T01
+I1A-R1-D04-07,timer,schedule-missing,Timer reclassified but route source unavailable,Returned reclassified owner,Degraded with no binding seal execution second M10 read or XACK,Degraded:ScheduleSourceMissing,REQUIRED,I1A-T06
+I1A-R1-P2-01,publisher,missing-stream-no-create,Pre-provisioned stream is absent,No runtime owner change,XADD NOMKSTREAM fails and key remains absent,Degraded,REQUIRED,
+I1A-R1-P2-02,publisher,exact-command-shape,Pre-provisioned stream exists with correct type,No runtime owner change,Use exact NOMKSTREAM and exact MAXLEN 4096 command only,None,REQUIRED,

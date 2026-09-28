@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "domain": "moex.stage8b.p1e.i1a.semantic-identity-contract.v1",
+  "identity_schema": "docs/stage-8/stage8b-p1e-i1a-semantic-identity-v1.schema.json",
+  "canonical_encoding": {
+    "format": "strict-canonical-json-subset-v1",
+    "utf8_only": true,
+    "object_keys": "lexicographic-utf8-byte-order",
+    "arrays": "contract-order",
+    "duplicate_keys_rejected_recursively": true,
+    "unknown_fields_rejected_recursively": true,
+    "floating_point_numbers_allowed": false,
+    "timestamps": "RFC3339-microseconds-UTC-Z",
+    "digests": "lowercase-hex"
+  },
+  "included_projection": [
+    "schema_version",
+    "domain",
+    "instrument.symbol",
+    "instrument.broker_symbol",
+    "instrument.exchange",
+    "instrument.market",
+    "instrument.venue_mic",
+    "instrument.board",
+    "instrument.tick_size",
+    "registry.registry_version",
+    "registry.registry_identity_sha256",
+    "trading_day",
+    "timezone",
+    "timeframe_sec",
+    "sessions[].session_type",
+    "sessions[].start_utc",
+    "sessions[].end_utc",
+    "stage4_semantic_state.evidence_kind",
+    "stage4_semantic_state.schedule_state",
+    "stage4_semantic_state.boundary_proof"
+  ],
+  "excluded_transport_and_freshness_fields": [
+    "source_generation",
+    "publication_sequence",
+    "published_at_utc",
+    "source_observed_at_utc",
+    "source_expires_at_utc",
+    "raw_response_sha256",
+    "normalized_payload_sha256",
+    "report_canonical_json_hex",
+    "report_sha256",
+    "payload_sha256",
+    "signature_ed25519_hex",
+    "envelope_sha256"
+  ],
+  "hash": {
+    "algorithm": "sha256",
+    "domain": "moex.stage8b.p1e.schedule-semantic-identity.sha256.v1",
+    "preimage": "utf8(hash.domain) || 0x00 || canonical_semantic_identity_bytes",
+    "envelope_field": "schedule_semantic_sha256"
+  },
+  "producer_revision": {
+    "scope": "source_generation",
+    "first_publication": "1",
+    "same_hash_as_immediately_prior_publication": "retain-exact-prior-semantic-revision",
+    "different_hash_from_immediately_prior_publication": "exact-prior-semantic-revision-plus-one",
+    "open_to_closed": "different-hash-and-revision-plus-one-even-if-sessions-unchanged",
+    "trading_day_change": "different-hash-and-revision-plus-one-even-if-sessions-unchanged",
+    "heartbeat_only": "same-hash-and-same-revision-while-publication-sequence-and-freshness-may-advance",
+    "restart": "restore-durable-generation-publication-sequence-semantic-revision-and-semantic-hash-before-publish",
+    "reset_or_guess_after_restart": false
+  },
+  "consumer_progression": {
+    "semantic_revision_below_high_water": "blocked-rollback",
+    "semantic_revision_equal_and_hash_equal": "allowed-if-all-transport-rules-pass",
+    "semantic_revision_equal_and_hash_different": "terminal-conflict",
+    "semantic_revision_above_high_water": "allowed-monotonic-snapshot-jump-if-all-transport-rules-pass",
+    "require_observation_of_intermediate_semantic_revisions": false
+  }
+}

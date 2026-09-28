@@ -1,0 +1,36 @@
+{
+  "schema_version": 7,
+  "domain": "moex.stage8b.p1e.active-acceptance-contract.v7",
+  "accepted_predecessor": "c2a9e1246dfdd59f3a6297268de907dedcb19903",
+  "direct_parent": "c0d7ee4c10e4d060fd15ea31f4593adcb793642b",
+  "base_active_contract": {
+    "path": "docs/stage-8/stage8b-p1e-active-acceptance-contract-v6.json",
+    "sha256": "7dfdc7032c5d3debe70a9f70eea674216da7b52357da001096bd7d45a0a596c2",
+    "active_rows": 242
+  },
+  "r7_source": {
+    "path": "docs/stage-8/stage8b-p1e-deployable-supervisor-r7-acceptance-matrix.csv",
+    "sha256": "46dff914d5203f908d8b022b92a56688c171293e708f86928cea53fcae04eb34",
+    "row_count": 34,
+    "superseded_rows": []
+  },
+  "superseded_base_rows": [
+    "P1ER6-002","P1ER6-003","P1ER6-004","P1ER6-005","P1ER6-006",
+    "P1ER6-010","P1ER6-013","P1ER6-014","P1ER6-016","P1ER6-018","P1ER6-030"
+  ],
+  "supersession_map": [
+    {"semantic_key":"r6-lineage-contract-scope","superseded":["P1ER6-002","P1ER6-003","P1ER6-004","P1ER6-005","P1ER6-006"],"replacement":["P1ER7-002","P1ER7-003","P1ER7-004","P1ER7-005","P1ER7-006"]},
+    {"semantic_key":"r6-monolithic-source-binding","superseded":["P1ER6-010","P1ER6-016","P1ER6-030"],"replacement":["P1ER7-008","P1ER7-009","P1ER7-011","P1ER7-012","P1ER7-016","P1ER7-029","P1ER7-030"]},
+    {"semantic_key":"r6-terminal-direct-resolution","superseded":["P1ER6-013","P1ER6-014"],"replacement":["P1ER7-012","P1ER7-021","P1ER7-022"]},
+    {"semantic_key":"r6-unimplementable-post-delivery-latch","superseded":["P1ER6-018"],"replacement":["P1ER7-007","P1ER7-013","P1ER7-017","P1ER7-018","P1ER7-019","P1ER7-024","P1ER7-025","P1ER7-026"]}
+  ],
+  "semantic_authority_registry": "docs/stage-8/stage8b-p1e-semantic-authority-registry-v7.json",
+  "active_contract_expectation": {
+    "base_v6_active_rows": 242,
+    "base_rows_superseded_by_r7": 11,
+    "r7_active_rows": 34,
+    "total_active_rows": 265,
+    "all_status_required": true
+  },
+  "merge_rule": "exact-active-V6-minus-eleven-listed-rows-plus-all-R7-rows"
+}

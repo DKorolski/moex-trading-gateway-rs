@@ -1,0 +1,277 @@
+{
+  "schema_version": 4,
+  "domain": "moex.stage8b.p1e.first-boot-transaction.v4",
+  "deployment_identity_contract": "docs/stage-8/stage8b-p1e-deployment-identity-v2.json",
+  "derived_digest_contract": "docs/stage-8/stage8b-p1e-derived-digests-v1.json",
+  "transaction_id_derivation": "transaction_id_sha256-from-derived-digest-contract-v1",
+  "marker_authentication": {
+    "schema_version": 4,
+    "hmac_domain": "moex.stage8b.p1e.first-boot-transaction.hmac.v4",
+    "key": "CREDENTIALS_DIRECTORY/stage8b-p1-lifecycle.key",
+    "canonical_encoding": "derived-digest-contract-v1-framed-record",
+    "deny_unknown_fields": true,
+    "deny_duplicate_fields": true,
+    "required_bindings": [
+      "transaction_id_sha256",
+      "bootstrap_attempt_generation",
+      "operational_identity_sha256",
+      "runtime_profile_sha256",
+      "runtime_config_fingerprint_sha256",
+      "source_bundle_sha256",
+      "source_bundle_generation",
+      "source_plan_sha256",
+      "history_bars_sha256",
+      "riskgate_session_observations_sha256",
+      "candidate_semantic_id_sha256",
+      "canonical_root_identity_sha256",
+      "phase",
+      "marker_generation"
+    ]
+  },
+  "marker_update_protocol": [
+    "open-mutable-state-parent-fd-O_DIRECTORY-O_NOFOLLOW",
+    "create-exclusive-fixed-temp-openat-O_CREAT-O_EXCL-O_NOFOLLOW-mode-0600",
+    "fstat-service-owner-service-group-regular-single-link-mode-0600",
+    "write-all-authenticated-next-generation-marker",
+    "sync-all-temp",
+    "rename-temp-over-marker",
+    "fsync-mutable-state-parent",
+    "nofollow-reread-authenticate-and-byte-verify"
+  ],
+  "administrative_boundary": {
+    "unit": "moex-finam-p1-paper-bootstrap-recover@.service",
+    "user": "moex-p1-paper",
+    "group": "moex-p1-paper",
+    "binary": "/usr/local/libexec/moex/stage8b-p1-paper-supervisor",
+    "config": "/etc/moex-finam-p1-paper/supervisor.json",
+    "credential": "/etc/moex-finam-p1-paper/credentials/stage8b-p1-lifecycle.key",
+    "cli_grammar": "stage8b-p1-paper-supervisor bootstrap-recover /etc/moex-finam-p1-paper/supervisor.json TRANSACTION_ID.ACTION RECOVER_EXISTING_STAGE8B_P1_FIRST_BOOT_V4",
+    "systemctl_grammar": "systemctl start moex-finam-p1-paper-bootstrap-recover@TRANSACTION_ID.ACTION.service",
+    "transaction_id_grammar": "exact-64-lowercase-hex",
+    "action_grammar": "remove-marker-temp|resume-prepared|quarantine-root|finalize-quarantine|remove-receipt-temp-and-adopt|adopt-committed-root|complete-prepared-to-root-published|complete-root-published-to-journal-durable|complete-journal-durable-to-seal-committed|complete-seal-committed-to-adopted|start-seal-committed-to-adopted",
+    "missing_credentials_directory": "exit-66-before-filesystem-mutation",
+    "direct_manual_execution": "not-an-accepted-production-boundary"
+  },
+  "bootstrap_entry_rule": "ordinary-bootstrap-only-when-root-marker-marker-temp-receipt-receipt-temp-absent-and-attempt-generation-exceeds-authenticated-quarantine-history",
+  "recovery_entry_rule": "fresh-classification-transaction-id-action-service-identity-and-operational-identity-must-all-match-before-mutation",
+  "base_classifications": [
+    {
+      "classification": "NoRoot",
+      "precondition": "all-authority-and-temp-paths-absent",
+      "required_action": "ordinary-bootstrap-only",
+      "sole_continuation": "create-new-authenticated-transaction",
+      "run_allowed": false
+    },
+    {
+      "classification": "UnpublishedMarkerTemp",
+      "precondition": "no-marker-no-root-exact-prepared-temp-only",
+      "required_action": "remove-marker-temp",
+      "sole_continuation": "authenticate-inspect-unlink-exact-initial-temp-fsync-parent",
+      "run_allowed": false
+    },
+    {
+      "classification": "PreparedWithoutRoot",
+      "precondition": "valid-prepared-marker-no-root-no-other-temp",
+      "required_action": "resume-prepared",
+      "sole_continuation": "resume-same-transaction-at-root-create",
+      "run_allowed": false
+    },
+    {
+      "classification": "RootWithoutJournal",
+      "precondition": "valid-root-published-state-no-journal-seal-receipt-or-temp",
+      "required_action": "quarantine-root",
+      "sole_continuation": "atomically-quarantine-proven-incomplete-root",
+      "run_allowed": false
+    },
+    {
+      "classification": "JournalWithoutSeal",
+      "precondition": "valid-journal-durable-state-no-seal-receipt-or-temp",
+      "required_action": "quarantine-root",
+      "sole_continuation": "atomically-quarantine-proven-incomplete-root",
+      "run_allowed": false
+    },
+    {
+      "classification": "CommittedRootReceiptTemp",
+      "precondition": "valid-seal-committed-state-exact-receipt-temp-no-final-receipt",
+      "required_action": "remove-receipt-temp-and-adopt",
+      "sole_continuation": "authenticate-unlink-exact-receipt-temp-fsync-then-fresh-adoption",
+      "run_allowed": false
+    },
+    {
+      "classification": "CommittedRootResponseLost",
+      "precondition": "valid-seal-committed-state-no-receipt-or-temp",
+      "required_action": "adopt-committed-root",
+      "sole_continuation": "fresh-restart-exact-ready-predicate-then-receipt-v2-commit",
+      "run_allowed": false
+    },
+    {
+      "classification": "QuarantinedIncompleteRoot",
+      "precondition": "exact-quarantine-present-active-root-absent-valid-marker-no-committed-seal",
+      "required_action": "finalize-quarantine",
+      "sole_continuation": "fsync-quarantine-move-marker-into-exact-quarantine-fsync",
+      "run_allowed": false
+    },
+    {
+      "classification": "ReceiptCommittedMarkerUpdatePending",
+      "precondition": "valid-final-receipt-v2-package-v2-seal-provenance-ready-owner-binding-canonical-marker-phase-seal_committed-and-adopted-marker-temp-absent",
+      "required_action": "start-seal-committed-to-adopted",
+      "sole_continuation": "create-exclusive-authenticated-adopted-marker-temp-sync-rename-parent-fsync-reread",
+      "run_allowed": false
+    },
+    {
+      "classification": "AdoptedCommittedRoot",
+      "precondition": "valid-receipt-v2-package-v2-seal-provenance-ready-owner-binding-canonical-marker-phase-adopted-and-marker-temp-absent",
+      "required_action": "ordinary-run-only",
+      "sole_continuation": "ordinary-run-restart-only",
+      "run_allowed": true
+    },
+    {
+      "classification": "CorruptOrIdentityMismatch",
+      "precondition": "any-schema-hmac-identity-owner-mode-link-path-phase-effect-selector-or-binding-conflict",
+      "required_action": "none",
+      "sole_continuation": "exit-66-preserve-evidence",
+      "run_allowed": false
+    }
+  ],
+  "marker_update_temp_classifications": [
+    {
+      "classification": "PreparedToRootPublishedMarkerTempPending",
+      "expected_old_phase": "prepared",
+      "expected_temp_phase": "root_published",
+      "expected_generation_delta": 1,
+      "required_phase_effect": "exact-canonical-root-created-and-parent-fsynced-journal-absent",
+      "required_action": "complete-prepared-to-root-published",
+      "forbidden_repeated_effect": "canonical-root-create",
+      "final_phase": "root_published"
+    },
+    {
+      "classification": "RootPublishedToJournalDurableMarkerTempPending",
+      "expected_old_phase": "root_published",
+      "expected_temp_phase": "journal_durable",
+      "expected_generation_delta": 1,
+      "required_phase_effect": "exact-journal-created-written-and-fsynced-seal-absent",
+      "required_action": "complete-root-published-to-journal-durable",
+      "forbidden_repeated_effect": "journal-create-or-first-boot-callback",
+      "final_phase": "journal_durable"
+    },
+    {
+      "classification": "JournalDurableToSealCommittedMarkerTempPending",
+      "expected_old_phase": "journal_durable",
+      "expected_temp_phase": "seal_committed",
+      "expected_generation_delta": 1,
+      "required_phase_effect": "exact-initial-seal-persisted-fsynced-reread-and-package-v2-authenticated",
+      "required_action": "complete-journal-durable-to-seal-committed",
+      "forbidden_repeated_effect": "initial-seal-commit-or-journal-append",
+      "final_phase": "seal_committed"
+    },
+    {
+      "classification": "SealCommittedToAdoptedMarkerTempPending",
+      "expected_old_phase": "seal_committed",
+      "expected_temp_phase": "adopted",
+      "expected_generation_delta": 1,
+      "required_phase_effect": "exact-final-receipt-v2-rename-parent-fsync-reread-and-cross-validation-complete-while-canonical-marker-remains-seal_committed",
+      "required_action": "complete-seal-committed-to-adopted",
+      "forbidden_repeated_effect": "receipt-create-or-fresh-adoption-restart",
+      "final_phase": "adopted",
+      "exclusive_precondition": "valid-final-receipt-present-plus-valid-adopted-marker-temp-present-excludes-ReceiptCommittedMarkerUpdatePending-and-AdoptedCommittedRoot"
+    }
+  ],
+  "marker_temp_completion_protocol": [
+    "authenticate-old-marker-and-next-marker-temp-with-same-lifecycle-key",
+    "require-same-transaction-operational-identity-root-identity-and-bootstrap-attempt",
+    "require-temp-marker-generation-equals-old-plus-one",
+    "require-exact-predecessor-successor-phase-pair",
+    "fstat-both-service-owned-service-group-regular-single-link-mode-0600",
+    "validate-corresponding-phase-effect-without-reexecuting-it",
+    "rename-exact-temp-over-canonical-marker",
+    "fsync-mutable-state-parent",
+    "nofollow-reread-authenticate-and-byte-verify-final-marker",
+    "continue-same-transaction-from-final-phase"
+  ],
+  "marker_temp_conflicts": [
+    "different-transaction-id",
+    "different-operational-or-deployment-identity",
+    "incompatible-old-and-temp-phases",
+    "generation-not-old-plus-one",
+    "unknown-temp-schema-or-version",
+    "phase-effect-missing-or-conflicting",
+    "wrong-owner-group-mode-type-or-link-count"
+  ],
+  "quarantine_protocol": {
+    "recursive_delete_allowed": false,
+    "automatic_delete_allowed": false,
+    "operation": "renameat2-noreplace-exact-root-into-preprovisioned-quarantine-then-fsync-both-parents",
+    "committed_seal_or_valid_receipt_blocks_quarantine": true
+  },
+  "adoption_protocol": {
+    "receipt_contract": "docs/stage-8/stage8b-p1e-first-boot-receipt-v2.json",
+    "restart_package_contract": "docs/stage-8/stage8b-p1e-authenticated-restart-package-v2.json",
+    "restart_variant": "Stage7bRestartOutcome::Ready",
+    "authenticated_stage5g_phase": "TimerReady",
+    "pending_lifecycle_owner_count": 0,
+    "pending_request_count": 0,
+    "pending_deferred_timer_count": 0,
+    "journal_mutation_uncertain": false,
+    "seal_commit_uncertain": false,
+    "redis_contact_allowed": false,
+    "second_first_boot_allowed": false,
+    "ordinary_run_requires_marker_phase": "adopted",
+    "marker_temp_must_be_absent": true,
+    "receipt_is_sufficient_without_adopted_marker": false
+  },
+  "required_sigkill_hooks": [
+    "after-root-parent-fsync-before-journal-create",
+    "after-journal-fsync-before-initial-seal-commit",
+    "after-seal-persist-reread-before-bootstrap-success-report",
+    "after-receipt-temp-sync-before-final-rename",
+    "after-receipt-rename-parent-fsync-before-adopted-marker-temp-create",
+    "after-root-published-marker-temp-sync-before-rename",
+    "after-journal-durable-marker-temp-sync-before-rename",
+    "after-seal-committed-marker-temp-sync-before-rename",
+    "after-adopted-marker-temp-sync-before-rename"
+  ],
+  "classification_model": {
+    "selected_model": "mandatory-adopted-marker-completion-before-ordinary-run",
+    "evaluation": "evaluate-all-authenticated-predicates-and-require-exactly-one-match",
+    "precedence_allowed": false,
+    "zero_matches": "CorruptOrIdentityMismatch-exit-66-preserve-evidence",
+    "multiple_matches": "CorruptOrIdentityMismatch-exit-66-preserve-evidence",
+    "receipt_commit_effect": "receipt-is-durable-prerequisite-but-does-not-authorize-ordinary-run-until-adopted-marker-commit",
+    "ordinary_run_commit_point": "canonical-adopted-marker-rename-plus-mutable-state-parent-fsync-plus-reread-authentication",
+    "adopted_root_exact_predicate": [
+      "canonical-marker-phase-adopted",
+      "transaction-marker-temp-absent",
+      "receipt-temp-absent",
+      "valid-final-receipt-v2",
+      "valid-package-v2-seal-provenance-and-Ready-binding"
+    ]
+  },
+  "classification_disjointness_dimensions": [
+    "canonical-marker-presence-and-phase",
+    "marker-temp-presence-and-authenticated-next-phase",
+    "root-journal-seal-presence-and-commitment",
+    "receipt-temp-presence",
+    "final-receipt-presence-and-authentication",
+    "quarantine-presence",
+    "transaction-and-deployment-identity"
+  ],
+  "classification_disjointness_proof": {
+    "no_root": "all authority paths absent",
+    "initial_temp": "marker absent and prepared temp present",
+    "prepared": "marker prepared and marker temp absent",
+    "root_published": "marker root_published and marker temp absent",
+    "journal_durable": "marker journal_durable and marker temp absent",
+    "seal_without_receipt": "marker seal_committed and both receipt paths absent",
+    "receipt_temp": "marker seal_committed receipt temp present final receipt absent",
+    "receipt_committed_before_marker_temp": "marker seal_committed final receipt present marker temp absent",
+    "adopted_marker_temp": "marker seal_committed final receipt present adopted marker temp present",
+    "adopted": "marker adopted final receipt present marker temp absent",
+    "quarantine": "active root absent exact quarantine present",
+    "conflict": "zero-or-multiple-valid-specific-predicates-or-any-binding-conflict"
+  },
+  "inherited_rule_supersession": [
+    "valid-receipt-wins-before-adopted-marker-is-superseded",
+    "receipt-rename-alone-is-not-ordinary-run-commit-point",
+    "adopted-marker-update-is-mandatory-not-best-effort"
+  ]
+}

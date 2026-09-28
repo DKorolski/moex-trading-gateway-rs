@@ -1,0 +1,60 @@
+id,area,requirement,status
+P1D3S-001,lineage,Accepted design predecessor is df330b2424199739ceb7c261321a5e5ee381c332,REQUIRED
+P1D3S-002,lineage,Accepted P1-d2 predecessor is bcd8db546104968dd0e48ab041e02acf6869d224,REQUIRED
+P1D3S-003,migration,Migration is one-time authenticated quiescent and effect-free,REQUIRED
+P1D3S-004,book,Working book is embedded in the authenticated replacement package and not a sidecar,REQUIRED
+P1D3S-005,book,Registry capacity is exactly 1024 records per generation,REQUIRED
+P1D3S-006,book,Registry rejects duplicate identities and cancel fails closed when derived cancel DCID equals target place TCID on fresh or recovery input,REQUIRED
+P1D3S-007,book,Registry canonical order is bytewise UTF-8 BrokerOrderId order,REQUIRED
+P1D3S-008,book,Genesis and transition hashes are independently domain separated,REQUIRED
+P1D3S-009,book,Logically equal registries serialize identically after different insertion orders,REQUIRED
+P1D3S-010,initial,Initial Working has exact accepted ACK and Working truth,REQUIRED
+P1D3S-011,initial,Initial Filled has exact accepted ACK order trade position and terminal truth,REQUIRED
+P1D3S-012,initial,Initial Expired has exact accepted ACK terminal order and no trade or position,REQUIRED
+P1D3S-013,later,Later Filled emits exactly one truth sequence one trade and one position,REQUIRED
+P1D3S-014,later,Later Expired emits exactly one truth sequence and no trade or position,REQUIRED
+P1D3S-015,later,Untouched evaluation records S_eval and allocates no sequence,REQUIRED
+P1D3S-016,later,Exact replay of an already-evaluated bar is a no-op,REQUIRED
+P1D3S-017,pricing,Buy touch fills at min open and limit,REQUIRED
+P1D3S-018,pricing,Sell touch fills at max open and limit,REQUIRED
+P1D3S-019,clock,Candidate outcomes use exact schedule-approved final M10 close,REQUIRED
+P1D3S-020,clock,Expiry uses only opaque Stage5E Day-boundary authority,REQUIRED
+P1D3S-021,clock,Wall clock Redis receive time and inferred intrabar time are not authorities,REQUIRED
+P1D3S-022,cancel,Working target cancel produces CancelCanceled,REQUIRED
+P1D3S-023,cancel,Filled target cancel produces CancelExecutionObserved,REQUIRED
+P1D3S-024,cancel,Expired or canceled target produces CancelAlreadyTerminalNonExecution,REQUIRED
+P1D3S-025,cancel,Target evaluation happens before cancel settlement,REQUIRED
+P1D3S-026,cancel,Fill-before-cancel persists and rereads target terminal truth before recovered cancel,REQUIRED
+P1D3S-027,cancel,S_cancel_recovered contains recovered ACK and byte-identical terminal book,REQUIRED
+P1D3S-028,cancel,S_cancel_recovered allocates no duplicate target truth,REQUIRED
+P1D3S-029,evidence,Full Stage8bP1d3OutcomeEvidenceV1 bytes are embedded in one Stage6 V3 record,REQUIRED
+P1D3S-030,evidence,Recovery authenticates and recomputes the complete transition,REQUIRED
+P1D3S-031,evidence,Changed bar boundary target book sequence or Stage6 binding fails closed,REQUIRED
+P1D3S-032,evidence,Every projected Decimal including scale-8 resulting average uses exact canonical 16-byte serialization,REQUIRED
+P1D3S-033,golden,All eight fresh shapes have checked-in outcome and complete ACK order trade position truth sequence and book canonical bytes with SHA-256,REQUIRED
+P1D3S-034,golden,All eight fresh and recovery constructors independently match the checked-in complete-projection oracle and each other,REQUIRED
+P1D3S-035,sequence,Initial request ACK and truth use one consecutive sequence pair,REQUIRED
+P1D3S-036,sequence,Later autonomous terminal outcome allocates one next truth sequence,REQUIRED
+P1D3S-037,sequence,Untouched evaluation allocates no total sequence,REQUIRED
+P1D3S-038,phase,S_ack exposes truth only and cannot XACK,REQUIRED
+P1D3S-039,phase,S_working and S_terminal expose source resolution only,REQUIRED
+P1D3S-040,phase,S_eval exposes exact same-bar callback only,REQUIRED
+P1D3S-041,phase,S_cancel_recovered exposes exact source XACK only,REQUIRED
+P1D3S-042,phase,Compile-fail tests reject early XACK duplicate truth and skipped cancel continuation,REQUIRED
+P1D3S-043,recovery,Pre-seal recovery accepts no provider schedule or candidate-selection authority,REQUIRED
+P1D3S-044,recovery,Recovered cancel continuation accepts no new market or schedule input,REQUIRED
+P1D3S-045,recovery,Two subprocess SIGKILL cases execute and bracket S_cancel_recovered,REQUIRED
+P1D3S-046,semantic,Later order evaluation is durable before same-bar Hybrid callback,REQUIRED
+P1D3S-047,semantic,Restart resumes the exact same-bar callback without reevaluating the order,REQUIRED
+P1D3S-048,redis,Exact successor observation uses read-only XRANGE,REQUIRED
+P1D3S-049,redis,Read-only successor observation leaves the original source as sole PEL entry,REQUIRED
+P1D3S-050,redis,Source XACK occurs only after replacement persistence reread and cross-validation,REQUIRED
+P1D3S-051,redis,Missing malformed changed or noncontiguous successor fails closed,REQUIRED
+P1D3S-052,closure,Partial fills remain closed,REQUIRED
+P1D3S-053,closure,Operational Redis DB0 VPS supervisor and schedule adapter remain closed,REQUIRED
+P1D3S-054,closure,FINAM POST DELETE broker dispatch runtime-live and real orders remain closed,REQUIRED
+P1D3S-055,closure,P1-d4 exhaustive crash replay remains closed until separate authorization,REQUIRED
+P1D3S-056,governance,Current-tree authority remains pinned to accepted P1-d2 until independent source acceptance,REQUIRED
+P1D3S-057,cancel,Actual Stage5C host CANCEL with omitted optional target TCID resolves the canonical target from the authenticated BOID registry row and completes with source XACK last,REQUIRED
+P1D3S-058,cancel,Cancel DCID collision with the authenticated target TCID fails at the service boundary before DispatchAttemptRecorded for both omitted and exact supplied TCID,REQUIRED
+P1D3S-059,recovery,Omitted optional target TCID survives target-first LaterFilled seal restart recovered cancel settlement and source XACK without duplicated effects,REQUIRED

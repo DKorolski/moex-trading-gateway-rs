@@ -1414,6 +1414,7 @@ pub async fn run_r2b_one_shot() -> Result<R2a3ReadonlyEvidence, R2a3Error> {
     )?;
     let (auth_client, broker_client) =
         crate::production_clients().map_err(|_| R2a3Error::Network)?;
+    let key_generations = r2a3::generation_one_key_generations(&prepared.public_keys);
     r2a3::execute_r2a3_pipeline(
         &auth_client,
         &broker_client,
@@ -1422,6 +1423,7 @@ pub async fn run_r2b_one_shot() -> Result<R2a3ReadonlyEvidence, R2a3Error> {
             manifest: &prepared.manifest,
             signed_authorities: &prepared.receipts,
             public_keys: &prepared.public_keys,
+            key_generations: &key_generations,
             run_nonce_sha256: &prepared.package.run_nonce_sha256,
             account_id: &prepared.account_id,
             account_key: &prepared.account_key[..],
@@ -1479,6 +1481,7 @@ pub async fn run_controlled_fixed_layout() -> Result<R2a3ReadonlyEvidence, R2a3E
         &prepared.package.run_nonce_sha256,
     )?;
     let (client, endpoint) = controlled_client_from_fixed_files()?;
+    let key_generations = r2a3::generation_one_key_generations(&prepared.public_keys);
     r2a3::execute_r2a3_pipeline(
         &client,
         &client,
@@ -1487,6 +1490,7 @@ pub async fn run_controlled_fixed_layout() -> Result<R2a3ReadonlyEvidence, R2a3E
             manifest: &prepared.manifest,
             signed_authorities: &prepared.receipts,
             public_keys: &prepared.public_keys,
+            key_generations: &key_generations,
             run_nonce_sha256: &prepared.package.run_nonce_sha256,
             account_id: &prepared.account_id,
             account_key: &prepared.account_key[..],

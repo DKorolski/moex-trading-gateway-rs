@@ -1,0 +1,49 @@
+id,area,requirement,status
+P1E-001,lineage,Accepted predecessor is exact P1-d4 governance closure R1 c2a9e1246dfdd59f3a6297268de907dedcb19903,REQUIRED
+P1E-002,scope,Design acceptance opens source implementation only and never operational activation,REQUIRED
+P1E-003,executable,Dedicated stage8b-p1-paper-supervisor binary belongs to runtime-durable-service,REQUIRED
+P1E-004,executable,Supervisor is not a broker-cli subcommand and has no broker-finam or finam-gateway dependency,REQUIRED
+P1E-005,mode,validate-config performs no Redis connection and no durable write,REQUIRED
+P1E-006,mode,bootstrap requires exact one-shot confirmation and accepted P1-a source workflow,REQUIRED
+P1E-007,mode,ordinary run is restart-only and never creates or reseeds a durable root,REQUIRED
+P1E-008,credential,No secret bytes or caller-selected credential filename or path is accepted through argv JSON or ordinary environment override,REQUIRED
+P1E-009,credential,Exactly stage8b-p1-lifecycle.key is loaded through CREDENTIALS_DIRECTORY,REQUIRED
+P1E-010,credential,Credential remains 32-byte regular single-link nofollow mode-0600 root-or-euid owned,REQUIRED
+P1E-011,config,JSON rejects unknown fields arbitrary namespaces and environment overrides,REQUIRED
+P1E-012,config,P1-e config permits only loopback Redis with explicit nonzero database,REQUIRED
+P1E-013,config,Checked-in example uses DB15 and contains no real account key token or credential,REQUIRED
+P1E-014,filesystem,Durable parent is canonical absolute non-symlink non-group-world-writable persistent path,REQUIRED
+P1E-015,filesystem,Identity-derived child root must already exist for run and match accepted operational identity,REQUIRED
+P1E-016,startup,Redis contact is forbidden before authenticated durable restart classification,REQUIRED
+P1E-017,startup,Normal run attaches namespace verify-only and never initializes or repairs streams or groups,REQUIRED
+P1E-018,startup,Startup claim scan completes before any fresh source read,REQUIRED
+P1E-019,startup,Every accepted P1-d4 restart phase has exactly one legal continuation,REQUIRED
+P1E-020,startup,Unknown conflicting or blocked recovery state never reaches PaperReady,REQUIRED
+P1E-021,ownership,One task exclusively owns mutable P1 composition commitment key and XACK authority,REQUIRED
+P1E-022,ownership,Telemetry and signal tasks receive snapshots only and cannot clone or extract lifecycle owners,REQUIRED
+P1E-023,ownership,Only one source lifecycle is in progress and fresh acquisition waits for terminal replacement or legal XACK,REQUIRED
+P1E-024,supervision,Task panic unexpected return or telemetry failure removes readiness and coordinates nonzero exit,REQUIRED
+P1E-025,supervision,Internal autonomous task restart is forbidden and systemd is sole process restart authority,REQUIRED
+P1E-026,telemetry,Health and readiness use fixed P1 streams with exact MAXLEN 4096,REQUIRED
+P1E-027,telemetry,Versioned snapshots bind boot identity operational digest generation seal freshness PEL and blocked state,REQUIRED
+P1E-028,telemetry,Raw account IDs secrets paths Redis URLs and command payloads are absent from telemetry,REQUIRED
+P1E-029,telemetry,Every snapshot asserts paper_only true and all FINAM dispatch runtime-live and real-order flags false,REQUIRED
+P1E-030,readiness,Only Starting PaperReady Degraded Draining and Stopped are serializable and LiveReady is impossible,REQUIRED
+P1E-031,readiness,PaperReady requires owner storage seal namespace claim poll settlement zero-pending zero-blocked and no shutdown,REQUIRED
+P1E-032,readiness,Successful empty bounded poll counts fresh while Redis error or stale poll is Degraded,REQUIRED
+P1E-033,shutdown,First SIGTERM or SIGINT latches shutdown and prevents fresh source acquisition,REQUIRED
+P1E-034,shutdown,Uncovered in-memory transition advances only to its next accepted authenticated restart boundary,REQUIRED
+P1E-035,shutdown,Shutdown never reacquires provider schedule callback or source authority,REQUIRED
+P1E-036,shutdown,Source remains pending when accepted XACK-last preconditions are incomplete,REQUIRED
+P1E-037,shutdown,Zero exit requires no uncovered owner and final telemetry failure cannot weaken durable truth,REQUIRED
+P1E-038,systemd,Unit uses persistent unprivileged identity LoadCredential UMask 0077 and exact writable durable path,REQUIRED
+P1E-039,systemd,Unit uses Restart on-failure SIGTERM control-group timeout 100 seconds and final SIGKILL,REQUIRED
+P1E-040,systemd,Unit disables capabilities privilege gain coredumps home devices and writable executable paths,REQUIRED
+P1E-041,compatibility,Existing deploy/paper-shadow P0 units remain byte-for-byte unchanged,REQUIRED
+P1E-042,test,Real child-process idle SIGTERM exits zero and is not restarted by policy,REQUIRED
+P1E-043,test,Representative mid-lifecycle SIGTERM persists a safe boundary and restart converges without duplicate provider or callback,REQUIRED
+P1E-044,test,Credential config path task-failure readiness redaction and dependency negatives fail closed,REQUIRED
+P1E-045,test,Two clean isolated runs produce identical semantic evidence after exact volatile-field exclusion,REQUIRED
+P1E-046,regression,P1-d4 gate workspace debug release doctests clippy no-Redis and isolated Redis smokes remain green,REQUIRED
+P1E-047,closed,Operational Redis DB0 VPS FINAM transport POST DELETE dispatch runtime-live and real orders remain closed,REQUIRED
+P1E-048,transition,Only independent P1-e source acceptance may open P1-f isolated operational acceptance,REQUIRED

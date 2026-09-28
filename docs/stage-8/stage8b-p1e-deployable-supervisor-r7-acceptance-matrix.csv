@@ -1,0 +1,35 @@
+id,area,semantic_key,requirement,status
+P1ER7-001,lineage,lineage.accepted_predecessor,Accepted immutable predecessor remains exact P1-d4 closure c2a9e1246dfdd59f3a6297268de907dedcb19903,REQUIRED
+P1ER7-002,lineage,lineage.active_design,R6 c0d7ee4c10e4d060fd15ea31f4593adcb793642b is HOLD and superseded only by this direct-child R7 candidate,REQUIRED
+P1ER7-003,scope,scope.design_only,R7 changes design contracts checker evidence status and handoff only with zero production Rust Cargo workflow active unit deployed config Redis or FINAM change,REQUIRED
+P1ER7-004,scope,scope.source_authority,Independent R7 acceptance authorizes only the exact three-file I0 latch-seam source slice and not supervisor implementation or activation,REQUIRED
+P1ER7-005,contract,contract.active_merge,Stage8bP1eAcceptanceContractV7 composes active V6 minus eleven exact superseded rows plus all 34 R7 rows,REQUIRED
+P1ER7-006,contract,contract.semantic_registry,SemanticAuthorityRegistryV7 composes 28 conflict-free execution-level keys from exact V6 with three replacements and two additions,REQUIRED
+P1ER7-007,seam,seam.selected_model,R7 selects typed latch-aware source seam option A and rejects implicit atomic wrapper drain option B,REQUIRED
+P1ER7-008,seam,seam.source_baseline,Current Redis source remains byte exact at the R6 pinned SHA and is explicitly recorded as monolithic pre-seam baseline,REQUIRED
+P1ER7-009,seam,seam.allowed_source_delta,I0 may modify only redis.rs stage8b_p1_semantic.rs and lib.rs with zero Cargo workflow unit config or deployment change,REQUIRED
+P1ER7-010,redis,redis.AcquisitionClassSplit,R6 partition of fifteen reclaim-required and five logical terminal routes remains exact and disjoint,REQUIRED
+P1ER7-011,redis,redis.ReclaimRequiredOwners,All fifteen reclaim logical routes including three dispatch operation entry points are mapped to route-exact acquire and continuation functions,REQUIRED
+P1ER7-012,redis,redis.TerminalResolutionOwners,All five terminal logical routes are mapped to exact lookup acquisition and permit-consuming continuation functions with zero XAUTOCLAIM,REQUIRED
+P1ER7-013,seam,seam.LinearAcquiredOwner,Stage8bP1ePostAcquisitionOwnerV1 exclusively owns exact durable owner transport canonical delivery acquisition kind and authenticated route,REQUIRED
+P1ER7-014,seam,seam.OwnerTraits,Acquired owner and continuation permit are not Clone Copy Serialize Deserialize reconstructible or splittable,REQUIRED
+P1ER7-015,seam,seam.PrivateInternals,No public getter extractor pattern or conversion exposes payload transport backend durable owner or private route,REQUIRED
+P1ER7-016,seam,seam.AcquisitionOnly,Acquisition functions perform exactly one route-authorized reclaim or lookup and no parse successor callback provider schedule revalidation XACK or durable continuation,REQUIRED
+P1ER7-017,shutdown,shutdown.PostAcquisitionDecision,One consuming latch decision immediately follows completed acquisition and returns only Continue or RetainForRestart,REQUIRED
+P1ER7-018,shutdown,shutdown.ContinuePermit,A clear latch creates exactly one route-bound Stage8bP1eContinuationPermitV1 which owns the acquired authority and is consumed by continuation,REQUIRED
+P1ER7-019,shutdown,shutdown.RetainForRestart,A set latch consumes in-process authority and returns non-authoritative receipt with no post-acquisition semantic or Redis effect,REQUIRED
+P1ER7-020,redis,redis.NoSecondAcquisition,After acquired-owner construction XPENDING XAUTOCLAIM XREADGROUP and exact stream lookup are forbidden through the continuation boundary,REQUIRED
+P1ER7-021,redis,redis.ZeroIntentSplit,Zero-intent exact lookup returns a pre-XACK acquired owner and acknowledge_exact is reachable only from its continuation permit,REQUIRED
+P1ER7-022,redis,redis.P1d4PostLatchRevalidation,P1-d4 terminal publication revalidation occurs after Continue permit and never inside exact lookup acquisition,REQUIRED
+P1ER7-023,redis,redis.ReclaimPostLatchEffects,Reclaim paths perform parse successor callback provider schedule publication and durable continuation only after Continue permit,REQUIRED
+P1ER7-024,shutdown,shutdown.E18LinearOwner,E18 retains the typed acquired owner when latch is set at the post-acquisition decision and leaves source restart-recoverable,REQUIRED
+P1ER7-025,shutdown,shutdown.PostDecisionSignal,A signal after Continue linearization cannot cancel the permit and permits only bounded drain to the next accepted covering boundary followed by latch recheck,REQUIRED
+P1ER7-026,shutdown,shutdown.NoSelectCancellation,Acquisition and permit-consuming continuation futures are never raced against shutdown in select and cannot lose linear authority by cancellation,REQUIRED
+P1ER7-027,test,test.RouteRaceMatrix,Deterministic pause and latch tests cover every fifteen reclaim-required and five terminal logical routes including all dispatch operation variants,REQUIRED
+P1ER7-028,test,test.TargetedNegatives,Negatives reject lookup-to-XACK reclaim-to-parse provider schedule callback external select cancellation second acquisition and linear-owner trait bypasses,REQUIRED
+P1ER7-029,seam,seam.LegacyWrapperClosure,Every old public owner-plus-transport resume signature is removed or changed to require an opaque continuation permit so no latch bypass remains,REQUIRED
+P1ER7-030,checker,checker.SourceApiShape,Design checker pins current monolithic source and future I0 checker obligations bind exact entry points body ordering private ownership and compile-fail cases,REQUIRED
+P1ER7-031,preserved,preserved.OperationalV6,R6 operational overlay remains 51 cells with terminal no-claim and source-first cancel-recovered timer ordering unchanged,REQUIRED
+P1ER7-032,preserved,preserved.FirstBootV5,R6 stale receipt-temp conflict and mandatory adopted-marker first-boot model remain unchanged,REQUIRED
+P1ER7-033,closed,closed.operational,P1-e supervisor P1-f installation DB0 VPS non-loopback Redis FINAM dispatch runtime-live real orders partial fills and protective orders remain closed,REQUIRED
+P1ER7-034,deferred,deferred.child_pid,The nonblocking bound zero less-than child_pid less-than-or-equal u32 MAX remains deferred to separately authorized source hardening,REQUIRED

@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P R2B Generation-2 Composition Rebuild R0",
+  "status": "INDEPENDENT_REVIEW_REQUIRED",
+  "accepted_predecessor": {
+    "source_ref": "3029bab714f8b75daaba3946ed858426515b4165",
+    "archive_sha256": "ee7deefa31dcf6b126408452f4772081ba20999c90ef58cf52df7b873869759f",
+    "verdict": "ACCEPTED"
+  },
+  "accepted_backup_restore": {
+    "immutable_public_artifacts": {
+      "docs/stage-8/stage8b-p-r2b-generation2-backup-restore-r0-authority.json": "cedb3f2b86b50bde469cf18441b49dc6b4334a7e34bb193138d4f5bdf2d8024e",
+      "docs/stage-8/stage8b-p-r2b-generation2-backup-restore-r0-receipt.json": "7a8d8746cfecb9ff1f35537404380bb4035ce07ed05a383ad50e66a188a7775f",
+      "docs/stage-8/stage8b-p-r2b-generation2-restore-destruction-r0-receipt.json": "63e5435835f108b6162c030c1fb2aba54f60970e83a73e57d132ac29800a5c95"
+    }
+  },
+  "public_composition": {
+    "generation": 2,
+    "selected_in_source": true,
+    "trust_manifest_sha256": "dfe61ddb944df042cdf9514f56c14131e4a45bc732435ff89658ceaceb92d4ee",
+    "public_key_set_sha256": "a1094751e25613d1a9f10b54436f3229fc73774d9135812577978c22a7bb7465",
+    "authorization_public_key_sha256": "c3160a41e54fbeb9de4afe2163260f383fefa3fb531613d9754fc6b911a37c88",
+    "account_key_manifest_sha256": "206bb41415f5edd9c59aa0d256dea63219fa6e28def2e436b676a4de3d1b52ec",
+    "source_adapter_authority_sha256": "711b7d01552ef3ca48bde1daba13fcb844380e758df097e2757534ccf2952129",
+    "production_authority_sha256": "d9b19167f545cd40253620dce185dbffe462dbc83f030cc5d5aa358b9424fb3e",
+    "helper_acceptance_sha256": "956463ccaac2396635cb772e7237b772a50f09c722ba531e78774efee6782a7f"
+  },
+  "production_rebuild": {
+    "source_ref": "c7667658288577229b7cf00e9dcef519ba2fd1d7",
+    "source_tree": "c3dff5f4338ea9bae82071eaacc48511ce3e1f7e",
+    "evidence_sha256": "202a02e646f14f096741078250b6bed0836eb63161af19bdd640059f32747507",
+    "target": "x86_64-unknown-linux-musl",
+    "clean_build_count": 2,
+    "production_binary_count": 7,
+    "offline_public_authority_tool_count": 1,
+    "all_hashes_identical": true
+  },
+  "phase6_rehearsal": {
+    "evidence_sha256": "b6a5d6d2e3d7ea417b96a9223a0fdc678f86bece5905370d6ab250b58fce4e6d",
+    "generation": 2,
+    "network_mode": "none",
+    "production_authorization": "NOT_ISSUED",
+    "finam_endpoint_called": false,
+    "isolated_package_destroyed_with_container": true
+  },
+  "activation": {
+    "generation_2_public_authority_selected": true,
+    "production_binaries_rebuilt": true,
+    "helper_acceptance_reissued": true,
+    "phase6_rehearsal_rebound": true,
+    "generation_2_active": false,
+    "production_credentials_installed": false,
+    "controlled_installation": false,
+    "package_authorization": "NOT_ISSUED"
+  },
+  "closed_surfaces": {
+    "finam_network": false,
+    "auth_service": false,
+    "broker_get": false,
+    "http_post_delete": false,
+    "broker_dispatch": false,
+    "redis_live": false,
+    "runtime_live": false,
+    "real_orders": false
+  },
+  "next_allowed_step": "INDEPENDENT_REVIEW_BEFORE_CONTROLLED_INSTALLATION_OR_AUTHORIZATION"
+}

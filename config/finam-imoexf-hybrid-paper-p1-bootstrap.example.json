@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "broker_id": "finam-paper",
+  "strategy_id": "hybrid_imoexf",
+  "account_id": "REPLACE_WITH_CANONICAL_PAPER_ACCOUNT_ID",
+  "internal_symbol": "IMOEXF",
+  "venue_symbol": "IMOEXF@RTSX",
+  "exchange": "moex",
+  "market": "futures",
+  "tick_size": "0.5",
+  "runtime_config_fingerprint_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "instrument_map_fingerprint_sha256": "ba4e7b1190dc2686559b6d7c0df0185e96a10dfac6b13f6a582a349b14198558",
+  "deployment_id": "finam-imoexf-paper-p1",
+  "deployment_generation": 1,
+  "gateway_instance_id": "finam-imoexf-paper-gateway-1",
+  "market_data_generation": 1,
+  "command_consumer_generation": 1,
+  "stage8a4_writer_issuer_public_key_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+  "durable_parent": "/var/lib/moex-trading-paper"
+}

@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "domain": "moex.stage8b.p1e.derived-digests.v1",
+  "record_encoding": {
+    "magic_ascii": "M8BP1E01",
+    "layout": "magic-8-bytes || schema-u16be || domain-length-u16be || domain-ascii || field-count-u16be || repeated-field-frames",
+    "field_frame": "name-length-u16be || name-ascii || value-length-u32be || encoded-value",
+    "length_units": "bytes",
+    "integer_endianness": "big-endian",
+    "string_encoding": "validated-exact-ASCII-with-no-normalization",
+    "digest_input_encoding": "decode-exact-64-lowercase-hex-to-raw-32-bytes",
+    "digest_output_encoding": "64-lowercase-hex",
+    "boolean_encoding": "single-byte-00-false-01-true",
+    "uuid_encoding": "raw-16-RFC4122-network-order-bytes",
+    "filesystem_device_encoding": "unsigned-u64be-after-checked-platform-st_dev-conversion",
+    "filesystem_inode_encoding": "unsigned-u64be-after-checked-platform-st_ino-conversion",
+    "overflow_or_invalid_encoding": "fail-before-filesystem-mutation-or-ordinary-run"
+  },
+  "transaction_id_sha256": {
+    "schema_version": 1,
+    "domain_ascii": "moex.stage8b.p1e.transaction-id.v1",
+    "algorithm": "SHA-256",
+    "fields_in_order": [
+      {"name": "operational_identity_sha256", "type": "digest32-raw"},
+      {"name": "source_bundle_sha256", "type": "digest32-raw"},
+      {"name": "source_bundle_generation", "type": "u64be"},
+      {"name": "bootstrap_attempt_generation", "type": "u64be"}
+    ]
+  },
+  "canonical_root_identity_sha256": {
+    "schema_version": 1,
+    "domain_ascii": "moex.stage8b.p1e.canonical-root-identity.v1",
+    "algorithm": "SHA-256",
+    "fields_in_order": [
+      {"name": "st_dev", "type": "u64be"},
+      {"name": "st_ino", "type": "u64be"},
+      {"name": "canonical_root_basename", "type": "ascii-[a-z0-9-]{1,96}"}
+    ]
+  },
+  "adoption_ready_owner_sha256": {
+    "schema_version": 1,
+    "domain_ascii": "moex.stage8b.p1e.adoption-ready-owner.v1",
+    "algorithm": "SHA-256",
+    "fields_in_order": [
+      {"name": "operational_identity_sha256", "type": "digest32-raw"},
+      {"name": "restart_package_canonical_sha256", "type": "digest32-raw"},
+      {"name": "first_boot_provenance_canonical_sha256", "type": "digest32-raw"},
+      {"name": "seal_generation", "type": "u64be"},
+      {"name": "seal_commitment_sha256", "type": "digest32-raw"},
+      {"name": "stage6_checkpoint_sha256", "type": "digest32-raw"},
+      {"name": "authenticated_stage5g_phase", "type": "ascii-exact-P1SemanticReady"},
+      {"name": "pending_lifecycle_owner_count", "type": "u64be"},
+      {"name": "pending_request_count", "type": "u64be"},
+      {"name": "pending_deferred_timer_count", "type": "u64be"},
+      {"name": "journal_mutation_uncertain", "type": "bool-byte"},
+      {"name": "seal_commit_uncertain", "type": "bool-byte"}
+    ]
+  },
+  "first_boot_receipt_hmac_preimage": {
+    "schema_version": 2,
+    "domain_ascii": "moex.stage8b.p1e.first-boot-receipt.hmac.v2",
+    "algorithm": "HMAC-SHA-256",
+    "key_encoding": "exact-32-raw-bytes-from-validated-systemd-credential",
+    "fields_in_order": [
+      {"name": "receipt_generation", "type": "u64be"},
+      {"name": "transaction_id_sha256", "type": "digest32-raw"},
+      {"name": "bootstrap_attempt_generation", "type": "u64be"},
+      {"name": "deployment_identity_sha256", "type": "digest32-raw"},
+      {"name": "canonical_root_identity_sha256", "type": "digest32-raw"},
+      {"name": "restart_package_schema_version", "type": "u16be"},
+      {"name": "restart_package_canonical_sha256", "type": "digest32-raw"},
+      {"name": "first_boot_provenance_canonical_sha256", "type": "digest32-raw"},
+      {"name": "seal_generation", "type": "u64be"},
+      {"name": "seal_commitment_sha256", "type": "digest32-raw"},
+      {"name": "stage6_checkpoint_sha256", "type": "digest32-raw"},
+      {"name": "adoption_predicate_version", "type": "u16be"},
+      {"name": "adoption_ready_owner_sha256", "type": "digest32-raw"}
+    ],
+    "output_encoding": "64-lowercase-hex"
+  },
+  "golden_fixture": "docs/stage-8/stage8b-p1e-derived-digests-v1-golden.json"
+}

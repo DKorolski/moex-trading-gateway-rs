@@ -290,6 +290,7 @@ dependencies = [
  "sha2",
  "thiserror 1.0.69",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
@@ -1703,13 +1704,16 @@ dependencies = [
  "libc",
  "redis",
  "runtime-command-bridge",
+ "rust_decimal",
  "serde",
  "serde_json",
  "sha2",
+ "signal-hook-registry",
  "strategy-runtime-core",
  "thiserror 1.0.69",
  "tokio",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
@@ -1992,6 +1996,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "thiserror 1.0.69",
  "tracing",
  "uuid",
  "zeroize",

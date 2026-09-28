@@ -1,0 +1,27 @@
+id,requirement,expected
+G2BR-R0-001,Accepted Trust Rebind R0-R1 remains immutable,PASS
+G2BR-R0-002,Ceremony path hardening is present in merged predecessor,PASS
+G2BR-R0-003,Primary exact inventory and 13 plus 1 bindings verify,PASS
+G2BR-R0-004,Recovery identity is outside Git and removable backup media,PASS
+G2BR-R0-005,Identity and ciphertext device identifiers differ,PASS
+G2BR-R0-006,Backup volume is external removable writable media,PASS
+G2BR-R0-007,Ciphertext uses age X25519 authenticated encryption,PASS
+G2BR-R0-008,Plaintext tar is never written,PASS
+G2BR-R0-009,Archive member inventory is exact and traversal-safe,PASS
+G2BR-R0-010,Restore occurs under a fresh isolated 0700 root,PASS
+G2BR-R0-011,Restored exact inventory and 13 plus 1 bindings verify,PASS
+G2BR-R0-012,Primary and restored public fingerprints are identical,PASS
+G2BR-R0-013,Restore receipt is signed in a non-authorization domain,PASS
+G2BR-R0-014,Disposable restore root is absent after verification,PASS
+G2BR-R0-015,Destruction receipt is signed in a second non-authorization domain,PASS
+G2BR-R0-016,Logical deletion does not claim physical secure overwrite,PASS
+G2BR-R0-017,Verifier source binary Cargo.lock and toolchain are pinned,PASS
+G2BR-R0-018,Dedicated clean CARGO_TARGET_DIR is used,PASS
+G2BR-R0-019,Extended ACL and unexpected flags or xattrs are rejected,PASS
+G2BR-R0-020,Private paths and values are absent from public evidence,PASS
+G2BR-R0-021,Ciphertext and recovery identity are absent from Git and handoff,PASS
+G2BR-R0-022,Generation 2 remains inactive,PASS
+G2BR-R0-023,R2B package authorization remains NOT_ISSUED,PASS
+G2BR-R0-024,FINAM AuthService broker GET POST and DELETE remain closed,PASS
+G2BR-R0-025,Broker dispatch Redis live runtime-live and real orders remain closed,PASS
+G2BR-R0-026,Independent review is required before composition rebuild,PASS

@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P1-d1",
+  "status": "R1_CROSS_BINDING_REVIEW_CANDIDATE",
+  "accepted_p1d0_predecessor_ref": "0d59d54d42fc29ae7b31359c1ded8efbd3a348fd",
+  "reviewed_p1d1_source_ref": "61f798d605c5609302ad77e9b14cb6f5e9479f6a",
+  "source_ref": "",
+  "acceptance_rows": 42,
+  "implementation": {
+    "crate_private_stage5e_eligibility_bridge": true,
+    "source_sealed_command_decision_binding": true,
+    "opaque_canonical_execution_authority": true,
+    "public_execution_observation_dto": false,
+    "linear_predispatch_type_state": true,
+    "exact_dispatch_command_snapshot_binding": true,
+    "eligibility_gated_stage7_dispatch": true,
+    "deterministic_market_provider": true,
+    "deterministic_order_trade_ids": true,
+    "feedback_composition": false,
+    "working_limit_cancel_book": false
+  },
+  "verification": {
+    "format": "PENDING",
+    "source_scope_checker": "PENDING",
+    "negative_harness": "PENDING",
+    "p1d1_core_tests": "PENDING",
+    "p1c_adapter_tests": "PENDING",
+    "post_dispatch_restart_regression": "PENDING",
+    "strategy_runtime_core_lib": "PENDING",
+    "runtime_durable_service_lib": "PENDING",
+    "doctests": "PENDING",
+    "strict_targeted_clippy": "PENDING",
+    "aggregate_gate": "PENDING"
+  },
+  "closed_surfaces": {
+    "operational_redis_db0": false,
+    "p1_paper_vps_activation": false,
+    "feedback_application": false,
+    "ack_settlement": false,
+    "source_m10_xack": false,
+    "working_limit_cancel": false,
+    "finam_post_delete": false,
+    "broker_network_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false
+  },
+  "next_stage_authorized": false
+}

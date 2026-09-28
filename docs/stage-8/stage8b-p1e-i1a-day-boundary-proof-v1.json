@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "domain": "moex.stage8b.p1e.i1a.day-boundary-proof.v1",
+  "routes": {
+    "market_execution": {"accepted_evidence_kind": ["tradability"], "accepted_state": ["open"], "closed_authorizes": false},
+    "working_limit_evaluation": {"accepted_evidence_kind": ["tradability"], "accepted_state": ["open"], "closed_authorizes": false},
+    "cancel_step": {"accepted_evidence_kind": ["tradability", "day_boundary"], "accepted_state": ["open", "closed"], "closed_authorizes_trading": false},
+    "day_expiry": {"accepted_evidence_kind": ["day_boundary"], "accepted_state": ["closed"], "closed_authorizes_trading": false}
+  },
+  "day_expiry_required_bindings": [
+    "fresh-current-signed-stage4-closed-state",
+    "normalized-session-boundary-reached-by-trusted-clock",
+    "exact-trading-day",
+    "exact-authenticated-active-working-order-and-book",
+    "exact-last-eligible-m10-identity",
+    "last-eligible-m10-authenticated-and-evaluated",
+    "no-later-eligible-m10-for-trading-day",
+    "transition-binding-sha256"
+  ],
+  "on_time": "first-fresh-closed-snapshot-after-boundary-may-bind-day-expiry",
+  "delayed_after_close": "later-fresh-closed-snapshot-for-same-day-may-bind-if-all-exact-day-book-and-last-m10-proofs-remain-valid",
+  "restart_before_binding": "requires-new-fresh-closed-source-and-revalidates-all-day-bindings",
+  "restart_after_binding": "reissues-only-from-exact-durable-historical-envelope-for-identical-incomplete-transition",
+  "source_unavailable_or_day_not_provable": "degraded-retain-owner-no-expiry",
+  "prohibitions": ["republish-stale-open", "closed-to-market", "closed-to-working-evaluation", "infer-last-m10", "invent-expiry"]
+}

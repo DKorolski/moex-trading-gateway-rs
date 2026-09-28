@@ -1,0 +1,136 @@
+{
+  "schema_version": 2,
+  "domain": "moex.stage8b.p1e.i1a.schedule-source-design.v2",
+  "stage": "Stage 8B-P1-e I1A R1",
+  "status": "DESIGN_CORRECTION_REVIEW_CANDIDATE_IMPLEMENTATION_NOT_AUTHORIZED",
+  "supersedes_hold_candidate": {
+    "json_path": "docs/stage-8/stage8b-p1e-i1a-schedule-source-design-v1.json",
+    "json_raw_sha256": "42a32e0d74703d9faffa26bfe41c4407201df7e2e691825bf3a068ed4abcb0ae",
+    "markdown_path": "docs/stage-8/stage8b-p1e-i1a-schedule-source-design-v1.md",
+    "markdown_raw_sha256": "ef6d5385adebedc49d4adc35e73158af0b0012352a14ae9050c467027f44c049"
+  },
+  "accepted_predecessors": {
+    "p1e_i0": "afda87a98ae3b0d0f4506292a162310f4b9068c0",
+    "p1e_r10": "d34e000c39f439ae981f9573c8b203a3dc8e3e85",
+    "p1d4_governance_closure": "c2a9e1246dfdd59f3a6297268de907dedcb19903",
+    "foundation_r2_source": "37088964e50c0ceb4d82887a30c32103110749b0"
+  },
+  "selected_architecture": "separate-pre-provisioned-authenticated-broker-neutral-snapshot-stream-db15",
+  "artifacts": {
+    "design_markdown": "docs/stage-8/stage8b-p1e-i1a-schedule-source-design-v2.md",
+    "policy": "docs/stage-8/stage8b-p1e-i1a-schedule-source-policy-v2.json",
+    "envelope_schema": "docs/stage-8/stage8b-p1e-i1a-schedule-envelope-v2.schema.json",
+    "binding_record_schema": "docs/stage-8/stage8b-p1e-i1a-schedule-binding-record-v1.schema.json",
+    "binding_phase_matrix": "docs/stage-8/stage8b-p1e-i1a-schedule-binding-phase-matrix-v1.csv",
+    "source_progression": "docs/stage-8/stage8b-p1e-i1a-source-progression-v1.json",
+    "day_boundary_proof": "docs/stage-8/stage8b-p1e-i1a-day-boundary-proof-v1.json",
+    "timer_precedence": "docs/stage-8/stage8b-p1e-source-timer-precedence-v5.json",
+    "implementation_scope": "docs/stage-8/stage8b-p1e-i1a-implementation-scope-v2.json",
+    "correction_matrix": "docs/stage-8/stage8b-p1e-i1a-r1-acceptance-matrix-v1.csv",
+    "model_fixtures": "docs/stage-8/stage8b-p1e-i1a-r1-model-fixtures-v1.json"
+  },
+  "source_ownership": {
+    "producer": "finam-gateway::Stage8bP1eReadonlySchedulePublisherV1",
+    "producer_is_supervisor": false,
+    "producer_is_strategy_runtime": false,
+    "publisher_command": "XADD <stream> NOMKSTREAM MAXLEN = 4096 * payload <canonical-signed-envelope>",
+    "missing_stream": "fail-no-create",
+    "consumer_group_or_xack": false,
+    "operational_activation_authorized": false
+  },
+  "progression": {
+    "kind": "authenticated-monotonic-snapshot-not-event-log",
+    "separate_publication_sequence_and_semantic_revision": true,
+    "positive_transport_sequence_jump_allowed": true,
+    "intermediate_publication_continuity_required": false,
+    "ordinary_n_to_n_plus_600": "allowed-if-exact-monotonic-and-current",
+    "idle_weekend_or_retention_loss": "same-monotonic-jump-rule",
+    "same_sequence_different_bytes": "terminal-conflict",
+    "same_semantic_revision_different_semantic_hash": "terminal-conflict",
+    "rollback": "blocked",
+    "invalid_newest_fallback": false
+  },
+  "route_evidence": {
+    "market_execution": "fresh-signed-tradability-open-only",
+    "working_limit_evaluation": "fresh-signed-tradability-open-only",
+    "cancel_step": "fresh-signed-open-or-closed-lifecycle-evidence; closed-grants-no-trading-eligibility",
+    "day_expiry": "fresh-signed-day-boundary-closed-plus-exact-day-book-last-eligible-m10-proof",
+    "restart_before_binding": "new-fresh-route-specific-source-required",
+    "restart_after_binding": "exact-historical-envelope-reissue-for-identical-incomplete-transition-only"
+  },
+  "durable_binding": {
+    "record": "Stage6JournalRecordVersioned::V4(Stage6JournalRecordV4::ScheduleEvidenceBound)",
+    "schema_version": 4,
+    "sequence_allocation": "prior-lifecycle-sequence-plus-one",
+    "append": "canonical-v4-append-and-fsync-before-seal",
+    "covering_seal_generation": "prior-covering-seal-generation-plus-one",
+    "seal": "existing-stage6-recovery-seal-over-exact-v4-tail-and-frontier",
+    "reread": "required-before-authority-issuance",
+    "journal_ahead_restart": "finish-exact-covering-seal-once",
+    "seal_durable_reread_pending_restart": "reread-and-cross-validate-no-second-seal",
+    "committed_binding_restart": "reissue-exact-authority-for-identical-transition-only",
+    "business_terminal_boundary": false,
+    "source_xack_authority": false,
+    "strategy_callback_or_provider_effect": false
+  },
+  "binding_counter_effects": {
+    "consumes_exactly_one_stage6_lifecycle_sequence": true,
+    "consumes_exactly_one_covering_seal_generation": true,
+    "advances_schedule_high_water_inside_authenticated_v4_boundary": true,
+    "next_business_record_uses_v4_sequence_plus_one": true,
+    "existing_ack_truth_sequence_pair_remains_adjacent": true,
+    "m10_pel_or_xack_changes": false,
+    "callback_provider_or_business_outcome_changes": false,
+    "schedule_stream_has_pel_or_xack": false
+  },
+  "owner_loop": {
+    "step_1": [
+      "resolve-exact-source",
+      "latch-A-immediately-after-source-before-reclassification",
+      "reclassify-original-timer-if-clear",
+      "latch-B-after-reclassification-before-schedule-work",
+      "return-authenticated-classification-boundary"
+    ],
+    "step_2": [
+      "latch-C-before-schedule-read",
+      "read-and-verify-route-specific-source",
+      "latch-D-after-volatile-source-before-binding",
+      "if-clear-enter-noncancellable-v4-append-seal-reread",
+      "latch-E-after-committed-binding",
+      "return-authenticated-binding-boundary"
+    ],
+    "step_3": [
+      "latch-F-immediately-before-effect",
+      "execute-reclassified-timer-at-most-once-if-clear"
+    ],
+    "reclassify_bind_execute_same_step": false,
+    "signal_before_noncancellable_binding_creates_new_seal": false,
+    "signal_during_noncancellable_binding": "complete-or-recover-exact-binding-then-stop-before-effect"
+  },
+  "compatibility": {
+    "stage6_v1_v2_v3_bytes_unchanged": true,
+    "stage6_v1_v2_v3_replay_unchanged": true,
+    "old_packages_without_v4_unchanged": true,
+    "unknown_or_malformed_v4": "fail-closed",
+    "p1d2_p1d3_p1d4_semantics_unchanged": true,
+    "canonical_m10_wire_unchanged": true
+  },
+  "implementation_authorization": {
+    "production_stage5e_facade": false,
+    "schedule_publisher": false,
+    "stage6_v4_record": false,
+    "owner_loop_wiring": false,
+    "operational_manifest_amendment": false,
+    "requires_independent_i1a_r1_design_acceptance": true
+  },
+  "closed_surfaces": {
+    "redis_db0_vps_activation": false,
+    "redis_db15_schedule_activation": false,
+    "schedule_private_key_installation": false,
+    "finam_post_delete": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "generation_2_execution_activation": false
+  }
+}

@@ -1,0 +1,35 @@
+id,area,requirement,status
+I1INS-001,lineage,Exact accepted telemetry predecessor is b6f6d5b6ea924db8c97512bc2bcecb8a5ed760ac,REQUIRED
+I1INS-002,identity,User and group are exactly moex-p1-paper,REQUIRED
+I1INS-003,identity,Binary config credential and state paths equal deployment identity V2,REQUIRED
+I1INS-004,unit,Ordinary unit invokes only fixed-path run,REQUIRED
+I1INS-005,unit,Bootstrap unit invokes only fixed-path bootstrap and exact confirmation,REQUIRED
+I1INS-006,unit,Recovery template invokes only fixed-path bootstrap-recover V4 and exact instance,REQUIRED
+I1INS-007,network,Run permits only Unix and IPv4 IPv6 loopback addresses,REQUIRED
+I1INS-008,network,Bootstrap and recovery are AF_UNIX-only PrivateNetwork oneshots,REQUIRED
+I1INS-009,restart,Run uses on-failure restart 600-second window burst 5 and 100-second stop timeout,REQUIRED
+I1INS-010,hardening,All units use empty capabilities strict filesystem custody and no coredumps,REQUIRED
+I1INS-011,activation,No unit has an Install section,REQUIRED
+I1INS-012,activation,Installer performs no daemon reload enable or start,REQUIRED
+I1INS-013,operator,Installer never accepts creates or overwrites config source or credential,REQUIRED
+I1INS-014,transaction,Managed files use exact bytes owner group mode and single-link checks,REQUIRED
+I1INS-015,transaction,Manifest is committed last after directory custody and systemd verification,REQUIRED
+I1INS-016,idempotence,Exact reinstall is byte-identical and succeeds,REQUIRED
+I1INS-017,rollback,Rollback refuses when operator material exists,REQUIRED
+I1INS-018,rollback,Rollback refuses when durable state exists,REQUIRED
+I1INS-019,rollback,Rollback removes no operator material durable state or persistent identity,REQUIRED
+I1INS-020,target,Ubuntu 24.04 systemd 255 verification has zero unknown keys or lvalues,REQUIRED
+I1INS-021,target,Target runner uses network none and starts zero units,REQUIRED
+I1INS-022,binary,Installed release binary is built from and hash-bound to accepted b6f6d5b source,REQUIRED
+I1INS-023,negative,All 35 targeted source material and evidence mutations are rejected,REQUIRED
+I1INS-024,wording,Telemetry blocked and retained evidence is labeled component evidence,REQUIRED
+I1INS-025,closed,Operational Redis VPS FINAM broker dispatch runtime-live real orders and P1-f remain closed,REQUIRED
+I1INS-026,closure,Aggregate I1 remains a separate later acceptance gate,REQUIRED
+I1INS-027,manifest,Manifest schema and managed inventory are exact canonical and fixed,REQUIRED
+I1INS-028,custody,Root ancestors manifest and managed files have exact protected custody,REQUIRED
+I1INS-029,identity,Existing service identity is one unique nonroot user and exact primary group,REQUIRED
+I1INS-030,binary,Source binary is nofollow single-link and copied from a stable descriptor,REQUIRED
+I1INS-031,rollback,Quarantine must be an exact empty directory before rollback,REQUIRED
+I1INS-032,behavioral,Real CLI filesystem matrix proves refusal makes no watched mutation,REQUIRED
+I1INS-033,reproducibility,Clean runner creates archive build target and invocation evidence automatically,REQUIRED
+I1INS-034,reproducibility,Runner cannot print final PASS before mandatory source plus evidence gate,REQUIRED

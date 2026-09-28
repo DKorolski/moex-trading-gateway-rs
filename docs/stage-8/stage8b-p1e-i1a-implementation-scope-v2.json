@@ -1,0 +1,91 @@
+{
+  "schema_version": 2,
+  "domain": "moex.stage8b.p1e.i1a.implementation-scope.v2",
+  "status": "PROSPECTIVE_ALLOWLIST_REQUIRES_I1A_R1_DESIGN_ACCEPTANCE",
+  "supersedes": {
+    "path": "docs/stage-8/stage8b-p1e-i1a-implementation-scope-v1.json",
+    "raw_sha256": "20b2190c57ca334198401fb1ec65a79cddab778a7a11bbec517ddd63c3246eaa"
+  },
+  "new_rust_paths": [
+    "crates/runtime-durable-service/src/stage8b_p1e_schedule_source.rs",
+    "crates/finam-gateway/src/stage8b_p1e_schedule_publisher.rs"
+  ],
+  "modifiable_rust_paths": [
+    "crates/runtime-durable-service/Cargo.toml",
+    "crates/runtime-durable-service/src/lib.rs",
+    "crates/runtime-durable-service/src/recovery.rs",
+    "crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs",
+    "crates/runtime-durable-service/src/stage8b_p1_supervisor.rs",
+    "crates/strategy-runtime-core/src/lib.rs",
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
+    "crates/strategy-runtime-core/src/stage6_durable_identity.rs",
+    "crates/strategy-runtime-core/src/stage6_journal_backend.rs",
+    "crates/strategy-runtime-core/src/stage6_reconciliation_v2.rs",
+    "crates/strategy-runtime-core/src/stage6d_live_core.rs",
+    "crates/strategy-runtime-core/src/stage8b_p1d1_paper_provider.rs",
+    "crates/strategy-runtime-core/src/stage8b_p1d3_working_limit.rs",
+    "crates/finam-gateway/Cargo.toml",
+    "crates/finam-gateway/src/lib.rs"
+  ],
+  "modifiable_non_rust_paths": [
+    "Cargo.lock",
+    "docs/stage-8/stage8b-p1e-redis-deployment-manifest-v2.json",
+    "docs/stage-8/stage8b-p1e-redis-runtime-policy-v3.json",
+    "docs/stage-8/stage8b-p1e-supervisor-config-schema-v2.json",
+    "docs/stage-8/stage8b-p1e-i1a-schedule-source-implementation.md",
+    "docs/stage-8/stage8b-p1e-i1a-schedule-source-implementation-evidence.json",
+    "tests/fixtures/stage8b/p1e/i1a/**",
+    "scripts/stage8b_p1e_i1a_*"
+  ],
+  "stage6_v4_contract": {
+    "new_versioned_variant": "Stage6JournalRecordVersioned::V4(Stage6JournalRecordV4)",
+    "only_v4_record_kind": "schedule_evidence_bound",
+    "canonical_schema": "docs/stage-8/stage8b-p1e-i1a-schedule-binding-record-v1.schema.json",
+    "append_backend": "existing Stage6JournalBackend::append_versioned and file framing",
+    "covering_seal": "existing authenticated Stage6 recovery seal over exact post-append frontier",
+    "old_v1_v2_v3_wire_bytes_change": false,
+    "old_v1_v2_v3_decode_and_replay_change": false,
+    "old_packages_without_v4_replay_unchanged": true,
+    "unknown_version_or_malformed_v4_suffix": "fail-closed",
+    "v4_is_business_terminal_boundary": false,
+    "v4_is_source_xack_authority": false
+  },
+  "accepted_semantics_that_may_not_change": [
+    "Stage5C callback and settlement semantics",
+    "Stage6 V1 V2 V3 canonical bytes and replay semantics",
+    "Stage6 journal append framing and recovery-seal authentication",
+    "Stage7 RequestFinalized and XACK-last semantics",
+    "P1-d2 market feedback lifecycle",
+    "P1-d3 limit cancel expiry lifecycle",
+    "P1-d4 generated-market crash replay semantics",
+    "I0 latch-aware source seam",
+    "canonical M10 wire schema"
+  ],
+  "required_compatibility_tests": [
+    "golden-v1-bytes-decode-reencode-unchanged",
+    "golden-v2-bytes-decode-reencode-unchanged",
+    "golden-v3-bytes-decode-reencode-unchanged",
+    "old-package-without-v4-replays-to-identical-owner-frontier",
+    "v4-canonical-roundtrip",
+    "unknown-v4-kind-rejected",
+    "unknown-version-rejected",
+    "malformed-v4-suffix-rejected",
+    "v4-journal-ahead-recovers-one-covering-seal",
+    "v4-covered-reread-reissues-only-identical-transition"
+  ],
+  "forbidden_implementation_shortcuts": [
+    "reinterpret-existing-v1-v2-v3-variant",
+    "treat-v4-binding-as-business-terminal-boundary",
+    "public-or-raw-authority-constructor",
+    "artifact-fixture-feature-in-deployable-binary",
+    "schedule-inferred-from-m10-timestamp-alone",
+    "blanket-session-eligible",
+    "redis-checksum-treated-as-publisher-authentication",
+    "schedule-stream-consumer-group-or-xack",
+    "newest-schedule-substituted-for-incomplete-bound-transition",
+    "finam-post-or-delete",
+    "broker-command-dispatch",
+    "runtime-live-or-real-orders"
+  ],
+  "operational_activation_authorized": false
+}

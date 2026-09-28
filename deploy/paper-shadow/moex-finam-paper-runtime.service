@@ -1,0 +1,29 @@
+[Unit]
+Description=MOEX FINAM isolated M1-to-M10 paper runtime projection
+After=redis-server.service moex-finam-paper-ws.service
+Wants=redis-server.service
+
+[Service]
+Type=simple
+User=moex-paper
+Group=moex-paper
+Environment=RUST_LOG=info
+ExecStart=/opt/moex-finam-paper/bin/broker-cli finam-paper-runtime-consume --config /etc/moex-finam-paper/runtime-unseeded.json --strategy-invocation-shadow --max-iterations 18446744073709551615 --claim-stale-ms 5000
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictRealtime=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

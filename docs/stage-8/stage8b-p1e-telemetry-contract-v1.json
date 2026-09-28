@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "domain": "moex.stage8b.p1e.telemetry-contract.v1",
+  "envelope_fields_in_order": ["schema_version", "domain", "observation_ts_utc", "boot_id", "boot_mode", "payload"],
+  "health_payload_fields_in_order": ["status", "operational_identity_sha256", "deployment_generation", "runtime_config_fingerprint_sha256", "durable_seal_generation", "durable_commitment_sha256", "consumer_name", "source_poll_fresh", "claim_scan_complete", "pel_count", "blocked_request_count", "blocked_request_hashes", "last_semantic_bar_ts_utc", "last_canonical_ack_ts_utc", "shutdown_phase", "last_failure_class", "paper_only", "finam_transport_attached", "broker_network_dispatch_attached", "runtime_live", "real_orders"],
+  "readiness_payload_fields_in_order": ["phase", "reasons", "operational_identity_sha256", "deployment_generation", "runtime_config_fingerprint_sha256", "durable_seal_generation", "consumer_name", "source_poll_fresh", "claim_scan_complete", "pel_count", "unresolved_lifecycle_count", "blocked_request_count", "shutdown_phase", "paper_only", "finam_transport_attached", "broker_network_dispatch_attached", "runtime_live", "real_orders"],
+  "health_status_enum": ["starting", "healthy", "degraded", "draining", "stopped"],
+  "readiness_phase_enum": ["starting", "paper_ready", "degraded", "draining", "stopped"],
+  "readiness_reason_enum": ["startup", "durable_not_ready", "redis_manifest_mismatch", "claim_scan_incomplete", "source_poll_stale", "pel_pending", "lifecycle_unresolved", "blocked_material", "shutdown_requested", "owner_lost", "telemetry_failed", "signal_task_failed", "redis_error", "grace_expired"],
+  "failure_class_enum": ["none", "config_invalid", "credential_invalid", "durable_authentication_failed", "recovery_blocked", "redis_url_invalid", "redis_manifest_mismatch", "redis_key_type_mismatch", "redis_group_mismatch", "redis_claim_failed", "redis_read_failed", "redis_telemetry_failed", "owner_panicked", "owner_returned_without_owner", "owner_returned_unexpectedly", "signal_task_failed", "grace_deadline_exceeded"],
+  "redaction": {
+    "account_id": "sha256:moex.stage8b.p1e.redact.account.v1\\0<utf8-account-id>",
+    "request_id": "sha256:moex.stage8b.p1e.redact.request.v1\\0<canonical-request-id>",
+    "redis_url": "never-serialized",
+    "filesystem_path": "never-serialized",
+    "command_payload": "never-serialized",
+    "credential_or_token": "never-serialized",
+    "raw_error_text": "never-serialized-map-to-closed-enum"
+  },
+  "canonicalization": "UTF-8 JSON compact no whitespace fixed field order decimal integers lowercase enum tokens trailing newline forbidden",
+  "two_run_volatile_allowlist": ["observation_ts_utc", "boot_id", "consumer_name"],
+  "two_run_never_normalize": ["operational_identity_sha256", "deployment_generation", "runtime_config_fingerprint_sha256", "durable_seal_generation", "durable_commitment_sha256", "phase", "reasons", "last_failure_class", "pel_count", "blocked_request_count", "blocked_request_hashes", "ordering"],
+  "redis_write": {
+    "streams_preprovisioned": true,
+    "command": "XADD <key> NOMKSTREAM MAXLEN = 4096 * payload <canonical-json>",
+    "implicit_stream_creation": false,
+    "retention": 4096
+  }
+}

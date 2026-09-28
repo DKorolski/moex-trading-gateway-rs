@@ -82,6 +82,39 @@ def refresh_production_manifest(root: Path) -> None:
     authority_path.write_text(json.dumps(authority, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def refresh_control_manifest(root: Path) -> None:
+    authority_path = root / AUTHORITY
+    authority = json.loads(authority_path.read_text(encoding="utf-8"))
+    paths = sorted(authority["governance_control_plane_manifest"]["entries"])
+    entries: dict[str, dict[str, object]] = {}
+    for name in paths:
+        path = root / name
+        data = path.read_bytes()
+        entries[name] = {
+            "mode": "100755" if path.stat().st_mode & stat.S_IXUSR else "100644",
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "size": len(data),
+        }
+    aggregate = hashlib.sha256()
+    for name, entry in sorted(entries.items()):
+        aggregate.update(
+            name.encode()
+            + b"\0"
+            + str(entry["mode"]).encode()
+            + b"\0"
+            + str(entry["sha256"]).encode()
+            + b"\0"
+            + str(entry["size"]).encode()
+            + b"\n"
+        )
+    authority["governance_control_plane_manifest"] = {
+        "aggregate_sha256": aggregate.hexdigest(),
+        "entries": entries,
+        "file_count": len(entries),
+    }
+    authority_path.write_text(json.dumps(authority, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
 def mutate_closed_flag(root: Path, key: str) -> None:
     path = root / AUTHORITY
     authority = json.loads(path.read_text(encoding="utf-8"))
@@ -94,6 +127,18 @@ def mutate_replay_ref(root: Path) -> None:
     authority = json.loads(path.read_text(encoding="utf-8"))
     authority["accepted_stage8a5_replay"]["source_ref"] = "0" * 40
     path.write_text(json.dumps(authority, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def mutate_replay_temporal_metadata(root: Path) -> None:
+    path = root / AUTHORITY
+    authority = json.loads(path.read_text(encoding="utf-8"))
+    authority["accepted_stage8a5_replay"]["temporal_compatibility"]["repair_source_ref"] = "0" * 40
+    path.write_text(json.dumps(authority, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def mutate_control_and_refresh(root: Path, relative: str, old: str, new: str) -> None:
+    replace(root / relative, old, new)
+    refresh_control_manifest(root)
 
 
 def semantic_feature_open(root: Path) -> None:
@@ -120,6 +165,8 @@ def main() -> None:
     workflow = Path(".github/workflows/ci.yml")
     historical = Path(".github/workflows/stage5f-base-authority.yml")
     gate = Path("scripts/current_tree_ci_gate.sh")
+    compat_helper = "scripts/current_tree_stage8a5_replay_compat.py"
+    compat_cargo = "scripts/current_tree_stage8a5_replay_cargo.sh"
     cases: tuple[tuple[str, Callable[[Path], None]], ...] = (
         ("workflow-gate-echo-noop", lambda r: replace(r / workflow, "run: bash scripts/current_tree_ci_gate.sh", "run: echo 'bash scripts/current_tree_ci_gate.sh'")),
         ("workflow-debug-test-echo-noop", lambda r: replace(r / workflow, "run: cargo test --workspace --all-targets -- --test-threads=1", "run: echo 'cargo test --workspace --all-targets -- --test-threads=1'")),
@@ -134,6 +181,8 @@ def main() -> None:
         ("workflow-rust-action-pin-drift", lambda r: replace(r / workflow, "dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c", "dtolnay/rust-toolchain@0000000000000000000000000000000000000000")),
         ("workflow-rust-version-stable", lambda r: replace(r / workflow, "toolchain: 1.95.0", "toolchain: stable")),
         ("workflow-rust-version-drift", lambda r: replace(r / workflow, "toolchain: 1.95.0", "toolchain: 1.94.0")),
+        ("workflow-rust-min-stack-removed", lambda r: replace(r / workflow, '      RUST_MIN_STACK: "33554432"\n', "")),
+        ("workflow-rust-min-stack-drift", lambda r: replace(r / workflow, '      RUST_MIN_STACK: "33554432"', '      RUST_MIN_STACK: "16777216"')),
         ("gate-checker-commented", lambda r: replace(r / gate, "python3 scripts/current_tree_authority_check.py", "# python3 scripts/current_tree_authority_check.py")),
         ("gate-negative-commented", lambda r: replace(r / gate, "python3 scripts/current_tree_authority_negative_harness.py", "# python3 scripts/current_tree_authority_negative_harness.py")),
         ("gate-replay-echo-noop", lambda r: replace(r / gate, '  bash "$replay_root/repo/scripts/stage8a5_gate.sh"', '  echo \'bash "$replay_root/repo/scripts/stage8a5_gate.sh"\'')),
@@ -154,6 +203,16 @@ def main() -> None:
         ("stage8b-s-opened", lambda r: mutate_closed_flag(r, "stage8b_s_authorized")),
         ("accepted-stage8a5-replay-ref-drift", mutate_replay_ref),
         ("historical-stage5d-current-gate", lambda r: replace(r / gate, "python3 scripts/current_tree_authority_check.py", "python3 scripts/stage5d_additive_freeze_negative_harness.py")),
+        ("gate-replay-compat-disabled", lambda r: replace(r / gate, "CURRENT_TREE_STAGE8A5_REPLAY_COMPAT=1", "CURRENT_TREE_STAGE8A5_REPLAY_COMPAT=0")),
+        ("gate-replay-compat-wrapper-bypassed", lambda r: replace(r / gate, "current_tree_stage8a5_replay_cargo.sh", "stage8a5_detached_cargo.sh")),
+        ("compat-helper-stage7b-ref-drift", lambda r: mutate_control_and_refresh(r, compat_helper, "a1044e0dbe324c722b637498ca80ffafd9f0cbee", "0000000000000000000000000000000000000000")),
+        ("compat-helper-preimage-drift", lambda r: mutate_control_and_refresh(r, compat_helper, "90ab3f9253c0b96fee8ea2c2aeb5e0eb9b0e4c99a3dfb0c404648b588c205eb2", "0" * 64)),
+        ("compat-helper-postimage-drift", lambda r: mutate_control_and_refresh(r, compat_helper, "a8caa83eacd4337c8562d24560c18cdd23d1f48f23115b5ec4c7b7561d38b6be", "f" * 64)),
+        ("accepted-stage8a5-temporal-compat-metadata-drift", mutate_replay_temporal_metadata),
+        ("compat-cargo-restore-removed", lambda r: mutate_control_and_refresh(r, compat_cargo, "          --restore\n", "")),
+        ("compat-cargo-test-status-masked", lambda r: mutate_control_and_refresh(r, compat_cargo, '        exit "$cargo_status"', "        exit 0")),
+        ("compat-helper-clean-restore-check-bypassed", lambda r: mutate_control_and_refresh(r, compat_helper, "    if clean_status:", "    if False and clean_status:")),
+        ("compat-cargo-workspace-selector-broadened", lambda r: mutate_control_and_refresh(r, compat_cargo, '  [[ "$all_targets_test" == "1" ]]; then', "  true; then")),
     )
     passed = 0
     for name, mutation in cases:

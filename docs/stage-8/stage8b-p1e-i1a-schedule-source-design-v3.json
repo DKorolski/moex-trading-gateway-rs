@@ -1,0 +1,91 @@
+{
+  "schema_version": 3,
+  "domain": "moex.stage8b.p1e.i1a.schedule-source-design.v3",
+  "stage": "Stage 8B-P1-e I1A R2",
+  "status": "DESIGN_SEMANTIC_IDENTITY_CORRECTION_REVIEW_CANDIDATE_IMPLEMENTATION_NOT_AUTHORIZED",
+  "accepted_foundation": "37088964e50c0ceb4d82887a30c32103110749b0",
+  "base_i1a_r1": {
+    "commit": "7686c93eb9f38a0124d2ae558a80b78f51c99f8f",
+    "design_path": "docs/stage-8/stage8b-p1e-i1a-schedule-source-design-v2.json",
+    "design_raw_sha256": "e779cf166de82907442bd20ef88742ca07a9a98d927abd6cc670934bfef97b44",
+    "review_status": "HOLD_ONLY_P1_SEMANTIC_IDENTITY"
+  },
+  "artifacts": {
+    "design_markdown": "docs/stage-8/stage8b-p1e-i1a-schedule-source-design-v3.md",
+    "policy": "docs/stage-8/stage8b-p1e-i1a-schedule-source-policy-v3.json",
+    "envelope_schema": "docs/stage-8/stage8b-p1e-i1a-schedule-envelope-v3.schema.json",
+    "semantic_identity_schema": "docs/stage-8/stage8b-p1e-i1a-semantic-identity-v1.schema.json",
+    "semantic_identity_contract": "docs/stage-8/stage8b-p1e-i1a-semantic-identity-contract-v1.json",
+    "source_progression": "docs/stage-8/stage8b-p1e-i1a-source-progression-v2.json",
+    "acceptance_matrix": "docs/stage-8/stage8b-p1e-i1a-r2-acceptance-matrix-v1.csv",
+    "semantic_fixtures": "docs/stage-8/stage8b-p1e-i1a-r2-semantic-fixtures-v1.json"
+  },
+  "normative_semantic_identity": {
+    "projection": "exact-semantic-identity-v1-object-cross-validated-against-payload",
+    "canonical_encoding": "strict-canonical-json-subset-v1",
+    "hash_domain": "moex.stage8b.p1e.schedule-semantic-identity.sha256.v1",
+    "hash_preimage": "utf8-domain-then-0x00-then-canonical-projection",
+    "transport_or_freshness_fields_included": false,
+    "evidence_kind_and_state_included": true,
+    "boundary_proof_included": true,
+    "trading_day_included": true,
+    "sessions_included": true
+  },
+  "revision_rule": {
+    "first_revision": 1,
+    "same_hash": "same-revision",
+    "different_hash": "prior-revision-plus-one",
+    "open_to_closed_same_sessions": "different-hash-and-revision-plus-one",
+    "trading_day_change": "different-hash-and-revision-plus-one",
+    "heartbeat": "publication-sequence-and-freshness-may-advance-with-same-hash-and-revision",
+    "publisher_restart": "exact-durable-high-water-required-before-next-publication"
+  },
+  "consumer_rule": {
+    "same_revision_same_hash": "continue-transport-validation",
+    "same_revision_different_hash": "terminal-conflict",
+    "higher_revision": "continue-transport-validation-without-intermediate-event-continuity",
+    "lower_revision": "blocked-rollback"
+  },
+  "linked_acceptance": {
+    "open_to_closed_progression_then_day_route": true,
+    "heartbeat_without_false_conflict": true,
+    "trading_day_transition": true,
+    "same_revision_changed_hash_negative": true,
+    "revision_rollback_negative": true,
+    "closed_market_working_denial": true
+  },
+  "coverage_classification": {
+    "r1_total_model_cases": 41,
+    "r1_table_lookup_cases": 14,
+    "r2_linked_computed_cases": 8,
+    "design_model_is_source_execution_evidence": false,
+    "implementation_requires_real_state_transition_counter_crash_and_latch_tests": true
+  },
+  "inherited_without_change": [
+    "NOMKSTREAM-no-create",
+    "Stage6-V4-binding-record-phase-and-counter-contract",
+    "route-specific-Open-Closed-proof",
+    "three-step-latch-A-through-F-owner-loop",
+    "V1-V2-V3-journal-compatibility",
+    "invalid-newest-no-fallback",
+    "closed-operational-surfaces"
+  ],
+  "implementation_authorization": {
+    "production_stage5e_facade": false,
+    "signed_schedule_adapter": false,
+    "publisher": false,
+    "stage6_v4_record": false,
+    "owner_loop": false,
+    "requires_independent_i1a_r2_acceptance": true
+  },
+  "closed_surfaces": {
+    "redis_db0_vps_activation": false,
+    "redis_db15_schedule_activation": false,
+    "schedule_private_key_installation": false,
+    "finam_post_delete": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "generation_2_execution_activation": false
+  }
+}

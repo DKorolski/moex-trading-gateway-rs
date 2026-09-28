@@ -15,6 +15,7 @@ python3 scripts/current_tree_authority_negative_harness.py
 
 accepted_stage8a5_ref="bf58b47fdef8af774a4107455dfcc6204e594283"
 accepted_stage8a5_gate_sha256="1361ad49d41351484cf61c86822deb640818e755b7b35bda44592fd437ff69f8"
+real_cargo="$(command -v cargo)"
 artifact_dir="${CURRENT_TREE_CI_ARTIFACT_DIR:-$repo_root/tmp/current-tree-ci}"
 if [[ "$artifact_dir" != /* ]]; then
   artifact_dir="$repo_root/$artifact_dir"
@@ -31,7 +32,17 @@ actual_gate_sha256="$(shasum -a 256 "$replay_root/repo/scripts/stage8a5_gate.sh"
 test "$actual_gate_sha256" = "$accepted_stage8a5_gate_sha256"
 
 accepted_evidence="$artifact_dir/accepted-stage8a5-evidence"
-if ! STAGE8A5_ARTIFACT_DIR="$accepted_evidence" \
+compat_bin="$artifact_dir/accepted-stage8a5-temporal-compat-bin"
+compat_evidence="$artifact_dir/accepted-stage8a5-temporal-compatibility.json"
+mkdir -p "$compat_bin"
+rm -f "$compat_evidence"
+ln -s "$repo_root/scripts/current_tree_stage8a5_replay_cargo.sh" "$compat_bin/cargo"
+if ! CURRENT_TREE_STAGE8A5_REPLAY_COMPAT=1 \
+  CURRENT_TREE_REAL_CARGO="$real_cargo" \
+  CURRENT_TREE_STAGE8A5_REPLAY_COMPAT_HELPER="$repo_root/scripts/current_tree_stage8a5_replay_compat.py" \
+  CURRENT_TREE_STAGE8A5_REPLAY_COMPAT_EVIDENCE="$compat_evidence" \
+  PATH="$compat_bin:$PATH" \
+  STAGE8A5_ARTIFACT_DIR="$accepted_evidence" \
   bash "$replay_root/repo/scripts/stage8a5_gate.sh"; then
   echo "current-tree-ci-gate: accepted Stage 8A5 replay failed; nested diagnostics follow" >&2
   failure_files=0
@@ -69,6 +80,9 @@ PY
   echo "current-tree-ci-gate: nested_failure_files=$failure_files" >&2
   exit 1
 fi
+python3 scripts/current_tree_stage8a5_replay_compat.py \
+  --evidence "$compat_evidence" \
+  --verify-evidence-only
 rm -rf "$replay_root"
 
 echo "current-tree-ci-gate: PASS source_ref=$source_ref accepted_stage8a5_ref=$accepted_stage8a5_ref"

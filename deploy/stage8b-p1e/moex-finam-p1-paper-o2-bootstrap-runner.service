@@ -1,0 +1,44 @@
+[Unit]
+Description=MOEX FINAM Stage 8B P1F O2 guarded bootstrap runner
+After=local-fs.target
+ConditionPathIsReadWrite=/var/lib/moex-finam-p1-paper-control
+ConditionPathExists=/etc/moex-finam-p1-paper/o2/active-manifest.sha256
+
+[Service]
+Type=oneshot
+User=root
+Group=moex-p1-paper
+UMask=0027
+ExecStart=/usr/local/libexec/moex/stage8b-p1f-o2-operator runner-fixed
+ExecStopPost=/usr/local/libexec/moex/stage8b-p1f-o2-operator cleanup-fixed
+TimeoutStartSec=infinity
+TimeoutStopSec=45s
+KillSignal=SIGTERM
+FinalKillSignal=SIGKILL
+KillMode=mixed
+RemainAfterExit=no
+RestrictAddressFamilies=AF_UNIX
+PrivateNetwork=yes
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ProtectProc=invisible
+ProcSubset=pid
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+LimitCORE=0
+ReadOnlyPaths=/etc/moex-finam-p1-paper
+ReadWritePaths=/var/lib/moex-finam-p1-paper-control

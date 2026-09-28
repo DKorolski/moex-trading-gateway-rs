@@ -7,8 +7,8 @@
 
 use crate::runtime_compat::Strategy;
 use crate::stage5g_clean_restart::{
-    restore_stage5g_clean_restart, Stage5gCleanRestartError, Stage5gCleanRestartedCapability,
-    Stage5gLifecycleCommitmentKey,
+    export_stage5g_clean_restart, restore_stage5g_clean_restart, Stage5gCleanRestartError,
+    Stage5gCleanRestartedCapability, Stage5gLifecycleCommitmentKey,
 };
 use crate::stage5g_fresh_broker_truth::{
     apply_stage5g_fresh_truth_reduction, authorize_stage5g_fresh_truth_operational_identity,
@@ -20,39 +20,57 @@ use crate::stage5g_fresh_broker_truth::{
     Stage5gValidatedFreshBrokerTruthPackage, STAGE5G_FRESH_BROKER_TRUTH_SCHEMA_VERSION,
 };
 use crate::stage5g_order_position::stage5g_attribution_fingerprint_sha256;
+use crate::stage5g_p1_semantic::{
+    continue_stage5g_p1_semantic, continue_stage8b_p1d3_semantic, export_stage5g_p1_one_intent,
+    export_stage5g_p1_zero_intent, export_stage8b_p1d3_one_intent, export_stage8b_p1d3_zero_intent,
+    p1_projection_from_one, p1_projection_from_zero, p1d3_projection_from_one,
+    p1d3_projection_from_zero, rebind_stage8b_p1d3_one_intent_request_checkpoint,
+    Stage5gP1SemanticBindingInput, Stage5gP1SemanticCommitProjectionV1,
+    Stage5gP1SemanticTransition, Stage8bP1d3SemanticTransition,
+};
 use crate::stage6_durable_identity::Stage6JournalPayloadV1;
 use crate::{
     HybridIntradayRuntimeStrategy, Stage6CancelOutcomeV1, Stage6DurableActionKind,
     Stage6DurableCommandSnapshotV1, Stage6DurableIdentityError, Stage6DurablePlaceOrderShapeV1,
     Stage6DurableRequestIdentityV1, Stage6JournalBackend, Stage6JournalCheckpointV1,
     Stage6JournalEventKind, Stage6JournalFrontierV1, Stage6JournalRecordId, Stage6JournalRecordV1,
-    Stage6JournalRecordV2, Stage6JournalRecordVersioned, Stage6JournalStorageError,
-    Stage6LifecycleSequence, Stage6MemoryJournalBackend, Stage6MixedReplayEngineV2,
-    Stage6OwnedJournalBackend, Stage6ReconciliationBatchCompletionV2,
-    Stage6ReconciliationDispositionV1, Stage6ReconciliationLifecycleV2,
-    Stage6ReconciliationTransitionKindV2, Stage6ReconciliationV2Error, Stage6RecoveredRequestV1,
-    Stage6ReplayEngineV1, Stage6ReplayError, Stage6ReplaySnapshotV1,
-    Stage6RequestFinalDispositionV1, Stage6Sha256Digest,
+    Stage6JournalRecordV2, Stage6JournalRecordV3, Stage6JournalRecordV4,
+    Stage6JournalRecordVersioned, Stage6JournalStorageError, Stage6LifecycleSequence,
+    Stage6MemoryJournalBackend, Stage6MixedReplayEngineV2, Stage6OwnedJournalBackend,
+    Stage6ReconciliationBatchCompletionV2, Stage6ReconciliationDispositionV1,
+    Stage6ReconciliationLifecycleV2, Stage6ReconciliationTransitionKindV2,
+    Stage6ReconciliationV2Error, Stage6RecoveredRequestV1, Stage6ReplayEngineV1, Stage6ReplayError,
+    Stage6ReplaySnapshotV1, Stage6RequestFinalDispositionV1, Stage6Sha256Digest,
 };
 use broker_core::{
-    BrokerCommand, BrokerOrderId, BrokerOrderSnapshot, BrokerPositionSnapshot, BrokerTradeId,
-    BrokerTradeSnapshot, ClientOrderId, HybridRuntimeAttribution, InstrumentId, StrategyRequestId,
+    BrokerAccountId, BrokerCommand, BrokerOrderId, BrokerOrderSnapshot, BrokerPositionSnapshot,
+    BrokerTradeId, BrokerTradeSnapshot, ClientOrderId, HybridRuntimeAttribution, InstrumentId,
+    StrategyRequestId,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+#[cfg(feature = "stage5g-artifact-fixtures")]
+use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub const STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION: u16 = 1;
+pub const STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION_V2: u16 = 2;
+pub const STAGE8B_P1E_FIRST_BOOT_PROVENANCE_SCHEMA_VERSION: u16 = 1;
 pub const STAGE6D_INTEGRATION_FINGERPRINT_SCHEMA_VERSION: u16 = 3;
 pub const STAGE6E_ACCEPTED_FRESH_TRUTH_SCHEMA_VERSION: u16 = 2;
+pub const STAGE8B_P1_REQUEST_ACCEPTED_BINDING_SCHEMA_VERSION: u16 = 1;
 
 const STAGE6D_RESTART_COMMITMENT_DOMAIN: &str = "moex.stage6d.authenticated-restart-frontier.v1";
+const STAGE6D_RESTART_COMMITMENT_V2_DOMAIN: &str = "moex.stage6d.restart-commitment.v2";
+const STAGE8B_P1E_FIRST_BOOT_PROVENANCE_DOMAIN: &str = "moex.stage8b.p1e.first-boot-provenance.v1";
 const STAGE6D_INTEGRATION_FINGERPRINT_DOMAIN: &str = "moex.stage6e-r1.durable-runtime-recovered.v3";
 const STAGE6E_SEMANTIC_CROSS_BINDING_DOMAIN: &str =
     "moex.stage6e.stage5-stage6-semantic-cross-binding.v1";
 const STAGE6E_RESTORE_EPOCH_DOMAIN: &str = "moex.stage6e-r1.current-process-restore-epoch.v1";
+const STAGE8B_P1_REQUEST_ACCEPTED_BINDING_DOMAIN: &str =
+    "moex.stage8b.p1.prepublication-request-accepted.v1";
 
 static STAGE6E_PROCESS_GENERATION_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -98,6 +116,8 @@ pub enum Stage6dLiveCoreError {
     FreshTruthRequestNotCrossBound,
     FreshTruthTemporalAuthorityMismatch,
     Stage8a4WriteAuthorityInvalid,
+    Stage8bP1d2MarketFeedback,
+    Stage8bP1d3WorkingLimit,
 }
 
 /// Trusted, process-local context for Stage 7A command admission. Redis may
@@ -225,6 +245,8 @@ impl std::fmt::Display for Stage6dLiveCoreError {
             Self::Stage8a4WriteAuthorityInvalid => {
                 "Stage 8A-4 sealed durable-write authority is invalid"
             }
+            Self::Stage8bP1d2MarketFeedback => "Stage 8B-P1-d2 market-feedback transition failed",
+            Self::Stage8bP1d3WorkingLimit => "Stage 8B-P1-d3 working-limit transition failed",
         })
     }
 }
@@ -264,6 +286,18 @@ impl From<Stage6DurableIdentityError> for Stage6dLiveCoreError {
 impl From<Stage5gFreshBrokerTruthError> for Stage6dLiveCoreError {
     fn from(_value: Stage5gFreshBrokerTruthError) -> Self {
         Self::Stage5gFreshTruthRejected
+    }
+}
+
+impl From<crate::Stage8bP1d2MarketFeedbackError> for Stage6dLiveCoreError {
+    fn from(_value: crate::Stage8bP1d2MarketFeedbackError) -> Self {
+        Self::Stage8bP1d2MarketFeedback
+    }
+}
+
+impl From<crate::Stage8bP1d3Error> for Stage6dLiveCoreError {
+    fn from(_value: crate::Stage8bP1d3Error) -> Self {
+        Self::Stage8bP1d3WorkingLimit
     }
 }
 
@@ -358,6 +392,166 @@ struct Stage6dAuthenticatedRestartPackageV1 {
     restart_commitment_hmac_sha256: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stage8bP1eFirstBootProvenanceV1 {
+    schema_version: u16,
+    domain: String,
+    operational_identity_sha256: String,
+    runtime_profile_sha256: String,
+    runtime_config_fingerprint_sha256: String,
+    source_bundle_sha256: String,
+    source_bundle_generation: u64,
+    source_plan_sha256: String,
+    history_bars_sha256: String,
+    riskgate_session_observations_sha256: String,
+    candidate_semantic_id_sha256: String,
+}
+
+impl Stage8bP1eFirstBootProvenanceV1 {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        operational_identity_sha256: String,
+        runtime_profile_sha256: String,
+        runtime_config_fingerprint_sha256: String,
+        source_bundle_sha256: String,
+        source_bundle_generation: u64,
+        source_plan_sha256: String,
+        history_bars_sha256: String,
+        riskgate_session_observations_sha256: String,
+        candidate_semantic_id_sha256: String,
+    ) -> Result<Self, Stage6dLiveCoreError> {
+        let value = Self {
+            schema_version: STAGE8B_P1E_FIRST_BOOT_PROVENANCE_SCHEMA_VERSION,
+            domain: STAGE8B_P1E_FIRST_BOOT_PROVENANCE_DOMAIN.to_string(),
+            operational_identity_sha256,
+            runtime_profile_sha256,
+            runtime_config_fingerprint_sha256,
+            source_bundle_sha256,
+            source_bundle_generation,
+            source_plan_sha256,
+            history_bars_sha256,
+            riskgate_session_observations_sha256,
+            candidate_semantic_id_sha256,
+        };
+        value.validate()?;
+        Ok(value)
+    }
+
+    pub fn encode_canonical(&self) -> Result<Vec<u8>, Stage6dLiveCoreError> {
+        self.validate()?;
+        serde_json::to_vec(self).map_err(|_| Stage6dLiveCoreError::RestartPackageDecode)
+    }
+
+    pub fn canonical_sha256(&self) -> Result<String, Stage6dLiveCoreError> {
+        Ok(sha256_hex(&self.encode_canonical()?))
+    }
+
+    pub fn operational_identity_sha256(&self) -> &str {
+        &self.operational_identity_sha256
+    }
+
+    pub fn source_bundle_sha256(&self) -> &str {
+        &self.source_bundle_sha256
+    }
+
+    pub const fn source_bundle_generation(&self) -> u64 {
+        self.source_bundle_generation
+    }
+
+    pub fn runtime_profile_sha256(&self) -> &str {
+        &self.runtime_profile_sha256
+    }
+
+    pub fn runtime_config_fingerprint_sha256(&self) -> &str {
+        &self.runtime_config_fingerprint_sha256
+    }
+
+    pub fn source_plan_sha256(&self) -> &str {
+        &self.source_plan_sha256
+    }
+
+    pub fn history_bars_sha256(&self) -> &str {
+        &self.history_bars_sha256
+    }
+
+    pub fn riskgate_session_observations_sha256(&self) -> &str {
+        &self.riskgate_session_observations_sha256
+    }
+
+    pub fn candidate_semantic_id_sha256(&self) -> &str {
+        &self.candidate_semantic_id_sha256
+    }
+
+    fn validate(&self) -> Result<(), Stage6dLiveCoreError> {
+        let digests = [
+            &self.operational_identity_sha256,
+            &self.runtime_profile_sha256,
+            &self.runtime_config_fingerprint_sha256,
+            &self.source_bundle_sha256,
+            &self.source_plan_sha256,
+            &self.history_bars_sha256,
+            &self.riskgate_session_observations_sha256,
+            &self.candidate_semantic_id_sha256,
+        ];
+        if self.schema_version != STAGE8B_P1E_FIRST_BOOT_PROVENANCE_SCHEMA_VERSION
+            || self.domain != STAGE8B_P1E_FIRST_BOOT_PROVENANCE_DOMAIN
+            || self.source_bundle_generation == 0
+            || digests
+                .into_iter()
+                .any(|value| Stage6Sha256Digest::parse(value.clone()).is_err())
+        {
+            return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Stage6dAuthenticatedRestartPackageV2 {
+    schema_version: u16,
+    stage5g_restart_package: Vec<u8>,
+    stage5g_restart_package_sha256: String,
+    stage6_checkpoint: Stage6JournalCheckpointV1,
+    stage6_checkpoint_bytes_sha256: String,
+    operational_identity: Stage6dOperationalIdentityConfig,
+    operational_identity_sha256: String,
+    first_boot_provenance_v1: Stage8bP1eFirstBootProvenanceV1,
+    first_boot_provenance_canonical_sha256: String,
+    restart_commitment_sha256: String,
+    restart_commitment_hmac_sha256: String,
+}
+
+#[derive(Serialize)]
+struct Stage6dRestartCommitmentV2<'a> {
+    schema_version: u16,
+    domain: &'static str,
+    stage5g_restart_package_sha256: &'a str,
+    stage6_checkpoint_bytes_sha256: &'a str,
+    operational_identity_sha256: &'a str,
+    first_boot_provenance_canonical_sha256: &'a str,
+}
+
+struct Stage6dDecodedAuthenticatedRestartPackage {
+    schema_version: u16,
+    stage5g_restart_package: Vec<u8>,
+    stage6_checkpoint: Stage6JournalCheckpointV1,
+    operational_identity: Stage6dOperationalIdentityConfig,
+    first_boot_provenance_v1: Option<Stage8bP1eFirstBootProvenanceV1>,
+    canonical_sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stage8bP1eAuthenticatedRestartPackageV2Audit {
+    pub schema_version: u16,
+    pub canonical_sha256: String,
+    pub first_boot_provenance_canonical_sha256: String,
+    pub first_boot_provenance: Stage8bP1eFirstBootProvenanceV1,
+    pub operational_identity_sha256: String,
+    pub stage6_checkpoint_sha256: String,
+}
+
 #[derive(Serialize)]
 struct Stage6dRestartCommitmentV1<'a> {
     schema_version: u16,
@@ -365,6 +559,26 @@ struct Stage6dRestartCommitmentV1<'a> {
     stage5g_restart_package_sha256: &'a str,
     stage6_checkpoint_bytes_sha256: &'a str,
     operational_identity_sha256: &'a str,
+}
+
+/// Authenticates both the Stage 6 wrapper and embedded Stage 5G package and
+/// returns only the P1-d4 routing discriminator. This is intentionally a
+/// read-only probe: it owns no journal, Redis, schedule or provider action.
+pub fn authenticate_stage8b_p1d4_restart_package_state(
+    bytes: &[u8],
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    fresh_runtime: crate::HybridIntradayRuntimeStrategy,
+) -> Result<Option<crate::Stage8bP1d4GeneratedMarketPackageState>, Stage6dLiveCoreError> {
+    let package = decode_and_authenticate_restart_package(bytes, commitment_key)?;
+    let restored = crate::restore_stage5g_clean_restart(
+        &package.stage5g_restart_package,
+        commitment_key,
+        fresh_runtime,
+    )
+    .map_err(|_| Stage6dLiveCoreError::RestartPackageBindingMismatch)?;
+    restored
+        .stage8b_p1d4_generated_market_package_state()
+        .map_err(|_| Stage6dLiveCoreError::RestartPackageBindingMismatch)
 }
 
 /// Adds a versioned authenticated Stage 6 frontier to an already authenticated
@@ -407,6 +621,80 @@ pub fn seal_stage6d_restart_package(
     serde_json::to_vec(&package).map_err(|_| Stage6dLiveCoreError::RestartPackageDecode)
 }
 
+/// Builds the provenance-bearing package required by Stage 8B-P1-e.  The
+/// provenance is validated against the exact operational identity and remains
+/// immutable across every later Stage 7 seal advance.
+pub fn seal_stage6d_restart_package_v2(
+    stage5g_restart_package: &[u8],
+    stage6_checkpoint: Stage6JournalCheckpointV1,
+    operational_identity: Stage6dOperationalIdentityConfig,
+    first_boot_provenance_v1: Stage8bP1eFirstBootProvenanceV1,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Vec<u8>, Stage6dLiveCoreError> {
+    if stage5g_restart_package.is_empty() {
+        return Err(Stage6dLiveCoreError::RestartPackageDecode);
+    }
+    first_boot_provenance_v1.validate()?;
+    let checkpoint_bytes = stage6_checkpoint.encode_canonical();
+    Stage6JournalCheckpointV1::decode_canonical(&checkpoint_bytes)?;
+    let stage5g_restart_package_sha256 = sha256_hex(stage5g_restart_package);
+    let stage6_checkpoint_bytes_sha256 = sha256_hex(&checkpoint_bytes);
+    let operational_identity_sha256 = stage6d_operational_identity_sha256(&operational_identity)?
+        .as_str()
+        .to_string();
+    if first_boot_provenance_v1.operational_identity_sha256() != operational_identity_sha256 {
+        return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+    }
+    let first_boot_provenance_canonical_sha256 = first_boot_provenance_v1.canonical_sha256()?;
+    let restart_commitment_sha256 = restart_commitment_v2_sha256(
+        &stage5g_restart_package_sha256,
+        &stage6_checkpoint_bytes_sha256,
+        &operational_identity_sha256,
+        &first_boot_provenance_canonical_sha256,
+    )?;
+    let restart_commitment_hmac_sha256 =
+        commitment_key.stage6d_v2_hmac_sha256(&restart_commitment_sha256);
+    let package = Stage6dAuthenticatedRestartPackageV2 {
+        schema_version: STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION_V2,
+        stage5g_restart_package: stage5g_restart_package.to_vec(),
+        stage5g_restart_package_sha256,
+        stage6_checkpoint,
+        stage6_checkpoint_bytes_sha256,
+        operational_identity,
+        operational_identity_sha256,
+        first_boot_provenance_v1,
+        first_boot_provenance_canonical_sha256,
+        restart_commitment_sha256,
+        restart_commitment_hmac_sha256,
+    };
+    serde_json::to_vec(&package).map_err(|_| Stage6dLiveCoreError::RestartPackageDecode)
+}
+
+pub fn inspect_stage8b_p1e_authenticated_restart_package_v2(
+    bytes: &[u8],
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eAuthenticatedRestartPackageV2Audit, Stage6dLiveCoreError> {
+    let package = decode_and_authenticate_restart_package(bytes, commitment_key)?;
+    if package.schema_version != STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION_V2 {
+        return Err(Stage6dLiveCoreError::UnsupportedRestartPackageSchema);
+    }
+    let provenance = package
+        .first_boot_provenance_v1
+        .ok_or(Stage6dLiveCoreError::RestartPackageBindingMismatch)?;
+    Ok(Stage8bP1eAuthenticatedRestartPackageV2Audit {
+        schema_version: package.schema_version,
+        canonical_sha256: package.canonical_sha256,
+        first_boot_provenance_canonical_sha256: provenance.canonical_sha256()?,
+        first_boot_provenance: provenance,
+        operational_identity_sha256: stage6d_operational_identity_sha256(
+            &package.operational_identity,
+        )?
+        .as_str()
+        .to_string(),
+        stage6_checkpoint_sha256: package.stage6_checkpoint.checkpoint_sha256().to_string(),
+    })
+}
+
 /// Authenticates the currently committed Stage 6 restart package and advances
 /// only its journal checkpoint while preserving the exact embedded Stage 5G
 /// authority and operational identity. This is the Stage 7B seal-advance seam;
@@ -425,10 +713,86 @@ pub fn advance_stage6d_restart_package(
     {
         return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
     }
-    seal_stage6d_restart_package(
-        &current.stage5g_restart_package,
+    match current.first_boot_provenance_v1 {
+        Some(provenance) => seal_stage6d_restart_package_v2(
+            &current.stage5g_restart_package,
+            next_checkpoint,
+            current.operational_identity,
+            provenance,
+            commitment_key,
+        ),
+        None => seal_stage6d_restart_package(
+            &current.stage5g_restart_package,
+            next_checkpoint,
+            current.operational_identity,
+            commitment_key,
+        ),
+    }
+}
+
+/// Replaces the embedded Stage 5G authority while preserving the authenticated
+/// envelope schema and, for V2, the exact first-boot provenance. This remains
+/// compatible with accepted pre-P1-e V1 packages; it never upgrades or
+/// downgrades an existing package implicitly.
+pub fn replace_stage5g_in_stage6d_restart_package(
+    authenticated_restart_package: &[u8],
+    expected_current_checkpoint: &Stage6JournalCheckpointV1,
+    replacement_stage5g_restart_package: &[u8],
+    next_checkpoint: Stage6JournalCheckpointV1,
+    expected_operational_identity: &Stage6dOperationalIdentityConfig,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Vec<u8>, Stage6dLiveCoreError> {
+    let current =
+        decode_and_authenticate_restart_package(authenticated_restart_package, commitment_key)?;
+    if &current.stage6_checkpoint != expected_current_checkpoint
+        || &current.operational_identity != expected_operational_identity
+    {
+        return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+    }
+    match current.first_boot_provenance_v1 {
+        Some(provenance) => seal_stage6d_restart_package_v2(
+            replacement_stage5g_restart_package,
+            next_checkpoint,
+            current.operational_identity,
+            provenance,
+            commitment_key,
+        ),
+        None => seal_stage6d_restart_package(
+            replacement_stage5g_restart_package,
+            next_checkpoint,
+            current.operational_identity,
+            commitment_key,
+        ),
+    }
+}
+
+/// Strict P1-e replacement seam. The current package must already be V2 and
+/// carry valid first-boot provenance; a legacy V1 package cannot be upgraded
+/// through this API.
+pub fn replace_stage5g_in_stage6d_restart_package_v2(
+    authenticated_restart_package: &[u8],
+    expected_current_checkpoint: &Stage6JournalCheckpointV1,
+    replacement_stage5g_restart_package: &[u8],
+    next_checkpoint: Stage6JournalCheckpointV1,
+    expected_operational_identity: &Stage6dOperationalIdentityConfig,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Vec<u8>, Stage6dLiveCoreError> {
+    let current =
+        decode_and_authenticate_restart_package(authenticated_restart_package, commitment_key)?;
+    if current.schema_version != STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION_V2
+        || &current.stage6_checkpoint != expected_current_checkpoint
+        || &current.operational_identity != expected_operational_identity
+    {
+        return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+    }
+    let provenance = current
+        .first_boot_provenance_v1
+        .ok_or(Stage6dLiveCoreError::RestartPackageBindingMismatch)?;
+    seal_stage6d_restart_package_v2(
+        replacement_stage5g_restart_package,
         next_checkpoint,
         current.operational_identity,
+        provenance,
         commitment_key,
     )
 }
@@ -529,6 +893,477 @@ pub struct Stage6dDurableRuntimeRecovered {
     authenticated_operational_identity: Option<Stage6dOperationalIdentityConfig>,
     semantic_cross_binding: Option<Stage6eSemanticCrossBinding>,
     restore_epoch: Option<Stage6RestoreEpoch>,
+}
+
+/// Linear proof that one exact schedule binding V4 was appended and reread by
+/// the existing Stage 6 journal backend. It grants no schedule authority until
+/// the Stage 7B owner commits and rereads the expected covering seal.
+pub struct Stage6Stage8bP1eScheduleBindingPending {
+    candidate: crate::Stage8bP1eScheduleBindingCandidateV1,
+    record: Stage6JournalRecordV4,
+    post_append_checkpoint: Stage6JournalCheckpointV1,
+    prior_covering_seal_generation: u64,
+    expected_covering_seal_generation: u64,
+}
+
+impl Stage6Stage8bP1eScheduleBindingPending {
+    pub fn journal_record_id(&self) -> &Stage6JournalRecordId {
+        self.record.journal_record_id()
+    }
+
+    pub fn lifecycle_sequence(&self) -> Stage6LifecycleSequence {
+        self.record.lifecycle_sequence()
+    }
+
+    pub fn post_append_checkpoint(&self) -> &Stage6JournalCheckpointV1 {
+        &self.post_append_checkpoint
+    }
+
+    pub fn prior_covering_seal_generation(&self) -> u64 {
+        self.prior_covering_seal_generation
+    }
+
+    pub fn expected_covering_seal_generation(&self) -> u64 {
+        self.expected_covering_seal_generation
+    }
+}
+
+/// Read-only, test-fixture-only counters used by the Stage 8B-P1-d4
+/// exhaustive crash/replay evidence collector.  This type carries no journal
+/// mutation, callback, provider, Redis or dispatch authority.
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Stage8bP1d4SequenceAllocationAuditV1 {
+    pub outcome_kind: String,
+    pub journal_record_index: usize,
+    pub stage6_lifecycle_sequence: u64,
+    pub sequence_allocation_frontier: u64,
+    pub seq_ack: Option<u64>,
+    pub seq_truth: Option<u64>,
+}
+
+/// Authenticated package phase facts used to derive replacement-commit
+/// counts.  The generation is read from the restored package authority; it is
+/// never supplied by the matrix runner.
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Stage8bP1d4PackageAuditV1 {
+    pub write_generation: Option<u64>,
+    pub p1d3_phase: Option<String>,
+    pub generated_market_phase: Option<String>,
+}
+
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Stage8bP1d4RuntimeAuditV1 {
+    pub lifecycle_sequence: u64,
+    pub journal_lifecycle_sequences: Vec<u64>,
+    pub sequence_pair: Option<(u64, u64)>,
+    pub sequence_allocations: Vec<Stage8bP1d4SequenceAllocationAuditV1>,
+    pub package: Stage8bP1d4PackageAuditV1,
+    pub callback_count: usize,
+    pub dispatch_v1_total: usize,
+    pub order_v1_total: usize,
+    pub trade_v1_total: usize,
+    pub request_finalized_v1_total: usize,
+    pub durable_outcomes: usize,
+    pub truth_bearing_outcomes: usize,
+}
+
+/// Immutable Stage 7 seal facts captured before a P1 semantic callback.  The
+/// service owner constructs this only from its authenticated current S0; the
+/// core rechecks every Stage 6/operational field before accepting it.
+pub struct Stage6Stage8bP1SealSourceV1 {
+    pub seal_generation: u64,
+    pub seal_commitment_sha256: String,
+    pub stage6_checkpoint_sha256: String,
+    pub stage6_frontier_sha256: String,
+    pub operational_identity_sha256: String,
+}
+
+/// Redacted durable semantic commit facts.  This is evidence only: it owns no
+/// runtime, journal, Redis, publication or provider capability.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Stage6Stage8bP1SemanticCommitEvidenceV1 {
+    pub schema_version: u16,
+    pub semantic_batch_id_sha256: String,
+    pub m10_redis_id: String,
+    pub m10_semantic_id_sha256: String,
+    pub m10_payload_sha256: String,
+    pub intent_count: usize,
+    pub strategy_request_id: Option<StrategyRequestId>,
+    pub canonical_command_sha256: Option<String>,
+    pub request_accepted_record_id: Option<String>,
+    pub request_accepted_source_evidence_sha256: Option<String>,
+}
+
+/// Read-only exact source identity carried by either authenticated P1-d2
+/// replacement package. It grants no Redis or acknowledgement authority.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stage6Stage8bP1d2SourceM10Binding {
+    redis_id: String,
+    semantic_id_sha256: String,
+    payload_sha256: String,
+}
+
+impl Stage6Stage8bP1d2SourceM10Binding {
+    pub fn redis_id(&self) -> &str {
+        &self.redis_id
+    }
+
+    pub fn semantic_id_sha256(&self) -> &str {
+        &self.semantic_id_sha256
+    }
+
+    pub fn payload_sha256(&self) -> &str {
+        &self.payload_sha256
+    }
+}
+
+/// Core result consumed by the sole Stage 7 composition owner.  No variant
+/// grants command publication or provider authority.
+pub enum Stage6Stage8bP1SemanticTransition {
+    ZeroIntent {
+        recovered: Stage6dDurableRuntimeRecovered,
+        stage5g_restart_package: Vec<u8>,
+        evidence: Stage6Stage8bP1SemanticCommitEvidenceV1,
+    },
+    OneIntentPrepublication {
+        recovered: Box<Stage6dDurableRuntimeRecovered>,
+        stage5g_restart_package: Vec<u8>,
+        evidence: Stage6Stage8bP1SemanticCommitEvidenceV1,
+        command: BrokerCommand,
+        durable_request_identity: Stage6DurableRequestIdentityV1,
+        durable_command_snapshot: Stage6DurableCommandSnapshotV1,
+    },
+    MultiIntentBlocked {
+        semantic_batch_id_sha256: String,
+        intent_count: usize,
+        request_ids: Vec<StrategyRequestId>,
+    },
+}
+
+/// First P1-d2 replacement package. The caller must durably commit and reread
+/// this S_ack package before consuming the recovered owner into S_truth.
+pub struct Stage6Stage8bP1d2AckTransition {
+    pub recovered: Stage6dDurableRuntimeRecovered,
+    pub stage5g_restart_package: Vec<u8>,
+}
+
+/// Second P1-d2 replacement package. Source acknowledgement remains outside
+/// this value and may happen only after this S_truth package is committed and
+/// reread by the Stage 7 owner.
+pub struct Stage6Stage8bP1d2TruthTransition {
+    pub recovered: Stage6dDurableRuntimeRecovered,
+    pub stage5g_restart_package: Vec<u8>,
+}
+
+/// One-time, effect-free conversion from an authenticated quiescent P1-d2
+/// truth package into the first P1-d3 working-book generation.  The book
+/// generation is minted here rather than accepted from Redis or a caller.
+pub struct Stage6Stage8bP1d3MigrationTransition {
+    pub recovered: Stage6dDurableRuntimeRecovered,
+    pub stage5g_restart_package: Vec<u8>,
+}
+
+/// Reservation-bearing generated-Market Prepublication package. The caller
+/// must commit and reread its covering recovery seal before the exact-ID
+/// Redis publication is allowed.
+pub struct Stage6Stage8bP1d4PrepublicationTransition {
+    pub recovered: Stage6dDurableRuntimeRecovered,
+    pub stage5g_restart_package: Vec<u8>,
+}
+
+/// Generated-Market replacement S_ack. The original P1-d3 working book,
+/// publication reservation/binding and Market feedback are one authenticated
+/// package; source acknowledgement remains outside this value.
+pub struct Stage6Stage8bP1d4AckTransition {
+    pub recovered: Stage6dDurableRuntimeRecovered,
+    pub stage5g_restart_package: Vec<u8>,
+}
+
+/// Generated-Market replacement S_truth. The exact Redis source is still
+/// pending and may be acknowledged only after the service commits and rereads
+/// the covering seal for this package.
+pub struct Stage6Stage8bP1d4TruthTransition {
+    pub recovered: Stage6dDurableRuntimeRecovered,
+    pub stage5g_restart_package: Vec<u8>,
+}
+
+/// First P1-d3 request replacement. The service owner must durably commit and
+/// reread this S_ack package before the truth-only continuation is reachable.
+pub struct Stage6Stage8bP1d3AckTransition {
+    pub recovered: Stage6dDurableRuntimeRecovered,
+    pub stage5g_restart_package: Vec<u8>,
+}
+
+/// Final request-processing replacement for an initial LIMIT observation.
+/// A Working result still keeps an active order in the authenticated book,
+/// while Filled/Expired results carry a terminal book.
+pub struct Stage6Stage8bP1d3TruthTransition {
+    pub recovered: Stage6dDurableRuntimeRecovered,
+    pub stage5g_restart_package: Vec<u8>,
+}
+
+/// Durable replacement produced by one later Working-LIMIT observation.
+/// An exact already-evaluated bar is returned without a new package; an
+/// untouched bar yields S_eval, while fill/expiry yields S_terminal.
+pub enum Stage6Stage8bP1d3LaterTransition {
+    AlreadyEvaluated {
+        recovered: Stage6dDurableRuntimeRecovered,
+    },
+    EvaluationCommitted {
+        recovered: Stage6dDurableRuntimeRecovered,
+        stage5g_restart_package: Vec<u8>,
+    },
+    TruthCommitted {
+        recovered: Stage6dDurableRuntimeRecovered,
+        stage5g_restart_package: Vec<u8>,
+    },
+}
+
+/// Durable result of the first cancel-candidate pass. A Working target yields
+/// S_ack; an already-terminal target yields S_cancel_recovered; a target that
+/// fills on the candidate yields S_terminal first and must continue through
+/// the dedicated no-input cancel continuation after that seal is reread.
+pub enum Stage6Stage8bP1d3CancelTransition {
+    AckCommitted {
+        recovered: Stage6dDurableRuntimeRecovered,
+        stage5g_restart_package: Vec<u8>,
+    },
+    RecoveredCommitted {
+        recovered: Stage6dDurableRuntimeRecovered,
+        stage5g_restart_package: Vec<u8>,
+    },
+    TargetTruthCommitted {
+        recovered: Stage6dDurableRuntimeRecovered,
+        stage5g_restart_package: Vec<u8>,
+    },
+}
+
+/// Replacement continuation reconstructed from an already durable P1-d3 V3
+/// suffix. The variant is derived from authenticated evidence and therefore
+/// cannot be selected by a caller after restart.
+pub enum Stage6Stage8bP1d3RecoveredTransition {
+    Ready(Stage6Stage8bP1d3TruthTransition),
+    AckCommitted(Stage6Stage8bP1d3AckTransition),
+    TruthCommitted(Stage6Stage8bP1d3TruthTransition),
+    CancelContinuationPending(Stage6Stage8bP1d3TruthTransition),
+    SemanticCallbackPending(Stage6Stage8bP1d3TruthTransition),
+}
+
+/// Authenticated continuation phase reconstructed from the replacement
+/// Stage 5G package and the exact Stage 6 checkpoint covered by it.  This is
+/// deliberately coarser than the internal working-book phase: callers need
+/// only know which linear continuation is legal after restart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage6Stage8bP1d3RestartPhase {
+    ReadyForEvaluation,
+    AckCommitted,
+    TruthCommitted,
+    CancelContinuationPending,
+    SemanticCallbackPending,
+    SemanticCallbackCommitted,
+}
+
+/// Authenticated readback of one P1-d3 write-ahead outcome. The binding
+/// carries the actual post-append Stage 6 checkpoint separately from the
+/// pre-reserved token embedded in the outcome bytes.
+pub(crate) struct Stage6Stage8bP1d3OutcomeAppendReceipt {
+    pub(crate) outcome_record: Stage6JournalRecordV3,
+    pub(crate) recovery_binding:
+        crate::stage8b_p1d3_working_limit::Stage8bP1d3Stage6RecoveryBinding,
+}
+
+/// Exact read-only description of the one P1 RequestAccepted suffix that may
+/// be recoverable under S0.  It is not Ready and carries no writer/provider
+/// operation.
+pub struct Stage6Stage8bP1JournalAheadCandidate {
+    identity: Stage6DurableRequestIdentityV1,
+    command: Stage6DurableCommandSnapshotV1,
+    record_id: Stage6JournalRecordId,
+    source_evidence_sha256: Stage6Sha256Digest,
+}
+
+/// Exact Stage 6 suffix recoverable while the committed Stage 5G package is
+/// still the P1 pre-ACK authority. It proves one dispatch plus one Market
+/// order/trade outcome and an optional terminal RequestFinalized record.
+/// The value grants no dispatch or provider operation.
+pub struct Stage6Stage8bP1d2JournalAheadCandidate {
+    identity: Stage6DurableRequestIdentityV1,
+    broker_order_id: BrokerOrderId,
+    broker_trade_id: BrokerTradeId,
+    request_finalized: bool,
+}
+
+/// One exact P1-d3 V3 suffix recoverable under the predecessor replacement
+/// seal. It is read-only classification evidence and grants neither provider
+/// execution nor source acknowledgement.
+pub struct Stage6Stage8bP1d3JournalAheadCandidate {
+    outcome_record: Stage6JournalRecordV3,
+    request_finalized: bool,
+}
+
+/// Exact P1-d3 request whose sole dispatch attempt is durable while no V3
+/// outcome exists yet.  This is classification evidence only: it grants no
+/// dispatch, provider, schedule, callback or source-resolution capability.
+pub struct Stage6Stage8bP1d3DispatchOnlyCandidate {
+    identity: Stage6DurableRequestIdentityV1,
+    command: BrokerCommand,
+    command_snapshot: Stage6DurableCommandSnapshotV1,
+    accepted_record_id: Stage6JournalRecordId,
+    dispatch_record_id: Stage6JournalRecordId,
+    dispatch_sequence: u64,
+    predecessor_checkpoint_sha256: String,
+}
+
+/// Exact generated-Market V1 suffix found ahead of the reservation-bearing
+/// predecessor package. The enum identifies only the missing durable effect;
+/// it grants no schedule, provider, ACK or source-resolution authority.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage6Stage8bP1d4JournalAheadKind {
+    DispatchOnly,
+    OrderOnly,
+    PreFinalization,
+    PreAck,
+}
+
+pub struct Stage6Stage8bP1d4JournalAheadCandidate {
+    identity: Stage6DurableRequestIdentityV1,
+    kind: Stage6Stage8bP1d4JournalAheadKind,
+    broker_order_id: Option<BrokerOrderId>,
+    broker_trade_id: Option<BrokerTradeId>,
+    dispatch_record_id: Stage6JournalRecordId,
+    predecessor_checkpoint_sha256: String,
+}
+
+impl Stage6Stage8bP1JournalAheadCandidate {
+    pub fn identity(&self) -> &Stage6DurableRequestIdentityV1 {
+        &self.identity
+    }
+
+    pub fn command(&self) -> &Stage6DurableCommandSnapshotV1 {
+        &self.command
+    }
+
+    pub fn record_id(&self) -> &Stage6JournalRecordId {
+        &self.record_id
+    }
+
+    pub fn source_evidence_sha256(&self) -> &Stage6Sha256Digest {
+        &self.source_evidence_sha256
+    }
+}
+
+impl Stage6Stage8bP1d2JournalAheadCandidate {
+    pub fn identity(&self) -> &Stage6DurableRequestIdentityV1 {
+        &self.identity
+    }
+
+    pub fn broker_order_id(&self) -> &BrokerOrderId {
+        &self.broker_order_id
+    }
+
+    pub fn broker_trade_id(&self) -> &BrokerTradeId {
+        &self.broker_trade_id
+    }
+
+    pub fn request_finalized(&self) -> bool {
+        self.request_finalized
+    }
+}
+
+impl Stage6Stage8bP1d3JournalAheadCandidate {
+    pub fn operational_identity_sha256(&self) -> &str {
+        self.outcome_record.operational_identity_sha256()
+    }
+
+    pub fn request_finalized(&self) -> bool {
+        self.request_finalized
+    }
+
+    pub fn is_request_scoped(&self) -> bool {
+        crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeEvidenceV1::decode_canonical(
+            self.outcome_record.outcome_evidence_bytes(),
+        )
+        .is_ok_and(|evidence| evidence.is_request_scoped())
+    }
+
+    pub fn semantic_source_binding(&self) -> Option<crate::Stage8bP1d3SemanticSourceBinding> {
+        let evidence =
+            crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeEvidenceV1::decode_canonical(
+                self.outcome_record.outcome_evidence_bytes(),
+            )
+            .ok()?;
+        evidence.semantic_source_binding()
+    }
+}
+
+impl Stage6Stage8bP1d3DispatchOnlyCandidate {
+    pub fn identity(&self) -> &Stage6DurableRequestIdentityV1 {
+        &self.identity
+    }
+
+    pub fn command(&self) -> &BrokerCommand {
+        &self.command
+    }
+
+    pub fn command_snapshot(&self) -> &Stage6DurableCommandSnapshotV1 {
+        &self.command_snapshot
+    }
+
+    pub fn accepted_record_id(&self) -> &Stage6JournalRecordId {
+        &self.accepted_record_id
+    }
+
+    pub fn dispatch_record_id(&self) -> &Stage6JournalRecordId {
+        &self.dispatch_record_id
+    }
+
+    pub fn predecessor_checkpoint_sha256(&self) -> &str {
+        &self.predecessor_checkpoint_sha256
+    }
+
+    pub fn dispatch_sequence(&self) -> u64 {
+        self.dispatch_sequence
+    }
+
+    pub fn is_limit_place(&self) -> bool {
+        matches!(self.command, BrokerCommand::PlaceOrder(_))
+    }
+
+    pub fn is_cancel(&self) -> bool {
+        matches!(self.command, BrokerCommand::CancelOrder(_))
+    }
+}
+
+impl Stage6Stage8bP1d4JournalAheadCandidate {
+    pub fn identity(&self) -> &Stage6DurableRequestIdentityV1 {
+        &self.identity
+    }
+
+    pub fn kind(&self) -> Stage6Stage8bP1d4JournalAheadKind {
+        self.kind
+    }
+
+    pub fn broker_order_id(&self) -> Option<&BrokerOrderId> {
+        self.broker_order_id.as_ref()
+    }
+
+    pub fn broker_trade_id(&self) -> Option<&BrokerTradeId> {
+        self.broker_trade_id.as_ref()
+    }
+
+    pub fn dispatch_record_id(&self) -> &Stage6JournalRecordId {
+        &self.dispatch_record_id
+    }
+
+    pub fn predecessor_checkpoint_sha256(&self) -> &str {
+        &self.predecessor_checkpoint_sha256
+    }
 }
 
 /// Linear read-only proof that an exact command identity and command snapshot
@@ -1092,6 +1927,1041 @@ impl Stage6Stage8a4BatchAppendReceipt {
 }
 
 impl Stage6dDurableRuntimeRecovered {
+    pub fn stage8b_p1e_telemetry_runtime_audit_v1(&self) -> (Option<String>, Option<String>) {
+        match &self.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::FirstBoot(runtime) => {
+                (runtime.stage8b_p1e_last_semantic_bar_ts_utc(), None)
+            }
+            Stage6dStage5RuntimeAuthority::Restart(restart) => (
+                restart.stage8b_p1e_last_semantic_bar_ts_utc(),
+                restart.stage8b_p1e_last_canonical_ack_ts_utc(),
+            ),
+        }
+    }
+
+    fn stage8b_p1e_candidate_matches_runtime(
+        &self,
+        candidate: &crate::Stage8bP1eScheduleBindingCandidateV1,
+        expected_stage5_checkpoint_sha256: &str,
+        is_recovery: bool,
+    ) -> Result<bool, Stage6dLiveCoreError> {
+        match candidate.transition_kind() {
+            crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution => {
+                let decision = self.stage8b_p1d1_command_decision_binding()?;
+                let decision_request_id = decision.strategy_request_id().to_string();
+                if !decision.matches_stage8b_p1e_market_candidate(candidate) {
+                    return Ok(false);
+                }
+                if candidate.market_publication_seal().is_some() {
+                    match self.stage8b_p1d4_generated_market_package_state()? {
+                        Some(crate::Stage8bP1d4GeneratedMarketPackageState::Prepublication {
+                            reservation,
+                        }) => {
+                            return Ok(reservation.strategy_request_id().to_string()
+                                == decision_request_id
+                                && reservation.canonical_command_sha256()
+                                    == decision.canonical_command_sha256()
+                                && reservation.source_m10_redis_id()
+                                    == candidate.predecessor_m10().redis_id);
+                        }
+                        Some(_) => return Ok(false),
+                        // Plain Market has no P1-d4 reservation, but its
+                        // ordinary XADD publication seal is retained in V4 so
+                        // restart can authenticate the existing marker. The
+                        // candidate has already matched the exact durable
+                        // command decision above, and the Stage 7 commit
+                        // boundary separately requires this pair to equal the
+                        // currently authenticated recovery seal. Requiring a
+                        // RequestAccepted journal tail here would incorrectly
+                        // reject the already-published plain-Market frontier.
+                        None => return Ok(true),
+                    }
+                }
+                if is_recovery {
+                    return Ok(true);
+                }
+                Ok(matches!(
+                    self.journal.versioned_records().last(),
+                    Some(Stage6JournalRecordVersioned::V1(record))
+                        if record.event_kind() == Stage6JournalEventKind::RequestAccepted
+                            && record
+                                .durable_request_identity()
+                                .strategy_request_id()
+                                .to_string()
+                                == decision_request_id
+                ))
+            }
+            crate::Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation => self
+                .stage8b_p1e_initial_limit_candidate_matches_runtime(
+                    candidate,
+                    expected_stage5_checkpoint_sha256,
+                    is_recovery,
+                ),
+            crate::Stage8bP1eScheduleTransitionKindV1::CancelStep => {
+                let Stage6dStage5RuntimeAuthority::Restart(restart) = &self.stage5_runtime else {
+                    return Ok(false);
+                };
+                let Some(replacement) = restart.stage8b_p1d3_replacement() else {
+                    return Ok(false);
+                };
+                if replacement.authenticated_stage6_checkpoint_sha256()
+                    != expected_stage5_checkpoint_sha256
+                    || !replacement.matches_stage8b_p1e_schedule_candidate(candidate)?
+                {
+                    return Ok(false);
+                }
+                let Some((evidence, command)) = self.stage8b_p1_prepublication_material() else {
+                    return Ok(false);
+                };
+                let BrokerCommand::CancelOrder(cancel) = &command else {
+                    return Ok(false);
+                };
+                let Some(request_id) = evidence.strategy_request_id else {
+                    return Ok(false);
+                };
+                let command_sha256 = sha256_hex(
+                    &serde_json::to_vec(&command)
+                        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?,
+                );
+                let binding = candidate.request_or_order_binding();
+                let exact = cancel.request_id == request_id
+                    && evidence.canonical_command_sha256.as_deref()
+                        == Some(command_sha256.as_str())
+                    && binding.strategy_request_id.as_deref()
+                        == Some(request_id.to_string().as_str())
+                    && binding.canonical_command_sha256.as_deref() == Some(command_sha256.as_str())
+                    && binding.active_broker_order_id.as_deref() == Some(cancel.order_id.as_str())
+                    && evidence.m10_redis_id == candidate.predecessor_m10().redis_id
+                    && evidence.m10_semantic_id_sha256
+                        == candidate.predecessor_m10().semantic_id_sha256
+                    && evidence.m10_payload_sha256 == candidate.predecessor_m10().payload_sha256;
+                if !exact || is_recovery {
+                    return Ok(exact);
+                }
+                Ok(matches!(
+                    self.journal.versioned_records().last(),
+                    Some(Stage6JournalRecordVersioned::V1(record))
+                        if record.event_kind() == Stage6JournalEventKind::RequestAccepted
+                            && record
+                                .durable_request_identity()
+                                .strategy_request_id()
+                                == request_id
+                ))
+            }
+            crate::Stage8bP1eScheduleTransitionKindV1::WorkingLimitEvaluation
+            | crate::Stage8bP1eScheduleTransitionKindV1::DayExpiry => {
+                let Stage6dStage5RuntimeAuthority::Restart(restart) = &self.stage5_runtime else {
+                    return Ok(false);
+                };
+                let Some(replacement) = restart.stage8b_p1d3_replacement() else {
+                    return Ok(false);
+                };
+                Ok(replacement.authenticated_stage6_checkpoint_sha256()
+                    == expected_stage5_checkpoint_sha256
+                    && replacement.matches_stage8b_p1e_schedule_candidate(candidate)?)
+            }
+        }
+    }
+
+    fn stage8b_p1e_initial_limit_candidate_matches_runtime(
+        &self,
+        candidate: &crate::Stage8bP1eScheduleBindingCandidateV1,
+        expected_stage5_checkpoint_sha256: &str,
+        is_recovery: bool,
+    ) -> Result<bool, Stage6dLiveCoreError> {
+        let Stage6dStage5RuntimeAuthority::Restart(restart) = &self.stage5_runtime else {
+            return Ok(false);
+        };
+        let Some(semantic) = restart
+            .stage8b_p1_semantic_commit()
+            .filter(|projection| projection.validate() && projection.intent_count == 1)
+        else {
+            return Ok(false);
+        };
+        let Some(replacement) = restart.stage8b_p1d3_replacement() else {
+            return Ok(false);
+        };
+        let (
+            Some(request_id),
+            Some(command),
+            Some(identity),
+            Some(command_snapshot),
+            Some(command_sha256),
+        ) = (
+            semantic.request_id,
+            semantic.canonical_command.as_ref(),
+            semantic.durable_request_identity.as_ref(),
+            semantic.durable_command_snapshot.as_ref(),
+            semantic.canonical_command_sha256.as_ref(),
+        )
+        else {
+            return Ok(false);
+        };
+        let BrokerCommand::PlaceOrder(place) = command else {
+            return Ok(false);
+        };
+        let Some(shape) = command_snapshot.place_order_shape() else {
+            return Ok(false);
+        };
+        let binding = candidate.request_or_order_binding();
+        let predecessor = candidate.predecessor_m10();
+        let successor = candidate.candidate_or_last_eligible_m10();
+        let accepted = stage7a_accepted_record(self, request_id);
+        let exact = replacement.authenticated_stage6_checkpoint_sha256()
+            == expected_stage5_checkpoint_sha256
+            && candidate.operational_identity_sha256() == semantic.operational_identity_sha256
+            && candidate.operational_identity_sha256()
+                == replacement.working_book().operational_identity_sha256()
+            && identity.strategy_request_id() == request_id
+            && identity.action() == Stage6DurableActionKind::Place
+            && place.request_id == request_id
+            && place.order_type == broker_core::OrderType::Limit
+            && place.time_in_force == broker_core::TimeInForce::Day
+            && place.ttl_ms.is_none()
+            && shape.order_type() == broker_core::OrderType::Limit
+            && shape.time_in_force() == broker_core::TimeInForce::Day
+            && binding.strategy_request_id.as_deref() == Some(request_id.to_string().as_str())
+            && binding.canonical_command_sha256.as_deref() == Some(command_sha256.as_str())
+            && binding.active_broker_order_id.is_none()
+            && binding.working_book_transition_sha256.is_none()
+            && predecessor.redis_id == semantic.m10_redis_id
+            && predecessor.semantic_id_sha256 == semantic.m10_semantic_id_sha256
+            && predecessor.payload_sha256 == semantic.m10_payload_sha256
+            && predecessor.open_ts_utc_ms == predecessor.close_ts_utc_ms.saturating_sub(600_000)
+            && successor.open_ts_utc_ms == predecessor.close_ts_utc_ms
+            && accepted.is_some_and(|record| {
+                record.durable_request_identity() == identity
+                    && matches!(
+                        record.payload(),
+                        Stage6JournalPayloadV1::RequestAccepted { command }
+                            if command.as_ref() == command_snapshot
+                    )
+            });
+        if !exact || is_recovery {
+            return Ok(exact);
+        }
+        Ok(matches!(
+            self.journal.versioned_records().last(),
+            Some(Stage6JournalRecordVersioned::V1(record))
+                if record.event_kind() == Stage6JournalEventKind::RequestAccepted
+                    && record.durable_request_identity() == identity
+        ))
+    }
+
+    fn stage8b_p1e_pre_binding_checkpoint(
+        &self,
+        record: &crate::Stage6JournalRecordV4,
+    ) -> Result<Stage6JournalCheckpointV1, Stage6dLiveCoreError> {
+        let records = self.journal.versioned_records();
+        if !matches!(
+            records.last(),
+            Some(Stage6JournalRecordVersioned::V4(tail))
+                if tail.encode_canonical() == record.encode_canonical()
+        ) {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        let mut prefix = Stage6MemoryJournalBackend::new();
+        for historical in records.iter().take(records.len().saturating_sub(1)) {
+            prefix.append_versioned(historical)?;
+        }
+        if prefix.frontier().last_record_id() != Some(record.previous_record_id())
+            || prefix
+                .frontier()
+                .last_lifecycle_sequence()
+                .and_then(|sequence| sequence.get().checked_add(1))
+                != Some(record.lifecycle_sequence().get())
+        {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        Ok(Stage6JournalCheckpointV1::from_frontier(
+            prefix.frontier().clone(),
+        )?)
+    }
+
+    /// Returns the sole authenticated V4 tail that extends the exact
+    /// replacement checkpoint by one schedule binding. It never accepts a
+    /// non-tail record, a second intervening record or a replacement that did
+    /// not match the original schedule candidate.
+    fn stage8b_p1e_current_v4_for_replacement<'a>(
+        &'a self,
+        replacement: &crate::stage8b_p1d3_working_limit::Stage8bP1d3ReplacementProjectionV1,
+    ) -> Result<Option<&'a Stage6JournalRecordV4>, Stage6dLiveCoreError> {
+        let Some(record) = self.current_stage8b_p1e_schedule_binding_record()? else {
+            return Ok(None);
+        };
+        let predecessor = self.stage8b_p1e_pre_binding_checkpoint(record)?;
+        if predecessor.checkpoint_sha256() != replacement.authenticated_stage6_checkpoint_sha256()
+            || self.authenticated_checkpoint().frontier() != self.journal_frontier()
+            || !replacement.matches_stage8b_p1e_schedule_v4_record(record)?
+        {
+            return Ok(None);
+        }
+        Ok(Some(record))
+    }
+
+    fn stage8b_p1e_replacement_is_current_or_v4_bound(
+        &self,
+        replacement: &crate::stage8b_p1d3_working_limit::Stage8bP1d3ReplacementProjectionV1,
+    ) -> bool {
+        replacement.authenticated_stage6_checkpoint_sha256()
+            == self.authenticated_checkpoint().checkpoint_sha256()
+            || self
+                .stage8b_p1e_current_v4_for_replacement(replacement)
+                .ok()
+                .flatten()
+                .is_some()
+    }
+
+    /// Authenticates the one journal-ahead shape in which a covered V4
+    /// schedule binding sits between the replacement package and an already
+    /// durable V3 outcome.  The V4 must be the exact record covered by the
+    /// current recovery seal; only an optional adjacent dispatch may appear
+    /// before the exact outcome.  This is deliberately separate from the
+    /// ordinary current-checkpoint rule so an arbitrary stale replacement can
+    /// never be promoted by merely finding an older V4 in the journal.
+    fn stage8b_p1e_schedule_checkpoint_before_journal_ahead_outcome(
+        &self,
+        replacement: &crate::stage8b_p1d3_working_limit::Stage8bP1d3ReplacementProjectionV1,
+        outcome_record: &Stage6JournalRecordV3,
+    ) -> Result<Option<String>, Stage6dLiveCoreError> {
+        let records = self.journal.versioned_records();
+        if self.authenticated_checkpoint().frontier() != self.journal_frontier() {
+            return Ok(None);
+        }
+        let Some(outcome_index) = records.iter().position(|record| {
+            matches!(
+                record,
+                Stage6JournalRecordVersioned::V3(outcome)
+                    if outcome.journal_record_id() == outcome_record.journal_record_id()
+            )
+        }) else {
+            return Ok(None);
+        };
+        let Some((v4_index, v4)) = [1_usize, 2].into_iter().find_map(|distance| {
+            let index = outcome_index.checked_sub(distance)?;
+            match records.get(index)? {
+                Stage6JournalRecordVersioned::V4(v4) => Some((index, v4)),
+                _ => None,
+            }
+        }) else {
+            return Ok(None);
+        };
+
+        let mut before_v4 = Stage6MemoryJournalBackend::new();
+        for record in records.iter().take(v4_index) {
+            before_v4.append_versioned(record)?;
+        }
+        let pre_binding_checkpoint =
+            Stage6JournalCheckpointV1::from_frontier(before_v4.frontier().clone())?;
+        if before_v4.frontier().last_record_id() != Some(v4.previous_record_id())
+            || before_v4
+                .frontier()
+                .last_lifecycle_sequence()
+                .and_then(|sequence| sequence.get().checked_add(1))
+                != Some(v4.lifecycle_sequence().get())
+            || replacement.authenticated_stage6_checkpoint_sha256()
+                != pre_binding_checkpoint.checkpoint_sha256()
+            || !replacement.matches_stage8b_p1e_schedule_v4_record(v4)?
+        {
+            return Ok(None);
+        }
+        before_v4.append_versioned(&records[v4_index])?;
+        let schedule_checkpoint =
+            Stage6JournalCheckpointV1::from_frontier(before_v4.frontier().clone())?;
+        let evidence =
+            crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeEvidenceV1::decode_canonical(
+                outcome_record.outcome_evidence_bytes(),
+            )?;
+        let exact_chain = if outcome_index == v4_index + 1 {
+            outcome_record.previous_record_id() == v4.journal_record_id()
+                && outcome_record.lifecycle_sequence().get()
+                    == v4
+                        .lifecycle_sequence()
+                        .get()
+                        .checked_add(1)
+                        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+                && evidence.stage6_predecessor_checkpoint_sha256()
+                    == schedule_checkpoint.checkpoint_sha256()
+                && matches!(
+                    (v4.transition_kind(), evidence.outcome_kind()),
+                    (
+                        crate::Stage8bP1eScheduleTransitionKindV1::WorkingLimitEvaluation,
+                        crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeKind::LaterFilled
+                    ) | (
+                        crate::Stage8bP1eScheduleTransitionKindV1::DayExpiry,
+                        crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeKind::LaterExpired
+                    )
+                )
+        } else {
+            let Stage6JournalRecordVersioned::V1(dispatch) = &records[v4_index + 1] else {
+                return Ok(None);
+            };
+            if dispatch.event_kind() != Stage6JournalEventKind::DispatchAttemptRecorded
+                || dispatch.previous_record_id() != Some(v4.journal_record_id())
+                || dispatch.causal_parent_id() != Some(v4.journal_record_id())
+                || dispatch.lifecycle_sequence().get()
+                    != v4
+                        .lifecycle_sequence()
+                        .get()
+                        .checked_add(1)
+                        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+            {
+                return Ok(None);
+            }
+            before_v4.append_versioned(&records[v4_index + 1])?;
+            let dispatch_checkpoint =
+                Stage6JournalCheckpointV1::from_frontier(before_v4.frontier().clone())?;
+            outcome_record.previous_record_id() == dispatch.journal_record_id()
+                && outcome_record.lifecycle_sequence().get()
+                    == dispatch
+                        .lifecycle_sequence()
+                        .get()
+                        .checked_add(1)
+                        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+                && evidence.stage6_predecessor_checkpoint_sha256()
+                    == dispatch_checkpoint.checkpoint_sha256()
+                && v4.transition_kind()
+                    == crate::Stage8bP1eScheduleTransitionKindV1::CancelStep
+                && matches!(
+                    evidence.outcome_kind(),
+                    crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeKind::LaterFilled
+                        | crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeKind::CancelCanceled
+                        | crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeKind::CancelExecutionObserved
+                        | crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeKind::CancelAlreadyTerminalNonExecution
+                )
+        };
+        Ok(exact_chain.then(|| schedule_checkpoint.checkpoint_sha256().to_string()))
+    }
+
+    /// Appends and rereads the exact V4 schedule binding using the existing
+    /// durable journal. The returned value is deliberately non-authorizing:
+    /// the covering recovery seal still has to be committed and reread.
+    pub fn append_stage8b_p1e_schedule_binding(
+        &mut self,
+        candidate: crate::Stage8bP1eScheduleBindingCandidateV1,
+        prior_covering_seal_generation: u64,
+        bound_at_utc: DateTime<Utc>,
+    ) -> Result<Stage6Stage8bP1eScheduleBindingPending, Stage6dLiveCoreError> {
+        if self.authenticated_checkpoint.frontier() != self.journal_frontier()
+            || self
+                .authenticated_operational_identity()
+                .map(stage6d_operational_identity_sha256)
+                .transpose()?
+                .as_ref()
+                .map(Stage6Sha256Digest::as_str)
+                != Some(candidate.operational_identity_sha256())
+        {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        if !self.stage8b_p1e_candidate_matches_runtime(
+            &candidate,
+            self.authenticated_checkpoint().checkpoint_sha256(),
+            false,
+        )? {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        if candidate.transition_kind()
+            == crate::Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation
+            && candidate
+                .initial_publication_seal()
+                .map(|(generation, _)| generation)
+                != Some(prior_covering_seal_generation)
+        {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        if candidate.transition_kind() == crate::Stage8bP1eScheduleTransitionKindV1::CancelStep
+            && candidate
+                .cancel_publication_seal()
+                .map(|(generation, _)| generation)
+                != Some(prior_covering_seal_generation)
+        {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        if candidate.transition_kind() == crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution
+            && candidate
+                .market_publication_seal()
+                .is_some_and(|(generation, _)| generation != prior_covering_seal_generation)
+        {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        let previous_record_id = self
+            .journal_frontier()
+            .last_record_id()
+            .cloned()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+        let lifecycle_sequence = self
+            .journal_frontier()
+            .last_lifecycle_sequence()
+            .and_then(|sequence| sequence.get().checked_add(1))
+            .and_then(|sequence| Stage6LifecycleSequence::new(sequence).ok())
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+        let record = Stage6JournalRecordV4::from_stage8b_p1e_candidate(
+            &candidate,
+            lifecycle_sequence,
+            previous_record_id,
+            prior_covering_seal_generation,
+            bound_at_utc,
+        )?;
+        let receipt = self
+            .journal_mut()
+            .append_versioned(&Stage6JournalRecordVersioned::V4(record.clone()))?;
+        if receipt.record_id() != record.journal_record_id()
+            || receipt.lifecycle_sequence() != record.lifecycle_sequence()
+        {
+            return Err(Stage6dLiveCoreError::JournalMutationMayHaveOccurred);
+        }
+        self.refresh_after_append()?;
+        let post_append_checkpoint = self.authenticated_checkpoint().clone();
+        if post_append_checkpoint.frontier() != receipt.durable_frontier()
+            || self.journal_frontier().last_record_id() != Some(record.journal_record_id())
+            || self.journal_frontier().last_lifecycle_sequence()
+                != Some(record.lifecycle_sequence())
+            || self
+                .journal
+                .versioned_records()
+                .last()
+                .map(Stage6JournalRecordVersioned::encode_canonical)
+                != Some(record.encode_canonical())
+        {
+            return Err(Stage6dLiveCoreError::JournalMutationMayHaveOccurred);
+        }
+        Ok(Stage6Stage8bP1eScheduleBindingPending {
+            candidate,
+            expected_covering_seal_generation: record.expected_covering_seal_generation(),
+            record,
+            post_append_checkpoint,
+            prior_covering_seal_generation,
+        })
+    }
+
+    /// Converts a non-authorizing append proof into an opaque committed
+    /// binding only after the caller has supplied the generation of the
+    /// covering seal it has itself committed and reread.
+    pub fn complete_stage8b_p1e_schedule_binding(
+        &self,
+        pending: Stage6Stage8bP1eScheduleBindingPending,
+        covering_seal_generation: u64,
+    ) -> Result<crate::Stage8bP1eCommittedScheduleBindingV1, Stage6dLiveCoreError> {
+        if covering_seal_generation != pending.expected_covering_seal_generation
+            || pending.expected_covering_seal_generation
+                != pending
+                    .prior_covering_seal_generation
+                    .checked_add(1)
+                    .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+            || self.authenticated_checkpoint() != &pending.post_append_checkpoint
+            || self.journal_frontier().last_record_id() != Some(pending.record.journal_record_id())
+            || self.journal_frontier().last_lifecycle_sequence()
+                != Some(pending.record.lifecycle_sequence())
+        {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        let mixed = Stage6MixedReplayEngineV2::replay(self.journal.versioned_records())?;
+        let reread = mixed
+            .schedule_binding_records()
+            .last()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+        if reread.encode_canonical() != pending.record.encode_canonical() {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        pending
+            .candidate
+            .into_committed_after_v4_reread(reread)
+            .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)
+    }
+
+    /// Returns the current V4 only when it is the exact authenticated journal
+    /// tail. This is read-only recovery evidence and grants no route authority.
+    pub fn current_stage8b_p1e_schedule_binding_record(
+        &self,
+    ) -> Result<Option<&crate::Stage6JournalRecordV4>, Stage6dLiveCoreError> {
+        let mixed = Stage6MixedReplayEngineV2::replay(self.journal.versioned_records())?;
+        let Some(record) = mixed.schedule_binding_records().last() else {
+            return Ok(None);
+        };
+        if self.journal_frontier().last_record_id() != Some(record.journal_record_id())
+            || self.journal_frontier().last_lifecycle_sequence()
+                != Some(record.lifecycle_sequence())
+        {
+            return Ok(None);
+        }
+        self.journal
+            .versioned_records()
+            .last()
+            .and_then(|record| match record {
+                Stage6JournalRecordVersioned::V4(record) => Some(record),
+                _ => None,
+            })
+            .map(Some)
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)
+    }
+
+    fn checkpoint_covered_latest_stage8b_p1e_schedule_record(
+        &self,
+        expected_instrument_map_fingerprint_sha256: &str,
+    ) -> Result<Option<crate::Stage6JournalRecordV4>, Stage6dLiveCoreError> {
+        if self.authenticated_checkpoint.frontier() != self.journal_frontier() {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        let mixed = Stage6MixedReplayEngineV2::replay(self.journal.versioned_records())?;
+        let Some(record) = mixed.schedule_binding_records().last().cloned() else {
+            return Ok(None);
+        };
+        let operational_identity = self
+            .authenticated_operational_identity
+            .as_ref()
+            .ok_or(Stage6dLiveCoreError::OperationalIdentityInvalid)?;
+        if operational_identity.instrument_map_fingerprint_sha256
+            != expected_instrument_map_fingerprint_sha256
+            || stage6d_operational_identity_sha256(operational_identity)?.as_str()
+                != record.operational_identity_sha256()
+        {
+            return Err(Stage6dLiveCoreError::OperationalIdentityInvalid);
+        }
+        Ok(Some(record))
+    }
+
+    /// Restores schedule progression only from the latest authenticated V4 in
+    /// a journal completely covered by the current checkpoint. Journal-ahead
+    /// records are handled by their typed recovery routes and cannot advance a
+    /// quiescent Ready owner's global high-water mark.
+    pub fn recover_stage8b_p1e_latest_schedule_high_water(
+        &self,
+        expected_runtime_config_fingerprint_sha256: impl Into<String>,
+        expected_instrument_map_fingerprint_sha256: impl Into<String>,
+    ) -> Result<Option<crate::Stage8bP1eScheduleHighWaterV1>, Stage6dLiveCoreError> {
+        let expected_instrument_map_fingerprint_sha256 =
+            expected_instrument_map_fingerprint_sha256.into();
+        let Some(record) = self.checkpoint_covered_latest_stage8b_p1e_schedule_record(
+            &expected_instrument_map_fingerprint_sha256,
+        )?
+        else {
+            return Ok(None);
+        };
+        crate::recover_stage8b_p1e_schedule_high_water_v4(
+            &record,
+            expected_runtime_config_fingerprint_sha256,
+            expected_instrument_map_fingerprint_sha256,
+        )
+        .map(Some)
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)
+    }
+
+    /// Fixture-only counterpart of checkpoint-covered progression recovery.
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    #[doc(hidden)]
+    pub fn stage8b_p1e_test_recover_latest_schedule_high_water_with_key(
+        &self,
+        expected_runtime_config_fingerprint_sha256: impl Into<String>,
+        expected_instrument_map_fingerprint_sha256: impl Into<String>,
+        public_key_hex: &str,
+        key_valid_from: DateTime<Utc>,
+        key_valid_until: DateTime<Utc>,
+    ) -> Result<Option<crate::Stage8bP1eScheduleHighWaterV1>, Stage6dLiveCoreError> {
+        let expected_instrument_map_fingerprint_sha256 =
+            expected_instrument_map_fingerprint_sha256.into();
+        let Some(record) = self.checkpoint_covered_latest_stage8b_p1e_schedule_record(
+            &expected_instrument_map_fingerprint_sha256,
+        )?
+        else {
+            return Ok(None);
+        };
+        crate::stage8b_p1e_test_recover_schedule_high_water_v4_with_key(
+            &record,
+            expected_runtime_config_fingerprint_sha256,
+            expected_instrument_map_fingerprint_sha256,
+            public_key_hex,
+            key_valid_from,
+            key_valid_until,
+        )
+        .map(Some)
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)
+    }
+
+    /// Reconstructs route authority only from the exact authenticated V4 tail.
+    /// The runtime is consumed and returned beside the binding so callers
+    /// cannot retain an independently reusable recovered authority.
+    pub fn recover_stage8b_p1e_current_schedule_binding(
+        self,
+        expected_runtime_config_fingerprint_sha256: impl Into<String>,
+        expected_instrument_map_fingerprint_sha256: impl Into<String>,
+    ) -> Result<(Self, crate::Stage8bP1eCommittedScheduleBindingV1), Stage6dLiveCoreError> {
+        let record = self
+            .current_stage8b_p1e_schedule_binding_record()?
+            .cloned()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+        let candidate = crate::recover_stage8b_p1e_schedule_binding_candidate_v4(
+            &record,
+            expected_runtime_config_fingerprint_sha256,
+            expected_instrument_map_fingerprint_sha256,
+        )
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+        let predecessor_checkpoint = self.stage8b_p1e_pre_binding_checkpoint(&record)?;
+        if !self.stage8b_p1e_candidate_matches_runtime(
+            &candidate,
+            predecessor_checkpoint.checkpoint_sha256(),
+            true,
+        )? {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        let binding = candidate
+            .into_committed_after_v4_reread(&record)
+            .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+        Ok((self, binding))
+    }
+
+    /// Fixture-only restart seam that preserves the complete production V4
+    /// reconstruction and runtime cross-validation path while replacing only
+    /// the pinned verification key with an explicit test trust anchor.
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    #[doc(hidden)]
+    pub fn stage8b_p1e_test_recover_current_schedule_binding_with_key(
+        self,
+        expected_runtime_config_fingerprint_sha256: impl Into<String>,
+        expected_instrument_map_fingerprint_sha256: impl Into<String>,
+        public_key_hex: &str,
+        key_valid_from: DateTime<Utc>,
+        key_valid_until: DateTime<Utc>,
+    ) -> Result<(Self, crate::Stage8bP1eCommittedScheduleBindingV1), Stage6dLiveCoreError> {
+        let record = self
+            .current_stage8b_p1e_schedule_binding_record()?
+            .cloned()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+        let candidate = crate::stage8b_p1e_test_recover_schedule_binding_candidate_v4_with_key(
+            &record,
+            expected_runtime_config_fingerprint_sha256,
+            expected_instrument_map_fingerprint_sha256,
+            public_key_hex,
+            key_valid_from,
+            key_valid_until,
+        )
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+        let predecessor_checkpoint = self.stage8b_p1e_pre_binding_checkpoint(&record)?;
+        if !self.stage8b_p1e_candidate_matches_runtime(
+            &candidate,
+            predecessor_checkpoint.checkpoint_sha256(),
+            true,
+        )? {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        let binding = candidate
+            .into_committed_after_v4_reread(&record)
+            .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+        Ok((self, binding))
+    }
+
+    pub fn stage8b_p1d4_generated_market_candidate(&self) -> bool {
+        matches!(
+            &self.stage5_runtime,
+            Stage6dStage5RuntimeAuthority::Restart(restart)
+                if restart.stage8b_p1d4_generated_market_candidate()
+        )
+    }
+
+    pub fn stage8b_p1d4_next_write_generation(&self) -> Option<u64> {
+        let Stage6dStage5RuntimeAuthority::Restart(restart) = &self.stage5_runtime else {
+            return None;
+        };
+        restart.stage8b_p1d4_next_write_generation().ok()
+    }
+
+    pub fn stage8b_p1d4_generated_market_package_state(
+        &self,
+    ) -> Result<Option<crate::Stage8bP1d4GeneratedMarketPackageState>, Stage6dLiveCoreError> {
+        let Stage6dStage5RuntimeAuthority::Restart(restart) = &self.stage5_runtime else {
+            return Ok(None);
+        };
+        restart
+            .stage8b_p1d4_generated_market_package_state()
+            .map_err(|_| Stage6dLiveCoreError::RestartPackageBindingMismatch)
+    }
+
+    /// Proves the single additional recovery-seal generation introduced by
+    /// a signed generated-Market V4. The proof is accepted only when the
+    /// checkpoint-covered latest V4 names the exact authenticated P1-d4
+    /// reservation and publication binding retained by Stage 5G.
+    pub fn stage8b_p1e_generated_market_schedule_bound(
+        &self,
+        expected_publication_binding: &crate::Stage8bP1d4CommandPublicationBindingV1,
+    ) -> Result<bool, Stage6dLiveCoreError> {
+        if self.authenticated_checkpoint.frontier() != self.journal_frontier() {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        let Some(package_state) = self.stage8b_p1d4_generated_market_package_state()? else {
+            return Ok(false);
+        };
+        let reservation = match package_state {
+            crate::Stage8bP1d4GeneratedMarketPackageState::Prepublication { reservation } => {
+                reservation
+            }
+            crate::Stage8bP1d4GeneratedMarketPackageState::AckCommitted {
+                reservation,
+                binding,
+            }
+            | crate::Stage8bP1d4GeneratedMarketPackageState::TruthCommitted {
+                reservation,
+                binding,
+            } => {
+                if binding != *expected_publication_binding {
+                    return Ok(false);
+                }
+                reservation
+            }
+        };
+        if expected_publication_binding
+            .validate_against(&reservation)
+            .is_err()
+        {
+            return Ok(false);
+        }
+        let mixed = Stage6MixedReplayEngineV2::replay(self.journal.versioned_records())?;
+        let Some(record) = mixed.schedule_binding_records().last() else {
+            return Ok(false);
+        };
+        let request_binding = record.request_or_order_binding();
+        let request_id = reservation.strategy_request_id().to_string();
+        Ok(
+            record.transition_kind() == crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution
+                && record.predecessor_m10().redis_id == reservation.source_m10_redis_id()
+                && request_binding.strategy_request_id.as_deref() == Some(request_id.as_str())
+                && request_binding.canonical_command_sha256.as_deref()
+                    == Some(reservation.canonical_command_sha256())
+                && request_binding.publication_seal_generation
+                    == Some(expected_publication_binding.prepublication_seal_generation())
+                && request_binding
+                    .publication_seal_commitment_sha256
+                    .as_deref()
+                    == Some(expected_publication_binding.prepublication_seal_commitment_sha256()),
+        )
+    }
+
+    pub fn stage8b_p1d3_journal_ahead_uses_command_source(
+        &self,
+        candidate: &Stage6Stage8bP1d3JournalAheadCandidate,
+    ) -> bool {
+        if candidate.is_request_scoped() {
+            return true;
+        }
+        let Ok(evidence) =
+            crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeEvidenceV1::decode_canonical(
+                candidate.outcome_record.outcome_evidence_bytes(),
+            )
+        else {
+            return false;
+        };
+        matches!(
+            &self.stage5_runtime,
+            Stage6dStage5RuntimeAuthority::Restart(restart)
+                if restart.stage8b_p1_semantic_commit().is_some_and(|semantic| {
+                    matches!(
+                        semantic.canonical_command.as_ref(),
+                        Some(BrokerCommand::CancelOrder(cancel))
+                            if cancel.order_id == *evidence.broker_order_id()
+                    )
+                })
+        )
+    }
+
+    /// Classifies a P1-d3 replacement only when it is bound to the exact
+    /// authenticated Stage 6 checkpoint.  A stale or independently supplied
+    /// replacement is therefore never promoted into a lifecycle capability.
+    pub fn stage8b_p1d3_restart_phase(&self) -> Option<Stage6Stage8bP1d3RestartPhase> {
+        let Stage6dStage5RuntimeAuthority::Restart(restart) = &self.stage5_runtime else {
+            return None;
+        };
+        let replacement = restart.stage8b_p1d3_replacement()?;
+        if !self.stage8b_p1e_replacement_is_current_or_v4_bound(replacement) {
+            return None;
+        }
+        if replacement.phase() == crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Ack {
+            return Some(Stage6Stage8bP1d3RestartPhase::AckCommitted);
+        }
+        if replacement
+            .completed_command_matches_semantic_commit(restart.stage8b_p1_semantic_commit())
+            .ok()?
+        {
+            return Some(Stage6Stage8bP1d3RestartPhase::TruthCommitted);
+        }
+        if replacement
+            .pending_cancel_after_target_matches_semantic_commit(
+                restart.stage8b_p1_semantic_commit(),
+            )
+            .ok()?
+        {
+            return Some(Stage6Stage8bP1d3RestartPhase::CancelContinuationPending);
+        }
+        let Some(pending_semantic) = replacement.pending_semantic_source_binding().ok()? else {
+            return Some(Stage6Stage8bP1d3RestartPhase::ReadyForEvaluation);
+        };
+        Some(
+            if restart
+                .stage8b_p1_semantic_commit()
+                .is_some_and(|semantic| {
+                    pending_semantic.matches_semantic_commit(semantic)
+                        || replacement
+                            .terminal_semantic_commit_covers_or_follows_source(Some(semantic))
+                            .unwrap_or(false)
+                })
+            {
+                Stage6Stage8bP1d3RestartPhase::SemanticCallbackCommitted
+            } else {
+                Stage6Stage8bP1d3RestartPhase::SemanticCallbackPending
+            },
+        )
+    }
+
+    /// Reports whether the authenticated replacement currently carries a
+    /// Working/Eval LIMIT book that must consume the next M10 through the
+    /// P1-d3 later-order transition.  It exposes no book fields and mints no
+    /// schedule or lifecycle authority.
+    pub fn stage8b_p1d3_requires_later_limit_evaluation(&self) -> bool {
+        let Stage6dStage5RuntimeAuthority::Restart(restart) = &self.stage5_runtime else {
+            return false;
+        };
+        restart
+            .stage8b_p1d3_replacement()
+            .is_some_and(|replacement| {
+                self.stage8b_p1e_replacement_is_current_or_v4_bound(replacement)
+                    && matches!(
+                        replacement.phase(),
+                        crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Working
+                            | crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Eval
+                    )
+            })
+    }
+
+    #[doc(hidden)]
+    pub fn stage8b_p1e_working_binding_parts(
+        &self,
+    ) -> Option<(BrokerOrderId, String, crate::Stage8bP1eM10IdentityV1)> {
+        let Stage6dStage5RuntimeAuthority::Restart(restart) = &self.stage5_runtime else {
+            return None;
+        };
+        restart
+            .stage8b_p1d3_replacement()?
+            .stage8b_p1e_working_binding_parts()
+    }
+
+    /// Returns the exact authenticated M10 pair needed to bind or resume a
+    /// Day-expiry transition. Before binding, the pair comes from the latest
+    /// checkpoint-covered Initial/Working V4. After a covered restart, the
+    /// exact committed Day-expiry V4 is itself the latest authenticated
+    /// source. No value is reconstructed from wall-clock time or a bar ID.
+    #[doc(hidden)]
+    pub fn stage8b_p1e_day_expiry_binding_parts(
+        &self,
+    ) -> Result<
+        Option<(
+            BrokerOrderId,
+            String,
+            crate::Stage8bP1eM10IdentityV1,
+            crate::Stage8bP1eM10IdentityV1,
+        )>,
+        Stage6dLiveCoreError,
+    > {
+        let Some((active_order, transition_sha256, last_evaluated)) =
+            self.stage8b_p1e_working_binding_parts()
+        else {
+            return Ok(None);
+        };
+        let expected_instrument_map = self
+            .authenticated_operational_identity()
+            .ok_or(Stage6dLiveCoreError::OperationalIdentityInvalid)?
+            .instrument_map_fingerprint_sha256
+            .clone();
+        let Some(record) =
+            self.checkpoint_covered_latest_stage8b_p1e_schedule_record(&expected_instrument_map)?
+        else {
+            return Ok(None);
+        };
+        if !matches!(
+            record.transition_kind(),
+            crate::Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation
+                | crate::Stage8bP1eScheduleTransitionKindV1::WorkingLimitEvaluation
+                | crate::Stage8bP1eScheduleTransitionKindV1::DayExpiry
+        ) || record.candidate_or_last_eligible_m10() != last_evaluated
+        {
+            return Ok(None);
+        }
+        Ok(Some((
+            active_order,
+            transition_sha256,
+            record.predecessor_m10(),
+            last_evaluated,
+        )))
+    }
+
+    /// Identifies the exact target-sealed predecessor of a recovered CANCEL
+    /// journal-ahead suffix. Unlike `stage8b_p1d3_restart_phase`, this narrow
+    /// classifier deliberately examines the predecessor package before the
+    /// uncovered suffix checkpoint can be replacement-sealed.
+    #[doc(hidden)]
+    pub fn stage8b_p1d3_has_cancel_continuation_predecessor(&self) -> bool {
+        let Stage6dStage5RuntimeAuthority::Restart(restart) = &self.stage5_runtime else {
+            return false;
+        };
+        restart
+            .stage8b_p1d3_replacement()
+            .and_then(|replacement| {
+                replacement
+                    .pending_cancel_after_target_matches_semantic_commit(
+                        restart.stage8b_p1_semantic_commit(),
+                    )
+                    .ok()
+            })
+            .unwrap_or(false)
+    }
+
+    /// Identifies a terminal P1-d3 source whose authenticated semantic
+    /// command is CANCEL. This is disposition evidence only: it grants no
+    /// callback, schedule, provider, source-resolution, or Redis authority.
+    #[doc(hidden)]
+    pub fn stage8b_p1d3_truth_source_is_cancel(&self) -> bool {
+        let Stage6dStage5RuntimeAuthority::Restart(restart) = &self.stage5_runtime else {
+            return false;
+        };
+        self.stage8b_p1d3_restart_phase() == Some(Stage6Stage8bP1d3RestartPhase::TruthCommitted)
+            && restart
+                .stage8b_p1_semantic_commit()
+                .is_some_and(|semantic| {
+                    matches!(
+                        semantic.canonical_command.as_ref(),
+                        Some(BrokerCommand::CancelOrder(_))
+                    )
+                })
+    }
+
+    /// Exact current M10 whose order evaluation is already covered by the
+    /// authenticated replacement package.  It is recovery material only and
+    /// cannot authorize schedule selection, provider invocation or XACK.
+    pub fn stage8b_p1d3_pending_semantic_source(
+        &self,
+    ) -> Option<crate::Stage8bP1d3SemanticSourceBinding> {
+        let Stage6dStage5RuntimeAuthority::Restart(restart) = &self.stage5_runtime else {
+            return None;
+        };
+        let replacement = restart.stage8b_p1d3_replacement()?;
+        if replacement.authenticated_stage6_checkpoint_sha256()
+            != self.authenticated_checkpoint.checkpoint_sha256()
+        {
+            return None;
+        }
+        replacement.pending_semantic_source_binding().ok().flatten()
+    }
+
+    /// Read-only identity recovered from the authenticated Stage 5G package.
+    /// First-boot runtimes that did not cross that package boundary have no
+    /// such binding.
+    pub fn authenticated_stage5_binding(
+        &self,
+    ) -> Option<(&str, &BrokerAccountId, &InstrumentId, &str)> {
+        match &self.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => {
+                Some(restart.stage6d_restart_binding())
+            }
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => None,
+        }
+    }
+
     /// Selects the sole current request that is eligible for read-only
     /// reconciliation preflight after one durable dispatch attempt.  The
     /// selection is derived exclusively from the authenticated journal/replay
@@ -1236,7 +3106,10 @@ impl Stage6dDurableRuntimeRecovered {
             .next()
             .ok_or(Stage6dLiveCoreError::DispatchAttemptRecordRequired)?;
         if dispatches.next().is_some()
-            || dispatch.previous_record_id() != Some(accepted.journal_record_id())
+            || (dispatch.previous_record_id() != Some(accepted.journal_record_id())
+                && !stage8b_p1e_dispatch_follows_exact_schedule_binding(
+                    self, accepted, identity, dispatch,
+                ))
         {
             return Err(Stage6dLiveCoreError::DurableOrderingViolation);
         }
@@ -1437,6 +3310,482 @@ impl Stage6dDurableRuntimeRecovered {
         false
     }
 
+    #[doc(hidden)]
+    pub fn stage8b_p1_reconstruction_candidate(
+        &self,
+    ) -> Result<HybridIntradayRuntimeStrategy, Stage6dLiveCoreError> {
+        match &self.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => {
+                Ok(restart.stage5g_fresh_reconstruction_candidate())
+            }
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => {
+                Err(Stage6dLiveCoreError::RestartRuntimeRequired)
+            }
+        }
+    }
+
+    pub fn stage8b_p1_prepublication_material(
+        &self,
+    ) -> Option<(Stage6Stage8bP1SemanticCommitEvidenceV1, BrokerCommand)> {
+        let restart = match &self.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => restart,
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => return None,
+        };
+        let projection = restart.stage8b_p1_semantic_commit()?;
+        if projection.intent_count != 1 {
+            return None;
+        }
+        let request_id = projection.request_id?;
+        let accepted = stage7a_accepted_record(self, request_id)?;
+        let command = projection.canonical_command.as_ref()?.clone();
+        Some((
+            stage8b_p1_commit_evidence(projection, Some(accepted)),
+            command,
+        ))
+    }
+
+    /// Issues one opaque P1-d1 decision-bar binding from the authenticated P1
+    /// semantic projection and its exact RequestAccepted record.  The M10
+    /// Redis identity is the sole source of predecessor close time; callers
+    /// cannot supply or override that timestamp independently.
+    pub fn stage8b_p1d1_command_decision_binding(
+        &self,
+    ) -> Result<crate::Stage8bP1d1CommandDecisionBinding, Stage6dLiveCoreError> {
+        let projection = match &self.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => restart
+                .stage8b_p1_semantic_commit()
+                .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?,
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => {
+                return Err(Stage6dLiveCoreError::RestartRuntimeRequired)
+            }
+        };
+        if !projection.validate() || projection.intent_count != 1 {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        let request_id = projection
+            .request_id
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+        let command = projection
+            .canonical_command
+            .as_ref()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+            .clone();
+        let identity = projection
+            .durable_request_identity
+            .as_ref()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+            .clone();
+        let snapshot = projection
+            .durable_command_snapshot
+            .as_ref()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+            .clone();
+        let canonical_command_sha256 = projection
+            .canonical_command_sha256
+            .as_ref()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+            .clone();
+        let accepted = stage7a_accepted_record(self, request_id)
+            .ok_or(Stage6dLiveCoreError::AcceptedRecordRequired)?;
+        let accepted_snapshot = match accepted.payload() {
+            Stage6JournalPayloadV1::RequestAccepted { command } => command.as_ref(),
+            _ => return Err(Stage6dLiveCoreError::AcceptedRecordRequired),
+        };
+        let replayed = self
+            .replay()
+            .request(request_id)
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+        let direct_accepted_frontier = replayed.last_unique_record_id()
+            == accepted.journal_record_id()
+            && self.journal_frontier().last_record_id() == Some(accepted.journal_record_id());
+        let bound_market_frontier =
+            stage8b_p1e_market_binding_tail(self, request_id, &canonical_command_sha256)
+                .is_some_and(|record| {
+                    replayed.last_unique_record_id() == record.journal_record_id()
+                        && replayed.last_unique_sequence() == record.lifecycle_sequence().get()
+                });
+        if accepted.durable_request_identity() != &identity
+            || accepted_snapshot != &snapshot
+            || replayed.dispatch_safety_state()
+                != crate::Stage6DispatchSafetyStateV1::ReadyForFirstDispatch
+            || replayed.dispatch_attempt_count() != 0
+            || (!direct_accepted_frontier && !bound_market_frontier)
+        {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        crate::stage8b_p1d1_paper_provider::stage8b_p1d1_command_decision_binding_from_source(
+            command,
+            identity,
+            snapshot,
+            accepted.canonical_payload_sha256().clone(),
+            projection.operational_identity_sha256.clone(),
+            canonical_command_sha256,
+            projection.m10_redis_id.clone(),
+            projection.m10_semantic_id_sha256.clone(),
+            projection.m10_payload_sha256.clone(),
+        )
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)
+    }
+
+    /// Recovery-only reconstruction of the same decision binding after the
+    /// request has become dispatch-forbidden. The caller must separately
+    /// prove the exact P1-d2 journal-ahead shape; this method grants neither
+    /// dispatch nor provider authority.
+    fn stage8b_p1d2_recovery_command_decision_binding(
+        &self,
+    ) -> Result<crate::Stage8bP1d1CommandDecisionBinding, Stage6dLiveCoreError> {
+        let projection = match &self.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => restart
+                .stage8b_p1_semantic_commit()
+                .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?,
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => {
+                return Err(Stage6dLiveCoreError::RestartRuntimeRequired)
+            }
+        };
+        if !projection.validate() || projection.intent_count != 1 {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        let request_id = projection
+            .request_id
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+        let command = projection
+            .canonical_command
+            .as_ref()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+            .clone();
+        let identity = projection
+            .durable_request_identity
+            .as_ref()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+            .clone();
+        let snapshot = projection
+            .durable_command_snapshot
+            .as_ref()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+            .clone();
+        let canonical_command_sha256 = projection
+            .canonical_command_sha256
+            .as_ref()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+            .clone();
+        let accepted = stage7a_accepted_record(self, request_id)
+            .ok_or(Stage6dLiveCoreError::AcceptedRecordRequired)?;
+        let accepted_snapshot = match accepted.payload() {
+            Stage6JournalPayloadV1::RequestAccepted { command } => command.as_ref(),
+            _ => return Err(Stage6dLiveCoreError::AcceptedRecordRequired),
+        };
+        if accepted.durable_request_identity() != &identity || accepted_snapshot != &snapshot {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        crate::stage8b_p1d1_paper_provider::stage8b_p1d1_command_decision_binding_from_source(
+            command,
+            identity,
+            snapshot,
+            accepted.canonical_payload_sha256().clone(),
+            projection.operational_identity_sha256.clone(),
+            canonical_command_sha256,
+            projection.m10_redis_id.clone(),
+            projection.m10_semantic_id_sha256.clone(),
+            projection.m10_payload_sha256.clone(),
+        )
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)
+    }
+
+    /// Converts one Redis-validated canonical successor M10 into the only
+    /// P1-d1 eligibility capability. The read-only evidence is insufficient
+    /// without this owned authenticated Stage 6 authority.
+    pub fn stage8b_p1d1_execution_eligibility(
+        &self,
+        schedule_authority: crate::Stage8bP1d1ExecutionScheduleAuthority,
+        evidence: crate::Stage8bP1d1CanonicalM10Evidence,
+    ) -> Result<crate::Stage8bP1d1ExecutionEligible, Stage6dLiveCoreError> {
+        let decision = self.stage8b_p1d1_command_decision_binding()?;
+        let binding = stage8b_p1e_market_binding_tail(
+            self,
+            decision.strategy_request_id(),
+            decision.canonical_command_sha256(),
+        );
+        match binding {
+            Some(record) if schedule_authority.matches_stage8b_p1e_v4_record(record, &evidence) => {
+            }
+            Some(_) => return Err(Stage6dLiveCoreError::DurableOrderingViolation),
+            None if schedule_authority.has_stage8b_p1e_v4_proof() => {
+                return Err(Stage6dLiveCoreError::DurableOrderingViolation)
+            }
+            None => {}
+        }
+        crate::stage8b_p1d1_paper_provider::stage8b_p1d1_eligible_from_canonical_m10(
+            decision,
+            schedule_authority,
+            evidence,
+        )
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)
+    }
+
+    /// Redacted evidence for a durable zero-intent P1 semantic commit whose
+    /// source acknowledgement must be resolved before semantic continuation.
+    pub fn stage8b_p1_zero_intent_ack_evidence(
+        &self,
+    ) -> Option<Stage6Stage8bP1SemanticCommitEvidenceV1> {
+        let restart = match &self.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => restart,
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => return None,
+        };
+        let projection = restart.stage8b_p1_semantic_commit()?;
+        if projection.intent_count != 0 {
+            return None;
+        }
+        Some(stage8b_p1_commit_evidence(projection, None))
+    }
+
+    /// Review evidence only; this grants no callback or continuation method.
+    pub fn stage8b_p1_stage5c_callback_count(&self) -> Option<usize> {
+        let restart = match &self.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => restart,
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => return None,
+        };
+        restart
+            .stage8b_p1_semantic_commit()
+            .map(|_| restart.summary().stage5c_callback_count)
+    }
+
+    /// Exact no-effect predicate used only by the Stage 8B-P1-e first-boot
+    /// adoption protocol. It is derived from authenticated Stage 5G state and
+    /// the replayed Stage 6 journal, never from a receipt or marker claim.
+    pub fn stage8b_p1e_initial_adoption_ready(&self) -> bool {
+        let restart = match &self.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => restart,
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => return false,
+        };
+        let summary = restart.summary();
+        restart.lifecycle_kind() == crate::Stage5gCleanRestartLifecycleKind::P1SemanticReady
+            && restart.stage8b_p1_semantic_commit().is_none()
+            && summary.stage5c_callback_count == 1
+            && self.replay.requests().is_empty()
+            && self.journal.frontier().frame_count() == 0
+    }
+
+    /// Test-only observation of the authenticated Stage 5G continuation
+    /// checkpoint. It grants no continuation or mutation authority.
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    #[doc(hidden)]
+    pub fn stage8b_p1e_test_continuation_checkpoint_ts_utc_ms(&self) -> Option<i64> {
+        let Stage6dStage5RuntimeAuthority::Restart(restart) = &self.stage5_runtime else {
+            return None;
+        };
+        restart
+            .checkpoint()
+            .payload
+            .last_continuation_checkpoint_ts_utc_ms
+    }
+
+    /// Produces only immutable counters from the already authenticated
+    /// replay.  It is intentionally compiled solely for artifact fixtures so
+    /// the P1-d4 evidence runner observes journal facts instead of deriving
+    /// them from the matrix expectations.
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    #[doc(hidden)]
+    pub fn stage8b_p1d4_test_runtime_audit(&self) -> Stage8bP1d4RuntimeAuditV1 {
+        let mut dispatch_v1_total = 0;
+        let mut order_v1_total = 0;
+        let mut trade_v1_total = 0;
+        let mut request_finalized_v1_total = 0;
+        let mut durable_outcomes = 0;
+        let mut truth_bearing_outcomes = 0;
+        let mut sequence_allocations = Vec::new();
+        let journal_lifecycle_sequences = self
+            .journal
+            .versioned_records()
+            .iter()
+            .map(|record| record.lifecycle_sequence().get())
+            .collect::<Vec<_>>();
+        // Prefer the request authenticated by the currently embedded
+        // semantic package.  In GM00 the reservation exists before the first
+        // V1 row, so choosing the latest journal request would accidentally
+        // audit the completed predecessor LIMIT instead of the generated
+        // Market request.  Non-command/legacy phases retain the journal
+        // fallback.
+        let audited_request_id = match &self.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => restart
+                .stage8b_p1_semantic_commit()
+                .and_then(|projection| projection.request_id),
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => None,
+        }
+        .or_else(|| {
+            self.replay
+                .requests()
+                .iter()
+                .max_by_key(|request| request.last_unique_sequence())
+                .map(Stage6RecoveredRequestV1::strategy_request_id)
+        });
+        for (journal_record_index, record) in self.journal.versioned_records().iter().enumerate() {
+            match record {
+                Stage6JournalRecordVersioned::V1(record)
+                    if Some(record.durable_request_identity().strategy_request_id())
+                        == audited_request_id =>
+                {
+                    match record.event_kind() {
+                        Stage6JournalEventKind::DispatchAttemptRecorded => dispatch_v1_total += 1,
+                        Stage6JournalEventKind::BrokerOrderObserved => order_v1_total += 1,
+                        Stage6JournalEventKind::BrokerTradeObserved => trade_v1_total += 1,
+                        Stage6JournalEventKind::RequestFinalized => request_finalized_v1_total += 1,
+                        _ => {}
+                    }
+                }
+                Stage6JournalRecordVersioned::V1(_) => {}
+                Stage6JournalRecordVersioned::V3(record) => {
+                    let evidence = crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeEvidenceV1::decode_canonical(
+                        record.outcome_evidence_bytes(),
+                    )
+                    .expect("validated V3 journal rows retain canonical P1-d3 outcome evidence");
+                    let (seq_ack, seq_truth) = evidence.reserved_sequences();
+                    durable_outcomes += 1;
+                    truth_bearing_outcomes += usize::from(seq_truth.is_some());
+                    sequence_allocations.push(Stage8bP1d4SequenceAllocationAuditV1 {
+                        outcome_kind: evidence.outcome_kind().canonical_name().to_string(),
+                        journal_record_index,
+                        stage6_lifecycle_sequence: record.lifecycle_sequence().get(),
+                        sequence_allocation_frontier: evidence.sequence_allocation_frontier(),
+                        seq_ack,
+                        seq_truth,
+                    });
+                }
+                Stage6JournalRecordVersioned::V2(_) | Stage6JournalRecordVersioned::V4(_) => {}
+            }
+        }
+        Stage8bP1d4RuntimeAuditV1 {
+            lifecycle_sequence: self
+                .journal_frontier()
+                .last_lifecycle_sequence()
+                .map_or(0, Stage6LifecycleSequence::get),
+            journal_lifecycle_sequences,
+            sequence_pair: match &self.stage5_runtime {
+                Stage6dStage5RuntimeAuthority::Restart(restart) => {
+                    restart.stage8b_p1d4_test_sequence_pair()
+                }
+                Stage6dStage5RuntimeAuthority::FirstBoot(_) => None,
+            },
+            sequence_allocations,
+            package: match &self.stage5_runtime {
+                Stage6dStage5RuntimeAuthority::Restart(restart) => {
+                    let p1d3_phase = restart.stage8b_p1d3_replacement().map(|replacement| {
+                        match replacement.phase() {
+                            crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Migrated => "Migrated",
+                            crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Ack => "Ack",
+                            crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Working => "Working",
+                            crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Eval => "Eval",
+                            crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Terminal => "Terminal",
+                            crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::CancelRecovered => "CancelRecovered",
+                        }
+                        .to_string()
+                    });
+                    let generated_market_phase = restart
+                        .stage8b_p1d4_generated_market_package_state()
+                        .ok()
+                        .flatten()
+                        .map(|phase| {
+                            match phase {
+                                crate::Stage8bP1d4GeneratedMarketPackageState::Prepublication {
+                                    ..
+                                } => "Prepublication",
+                                crate::Stage8bP1d4GeneratedMarketPackageState::AckCommitted {
+                                    ..
+                                } => "AckCommitted",
+                                crate::Stage8bP1d4GeneratedMarketPackageState::TruthCommitted {
+                                    ..
+                                } => "TruthCommitted",
+                            }
+                            .to_string()
+                        });
+                    Stage8bP1d4PackageAuditV1 {
+                        write_generation: Some(restart.stage8b_p1d4_test_write_generation()),
+                        p1d3_phase,
+                        generated_market_phase,
+                    }
+                }
+                Stage6dStage5RuntimeAuthority::FirstBoot(_) => Stage8bP1d4PackageAuditV1 {
+                    write_generation: None,
+                    p1d3_phase: None,
+                    generated_market_phase: None,
+                },
+            },
+            callback_count: match &self.stage5_runtime {
+                Stage6dStage5RuntimeAuthority::Restart(restart) => restart
+                    .summary()
+                    .stage5c_callback_count
+                    .max(usize::from(restart.stage8b_p1_semantic_commit().is_some())),
+                Stage6dStage5RuntimeAuthority::FirstBoot(_) => 0,
+            },
+            dispatch_v1_total,
+            order_v1_total,
+            trade_v1_total,
+            request_finalized_v1_total,
+            durable_outcomes,
+            truth_bearing_outcomes,
+        }
+    }
+
+    /// True only when the authenticated embedded Stage 5G package is the
+    /// P1-d2 ACK-stage replacement package.  A caller cannot infer this phase
+    /// from the outer Stage 7 seal generation alone.
+    pub fn stage8b_p1d2_ack_frontier_is_authenticated(&self) -> bool {
+        matches!(
+            &self.stage5_runtime,
+            Stage6dStage5RuntimeAuthority::Restart(restart)
+                if restart.stage8b_p1d2_validate_ack_frontier().is_ok()
+        )
+    }
+
+    /// True only when the authenticated embedded Stage 5G package is the
+    /// P1-d2 truth-stage replacement package.  This is the sole durable phase
+    /// from which source acknowledgement may later be resumed.
+    pub fn stage8b_p1d2_truth_frontier_is_authenticated(&self) -> bool {
+        matches!(
+            &self.stage5_runtime,
+            Stage6dStage5RuntimeAuthority::Restart(restart)
+                if restart.stage8b_p1d2_validate_truth_frontier().is_ok()
+        )
+    }
+
+    pub fn stage8b_p1d2_source_m10_binding(&self) -> Option<Stage6Stage8bP1d2SourceM10Binding> {
+        let restart = match &self.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => restart,
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => return None,
+        };
+        let (redis_id, semantic_id_sha256, payload_sha256) =
+            restart.stage8b_p1d2_source_m10_binding()?;
+        Some(Stage6Stage8bP1d2SourceM10Binding {
+            redis_id: redis_id.to_string(),
+            semantic_id_sha256: semantic_id_sha256.to_string(),
+            payload_sha256: payload_sha256.to_string(),
+        })
+    }
+
+    /// Redacted audit facts are available only from an authenticated final
+    /// S_truth package. They grant no lifecycle or source-resolution action.
+    pub fn stage8b_p1d2_feedback_audit_core(
+        &self,
+    ) -> Option<crate::Stage8bP1d2FeedbackAuditCoreV1> {
+        let restart = match &self.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => restart,
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => return None,
+        };
+        restart.stage8b_p1d2_feedback_audit_core()
+    }
+
+    /// Redacted audit facts for a generated-Market truth package. This is
+    /// deliberately distinct from the standalone P1-d2 accessor because the
+    /// embedded order-position state is validated by the P1-d4 matcher.
+    pub fn stage8b_p1d4_feedback_audit_core(
+        &self,
+    ) -> Option<crate::Stage8bP1d2FeedbackAuditCoreV1> {
+        let restart = match &self.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => restart,
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => return None,
+        };
+        restart.stage8b_p1d4_feedback_audit_core()
+    }
+
     pub fn journal_is_file_backed(&self) -> bool {
         self.journal.is_file_backed()
     }
@@ -1465,6 +3814,4788 @@ impl Stage6dDurableRuntimeRecovered {
         )?;
         Ok(())
     }
+}
+
+#[derive(Serialize)]
+struct Stage8bP1RequestAcceptedBindingV1<'a> {
+    schema_version: u16,
+    domain: &'static str,
+    source_seal_generation: u64,
+    source_seal_commitment_sha256: &'a str,
+    source_stage6_checkpoint_sha256: &'a str,
+    source_stage6_frontier_sha256: &'a str,
+    operational_identity_sha256: &'a str,
+    m10_redis_id: &'a str,
+    m10_semantic_id_sha256: &'a str,
+    m10_payload_sha256: &'a str,
+    semantic_batch_id_sha256: &'a str,
+    strategy_request_id: StrategyRequestId,
+    canonical_command_sha256: &'a str,
+    expected_request_accepted_record_id: &'a str,
+}
+
+/// Consumes the sole recovered runtime owner and applies exactly one P1 M10
+/// semantic transition.  It never appends DispatchAttemptRecorded and never
+/// owns Redis, provider or network operations.
+pub fn apply_stage8b_p1_semantic_transition(
+    mut recovered: Stage6dDurableRuntimeRecovered,
+    accepted_bar: crate::Stage5cAcceptedSemanticBar,
+    binding: Stage5gP1SemanticBindingInput,
+    source: Stage6Stage8bP1SealSourceV1,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1SemanticTransition, Stage6dLiveCoreError> {
+    let operational_identity = recovered
+        .authenticated_operational_identity()
+        .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?;
+    let operational_identity_sha256 = stage6d_operational_identity_sha256(operational_identity)?;
+    if source.seal_generation == 0
+        || Stage6Sha256Digest::parse(source.seal_commitment_sha256.clone()).is_err()
+        || source.stage6_checkpoint_sha256
+            != recovered.authenticated_checkpoint().checkpoint_sha256()
+        || source.stage6_frontier_sha256 != frontier_fingerprint(recovered.journal_frontier())?
+        || source.operational_identity_sha256 != operational_identity_sha256.as_str()
+        || binding.operational_identity_sha256 != source.operational_identity_sha256
+    {
+        return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+    }
+
+    let (placeholder_runtime, reconstruction_runtime, prior_stage5_checkpoint_sha256) = {
+        let current = match &recovered.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(current)
+                if current.lifecycle_kind()
+                    == crate::Stage5gCleanRestartLifecycleKind::P1SemanticReady =>
+            {
+                current
+            }
+            _ => return Err(Stage6dLiveCoreError::RestartRuntimeRequired),
+        };
+        (
+            current.stage5g_fresh_reconstruction_candidate(),
+            current.stage5g_fresh_reconstruction_candidate(),
+            sha256_hex(
+                &serde_json::to_vec(current.checkpoint())
+                    .map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?,
+            ),
+        )
+    };
+    let Stage6dStage5RuntimeAuthority::Restart(current) = std::mem::replace(
+        &mut recovered.stage5_runtime,
+        Stage6dStage5RuntimeAuthority::FirstBoot(Box::new(placeholder_runtime)),
+    ) else {
+        unreachable!("P1 source lifecycle was checked above")
+    };
+
+    let transition = continue_stage5g_p1_semantic(*current, accepted_bar, binding)
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+    match transition {
+        Stage5gP1SemanticTransition::ZeroIntent(value) => {
+            let projection = p1_projection_from_zero(&value).clone();
+            validate_stage8b_p1_projection_source(
+                &projection,
+                &source,
+                &prior_stage5_checkpoint_sha256,
+                0,
+            )?;
+            let stage5g_restart_package = export_stage5g_p1_zero_intent(value, commitment_key)
+                .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+            let restored = restore_stage5g_clean_restart(
+                &stage5g_restart_package,
+                commitment_key,
+                reconstruction_runtime,
+            )?;
+            if restored.stage8b_p1_semantic_commit() != Some(&projection) {
+                return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+            }
+            recovered.stage5_runtime = Stage6dStage5RuntimeAuthority::Restart(Box::new(restored));
+            recovered.refresh_after_append()?;
+            Ok(Stage6Stage8bP1SemanticTransition::ZeroIntent {
+                recovered,
+                stage5g_restart_package,
+                evidence: stage8b_p1_commit_evidence(&projection, None),
+            })
+        }
+        Stage5gP1SemanticTransition::OneIntent(value) => {
+            let projection = p1_projection_from_one(&value).clone();
+            validate_stage8b_p1_projection_source(
+                &projection,
+                &source,
+                &prior_stage5_checkpoint_sha256,
+                1,
+            )?;
+            let identity = projection
+                .durable_request_identity
+                .as_ref()
+                .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+                .clone();
+            let command_snapshot = projection
+                .durable_command_snapshot
+                .as_ref()
+                .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+                .clone();
+            if stage7a_accepted_record(&recovered, identity.strategy_request_id()).is_some()
+                || stage7a_has_other_unresolved_lifecycle(&recovered, &identity)
+            {
+                return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+            }
+            let sequence = Stage6LifecycleSequence::new(1)?;
+            let expected_record_id =
+                Stage6JournalRecordId::derive(identity.strategy_request_id(), sequence);
+            let source_evidence = stage8b_p1_request_accepted_source_evidence(
+                &projection,
+                &source,
+                &expected_record_id,
+            )?;
+            let accepted = Stage6JournalRecordV1::request_accepted(
+                identity.clone(),
+                command_snapshot.clone(),
+                sequence,
+                None,
+                None,
+                source_evidence,
+            )?;
+            if accepted.journal_record_id() != &expected_record_id {
+                return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+            }
+
+            // Package validation is completed before the first durable write.
+            let stage5g_restart_package = export_stage5g_p1_one_intent(value, commitment_key)
+                .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+            let restored = restore_stage5g_clean_restart(
+                &stage5g_restart_package,
+                commitment_key,
+                reconstruction_runtime,
+            )?;
+            if restored.stage8b_p1_semantic_commit() != Some(&projection) {
+                return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+            }
+
+            recovered
+                .journal_mut()
+                .append(&accepted)
+                .map_err(classify_stage8a4_append_error)?;
+            recovered.stage5_runtime = Stage6dStage5RuntimeAuthority::Restart(Box::new(restored));
+            recovered
+                .refresh_after_append()
+                .map_err(|_| Stage6dLiveCoreError::JournalMutationMayHaveOccurred)?;
+            let command = projection
+                .canonical_command
+                .as_ref()
+                .expect("validated P1 one-intent projection has command")
+                .clone();
+            let evidence = stage8b_p1_commit_evidence(&projection, Some(&accepted));
+            Ok(Stage6Stage8bP1SemanticTransition::OneIntentPrepublication {
+                recovered: Box::new(recovered),
+                stage5g_restart_package,
+                evidence,
+                command,
+                durable_request_identity: identity,
+                durable_command_snapshot: command_snapshot,
+            })
+        }
+        Stage5gP1SemanticTransition::MultiIntentBlocked(blocked) => {
+            Ok(Stage6Stage8bP1SemanticTransition::MultiIntentBlocked {
+                semantic_batch_id_sha256: blocked.semantic_batch_id_sha256().to_string(),
+                intent_count: blocked.intent_count(),
+                request_ids: blocked.request_ids().to_vec(),
+            })
+        }
+    }
+}
+
+/// P1-d3 variant of the accepted semantic transition.  It differs only in
+/// ownership: the authenticated working-book replacement is retained in the
+/// exported Stage 5G package while the same Stage 5C Hybrid callback and
+/// Stage 6 RequestAccepted chain are reused.
+pub fn apply_stage8b_p1d3_semantic_transition(
+    mut recovered: Stage6dDurableRuntimeRecovered,
+    accepted_bar: crate::Stage5cAcceptedSemanticBar,
+    binding: Stage5gP1SemanticBindingInput,
+    source: Stage6Stage8bP1SealSourceV1,
+    tick_size: f64,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1SemanticTransition, Stage6dLiveCoreError> {
+    let operational_identity = recovered
+        .authenticated_operational_identity()
+        .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?;
+    let operational_identity_sha256 = stage6d_operational_identity_sha256(operational_identity)?;
+    if source.seal_generation == 0
+        || Stage6Sha256Digest::parse(source.seal_commitment_sha256.clone()).is_err()
+        || source.stage6_checkpoint_sha256
+            != recovered.authenticated_checkpoint().checkpoint_sha256()
+        || source.stage6_frontier_sha256 != frontier_fingerprint(recovered.journal_frontier())?
+        || source.operational_identity_sha256 != operational_identity_sha256.as_str()
+        || binding.operational_identity_sha256 != source.operational_identity_sha256
+    {
+        return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+    }
+
+    let (placeholder_runtime, reconstruction_runtime, prior_stage5_checkpoint_sha256) = {
+        let current = match &recovered.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(current)
+                if current.stage8b_p1d3_replacement().is_some() =>
+            {
+                current
+            }
+            _ => return Err(Stage6dLiveCoreError::RestartRuntimeRequired),
+        };
+        let replacement = current
+            .stage8b_p1d3_replacement()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+        let expected_semantic_source = replacement
+            .pending_semantic_source_binding()
+            .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+        let exact_pending = expected_semantic_source.as_ref().is_some_and(|expected| {
+            expected.redis_id() == binding.m10_redis_id
+                && expected.semantic_id_sha256() == binding.m10_semantic_id_sha256
+                && expected.payload_sha256() == binding.m10_payload_sha256
+                && !current
+                    .stage8b_p1_semantic_commit()
+                    .is_some_and(|semantic| expected.matches_semantic_commit(semantic))
+        });
+        let terminal_successor = replacement
+            .terminal_semantic_continuation_allows(
+                current.stage8b_p1_semantic_commit(),
+                &binding.m10_redis_id,
+            )
+            .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+        if !exact_pending && !terminal_successor {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        (
+            current.stage5g_fresh_reconstruction_candidate(),
+            current.stage5g_fresh_reconstruction_candidate(),
+            sha256_hex(
+                &serde_json::to_vec(current.checkpoint())
+                    .map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?,
+            ),
+        )
+    };
+    let Stage6dStage5RuntimeAuthority::Restart(current) = std::mem::replace(
+        &mut recovered.stage5_runtime,
+        Stage6dStage5RuntimeAuthority::FirstBoot(Box::new(placeholder_runtime)),
+    ) else {
+        unreachable!("P1-d3 source lifecycle was checked above")
+    };
+
+    let transition = continue_stage8b_p1d3_semantic(*current, accepted_bar, binding, tick_size)
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+    match transition {
+        Stage8bP1d3SemanticTransition::ZeroIntent(value) => {
+            let projection = p1d3_projection_from_zero(&value).clone();
+            validate_stage8b_p1_projection_source(
+                &projection,
+                &source,
+                &prior_stage5_checkpoint_sha256,
+                0,
+            )?;
+            let stage5g_restart_package = export_stage8b_p1d3_zero_intent(value, commitment_key)
+                .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+            let restored = restore_stage5g_clean_restart(
+                &stage5g_restart_package,
+                commitment_key,
+                reconstruction_runtime,
+            )?;
+            if restored.stage8b_p1_semantic_commit() != Some(&projection)
+                || restored.stage8b_p1d3_replacement().is_none()
+            {
+                return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+            }
+            recovered.stage5_runtime = Stage6dStage5RuntimeAuthority::Restart(Box::new(restored));
+            recovered.refresh_after_append()?;
+            Ok(Stage6Stage8bP1SemanticTransition::ZeroIntent {
+                recovered,
+                stage5g_restart_package,
+                evidence: stage8b_p1_commit_evidence(&projection, None),
+            })
+        }
+        Stage8bP1d3SemanticTransition::OneIntent(value) => {
+            let projection = p1d3_projection_from_one(&value).clone();
+            validate_stage8b_p1_projection_source(
+                &projection,
+                &source,
+                &prior_stage5_checkpoint_sha256,
+                1,
+            )?;
+            let identity = projection
+                .durable_request_identity
+                .as_ref()
+                .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+                .clone();
+            let command_snapshot = projection
+                .durable_command_snapshot
+                .as_ref()
+                .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+                .clone();
+            if stage7a_accepted_record(&recovered, identity.strategy_request_id()).is_some()
+                || stage7a_has_other_unresolved_lifecycle(&recovered, &identity)
+            {
+                return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+            }
+            let sequence = Stage6LifecycleSequence::new(1)?;
+            let expected_record_id =
+                Stage6JournalRecordId::derive(identity.strategy_request_id(), sequence);
+            let source_evidence = stage8b_p1_request_accepted_source_evidence(
+                &projection,
+                &source,
+                &expected_record_id,
+            )?;
+            let accepted = Stage6JournalRecordV1::request_accepted(
+                identity.clone(),
+                command_snapshot.clone(),
+                sequence,
+                None,
+                None,
+                source_evidence,
+            )?;
+            if accepted.journal_record_id() != &expected_record_id {
+                return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+            }
+
+            let pre_request_checkpoint_sha256 = recovered
+                .authenticated_checkpoint()
+                .checkpoint_sha256()
+                .to_string();
+            let post_request_checkpoint_sha256 =
+                projected_checkpoint_after_append(&recovered, &accepted)?;
+            let value = rebind_stage8b_p1d3_one_intent_request_checkpoint(
+                value,
+                &pre_request_checkpoint_sha256,
+                post_request_checkpoint_sha256.clone(),
+            )
+            .map_err(|_| Stage6dLiveCoreError::RestartPackageBindingMismatch)?;
+
+            let stage5g_restart_package = export_stage8b_p1d3_one_intent(value, commitment_key)
+                .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+            let restored = restore_stage5g_clean_restart(
+                &stage5g_restart_package,
+                commitment_key,
+                reconstruction_runtime,
+            )?;
+            if restored.stage8b_p1_semantic_commit() != Some(&projection)
+                || restored.stage8b_p1d3_replacement().is_none()
+            {
+                return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+            }
+
+            recovered
+                .journal_mut()
+                .append(&accepted)
+                .map_err(classify_stage8a4_append_error)?;
+            recovered.stage5_runtime = Stage6dStage5RuntimeAuthority::Restart(Box::new(restored));
+            recovered
+                .refresh_after_append()
+                .map_err(|_| Stage6dLiveCoreError::JournalMutationMayHaveOccurred)?;
+            if recovered.authenticated_checkpoint().checkpoint_sha256()
+                != post_request_checkpoint_sha256
+            {
+                return Err(Stage6dLiveCoreError::JournalMutationMayHaveOccurred);
+            }
+            let command = projection
+                .canonical_command
+                .as_ref()
+                .expect("validated P1-d3 one-intent projection has command")
+                .clone();
+            let evidence = stage8b_p1_commit_evidence(&projection, Some(&accepted));
+            Ok(Stage6Stage8bP1SemanticTransition::OneIntentPrepublication {
+                recovered: Box::new(recovered),
+                stage5g_restart_package,
+                evidence,
+                command,
+                durable_request_identity: identity,
+                durable_command_snapshot: command_snapshot,
+            })
+        }
+        Stage8bP1d3SemanticTransition::MultiIntentBlocked(blocked) => {
+            Ok(Stage6Stage8bP1SemanticTransition::MultiIntentBlocked {
+                semantic_batch_id_sha256: blocked.semantic_batch_id_sha256().to_string(),
+                intent_count: blocked.intent_count(),
+                request_ids: blocked.request_ids().to_vec(),
+            })
+        }
+    }
+}
+
+/// Replaces a generated-Market P1-d3 semantic package with the exact
+/// reservation-bearing P1-d4 Prepublication package. This transition performs
+/// no journal mutation, Redis operation, provider call, ACK, truth application
+/// or source acknowledgement.
+pub fn apply_stage8b_p1d4_publication_reservation(
+    mut recovered: Stage6dDurableRuntimeRecovered,
+    reservation: crate::Stage8bP1d4CommandPublicationReservationV1,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1d4PrepublicationTransition, Stage6dLiveCoreError> {
+    if !recovered.stage8b_p1d4_generated_market_candidate()
+        || recovered.stage8b_p1d4_next_write_generation()
+            != Some(reservation.prepublication_package_generation())
+    {
+        return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+    }
+    let pre_checkpoint = recovered.authenticated_checkpoint().clone();
+    let reconstruction_runtime = match &recovered.stage5_runtime {
+        Stage6dStage5RuntimeAuthority::Restart(restart) => {
+            restart.stage5g_fresh_reconstruction_candidate()
+        }
+        Stage6dStage5RuntimeAuthority::FirstBoot(_) => {
+            return Err(Stage6dLiveCoreError::RestartRuntimeRequired)
+        }
+    };
+    let placeholder_runtime = reconstruction_runtime.stage5g_clean_reconstruction_candidate();
+    let Stage6dStage5RuntimeAuthority::Restart(restart) = std::mem::replace(
+        &mut recovered.stage5_runtime,
+        Stage6dStage5RuntimeAuthority::FirstBoot(Box::new(placeholder_runtime)),
+    ) else {
+        unreachable!("P1-d4 generated-Market source was checked above")
+    };
+    let (runtime, state, p1d3, semantic, export_input) = restart
+        .into_stage8b_p1d4_prepublication_parts(&reservation)
+        .map_err(Stage6dLiveCoreError::from)?;
+    let composition =
+        crate::stage8b_p1d4_generated_market::Stage8bP1d4GeneratedMarketCompositionV1::prepublication(
+            reservation,
+        )
+        .map_err(|_| Stage6dLiveCoreError::RestartPackageBindingMismatch)?;
+    let source = crate::stage8b_p1d4_generated_market::Stage8bP1d4RestartSource::new(
+        runtime,
+        state,
+        p1d3,
+        semantic,
+        None,
+        composition,
+    )
+    .map_err(|_| Stage6dLiveCoreError::RestartPackageBindingMismatch)?;
+    let stage5g_restart_package = export_stage5g_clean_restart(
+        crate::Stage5gCleanRestartSource::P1d4(Box::new(source)),
+        export_input,
+        commitment_key,
+    )?;
+    let restored = restore_stage5g_clean_restart(
+        &stage5g_restart_package,
+        commitment_key,
+        reconstruction_runtime,
+    )?;
+    if restored
+        .stage8b_p1d4_generated_market_composition()
+        .is_none()
+    {
+        return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+    }
+    recovered.stage5_runtime = Stage6dStage5RuntimeAuthority::Restart(Box::new(restored));
+    recovered.refresh_after_append()?;
+    if recovered.authenticated_checkpoint() != &pre_checkpoint {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    Ok(Stage6Stage8bP1d4PrepublicationTransition {
+        recovered,
+        stage5g_restart_package,
+    })
+}
+
+/// Applies the generated-Market V1 order/trade/finalization chain and builds
+/// the combined S_ack package. The original reservation-bearing package must
+/// still be the authenticated runtime authority and the publication binding
+/// must name its exact covering seal.
+pub fn apply_stage8b_p1d4_ack_transition(
+    mut recovered: Stage6dDurableRuntimeRecovered,
+    outcome_bundle: crate::Stage8bP1d1MarketOutcomeBundle,
+    publication_binding: crate::Stage8bP1d4CommandPublicationBindingV1,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1d4AckTransition, Stage6dLiveCoreError> {
+    let (dispatch_receipt, outcome, evidence) = outcome_bundle.into_p1d2_parts();
+    let receipt_ts = Utc
+        .timestamp_millis_opt(evidence.fill_received_ts_utc_ms)
+        .single()
+        .ok_or(Stage6dLiveCoreError::Stage8bP1d2MarketFeedback)?;
+    let prepublication_checkpoint_sha256 = match &recovered.stage5_runtime {
+        Stage6dStage5RuntimeAuthority::Restart(restart) => restart
+            .stage8b_p1d3_replacement()
+            .ok_or(Stage6dLiveCoreError::RestartPackageBindingMismatch)?
+            .authenticated_stage6_checkpoint_sha256()
+            .to_string(),
+        Stage6dStage5RuntimeAuthority::FirstBoot(_) => {
+            return Err(Stage6dLiveCoreError::RestartRuntimeRequired)
+        }
+    };
+    let report = execute_stage6d_paper_outcome(&mut recovered, dispatch_receipt, outcome)?;
+    stage8b_p1d2_test_crash_barrier("p1d2-after-stage6-before-request-finalized");
+    let report = finalize_stage7a_paper_request(&mut recovered, report, receipt_ts)?;
+    stage8b_p1d4_test_crash_frontier("GM07");
+    let facts = stage7b_finalized_request_facts(&recovered, report.strategy_request_id)?;
+    if report.strategy_request_id != facts.strategy_request_id()
+        || report.durable_client_order_id != *facts.durable_client_order_id()
+        || report.account_id != *facts.durable_request_identity().account_id()
+        || report.instrument != *facts.durable_request_identity().instrument()
+        || report.attribution != *facts.durable_request_identity().attribution()
+        || report.action != facts.durable_request_identity().action()
+        || report.broker_order_id.as_ref() != facts.broker_order_id()
+        || report.broker_trade_ids != facts.broker_trade_ids()
+        || report.final_disposition != Some(facts.final_disposition())
+        || report.final_record_id != facts.final_record_id().as_str()
+        || report.final_sequence != facts.final_sequence()
+    {
+        return Err(Stage6dLiveCoreError::Stage8bP1d2MarketFeedback);
+    }
+    stage8b_p1d2_test_crash_barrier("p1d2-after-request-finalized-before-ack");
+    complete_stage8b_p1d4_ack_transition(
+        recovered,
+        facts,
+        evidence,
+        publication_binding,
+        &prepublication_checkpoint_sha256,
+        receipt_ts,
+        commitment_key,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn complete_stage8b_p1d4_ack_transition(
+    mut recovered: Stage6dDurableRuntimeRecovered,
+    facts: Stage7bFinalizedRequestFacts,
+    evidence: crate::stage8b_p1d1_paper_provider::Stage8bP1d1MarketOutcomeEvidence,
+    publication_binding: crate::Stage8bP1d4CommandPublicationBindingV1,
+    prepublication_checkpoint_sha256: &str,
+    receipt_ts: DateTime<Utc>,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1d4AckTransition, Stage6dLiveCoreError> {
+    let replacement_runtime = match &recovered.stage5_runtime {
+        Stage6dStage5RuntimeAuthority::Restart(restart) => {
+            let composition = restart
+                .stage8b_p1d4_generated_market_composition()
+                .ok_or(Stage6dLiveCoreError::RestartPackageBindingMismatch)?;
+            if composition.phase()
+                != crate::stage8b_p1d4_generated_market::Stage8bP1d4GeneratedMarketPhase::Prepublication
+                || composition.binding().is_some()
+                || publication_binding
+                    .validate_against(composition.reservation())
+                    .is_err()
+            {
+                return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+            }
+            restart.stage5g_fresh_reconstruction_candidate()
+        }
+        Stage6dStage5RuntimeAuthority::FirstBoot(_) => {
+            return Err(Stage6dLiveCoreError::RestartRuntimeRequired)
+        }
+    };
+    let Stage6dStage5RuntimeAuthority::Restart(restart) = std::mem::replace(
+        &mut recovered.stage5_runtime,
+        Stage6dStage5RuntimeAuthority::FirstBoot(Box::new(replacement_runtime)),
+    ) else {
+        unreachable!("P1-d4 prepublication authority was checked above")
+    };
+    let (runtime, state, p1d3, semantic, composition, export_input) = restart
+        .into_stage8b_p1d4_ack_parts(&publication_binding, receipt_ts)
+        .map_err(Stage6dLiveCoreError::from)?;
+    if p1d3.authenticated_stage6_checkpoint_sha256() != prepublication_checkpoint_sha256 {
+        return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+    }
+    let p1d3 = p1d3
+        .rebind_semantic_request_checkpoint(
+            prepublication_checkpoint_sha256,
+            recovered
+                .authenticated_checkpoint()
+                .checkpoint_sha256()
+                .to_string(),
+        )
+        .map_err(|_| Stage6dLiveCoreError::RestartPackageBindingMismatch)?;
+    let (q0, avg0) = crate::Stage5gOrderPositionSession::stage8b_p1d3_position_basis(&state)
+        .ok_or(Stage6dLiveCoreError::Stage8bP1d2MarketFeedback)?;
+    let finalized =
+        crate::stage8b_p1d2_market_feedback::mint_stage8b_p1d4_finalized_market_feedback(
+            semantic.clone(),
+            &facts,
+            evidence,
+            q0,
+            avg0,
+        )?;
+    let applied = crate::stage8b_p1d4_generated_market::apply_stage8b_p1d4_ack_stage(
+        runtime,
+        state,
+        p1d3,
+        semantic,
+        composition,
+        publication_binding,
+        finalized,
+        export_input,
+        commitment_key,
+    )
+    .map_err(|_| Stage6dLiveCoreError::RestartPackageBindingMismatch)?;
+    recovered.stage5_runtime = Stage6dStage5RuntimeAuthority::Restart(Box::new(applied.restored));
+    recovered.refresh_after_append()?;
+    Ok(Stage6Stage8bP1d4AckTransition {
+        recovered,
+        stage5g_restart_package: applied.restart_package,
+    })
+}
+
+/// Resumes a generated-Market request from one of the four authenticated V1
+/// journal-ahead suffixes. The deterministic provider evidence is recomputed
+/// from the exact retained successor M10, but no schedule is reacquired and
+/// no dispatch row is appended. Only the missing suffix records are emitted.
+pub fn apply_stage8b_p1d4_recovered_ack_transition(
+    mut recovered: Stage6dDurableRuntimeRecovered,
+    candidate: Stage6Stage8bP1d4JournalAheadCandidate,
+    canonical_m10: crate::Stage8bP1d1CanonicalM10Evidence,
+    publication_binding: crate::Stage8bP1d4CommandPublicationBindingV1,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1d4AckTransition, Stage6dLiveCoreError> {
+    let receipt_ts_utc_ms = canonical_m10.close_ts_utc_ms;
+    let decision = recovered.stage8b_p1d2_recovery_command_decision_binding()?;
+    let evidence =
+        crate::stage8b_p1d1_paper_provider::reconstruct_stage8b_p1d1_market_outcome_evidence(
+            decision,
+            canonical_m10,
+        )
+        .map_err(|_| Stage6dLiveCoreError::Stage8bP1d2MarketFeedback)?;
+    if candidate.identity().strategy_request_id() != evidence.strategy_request_id
+        || publication_binding.prepublication_package_generation() == 0
+    {
+        return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+    }
+    let expected_outcome = Stage6dPaperOutcome::MarketFilled {
+        broker_order_id: evidence.broker_order_id.clone(),
+        broker_trade_id: evidence.broker_trade_id.clone(),
+    };
+    let outcome_evidence = accepted_paper_evidence(candidate.identity(), &expected_outcome)?;
+    let request = recovered
+        .replay()
+        .request(evidence.strategy_request_id)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let mut previous = request.last_unique_record_id().clone();
+    let mut sequence = request
+        .last_unique_sequence()
+        .checked_add(1)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    match candidate.kind() {
+        Stage6Stage8bP1d4JournalAheadKind::DispatchOnly => {
+            if candidate.broker_order_id().is_some()
+                || candidate.broker_trade_id().is_some()
+                || request.last_unique_record_id() != candidate.dispatch_record_id()
+            {
+                return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+            }
+            let order = Stage6JournalRecordV1::broker_order_observed(
+                candidate.identity().clone(),
+                evidence.broker_order_id.clone(),
+                Stage6LifecycleSequence::new(sequence)?,
+                Some(previous),
+                outcome_evidence.clone(),
+            )?;
+            sequence = sequence
+                .checked_add(1)
+                .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+            previous = order.journal_record_id().clone();
+            let trade = Stage6JournalRecordV1::broker_trade_observed(
+                candidate.identity().clone(),
+                evidence.broker_trade_id.clone(),
+                evidence.broker_order_id.clone(),
+                Stage6LifecycleSequence::new(sequence)?,
+                Some(previous),
+                outcome_evidence,
+            )?;
+            recovered.journal_mut().append(&order)?;
+            recovered.journal_mut().append(&trade)?;
+            recovered.refresh_after_append()?;
+        }
+        Stage6Stage8bP1d4JournalAheadKind::OrderOnly => {
+            if candidate.broker_order_id() != Some(&evidence.broker_order_id)
+                || candidate.broker_trade_id().is_some()
+            {
+                return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+            }
+            let last = recovered
+                .journal
+                .versioned_records()
+                .last()
+                .and_then(|record| match record {
+                    Stage6JournalRecordVersioned::V1(record) => Some(record),
+                    _ => None,
+                })
+                .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+            if last.source_evidence_sha256() != &outcome_evidence {
+                return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+            }
+            let trade = Stage6JournalRecordV1::broker_trade_observed(
+                candidate.identity().clone(),
+                evidence.broker_trade_id.clone(),
+                evidence.broker_order_id.clone(),
+                Stage6LifecycleSequence::new(sequence)?,
+                Some(previous),
+                outcome_evidence,
+            )?;
+            recovered.journal_mut().append(&trade)?;
+            recovered.refresh_after_append()?;
+        }
+        Stage6Stage8bP1d4JournalAheadKind::PreFinalization
+        | Stage6Stage8bP1d4JournalAheadKind::PreAck => {
+            if candidate.broker_order_id() != Some(&evidence.broker_order_id)
+                || candidate.broker_trade_id() != Some(&evidence.broker_trade_id)
+            {
+                return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+            }
+            let records = recovered.journal.versioned_records();
+            let mut v1_tail = records.iter().rev().filter_map(|record| match record {
+                Stage6JournalRecordVersioned::V1(record) => Some(record),
+                _ => None,
+            });
+            let last = v1_tail
+                .next()
+                .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+            let (trade, order) = if candidate.kind() == Stage6Stage8bP1d4JournalAheadKind::PreAck {
+                if !matches!(
+                    last.payload(),
+                    Stage6JournalPayloadV1::RequestFinalized { .. }
+                ) {
+                    return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+                }
+                (
+                    v1_tail
+                        .next()
+                        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?,
+                    v1_tail
+                        .next()
+                        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?,
+                )
+            } else {
+                (
+                    last,
+                    v1_tail
+                        .next()
+                        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?,
+                )
+            };
+            if order.source_evidence_sha256() != &outcome_evidence
+                || trade.source_evidence_sha256() != &outcome_evidence
+            {
+                return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+            }
+        }
+    }
+    let request = recovered
+        .replay()
+        .request(evidence.strategy_request_id)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    if request.dispatch_attempt_count() != 1
+        || request.known_broker_order_id() != Some(&evidence.broker_order_id)
+        || request.observed_broker_trade_ids() != [evidence.broker_trade_id.clone()]
+        || request.conflict_observed()
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    let receipt_ts = Utc
+        .timestamp_millis_opt(receipt_ts_utc_ms)
+        .single()
+        .ok_or(Stage6dLiveCoreError::Stage8bP1d2MarketFeedback)?;
+    if request.final_disposition().is_none() {
+        finalize_stage7a_replayed_paper_request(
+            &mut recovered,
+            evidence.strategy_request_id,
+            receipt_ts,
+        )?;
+    }
+    let facts = stage7b_finalized_request_facts(&recovered, evidence.strategy_request_id)?;
+    if facts.broker_order_id() != Some(&evidence.broker_order_id)
+        || facts.broker_trade_ids() != [evidence.broker_trade_id.clone()]
+        || facts.final_disposition() != Stage6RequestFinalDispositionV1::Completed
+    {
+        return Err(Stage6dLiveCoreError::Stage8bP1d2MarketFeedback);
+    }
+    complete_stage8b_p1d4_ack_transition(
+        recovered,
+        facts,
+        evidence,
+        publication_binding,
+        candidate.predecessor_checkpoint_sha256(),
+        receipt_ts,
+        commitment_key,
+    )
+}
+
+/// Applies only the truth already embedded in a combined generated-Market
+/// S_ack package. It performs no provider call, dispatch or journal append.
+pub fn apply_stage8b_p1d4_truth_transition(
+    mut recovered: Stage6dDurableRuntimeRecovered,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1d4TruthTransition, Stage6dLiveCoreError> {
+    let pre_checkpoint = recovered.authenticated_checkpoint().clone();
+    let replacement_runtime = match &recovered.stage5_runtime {
+        Stage6dStage5RuntimeAuthority::Restart(restart) => {
+            let composition = restart
+                .stage8b_p1d4_generated_market_composition()
+                .ok_or(Stage6dLiveCoreError::RestartPackageBindingMismatch)?;
+            if composition.phase()
+                != crate::stage8b_p1d4_generated_market::Stage8bP1d4GeneratedMarketPhase::AckCommitted
+                || composition.binding().is_none()
+            {
+                return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+            }
+            restart.stage5g_fresh_reconstruction_candidate()
+        }
+        Stage6dStage5RuntimeAuthority::FirstBoot(_) => {
+            return Err(Stage6dLiveCoreError::RestartRuntimeRequired)
+        }
+    };
+    let Stage6dStage5RuntimeAuthority::Restart(restart) = std::mem::replace(
+        &mut recovered.stage5_runtime,
+        Stage6dStage5RuntimeAuthority::FirstBoot(Box::new(replacement_runtime)),
+    ) else {
+        unreachable!("P1-d4 S_ack authority was checked above")
+    };
+    let (runtime, state, p1d3, semantic, feedback, composition, export_input) = restart
+        .into_stage8b_p1d4_truth_parts()
+        .map_err(Stage6dLiveCoreError::from)?;
+    let applied = crate::stage8b_p1d4_generated_market::apply_stage8b_p1d4_truth_stage(
+        runtime,
+        state,
+        p1d3,
+        semantic,
+        feedback,
+        composition,
+        export_input,
+        commitment_key,
+    )
+    .map_err(|_| Stage6dLiveCoreError::RestartPackageBindingMismatch)?;
+    recovered.stage5_runtime = Stage6dStage5RuntimeAuthority::Restart(Box::new(applied.restored));
+    recovered.refresh_after_append()?;
+    if recovered.authenticated_checkpoint() != &pre_checkpoint {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    Ok(Stage6Stage8bP1d4TruthTransition {
+        recovered,
+        stage5g_restart_package: applied.restart_package,
+    })
+}
+
+/// Test-only construction of one source-authenticated P1-d3 command package.
+///
+/// This seam deliberately performs no provider or broker action. It exists so
+/// the durable-service subprocess tests can establish a valid terminal LIMIT
+/// plus pending CANCEL state before killing the process at the production
+/// replacement-seal barriers.
+#[cfg(feature = "stage5g-artifact-fixtures")]
+#[doc(hidden)]
+pub fn stage8b_p1d3_test_inject_one_intent_transition(
+    mut recovered: Stage6dDurableRuntimeRecovered,
+    binding: Stage5gP1SemanticBindingInput,
+    source: Stage6Stage8bP1SealSourceV1,
+    command: BrokerCommand,
+    expected_attribution: HybridRuntimeAttribution,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1SemanticTransition, Stage6dLiveCoreError> {
+    let operational_identity = recovered
+        .authenticated_operational_identity()
+        .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?;
+    let operational_identity_sha256 = stage6d_operational_identity_sha256(operational_identity)?;
+    if source.seal_generation == 0
+        || Stage6Sha256Digest::parse(source.seal_commitment_sha256.clone()).is_err()
+        || source.stage6_checkpoint_sha256
+            != recovered.authenticated_checkpoint().checkpoint_sha256()
+        || source.stage6_frontier_sha256 != frontier_fingerprint(recovered.journal_frontier())?
+        || source.operational_identity_sha256 != operational_identity_sha256.as_str()
+        || binding.operational_identity_sha256 != source.operational_identity_sha256
+    {
+        return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+    }
+
+    let (
+        placeholder_runtime,
+        reconstruction_runtime,
+        prior_stage5_checkpoint_sha256,
+        instrument,
+        pre_position_qty,
+    ) = {
+        let current = match &recovered.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(current)
+                if current.stage8b_p1d3_replacement().is_some() =>
+            {
+                current
+            }
+            _ => return Err(Stage6dLiveCoreError::RestartRuntimeRequired),
+        };
+        (
+            current.stage5g_fresh_reconstruction_candidate(),
+            current.stage5g_fresh_reconstruction_candidate(),
+            sha256_hex(
+                &serde_json::to_vec(current.checkpoint())
+                    .map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?,
+            ),
+            current
+                .stage8b_p1d3_replacement()
+                .expect("P1-d3 replacement checked above")
+                .working_book()
+                .instrument()
+                .clone(),
+            current
+                .stage8b_p1d3_position_basis()
+                .and_then(|(qty, _)| qty.to_f64())
+                .ok_or(Stage6dLiveCoreError::Stage8bP1d3WorkingLimit)?,
+        )
+    };
+    let request_id = match &command {
+        BrokerCommand::PlaceOrder(place) => place.request_id,
+        BrokerCommand::CancelOrder(cancel) => cancel.request_id,
+    };
+    let (intent_class, base_action, side, target_qty, pre_position_qty) = match &command {
+        BrokerCommand::PlaceOrder(place) => {
+            let target_qty = place.qty.to_f64();
+            let closes_existing_position = target_qty.is_some_and(|qty| {
+                qty <= pre_position_qty.abs()
+                    && matches!(
+                        (pre_position_qty.is_sign_positive(), place.side),
+                        (true, broker_core::OrderSide::Sell) | (false, broker_core::OrderSide::Buy)
+                    )
+            });
+            (
+                if closes_existing_position {
+                    crate::BrokerNeutralHybridIntentClass::Exit
+                } else {
+                    crate::BrokerNeutralHybridIntentClass::Entry
+                },
+                crate::stage5c_paper_host::Stage5gSourceBaseAction::Place,
+                Some(match place.side {
+                    broker_core::OrderSide::Buy => crate::BrokerNeutralOrderSide::Buy,
+                    broker_core::OrderSide::Sell => crate::BrokerNeutralOrderSide::Sell,
+                }),
+                target_qty,
+                pre_position_qty,
+            )
+        }
+        BrokerCommand::CancelOrder(_) => (
+            crate::BrokerNeutralHybridIntentClass::CancelCleanup,
+            crate::stage5c_paper_host::Stage5gSourceBaseAction::Cancel,
+            None,
+            None,
+            pre_position_qty,
+        ),
+    };
+    let source_intent = crate::stage5c_paper_host::Stage5gSourceIntentProjection {
+        request_id,
+        intent_class,
+        base_action,
+        side,
+        target_qty,
+        pre_position_qty,
+        expected_attribution: Some(expected_attribution.clone()),
+    };
+    let projection = crate::stage5g_p1_semantic::stage8b_p1d3_test_one_intent_projection(
+        binding,
+        prior_stage5_checkpoint_sha256,
+        command.clone(),
+        instrument,
+        expected_attribution,
+        source_intent,
+    )
+    .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let identity = projection
+        .durable_request_identity
+        .as_ref()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+        .clone();
+    let command_snapshot = projection
+        .durable_command_snapshot
+        .as_ref()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+        .clone();
+    if stage7a_accepted_record(&recovered, request_id).is_some()
+        || stage7a_has_other_unresolved_lifecycle(&recovered, &identity)
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    let sequence = Stage6LifecycleSequence::new(1)?;
+    let expected_record_id = Stage6JournalRecordId::derive(request_id, sequence);
+    let accepted_source =
+        stage8b_p1_request_accepted_source_evidence(&projection, &source, &expected_record_id)?;
+    let accepted = Stage6JournalRecordV1::request_accepted(
+        identity.clone(),
+        command_snapshot.clone(),
+        sequence,
+        None,
+        None,
+        accepted_source,
+    )?;
+    let pre_request_checkpoint_sha256 = recovered
+        .authenticated_checkpoint()
+        .checkpoint_sha256()
+        .to_string();
+    let post_request_checkpoint_sha256 = projected_checkpoint_after_append(&recovered, &accepted)?;
+
+    let Stage6dStage5RuntimeAuthority::Restart(current) = std::mem::replace(
+        &mut recovered.stage5_runtime,
+        Stage6dStage5RuntimeAuthority::FirstBoot(Box::new(placeholder_runtime)),
+    ) else {
+        unreachable!("P1-d3 source lifecycle was checked above")
+    };
+    let transition_identity = projection.semantic_batch_id_sha256.clone();
+    let source_close_ts_utc_ms = projection
+        .m10_redis_id
+        .strip_suffix("-0")
+        .and_then(|value| value.parse::<i64>().ok())
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let export_input = current
+        .stage8b_p1_next_export_input(&transition_identity, source_close_ts_utc_ms)
+        .map_err(Stage6dLiveCoreError::from)?;
+    let (runtime, state, replacement) = current
+        .into_stage8b_p1d3_parts()
+        .map_err(Stage6dLiveCoreError::from)?;
+    let replacement = if matches!(command, BrokerCommand::PlaceOrder(_)) {
+        replacement
+            .stage8b_p1d3_test_rebind_migrated_attribution(
+                projection
+                    .expected_attribution
+                    .clone()
+                    .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?,
+            )
+            .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?
+    } else {
+        replacement
+    };
+    let stage5g_restart_package = export_stage5g_clean_restart(
+        crate::Stage5gCleanRestartSource::P1d3(Box::new(
+            crate::stage8b_p1d3_working_limit::Stage8bP1d3RestartSource::with_semantic_commit(
+                runtime,
+                state,
+                replacement,
+                Some(projection.clone()),
+            )
+            .and_then(|source| {
+                source.rebind_semantic_request_checkpoint(
+                    &pre_request_checkpoint_sha256,
+                    post_request_checkpoint_sha256.clone(),
+                )
+            })
+            .map_err(|_| Stage6dLiveCoreError::Stage8bP1d3WorkingLimit)?,
+        )),
+        export_input,
+        commitment_key,
+    )?;
+    let restored = restore_stage5g_clean_restart(
+        &stage5g_restart_package,
+        commitment_key,
+        reconstruction_runtime,
+    )?;
+    if restored.stage8b_p1_semantic_commit() != Some(&projection)
+        || restored.stage8b_p1d3_replacement().is_none()
+    {
+        return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+    }
+
+    recovered
+        .journal_mut()
+        .append(&accepted)
+        .map_err(classify_stage8a4_append_error)?;
+    recovered.stage5_runtime = Stage6dStage5RuntimeAuthority::Restart(Box::new(restored));
+    recovered.refresh_after_append()?;
+    if recovered.authenticated_checkpoint().checkpoint_sha256() != post_request_checkpoint_sha256 {
+        return Err(Stage6dLiveCoreError::JournalMutationMayHaveOccurred);
+    }
+    let evidence = stage8b_p1_commit_evidence(&projection, Some(&accepted));
+    Ok(Stage6Stage8bP1SemanticTransition::OneIntentPrepublication {
+        recovered: Box::new(recovered),
+        stage5g_restart_package,
+        evidence,
+        command,
+        durable_request_identity: identity,
+        durable_command_snapshot: command_snapshot,
+    })
+}
+
+/// Returns the exact broker order named by the latest authenticated P1-d3
+/// outcome. This is test-only evidence extraction; it cannot mutate runtime
+/// state or mint a lifecycle capability.
+#[cfg(feature = "stage5g-artifact-fixtures")]
+#[doc(hidden)]
+pub fn stage8b_p1d3_test_latest_outcome_broker_order_id(
+    recovered: &Stage6dDurableRuntimeRecovered,
+) -> Option<BrokerOrderId> {
+    let Stage6dStage5RuntimeAuthority::Restart(current) = &recovered.stage5_runtime else {
+        return None;
+    };
+    current
+        .stage8b_p1d3_replacement()?
+        .latest_outcome_evidence()
+        .map(|evidence| evidence.broker_order_id().clone())
+}
+
+/// Returns the exact P1-d3 working-book attribution for fixture construction.
+/// It exposes no runtime mutation or lifecycle capability.
+#[cfg(feature = "stage5g-artifact-fixtures")]
+#[doc(hidden)]
+pub fn stage8b_p1d3_test_working_book_attribution(
+    recovered: &Stage6dDurableRuntimeRecovered,
+) -> Option<HybridRuntimeAttribution> {
+    let Stage6dStage5RuntimeAuthority::Restart(current) = &recovered.stage5_runtime else {
+        return None;
+    };
+    current
+        .stage8b_p1d3_replacement()
+        .map(|replacement| replacement.working_book().attribution().clone())
+}
+
+/// Applies one deterministic P1-d1 Market result to the Stage 6/7 journal,
+/// finalizes it at the execution-bar receipt clock and constructs the first
+/// Stage 5G replacement package. No ACK reducer is reachable before the
+/// RequestFinalized record has been appended and reread.
+pub fn apply_stage8b_p1d2_ack_transition(
+    mut recovered: Stage6dDurableRuntimeRecovered,
+    outcome_bundle: crate::Stage8bP1d1MarketOutcomeBundle,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1d2AckTransition, Stage6dLiveCoreError> {
+    let (dispatch_receipt, outcome, evidence) = outcome_bundle.into_p1d2_parts();
+    let receipt_ts = Utc
+        .timestamp_millis_opt(evidence.fill_received_ts_utc_ms)
+        .single()
+        .ok_or(Stage6dLiveCoreError::Stage8bP1d2MarketFeedback)?;
+    let report = execute_stage6d_paper_outcome(&mut recovered, dispatch_receipt, outcome)?;
+    stage8b_p1d2_test_crash_barrier("p1d2-after-stage6-before-request-finalized");
+    let report = finalize_stage7a_paper_request(&mut recovered, report, receipt_ts)?;
+    let facts = stage7b_finalized_request_facts(&recovered, report.strategy_request_id)?;
+    if report.strategy_request_id != facts.strategy_request_id()
+        || report.durable_client_order_id != *facts.durable_client_order_id()
+        || report.account_id != *facts.durable_request_identity().account_id()
+        || report.instrument != *facts.durable_request_identity().instrument()
+        || report.attribution != *facts.durable_request_identity().attribution()
+        || report.action != facts.durable_request_identity().action()
+        || report.broker_order_id.as_ref() != facts.broker_order_id()
+        || report.broker_trade_ids != facts.broker_trade_ids()
+        || report.final_disposition != Some(facts.final_disposition())
+        || report.final_record_id != facts.final_record_id().as_str()
+        || report.final_sequence != facts.final_sequence()
+    {
+        return Err(Stage6dLiveCoreError::Stage8bP1d2MarketFeedback);
+    }
+    stage8b_p1d2_test_crash_barrier("p1d2-after-request-finalized-before-ack");
+
+    let replacement_runtime = match &recovered.stage5_runtime {
+        Stage6dStage5RuntimeAuthority::Restart(restart)
+            if restart.lifecycle_kind()
+                == crate::Stage5gCleanRestartLifecycleKind::P1SemanticPrepublication =>
+        {
+            restart.stage5g_fresh_reconstruction_candidate()
+        }
+        _ => return Err(Stage6dLiveCoreError::RestartRuntimeRequired),
+    };
+    let Stage6dStage5RuntimeAuthority::Restart(restart) = std::mem::replace(
+        &mut recovered.stage5_runtime,
+        Stage6dStage5RuntimeAuthority::FirstBoot(Box::new(replacement_runtime)),
+    ) else {
+        unreachable!("P1-d2 restart authority was checked above")
+    };
+    let (settled, p1, export_input) = restart.into_stage8b_p1d2_pre_ack_parts(receipt_ts)?;
+    let finalized =
+        crate::stage8b_p1d2_market_feedback::mint_stage8b_p1d2_finalized_market_feedback(
+            p1, &facts, evidence,
+        )?;
+    let applied = crate::stage8b_p1d2_market_feedback::apply_stage8b_p1d2_ack_stage(
+        settled,
+        finalized,
+        export_input,
+        commitment_key,
+    )?;
+    recovered.stage5_runtime = Stage6dStage5RuntimeAuthority::Restart(Box::new(applied.restored));
+    recovered.refresh_after_append()?;
+    Ok(Stage6Stage8bP1d2AckTransition {
+        recovered,
+        stage5g_restart_package: applied.restart_package,
+    })
+}
+
+/// Reconstructs the pre-S_ack transition after a crash from authenticated
+/// Stage 6/7 facts plus the exact retained successor M10. It never owns a
+/// dispatch receipt and therefore cannot invoke the P1-d1 provider or append
+/// the order/trade outcome a second time.
+pub fn apply_stage8b_p1d2_recovered_ack_transition(
+    mut recovered: Stage6dDurableRuntimeRecovered,
+    canonical_m10: crate::Stage8bP1d1CanonicalM10Evidence,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1d2AckTransition, Stage6dLiveCoreError> {
+    let receipt_ts_utc_ms = canonical_m10.close_ts_utc_ms;
+    let decision = recovered.stage8b_p1d2_recovery_command_decision_binding()?;
+    if let Some(binding) = stage8b_p1e_market_binding_before_recovered_dispatch(
+        &recovered,
+        decision.strategy_request_id(),
+        decision.canonical_command_sha256(),
+    )? {
+        if !canonical_m10
+            .matches_stage8b_p1e_m10_identity(&binding.candidate_or_last_eligible_m10())
+        {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+    }
+    let evidence =
+        crate::stage8b_p1d1_paper_provider::reconstruct_stage8b_p1d1_market_outcome_evidence(
+            decision,
+            canonical_m10,
+        )
+        .map_err(|_| Stage6dLiveCoreError::Stage8bP1d2MarketFeedback)?;
+    let request_id = evidence.strategy_request_id;
+    let request = recovered
+        .replay()
+        .request(request_id)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    if request.action() != Stage6DurableActionKind::Place
+        || request.dispatch_attempt_count() != 1
+        || request.dispatch_safety_state() != crate::Stage6DispatchSafetyStateV1::DispatchForbidden
+        || request.known_broker_order_id() != Some(&evidence.broker_order_id)
+        || request.observed_broker_trade_ids() != [evidence.broker_trade_id.clone()]
+        || request.cancel_outcome().is_some()
+        || request.conflict_observed()
+        || !matches!(
+            request.final_disposition(),
+            None | Some(Stage6RequestFinalDispositionV1::Completed)
+        )
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    let receipt_ts = Utc
+        .timestamp_millis_opt(receipt_ts_utc_ms)
+        .single()
+        .ok_or(Stage6dLiveCoreError::Stage8bP1d2MarketFeedback)?;
+    if request.final_disposition().is_none() {
+        finalize_stage7a_replayed_paper_request(&mut recovered, request_id, receipt_ts)?;
+    }
+    let facts = stage7b_finalized_request_facts(&recovered, request_id)?;
+    if facts.broker_order_id() != Some(&evidence.broker_order_id)
+        || facts.broker_trade_ids() != [evidence.broker_trade_id.clone()]
+        || facts.final_disposition() != Stage6RequestFinalDispositionV1::Completed
+    {
+        return Err(Stage6dLiveCoreError::Stage8bP1d2MarketFeedback);
+    }
+
+    let replacement_runtime = match &recovered.stage5_runtime {
+        Stage6dStage5RuntimeAuthority::Restart(restart)
+            if restart.lifecycle_kind()
+                == crate::Stage5gCleanRestartLifecycleKind::P1SemanticPrepublication =>
+        {
+            restart.stage5g_fresh_reconstruction_candidate()
+        }
+        _ => return Err(Stage6dLiveCoreError::RestartRuntimeRequired),
+    };
+    let Stage6dStage5RuntimeAuthority::Restart(restart) = std::mem::replace(
+        &mut recovered.stage5_runtime,
+        Stage6dStage5RuntimeAuthority::FirstBoot(Box::new(replacement_runtime)),
+    ) else {
+        unreachable!("P1-d2 recovery authority was checked above")
+    };
+    let (settled, p1, export_input) = restart.into_stage8b_p1d2_pre_ack_parts(receipt_ts)?;
+    let finalized =
+        crate::stage8b_p1d2_market_feedback::mint_stage8b_p1d2_finalized_market_feedback(
+            p1, &facts, evidence,
+        )?;
+    let applied = crate::stage8b_p1d2_market_feedback::apply_stage8b_p1d2_ack_stage(
+        settled,
+        finalized,
+        export_input,
+        commitment_key,
+    )?;
+    recovered.stage5_runtime = Stage6dStage5RuntimeAuthority::Restart(Box::new(applied.restored));
+    recovered.refresh_after_append()?;
+    Ok(Stage6Stage8bP1d2AckTransition {
+        recovered,
+        stage5g_restart_package: applied.restart_package,
+    })
+}
+
+/// Consumes only a restored S_ack owner and constructs S_truth. The exact
+/// truth sequence is recovered from the resolved ACK slot in S_ack.
+pub fn apply_stage8b_p1d2_truth_transition(
+    mut recovered: Stage6dDurableRuntimeRecovered,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1d2TruthTransition, Stage6dLiveCoreError> {
+    let replacement_runtime = match &recovered.stage5_runtime {
+        Stage6dStage5RuntimeAuthority::Restart(restart) => {
+            restart.stage8b_p1d2_validate_ack_frontier()?;
+            restart.stage5g_fresh_reconstruction_candidate()
+        }
+        Stage6dStage5RuntimeAuthority::FirstBoot(_) => {
+            return Err(Stage6dLiveCoreError::RestartRuntimeRequired)
+        }
+    };
+    let Stage6dStage5RuntimeAuthority::Restart(restart) = std::mem::replace(
+        &mut recovered.stage5_runtime,
+        Stage6dStage5RuntimeAuthority::FirstBoot(Box::new(replacement_runtime)),
+    ) else {
+        unreachable!("P1-d2 ACK authority was checked above")
+    };
+    let applied = crate::stage8b_p1d2_market_feedback::apply_stage8b_p1d2_truth_stage(
+        *restart,
+        commitment_key,
+    )?;
+    recovered.stage5_runtime = Stage6dStage5RuntimeAuthority::Restart(Box::new(applied.restored));
+    recovered.refresh_after_append()?;
+    Ok(Stage6Stage8bP1d2TruthTransition {
+        recovered,
+        stage5g_restart_package: applied.restart_package,
+    })
+}
+
+/// Consumes the accepted P1-d2 truth runtime and installs the empty P1-d3
+/// working book without appending a Stage 6 record or invoking a callback,
+/// provider, dispatch, ACK, truth, or source-resolution surface.
+///
+/// Source resolution is deliberately not represented in core.  The Stage 7
+/// linear owner exposes this transition only after the exact P1-d2 source has
+/// already been XACKed.
+pub fn migrate_stage8b_p1d3_runtime_from_p1d2(
+    recovered: Stage6dDurableRuntimeRecovered,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1d3MigrationTransition, Stage6dLiveCoreError> {
+    migrate_stage8b_p1d3_runtime_from_p1d2_inner(recovered, commitment_key, false)
+}
+
+#[cfg(feature = "stage5g-artifact-fixtures")]
+#[doc(hidden)]
+pub fn stage8b_p1d4_test_migrate_position_synced_p1d2(
+    recovered: Stage6dDurableRuntimeRecovered,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1d3MigrationTransition, Stage6dLiveCoreError> {
+    migrate_stage8b_p1d3_runtime_from_p1d2_inner(recovered, commitment_key, true)
+}
+
+fn migrate_stage8b_p1d3_runtime_from_p1d2_inner(
+    mut recovered: Stage6dDurableRuntimeRecovered,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    synchronize_runtime_position_fixture: bool,
+) -> Result<Stage6Stage8bP1d3MigrationTransition, Stage6dLiveCoreError> {
+    if !recovered.stage8b_p1d2_truth_frontier_is_authenticated() {
+        return Err(Stage6dLiveCoreError::RestartRuntimeRequired);
+    }
+    let operational_identity = recovered
+        .authenticated_operational_identity()
+        .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?;
+    let operational_identity_sha256 = stage6d_operational_identity_sha256(operational_identity)?;
+    let authenticated_checkpoint_sha256 = recovered
+        .authenticated_checkpoint()
+        .checkpoint_sha256()
+        .to_string();
+    let pre_frontier = recovered.journal_frontier().clone();
+    let reconstruction_runtime = match &recovered.stage5_runtime {
+        Stage6dStage5RuntimeAuthority::Restart(restart) => {
+            restart.stage5g_fresh_reconstruction_candidate()
+        }
+        Stage6dStage5RuntimeAuthority::FirstBoot(_) => {
+            return Err(Stage6dLiveCoreError::RestartRuntimeRequired)
+        }
+    };
+    let Stage6dStage5RuntimeAuthority::Restart(restart) = std::mem::replace(
+        &mut recovered.stage5_runtime,
+        Stage6dStage5RuntimeAuthority::FirstBoot(Box::new(reconstruction_runtime)),
+    ) else {
+        unreachable!("P1-d3 migration source was checked above")
+    };
+    let migration = if synchronize_runtime_position_fixture {
+        #[cfg(feature = "stage5g-artifact-fixtures")]
+        {
+            crate::stage8b_p1d3_working_limit::stage8b_p1d4_test_migrate_from_position_synced_p1d2(
+                *restart,
+                operational_identity_sha256.as_str().to_string(),
+                1,
+                authenticated_checkpoint_sha256.clone(),
+                commitment_key,
+            )?
+        }
+        #[cfg(not(feature = "stage5g-artifact-fixtures"))]
+        unreachable!("position-synchronized migration is fixture-only")
+    } else {
+        crate::stage8b_p1d3_working_limit::migrate_stage8b_p1d3_from_p1d2(
+            *restart,
+            operational_identity_sha256.as_str().to_string(),
+            1,
+            authenticated_checkpoint_sha256.clone(),
+            commitment_key,
+        )?
+    };
+    recovered.stage5_runtime = Stage6dStage5RuntimeAuthority::Restart(Box::new(migration.restored));
+    recovered.refresh_after_append()?;
+    if recovered.journal_frontier() != &pre_frontier
+        || recovered.authenticated_checkpoint().checkpoint_sha256()
+            != authenticated_checkpoint_sha256
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    Ok(Stage6Stage8bP1d3MigrationTransition {
+        recovered,
+        stage5g_restart_package: migration.restart_package,
+    })
+}
+
+/// Consumes the first exact post-decision schedule observation for one
+/// canonical LIMIT command. All request, command, book, position and Stage 6
+/// identities are reread from authenticated owners. The observation is
+/// validated without effects before the sole dispatch row is appended, then
+/// its complete outcome evidence and RequestFinalized row are written before
+/// the P1-d3 ACK callback can run.
+pub fn apply_stage8b_p1d3_initial_limit_ack_transition(
+    mut recovered: Stage6dDurableRuntimeRecovered,
+    observation: crate::Stage8bP1d3InitialObservation,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1d3AckTransition, Stage6dLiveCoreError> {
+    let transition_ts_utc_ms = observation.transition_ts_utc_ms();
+    let transition_ts = Utc
+        .timestamp_millis_opt(transition_ts_utc_ms)
+        .single()
+        .ok_or(Stage6dLiveCoreError::Stage8bP1d3WorkingLimit)?;
+    let (semantic, replacement, position_basis, reconstruction_runtime, binding_v4) =
+        match &recovered.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => {
+                let semantic = restart
+                    .stage8b_p1_semantic_commit()
+                    .filter(|projection| projection.validate() && projection.intent_count == 1)
+                    .cloned()
+                    .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?;
+                let replacement = restart
+                    .stage8b_p1d3_replacement()
+                    .cloned()
+                    .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?;
+                let binding_v4 = match &observation {
+                    crate::Stage8bP1d3InitialObservation::Candidate { evidence, schedule } => {
+                        recovered
+                            .current_stage8b_p1e_schedule_binding_record()?
+                            .filter(|record| {
+                                schedule.matches_stage8b_p1e_v4_record(record, evidence)
+                            })
+                            .cloned()
+                    }
+                    crate::Stage8bP1d3InitialObservation::DayExpiry { .. } => None,
+                };
+                if let Some(record) = binding_v4.as_ref() {
+                    if recovered
+                        .stage8b_p1e_pre_binding_checkpoint(record)?
+                        .checkpoint_sha256()
+                        != replacement.authenticated_stage6_checkpoint_sha256()
+                    {
+                        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+                    }
+                } else if replacement.authenticated_stage6_checkpoint_sha256()
+                    != recovered.authenticated_checkpoint().checkpoint_sha256()
+                {
+                    return Err(Stage6dLiveCoreError::RestartRuntimeRequired);
+                }
+                let position_basis = restart
+                    .stage8b_p1d3_position_basis()
+                    .ok_or(Stage6dLiveCoreError::Stage8bP1d3WorkingLimit)?;
+                (
+                    semantic,
+                    replacement,
+                    position_basis,
+                    restart.stage5g_fresh_reconstruction_candidate(),
+                    binding_v4,
+                )
+            }
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => {
+                return Err(Stage6dLiveCoreError::RestartRuntimeRequired)
+            }
+        };
+    let request_id = semantic
+        .request_id
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let command = semantic
+        .canonical_command
+        .as_ref()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let identity = semantic
+        .durable_request_identity
+        .as_ref()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let command_snapshot = semantic
+        .durable_command_snapshot
+        .as_ref()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let canonical_command_sha256 = semantic
+        .canonical_command_sha256
+        .as_ref()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let BrokerCommand::PlaceOrder(place) = command else {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    };
+    let shape = command_snapshot
+        .place_order_shape()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let decision_m10_close_ts_utc_ms = semantic
+        .m10_redis_id
+        .strip_suffix("-0")
+        .and_then(|value| value.parse::<i64>().ok())
+        .filter(|value| *value > 0 && value.rem_euclid(600_000) == 0)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let decision_m10_open_ts_utc_ms = decision_m10_close_ts_utc_ms
+        .checked_sub(600_000)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let accepted = stage7a_accepted_record(&recovered, request_id)
+        .cloned()
+        .ok_or(Stage6dLiveCoreError::AcceptedRecordRequired)?;
+    let accepted_snapshot = match accepted.payload() {
+        Stage6JournalPayloadV1::RequestAccepted { command } => command.as_ref(),
+        _ => return Err(Stage6dLiveCoreError::AcceptedRecordRequired),
+    };
+    let replayed = recovered
+        .replay()
+        .request(request_id)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let command_sha256 = sha256_hex(
+        &serde_json::to_vec(command).map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?,
+    );
+    if request_id != place.request_id
+        || identity.strategy_request_id() != request_id
+        || identity.action() != Stage6DurableActionKind::Place
+        || identity.account_id() != replacement.working_book().account_id()
+        || identity.instrument() != replacement.working_book().instrument()
+        || identity.attribution() != replacement.working_book().attribution()
+        || accepted.durable_request_identity() != identity
+        || accepted_snapshot != command_snapshot
+        || command_sha256 != *canonical_command_sha256
+        || semantic.operational_identity_sha256
+            != replacement.working_book().operational_identity_sha256()
+        || place.account_id != *identity.account_id()
+        || place.instrument != *identity.instrument()
+        || place.client_order_id != *identity.durable_client_order_id()
+        || place.comment.as_deref() != Some(identity.attribution().internal_comment())
+        || place.order_type != broker_core::OrderType::Limit
+        || place.time_in_force != broker_core::TimeInForce::Day
+        || place.ttl_ms.is_some()
+        || shape.order_type() != broker_core::OrderType::Limit
+        || shape.time_in_force() != broker_core::TimeInForce::Day
+        || shape.side() != place.side
+        || shape.quantity() != place.qty
+        || shape.limit_price() != place.limit_price
+        || replayed.dispatch_safety_state()
+            != crate::Stage6DispatchSafetyStateV1::ReadyForFirstDispatch
+        || binding_v4.as_ref().map_or_else(
+            || {
+                replayed.last_unique_record_id() != accepted.journal_record_id()
+                    || recovered.journal_frontier().last_record_id()
+                        != Some(accepted.journal_record_id())
+            },
+            |record| {
+                replayed.last_unique_record_id() != record.journal_record_id()
+                    || recovered.journal_frontier().last_record_id()
+                        != Some(record.journal_record_id())
+            },
+        )
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    let limit_price = place
+        .limit_price
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let dispatch = if let Some(record) = binding_v4.as_ref() {
+        stage7a_dispatch_record_after(
+            identity,
+            &accepted,
+            record.lifecycle_sequence(),
+            record.journal_record_id(),
+            transition_ts,
+        )?
+    } else {
+        stage7a_dispatch_record(identity, &accepted, transition_ts)?
+    };
+    let dispatch_record_id = dispatch.journal_record_id().as_str().to_string();
+    let stage6_outcome_lifecycle_sequence = dispatch
+        .lifecycle_sequence()
+        .get()
+        .checked_add(1)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let pre_dispatch_checkpoint_sha256 = recovered
+        .authenticated_checkpoint()
+        .checkpoint_sha256()
+        .to_string();
+    let reserved_checkpoint_sha256 = stage8b_p1d3_reservation_sha256(
+        &pre_dispatch_checkpoint_sha256,
+        &dispatch_record_id,
+        request_id,
+        transition_ts_utc_ms,
+        &semantic.m10_semantic_id_sha256,
+    );
+    let preliminary = crate::stage8b_p1d3_working_limit::Stage8bP1d3InitialLimitInput {
+        operational_identity_sha256: replacement
+            .working_book()
+            .operational_identity_sha256()
+            .to_string(),
+        package_generation: replacement.working_book().package_generation(),
+        account_id: identity.account_id().clone(),
+        instrument: identity.instrument().clone(),
+        attribution: identity.attribution().clone(),
+        request_id,
+        durable_client_order_id: identity.durable_client_order_id().clone(),
+        canonical_command_sha256: canonical_command_sha256.clone(),
+        accepted_command_payload_sha256: accepted.canonical_payload_sha256().as_str().to_string(),
+        accepted_stage6_identity_sha256: "11".repeat(32),
+        decision_m10_redis_id: semantic.m10_redis_id.clone(),
+        decision_m10_semantic_id_sha256: semantic.m10_semantic_id_sha256.clone(),
+        decision_m10_payload_sha256: semantic.m10_payload_sha256.clone(),
+        decision_m10_open_ts_utc_ms,
+        decision_m10_close_ts_utc_ms,
+        side: place.side,
+        qty: place.qty,
+        limit_price,
+        pre_position_qty: position_basis.0,
+        pre_position_avg_price: position_basis.1,
+        sequence_allocation_frontier: replacement.working_book().total_sequence_frontier(),
+        stage6_dispatch_record_id: dispatch_record_id.clone(),
+        stage6_outcome_lifecycle_sequence,
+        stage6_predecessor_frontier_sha256: pre_dispatch_checkpoint_sha256,
+        stage6_reserved_checkpoint_sha256: reserved_checkpoint_sha256.clone(),
+        previous_outcome_evidence_sha256: replacement
+            .previous_outcome_evidence_sha256()
+            .to_string(),
+    };
+    crate::stage8b_p1d3_working_limit::preflight_initial_limit_transition(
+        replacement.working_book(),
+        &preliminary,
+        &observation,
+    )?;
+
+    let _dispatch_receipt = if let Some(record) = binding_v4.as_ref() {
+        prepare_stage6d_existing_accepted_paper_dispatch_after_schedule_binding(
+            &mut recovered,
+            &accepted,
+            dispatch,
+            record,
+        )?
+    } else {
+        prepare_stage6d_existing_accepted_paper_dispatch(&mut recovered, &accepted, dispatch)?
+    };
+    stage8b_p1d2_test_crash_barrier("p1d4-initial-after-dispatch-before-authority-consumption");
+    stage8b_p1d4_test_crash_frontier("F20");
+    let authority =
+        recovered.authorize_stage8a4_durable_batch_source(identity, command_snapshot)?;
+    let accepted_stage6_identity_sha256 = authority
+        .durable_request_binding_sha256()?
+        .as_str()
+        .to_string();
+    let actual = crate::stage8b_p1d3_working_limit::Stage8bP1d3InitialLimitInput {
+        accepted_stage6_identity_sha256,
+        stage6_predecessor_frontier_sha256: authority.authenticated_checkpoint_sha256().to_string(),
+        ..preliminary
+    };
+    let plan = crate::stage8b_p1d3_working_limit::build_preflighted_initial_limit_transition(
+        replacement.working_book(),
+        actual,
+        observation,
+    )?;
+    stage8b_p1d2_test_crash_barrier("p1d4-initial-after-result-before-outcome-wal");
+    stage8b_p1d4_test_crash_frontier("F02");
+    let receipt = append_stage8b_p1d3_request_outcome(&mut recovered, authority, &plan)?;
+
+    let Stage6dStage5RuntimeAuthority::Restart(restart) = std::mem::replace(
+        &mut recovered.stage5_runtime,
+        Stage6dStage5RuntimeAuthority::FirstBoot(Box::new(reconstruction_runtime)),
+    ) else {
+        unreachable!("P1-d3 restart authority was checked above")
+    };
+    let applied = crate::stage8b_p1d3_working_limit::apply_stage8b_p1d3_request_ack_stage(
+        *restart,
+        &receipt.outcome_record,
+        receipt.recovery_binding,
+        commitment_key,
+    )?;
+    recovered.stage5_runtime = Stage6dStage5RuntimeAuthority::Restart(Box::new(applied.restored));
+    recovered.refresh_after_append()?;
+    Ok(Stage6Stage8bP1d3AckTransition {
+        recovered,
+        stage5g_restart_package: applied.restart_package,
+    })
+}
+
+/// Continues an initial LIMIT after restart from the exact already-durable
+/// dispatch row.  The candidate was minted only by the exact P1-d3 classifier;
+/// this path never calls a dispatch append helper.
+pub fn resume_stage8b_p1d3_dispatch_only_limit_transition(
+    mut recovered: Stage6dDurableRuntimeRecovered,
+    candidate: Stage6Stage8bP1d3DispatchOnlyCandidate,
+    observation: crate::Stage8bP1d3InitialObservation,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1d3AckTransition, Stage6dLiveCoreError> {
+    if !candidate.is_limit_place() {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    let transition_ts_utc_ms = observation.transition_ts_utc_ms();
+    let (semantic, replacement, position_basis, reconstruction_runtime) =
+        match &recovered.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => {
+                let semantic = restart
+                    .stage8b_p1_semantic_commit()
+                    .filter(|projection| projection.validate() && projection.intent_count == 1)
+                    .cloned()
+                    .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?;
+                let replacement = restart
+                    .stage8b_p1d3_replacement()
+                    .cloned()
+                    .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?;
+                let position_basis = restart
+                    .stage8b_p1d3_position_basis()
+                    .ok_or(Stage6dLiveCoreError::Stage8bP1d3WorkingLimit)?;
+                (
+                    semantic,
+                    replacement,
+                    position_basis,
+                    restart.stage5g_fresh_reconstruction_candidate(),
+                )
+            }
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => {
+                return Err(Stage6dLiveCoreError::RestartRuntimeRequired)
+            }
+        };
+    let identity = semantic
+        .durable_request_identity
+        .as_ref()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let command_snapshot = semantic
+        .durable_command_snapshot
+        .as_ref()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let command = semantic
+        .canonical_command
+        .as_ref()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let BrokerCommand::PlaceOrder(place) = command else {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    };
+    let canonical_command_sha256 = semantic
+        .canonical_command_sha256
+        .as_ref()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let accepted = stage7a_accepted_record(&recovered, identity.strategy_request_id())
+        .cloned()
+        .ok_or(Stage6dLiveCoreError::AcceptedRecordRequired)?;
+    let decision_m10_close_ts_utc_ms = semantic
+        .m10_redis_id
+        .strip_suffix("-0")
+        .and_then(|value| value.parse::<i64>().ok())
+        .filter(|value| *value > 0 && value.rem_euclid(600_000) == 0)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let decision_m10_open_ts_utc_ms = decision_m10_close_ts_utc_ms
+        .checked_sub(600_000)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let authority =
+        recovered.authorize_stage8a4_durable_batch_source(identity, command_snapshot)?;
+    if candidate.identity() != identity
+        || candidate.command() != command
+        || candidate.command_snapshot() != command_snapshot
+        || candidate.accepted_record_id() != accepted.journal_record_id()
+        || candidate.dispatch_record_id() != authority.dispatch_record_id()
+        || candidate.dispatch_sequence() != authority.dispatch_sequence()
+        || replacement.authenticated_stage6_checkpoint_sha256()
+            != candidate.predecessor_checkpoint_sha256()
+        || recovered.journal_frontier().last_record_id() != Some(candidate.dispatch_record_id())
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    let limit_price = place
+        .limit_price
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let reserved_checkpoint_sha256 = stage8b_p1d3_reservation_sha256(
+        candidate.predecessor_checkpoint_sha256(),
+        candidate.dispatch_record_id().as_str(),
+        identity.strategy_request_id(),
+        transition_ts_utc_ms,
+        &semantic.m10_semantic_id_sha256,
+    );
+    let preliminary = crate::stage8b_p1d3_working_limit::Stage8bP1d3InitialLimitInput {
+        operational_identity_sha256: replacement
+            .working_book()
+            .operational_identity_sha256()
+            .to_string(),
+        package_generation: replacement.working_book().package_generation(),
+        account_id: identity.account_id().clone(),
+        instrument: identity.instrument().clone(),
+        attribution: identity.attribution().clone(),
+        request_id: identity.strategy_request_id(),
+        durable_client_order_id: identity.durable_client_order_id().clone(),
+        canonical_command_sha256: canonical_command_sha256.clone(),
+        accepted_command_payload_sha256: accepted.canonical_payload_sha256().as_str().to_string(),
+        accepted_stage6_identity_sha256: "11".repeat(32),
+        decision_m10_redis_id: semantic.m10_redis_id.clone(),
+        decision_m10_semantic_id_sha256: semantic.m10_semantic_id_sha256.clone(),
+        decision_m10_payload_sha256: semantic.m10_payload_sha256.clone(),
+        decision_m10_open_ts_utc_ms,
+        decision_m10_close_ts_utc_ms,
+        side: place.side,
+        qty: place.qty,
+        limit_price,
+        pre_position_qty: position_basis.0,
+        pre_position_avg_price: position_basis.1,
+        sequence_allocation_frontier: replacement.working_book().total_sequence_frontier(),
+        stage6_dispatch_record_id: candidate.dispatch_record_id().as_str().to_string(),
+        stage6_outcome_lifecycle_sequence: candidate
+            .dispatch_sequence()
+            .checked_add(1)
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?,
+        stage6_predecessor_frontier_sha256: candidate.predecessor_checkpoint_sha256().to_string(),
+        stage6_reserved_checkpoint_sha256: reserved_checkpoint_sha256,
+        previous_outcome_evidence_sha256: replacement
+            .previous_outcome_evidence_sha256()
+            .to_string(),
+    };
+    crate::stage8b_p1d3_working_limit::preflight_initial_limit_transition(
+        replacement.working_book(),
+        &preliminary,
+        &observation,
+    )?;
+    let accepted_stage6_identity_sha256 = authority
+        .durable_request_binding_sha256()?
+        .as_str()
+        .to_string();
+    let actual = crate::stage8b_p1d3_working_limit::Stage8bP1d3InitialLimitInput {
+        accepted_stage6_identity_sha256,
+        stage6_predecessor_frontier_sha256: authority.authenticated_checkpoint_sha256().to_string(),
+        ..preliminary
+    };
+    let plan = crate::stage8b_p1d3_working_limit::build_preflighted_initial_limit_transition(
+        replacement.working_book(),
+        actual,
+        observation,
+    )?;
+    stage8b_p1d2_test_crash_barrier("p1d4-initial-after-result-before-outcome-wal");
+    stage8b_p1d4_test_crash_frontier("F02");
+    let receipt = append_stage8b_p1d3_request_outcome(&mut recovered, authority, &plan)?;
+
+    let Stage6dStage5RuntimeAuthority::Restart(restart) = std::mem::replace(
+        &mut recovered.stage5_runtime,
+        Stage6dStage5RuntimeAuthority::FirstBoot(Box::new(reconstruction_runtime)),
+    ) else {
+        unreachable!("P1-d4 restart authority was checked above")
+    };
+    let applied = crate::stage8b_p1d3_working_limit::apply_stage8b_p1d3_request_ack_stage(
+        *restart,
+        &receipt.outcome_record,
+        receipt.recovery_binding,
+        commitment_key,
+    )?;
+    recovered.stage5_runtime = Stage6dStage5RuntimeAuthority::Restart(Box::new(applied.restored));
+    recovered.refresh_after_append()?;
+    Ok(Stage6Stage8bP1d3AckTransition {
+        recovered,
+        stage5g_restart_package: applied.restart_package,
+    })
+}
+
+/// Consumes only a persisted+reread P1-d3 S_ack package. No schedule,
+/// provider or Redis authority is accepted by this truth-only continuation.
+pub fn apply_stage8b_p1d3_initial_limit_truth_transition(
+    mut recovered: Stage6dDurableRuntimeRecovered,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1d3TruthTransition, Stage6dLiveCoreError> {
+    let reconstruction_runtime = match &recovered.stage5_runtime {
+        Stage6dStage5RuntimeAuthority::Restart(restart) => {
+            let replacement = restart
+                .stage8b_p1d3_replacement()
+                .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?;
+            if replacement.phase() != crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Ack
+                || replacement.authenticated_stage6_checkpoint_sha256()
+                    != recovered.authenticated_checkpoint().checkpoint_sha256()
+            {
+                return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+            }
+            restart.stage5g_fresh_reconstruction_candidate()
+        }
+        Stage6dStage5RuntimeAuthority::FirstBoot(_) => {
+            return Err(Stage6dLiveCoreError::RestartRuntimeRequired)
+        }
+    };
+    let Stage6dStage5RuntimeAuthority::Restart(restart) = std::mem::replace(
+        &mut recovered.stage5_runtime,
+        Stage6dStage5RuntimeAuthority::FirstBoot(Box::new(reconstruction_runtime)),
+    ) else {
+        unreachable!("P1-d3 ACK authority was checked above")
+    };
+    let applied = crate::stage8b_p1d3_working_limit::apply_stage8b_p1d3_truth_after_ack_stage(
+        *restart,
+        commitment_key,
+    )?;
+    recovered.stage5_runtime = Stage6dStage5RuntimeAuthority::Restart(Box::new(applied.restored));
+    recovered.refresh_after_append()?;
+    Ok(Stage6Stage8bP1d3TruthTransition {
+        recovered,
+        stage5g_restart_package: applied.restart_package,
+    })
+}
+
+/// Evaluates one authenticated later schedule observation against the active
+/// P1-d3 order. All mutable identities and sequence frontiers are recovered
+/// from the replacement package. Autonomous fill/expiry is written to Stage
+/// 6 before the terminal Stage 5G package is constructed; an untouched bar
+/// changes only the replacement package and allocates no sequence.
+pub fn apply_stage8b_p1d3_later_limit_transition(
+    mut recovered: Stage6dDurableRuntimeRecovered,
+    observation: crate::Stage8bP1d3LaterObservation,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1d3LaterTransition, Stage6dLiveCoreError> {
+    let transition_ts_utc_ms = observation.transition_ts_utc_ms();
+    let is_day_expiry = matches!(
+        &observation,
+        crate::Stage8bP1d3LaterObservation::DayExpiry { .. }
+    );
+    let v4_bound_replacement_checkpoint = match &recovered.stage5_runtime {
+        Stage6dStage5RuntimeAuthority::Restart(restart) => restart
+            .stage8b_p1d3_replacement()
+            .and_then(|replacement| {
+                recovered
+                    .stage8b_p1e_current_v4_for_replacement(replacement)
+                    .ok()
+                    .flatten()
+            })
+            .filter(|record| observation.matches_stage8b_p1e_v4_record(record))
+            .map(|_| {
+                recovered
+                    .authenticated_checkpoint()
+                    .checkpoint_sha256()
+                    .to_string()
+            }),
+        Stage6dStage5RuntimeAuthority::FirstBoot(_) => None,
+    };
+    let (replacement, position_basis, reconstruction_runtime) = match &recovered.stage5_runtime {
+        Stage6dStage5RuntimeAuthority::Restart(restart) => {
+            let replacement = restart
+                .stage8b_p1d3_replacement()
+                .filter(|replacement| {
+                    matches!(
+                        replacement.phase(),
+                        crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Working
+                            | crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Eval
+                    ) && (replacement.authenticated_stage6_checkpoint_sha256()
+                        == recovered.authenticated_checkpoint().checkpoint_sha256()
+                        || v4_bound_replacement_checkpoint.is_some())
+                })
+                .cloned()
+                .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?;
+            let position_basis = restart
+                .stage8b_p1d3_position_basis()
+                .ok_or(Stage6dLiveCoreError::Stage8bP1d3WorkingLimit)?;
+            (
+                replacement,
+                position_basis,
+                restart.stage5g_fresh_reconstruction_candidate(),
+            )
+        }
+        Stage6dStage5RuntimeAuthority::FirstBoot(_) => {
+            return Err(Stage6dLiveCoreError::RestartRuntimeRequired)
+        }
+    };
+    let active = replacement
+        .working_book()
+        .active_record()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let predecessor_checkpoint_sha256 = recovered
+        .authenticated_checkpoint()
+        .checkpoint_sha256()
+        .to_string();
+    let reservation_sha256 = stage8b_p1d3_reservation_sha256(
+        &predecessor_checkpoint_sha256,
+        active.broker_order_id().as_str(),
+        active.original_request_id(),
+        transition_ts_utc_ms,
+        replacement.previous_outcome_evidence_sha256(),
+    );
+    let input = crate::stage8b_p1d3_working_limit::Stage8bP1d3AutonomousInput {
+        operational_identity_sha256: replacement
+            .working_book()
+            .operational_identity_sha256()
+            .to_string(),
+        package_generation: replacement.working_book().package_generation(),
+        account_id: replacement.working_book().account_id().clone(),
+        instrument: replacement.working_book().instrument().clone(),
+        attribution: replacement.working_book().attribution().clone(),
+        pre_position_qty: position_basis.0,
+        pre_position_avg_price: position_basis.1,
+        sequence_allocation_frontier: replacement.working_book().total_sequence_frontier(),
+        stage6_predecessor_frontier_sha256: predecessor_checkpoint_sha256,
+        stage6_reserved_checkpoint_sha256: reservation_sha256,
+        previous_outcome_evidence_sha256: replacement
+            .previous_outcome_evidence_sha256()
+            .to_string(),
+    };
+    let evaluation_result = match observation {
+        crate::Stage8bP1d3LaterObservation::Candidate { evidence, schedule } => {
+            crate::stage8b_p1d3_working_limit::build_later_limit_transition(
+                replacement.working_book(),
+                input,
+                Some(*evidence),
+                Some(schedule),
+                None,
+            )
+        }
+        crate::Stage8bP1d3LaterObservation::DayExpiry { authority } => {
+            crate::stage8b_p1d3_working_limit::build_later_limit_transition(
+                replacement.working_book(),
+                input,
+                None,
+                None,
+                Some(authority),
+            )
+        }
+    };
+    let evaluation = evaluation_result?;
+    match evaluation {
+        crate::stage8b_p1d3_working_limit::Stage8bP1d3LaterEvaluationPlan::AlreadyEvaluated {
+            book,
+        } => {
+            if book.encode_canonical()? != replacement.working_book().encode_canonical()? {
+                return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+            }
+            Ok(Stage6Stage8bP1d3LaterTransition::AlreadyEvaluated { recovered })
+        }
+        evaluation @ crate::stage8b_p1d3_working_limit::Stage8bP1d3LaterEvaluationPlan::Untouched {
+            ..
+        } => {
+            stage8b_p1d4_test_crash_frontier("F12");
+            let Stage6dStage5RuntimeAuthority::Restart(restart) = std::mem::replace(
+                &mut recovered.stage5_runtime,
+                Stage6dStage5RuntimeAuthority::FirstBoot(Box::new(reconstruction_runtime)),
+            ) else {
+                unreachable!("P1-d3 replacement authority was checked above")
+            };
+            let applied = match v4_bound_replacement_checkpoint.clone() {
+                Some(post_binding_checkpoint) => {
+                    crate::stage8b_p1d3_working_limit::apply_stage8b_p1d3_evaluation_stage_after_schedule_binding(
+                        *restart,
+                        evaluation,
+                        replacement
+                            .authenticated_stage6_checkpoint_sha256()
+                            .to_string(),
+                        post_binding_checkpoint,
+                        commitment_key,
+                    )
+                }
+                None => crate::stage8b_p1d3_working_limit::apply_stage8b_p1d3_evaluation_stage(
+                    *restart,
+                    evaluation,
+                    commitment_key,
+                ),
+            }?;
+            let crate::stage8b_p1d3_working_limit::Stage8bP1d3EvaluationStageResult::Committed(
+                committed,
+            ) = applied
+            else {
+                return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+            };
+            recovered.stage5_runtime =
+                Stage6dStage5RuntimeAuthority::Restart(Box::new(committed.restored));
+            recovered.refresh_after_append()?;
+            Ok(Stage6Stage8bP1d3LaterTransition::EvaluationCommitted {
+                recovered,
+                stage5g_restart_package: committed.restart_package,
+            })
+        }
+        crate::stage8b_p1d3_working_limit::Stage8bP1d3LaterEvaluationPlan::Outcome(plan) => {
+            stage8b_p1d4_test_crash_frontier(if is_day_expiry { "F17" } else { "F02" });
+            let receipt = append_stage8b_p1d3_autonomous_outcome(
+                &mut recovered,
+                &plan,
+                v4_bound_replacement_checkpoint.as_deref(),
+            )?;
+            stage8b_p1d4_test_crash_frontier(if is_day_expiry { "F18" } else { "F13" });
+            let Stage6dStage5RuntimeAuthority::Restart(restart) = std::mem::replace(
+                &mut recovered.stage5_runtime,
+                Stage6dStage5RuntimeAuthority::FirstBoot(Box::new(reconstruction_runtime)),
+            ) else {
+                unreachable!("P1-d3 replacement authority was checked above")
+            };
+            let committed_result = match v4_bound_replacement_checkpoint {
+                Some(schedule_checkpoint) => {
+                    crate::stage8b_p1d3_working_limit::apply_stage8b_p1d3_autonomous_truth_stage_after_schedule_binding(
+                        *restart,
+                        &receipt.outcome_record,
+                        receipt.recovery_binding,
+                        schedule_checkpoint,
+                        commitment_key,
+                    )
+                }
+                None => {
+                    crate::stage8b_p1d3_working_limit::apply_stage8b_p1d3_autonomous_truth_stage(
+                        *restart,
+                        &receipt.outcome_record,
+                        receipt.recovery_binding,
+                        commitment_key,
+                    )
+                }
+            };
+            let committed = committed_result?;
+            recovered.stage5_runtime =
+                Stage6dStage5RuntimeAuthority::Restart(Box::new(committed.restored));
+            recovered.refresh_after_append()?;
+            stage8b_p1d4_test_crash_frontier("F07");
+            Ok(Stage6Stage8bP1d3LaterTransition::TruthCommitted {
+                recovered,
+                stage5g_restart_package: committed.restart_package,
+            })
+        }
+    }
+}
+
+/// Evaluates the first schedule-approved candidate for one authenticated
+/// CANCEL command. The target LIMIT is always evaluated first. A same-bar
+/// target fill is committed as autonomous target truth and returned for an
+/// intermediate replacement seal; all other cancel outcomes are journaled
+/// and reduced immediately to S_ack or S_cancel_recovered.
+fn canonical_stage8b_p1d3_cancel_target_client_id(
+    durable_cancel_client_order_id: &ClientOrderId,
+    supplied_target_client_order_id: Option<&ClientOrderId>,
+    authenticated_target_client_order_id: &ClientOrderId,
+) -> Result<ClientOrderId, Stage6dLiveCoreError> {
+    if durable_cancel_client_order_id == authenticated_target_client_order_id
+        || supplied_target_client_order_id
+            .is_some_and(|supplied| supplied != authenticated_target_client_order_id)
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    Ok(authenticated_target_client_order_id.clone())
+}
+
+pub fn apply_stage8b_p1d3_cancel_transition(
+    mut recovered: Stage6dDurableRuntimeRecovered,
+    candidate: crate::Stage8bP1d3CanonicalM10Evidence,
+    schedule: crate::Stage8bP1d3ScheduleStepAuthority,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1d3CancelTransition, Stage6dLiveCoreError> {
+    let (semantic, replacement, position_basis, reconstruction_runtime, binding_v4) =
+        match &recovered.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => {
+                let semantic = restart
+                    .stage8b_p1_semantic_commit()
+                    .filter(|projection| projection.validate() && projection.intent_count == 1)
+                    .cloned()
+                    .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?;
+                let replacement = restart
+                    .stage8b_p1d3_replacement()
+                    .cloned()
+                    .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?;
+                if !matches!(
+                    replacement.phase(),
+                    crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Working
+                        | crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Eval
+                        | crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Terminal
+                ) {
+                    return Err(Stage6dLiveCoreError::RestartRuntimeRequired);
+                }
+                let binding_v4 = recovered
+                    .stage8b_p1e_current_v4_for_replacement(&replacement)?
+                    .filter(|record| schedule.matches_stage8b_p1e_v4_record(record, &candidate))
+                    .cloned();
+                if replacement.authenticated_stage6_checkpoint_sha256()
+                    != recovered.authenticated_checkpoint().checkpoint_sha256()
+                    && binding_v4.is_none()
+                {
+                    return Err(Stage6dLiveCoreError::RestartRuntimeRequired);
+                }
+                let position_basis = restart
+                    .stage8b_p1d3_position_basis()
+                    .ok_or(Stage6dLiveCoreError::Stage8bP1d3WorkingLimit)?;
+                (
+                    semantic,
+                    replacement,
+                    position_basis,
+                    restart.stage5g_fresh_reconstruction_candidate(),
+                    binding_v4,
+                )
+            }
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => {
+                return Err(Stage6dLiveCoreError::RestartRuntimeRequired)
+            }
+        };
+    let request_id = semantic
+        .request_id
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let command = semantic
+        .canonical_command
+        .as_ref()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let BrokerCommand::CancelOrder(cancel) = command else {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    };
+    let identity = semantic
+        .durable_request_identity
+        .as_ref()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let command_snapshot = semantic
+        .durable_command_snapshot
+        .as_ref()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let canonical_command_sha256 = semantic
+        .canonical_command_sha256
+        .as_ref()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let decision_m10_close_ts_utc_ms = semantic
+        .m10_redis_id
+        .strip_suffix("-0")
+        .and_then(|value| value.parse::<i64>().ok())
+        .filter(|value| *value > 0 && value.rem_euclid(600_000) == 0)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let decision_m10_open_ts_utc_ms = decision_m10_close_ts_utc_ms
+        .checked_sub(600_000)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let accepted = stage7a_accepted_record(&recovered, request_id)
+        .cloned()
+        .ok_or(Stage6dLiveCoreError::AcceptedRecordRequired)?;
+    let accepted_snapshot = match accepted.payload() {
+        Stage6JournalPayloadV1::RequestAccepted { command } => command.as_ref(),
+        _ => return Err(Stage6dLiveCoreError::AcceptedRecordRequired),
+    };
+    let replayed = recovered
+        .replay()
+        .request(request_id)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let command_sha256 = sha256_hex(
+        &serde_json::to_vec(command).map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?,
+    );
+    let target_record = replacement
+        .working_book()
+        .record(&cancel.order_id)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    // The strategy command is allowed to omit the target TCID. Resolve the
+    // canonical value from the authenticated P1-d3 registry and reject a
+    // truncated cancel-DCID collision before DispatchAttemptRecorded exists.
+    let canonical_target_place_client_id = canonical_stage8b_p1d3_cancel_target_client_id(
+        identity.durable_client_order_id(),
+        cancel.client_order_id.as_ref(),
+        target_record.original_client_order_id(),
+    )?;
+    if request_id != cancel.request_id
+        || identity.strategy_request_id() != request_id
+        || identity.action() != Stage6DurableActionKind::Cancel
+        || identity.account_id() != replacement.working_book().account_id()
+        || identity.instrument() != replacement.working_book().instrument()
+        || identity.attribution().role() != Some(broker_core::HybridRuntimeOrderRole::Cancel)
+        || identity.target_broker_order_id() != Some(&cancel.order_id)
+        || identity.target_order_client_order_id() != cancel.client_order_id.as_ref()
+        || cancel.account_id != *identity.account_id()
+        || cancel.ttl_ms.is_some()
+        || cancel
+            .client_order_id
+            .as_ref()
+            .is_some_and(|value| value != target_record.original_client_order_id())
+        || accepted.durable_request_identity() != identity
+        || accepted_snapshot != command_snapshot
+        || command_sha256 != *canonical_command_sha256
+        || semantic.operational_identity_sha256
+            != replacement.working_book().operational_identity_sha256()
+        || replayed.dispatch_safety_state()
+            != crate::Stage6DispatchSafetyStateV1::ReadyForFirstDispatch
+        || binding_v4.as_ref().map_or_else(
+            || {
+                replayed.last_unique_record_id() != accepted.journal_record_id()
+                    || recovered.journal_frontier().last_record_id()
+                        != Some(accepted.journal_record_id())
+            },
+            |record| {
+                replayed.last_unique_record_id() != record.journal_record_id()
+                    || recovered.journal_frontier().last_record_id()
+                        != Some(record.journal_record_id())
+            },
+        )
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    let target_first = crate::stage8b_p1d3_working_limit::cancel_candidate_requires_target_outcome(
+        replacement.working_book(),
+        &cancel.order_id,
+        Some(&canonical_target_place_client_id),
+        decision_m10_close_ts_utc_ms,
+        &candidate,
+        &schedule,
+    )?;
+    let transition_ts = Utc
+        .timestamp_millis_opt(candidate.close_ts_utc_ms)
+        .single()
+        .ok_or(Stage6dLiveCoreError::Stage8bP1d3WorkingLimit)?;
+    let dispatch = if let Some(record) = binding_v4.as_ref() {
+        stage7a_dispatch_record_after(
+            identity,
+            &accepted,
+            record.lifecycle_sequence(),
+            record.journal_record_id(),
+            transition_ts,
+        )?
+    } else {
+        stage7a_dispatch_record(identity, &accepted, transition_ts)?
+    };
+    let dispatch_record_id = dispatch.journal_record_id().as_str().to_string();
+    let pre_dispatch_checkpoint_sha256 = recovered
+        .authenticated_checkpoint()
+        .checkpoint_sha256()
+        .to_string();
+    let target_reservation = target_first.then(|| {
+        stage8b_p1d3_reservation_sha256(
+            &pre_dispatch_checkpoint_sha256,
+            &dispatch_record_id,
+            target_record.original_request_id(),
+            candidate.close_ts_utc_ms,
+            replacement.previous_outcome_evidence_sha256(),
+        )
+    });
+    let cancel_reservation = stage8b_p1d3_reservation_sha256(
+        target_reservation
+            .as_deref()
+            .unwrap_or(pre_dispatch_checkpoint_sha256.as_str()),
+        &dispatch_record_id,
+        request_id,
+        candidate.close_ts_utc_ms,
+        replacement.previous_outcome_evidence_sha256(),
+    );
+
+    let _dispatch_receipt = if let Some(record) = binding_v4.as_ref() {
+        prepare_stage6d_existing_accepted_paper_dispatch_after_schedule_binding(
+            &mut recovered,
+            &accepted,
+            dispatch,
+            record,
+        )?
+    } else {
+        prepare_stage6d_existing_accepted_paper_dispatch(&mut recovered, &accepted, dispatch)?
+    };
+    stage8b_p1d2_test_crash_barrier("p1d4-cancel-after-dispatch-before-authority-consumption");
+    stage8b_p1d4_test_crash_frontier("F20");
+    let authority =
+        recovered.authorize_stage8a4_durable_batch_source(identity, command_snapshot)?;
+    let accepted_stage6_identity_sha256 = authority
+        .durable_request_binding_sha256()?
+        .as_str()
+        .to_string();
+    let input = crate::stage8b_p1d3_working_limit::Stage8bP1d3CancelInput {
+        operational_identity_sha256: replacement
+            .working_book()
+            .operational_identity_sha256()
+            .to_string(),
+        package_generation: replacement.working_book().package_generation(),
+        account_id: identity.account_id().clone(),
+        instrument: identity.instrument().clone(),
+        attribution: identity.attribution().clone(),
+        request_id,
+        durable_request_client_id: identity.durable_client_order_id().clone(),
+        canonical_command_sha256: canonical_command_sha256.clone(),
+        accepted_command_payload_sha256: accepted.canonical_payload_sha256().as_str().to_string(),
+        accepted_stage6_identity_sha256,
+        target_broker_order_id: cancel.order_id.clone(),
+        target_place_client_id: Some(canonical_target_place_client_id),
+        decision_m10_redis_id: semantic.m10_redis_id.clone(),
+        decision_m10_semantic_id_sha256: semantic.m10_semantic_id_sha256.clone(),
+        decision_m10_payload_sha256: semantic.m10_payload_sha256.clone(),
+        decision_m10_open_ts_utc_ms,
+        decision_m10_close_ts_utc_ms,
+        pre_position_qty: position_basis.0,
+        pre_position_avg_price: position_basis.1,
+        sequence_allocation_frontier: replacement.working_book().total_sequence_frontier(),
+        stage6_dispatch_record_id: dispatch_record_id,
+        stage6_dispatch_lifecycle_sequence: authority.dispatch_sequence(),
+        stage6_predecessor_frontier_sha256: authority.authenticated_checkpoint_sha256().to_string(),
+        target_stage6_reserved_checkpoint_sha256: target_reservation,
+        stage6_reserved_checkpoint_sha256: cancel_reservation,
+        previous_outcome_evidence_sha256: replacement
+            .previous_outcome_evidence_sha256()
+            .to_string(),
+    };
+    let plan = crate::stage8b_p1d3_working_limit::build_cancel_transition(
+        replacement.working_book(),
+        input,
+        candidate,
+        schedule,
+    )?;
+    stage8b_p1d2_test_crash_barrier("p1d4-cancel-after-result-before-outcome-wal");
+    stage8b_p1d4_test_crash_frontier("F02");
+
+    match plan {
+        crate::stage8b_p1d3_working_limit::Stage8bP1d3CancelTransitionPlan::Ready(plan) => {
+            let kind = plan.evidence.outcome_kind();
+            let receipt = append_stage8b_p1d3_request_outcome(&mut recovered, authority, &plan)?;
+            let Stage6dStage5RuntimeAuthority::Restart(restart) = std::mem::replace(
+                &mut recovered.stage5_runtime,
+                Stage6dStage5RuntimeAuthority::FirstBoot(Box::new(reconstruction_runtime)),
+            ) else {
+                unreachable!("P1-d3 restart authority was checked above")
+            };
+            let applied = crate::stage8b_p1d3_working_limit::apply_stage8b_p1d3_request_ack_stage(
+                *restart,
+                &receipt.outcome_record,
+                receipt.recovery_binding,
+                commitment_key,
+            )?;
+            recovered.stage5_runtime =
+                Stage6dStage5RuntimeAuthority::Restart(Box::new(applied.restored));
+            recovered.refresh_after_append()?;
+            if kind == crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeKind::CancelCanceled {
+                Ok(Stage6Stage8bP1d3CancelTransition::AckCommitted {
+                    recovered,
+                    stage5g_restart_package: applied.restart_package,
+                })
+            } else {
+                Ok(Stage6Stage8bP1d3CancelTransition::RecoveredCommitted {
+                    recovered,
+                    stage5g_restart_package: applied.restart_package,
+                })
+            }
+        }
+        crate::stage8b_p1d3_working_limit::Stage8bP1d3CancelTransitionPlan::TargetThenCancel {
+            target_transition,
+            ..
+        } => {
+            let receipt = append_stage8b_p1d3_cancel_target_outcome(
+                &mut recovered,
+                &authority,
+                &target_transition,
+            )?;
+            stage8b_p1d4_test_crash_frontier("F13");
+            let Stage6dStage5RuntimeAuthority::Restart(restart) = std::mem::replace(
+                &mut recovered.stage5_runtime,
+                Stage6dStage5RuntimeAuthority::FirstBoot(Box::new(reconstruction_runtime)),
+            ) else {
+                unreachable!("P1-d3 restart authority was checked above")
+            };
+            let applied =
+                crate::stage8b_p1d3_working_limit::apply_stage8b_p1d3_cancel_target_truth_stage(
+                    *restart,
+                    &receipt.outcome_record,
+                    receipt.recovery_binding,
+                    commitment_key,
+                )?;
+            recovered.stage5_runtime =
+                Stage6dStage5RuntimeAuthority::Restart(Box::new(applied.restored));
+            recovered.refresh_after_append()?;
+            Ok(Stage6Stage8bP1d3CancelTransition::TargetTruthCommitted {
+                recovered,
+                stage5g_restart_package: applied.restart_package,
+            })
+        }
+    }
+}
+
+/// Continues a canonical CANCEL after restart from its exact already-durable
+/// dispatch row.  Target-first settlement deliberately returns the existing
+/// two-stage continuation; no path in this function can append a dispatch.
+pub fn resume_stage8b_p1d3_dispatch_only_cancel_transition(
+    mut recovered: Stage6dDurableRuntimeRecovered,
+    candidate: Stage6Stage8bP1d3DispatchOnlyCandidate,
+    bar: crate::Stage8bP1d3CanonicalM10Evidence,
+    schedule: crate::Stage8bP1d3ScheduleStepAuthority,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1d3CancelTransition, Stage6dLiveCoreError> {
+    if !candidate.is_cancel() {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    let (semantic, replacement, position_basis, reconstruction_runtime) =
+        match &recovered.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => {
+                let semantic = restart
+                    .stage8b_p1_semantic_commit()
+                    .filter(|projection| projection.validate() && projection.intent_count == 1)
+                    .cloned()
+                    .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?;
+                let replacement = restart
+                    .stage8b_p1d3_replacement()
+                    .cloned()
+                    .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?;
+                let position_basis = restart
+                    .stage8b_p1d3_position_basis()
+                    .ok_or(Stage6dLiveCoreError::Stage8bP1d3WorkingLimit)?;
+                (
+                    semantic,
+                    replacement,
+                    position_basis,
+                    restart.stage5g_fresh_reconstruction_candidate(),
+                )
+            }
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => {
+                return Err(Stage6dLiveCoreError::RestartRuntimeRequired)
+            }
+        };
+    let identity = semantic
+        .durable_request_identity
+        .as_ref()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let command_snapshot = semantic
+        .durable_command_snapshot
+        .as_ref()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let command = semantic
+        .canonical_command
+        .as_ref()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let BrokerCommand::CancelOrder(cancel) = command else {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    };
+    let canonical_command_sha256 = semantic
+        .canonical_command_sha256
+        .as_ref()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let accepted = stage7a_accepted_record(&recovered, identity.strategy_request_id())
+        .cloned()
+        .ok_or(Stage6dLiveCoreError::AcceptedRecordRequired)?;
+    let target_record = replacement
+        .working_book()
+        .record(&cancel.order_id)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let canonical_target_place_client_id = canonical_stage8b_p1d3_cancel_target_client_id(
+        identity.durable_client_order_id(),
+        cancel.client_order_id.as_ref(),
+        target_record.original_client_order_id(),
+    )?;
+    let decision_m10_close_ts_utc_ms = semantic
+        .m10_redis_id
+        .strip_suffix("-0")
+        .and_then(|value| value.parse::<i64>().ok())
+        .filter(|value| *value > 0 && value.rem_euclid(600_000) == 0)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let decision_m10_open_ts_utc_ms = decision_m10_close_ts_utc_ms
+        .checked_sub(600_000)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let authority =
+        recovered.authorize_stage8a4_durable_batch_source(identity, command_snapshot)?;
+    if candidate.identity() != identity
+        || candidate.command() != command
+        || candidate.command_snapshot() != command_snapshot
+        || candidate.accepted_record_id() != accepted.journal_record_id()
+        || candidate.dispatch_record_id() != authority.dispatch_record_id()
+        || candidate.dispatch_sequence() != authority.dispatch_sequence()
+        || replacement.authenticated_stage6_checkpoint_sha256()
+            != candidate.predecessor_checkpoint_sha256()
+        || recovered.journal_frontier().last_record_id() != Some(candidate.dispatch_record_id())
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+
+    let target_first = crate::stage8b_p1d3_working_limit::cancel_candidate_requires_target_outcome(
+        replacement.working_book(),
+        &cancel.order_id,
+        Some(&canonical_target_place_client_id),
+        decision_m10_close_ts_utc_ms,
+        &bar,
+        &schedule,
+    )?;
+    let target_reservation = target_first.then(|| {
+        stage8b_p1d3_reservation_sha256(
+            candidate.predecessor_checkpoint_sha256(),
+            candidate.dispatch_record_id().as_str(),
+            target_record.original_request_id(),
+            bar.close_ts_utc_ms,
+            replacement.previous_outcome_evidence_sha256(),
+        )
+    });
+    let cancel_reservation = stage8b_p1d3_reservation_sha256(
+        target_reservation
+            .as_deref()
+            .unwrap_or(candidate.predecessor_checkpoint_sha256()),
+        candidate.dispatch_record_id().as_str(),
+        identity.strategy_request_id(),
+        bar.close_ts_utc_ms,
+        replacement.previous_outcome_evidence_sha256(),
+    );
+    let accepted_stage6_identity_sha256 = authority
+        .durable_request_binding_sha256()?
+        .as_str()
+        .to_string();
+    let input = crate::stage8b_p1d3_working_limit::Stage8bP1d3CancelInput {
+        operational_identity_sha256: replacement
+            .working_book()
+            .operational_identity_sha256()
+            .to_string(),
+        package_generation: replacement.working_book().package_generation(),
+        account_id: identity.account_id().clone(),
+        instrument: identity.instrument().clone(),
+        attribution: identity.attribution().clone(),
+        request_id: identity.strategy_request_id(),
+        durable_request_client_id: identity.durable_client_order_id().clone(),
+        canonical_command_sha256: canonical_command_sha256.clone(),
+        accepted_command_payload_sha256: accepted.canonical_payload_sha256().as_str().to_string(),
+        accepted_stage6_identity_sha256,
+        target_broker_order_id: cancel.order_id.clone(),
+        target_place_client_id: Some(canonical_target_place_client_id),
+        decision_m10_redis_id: semantic.m10_redis_id.clone(),
+        decision_m10_semantic_id_sha256: semantic.m10_semantic_id_sha256.clone(),
+        decision_m10_payload_sha256: semantic.m10_payload_sha256.clone(),
+        decision_m10_open_ts_utc_ms,
+        decision_m10_close_ts_utc_ms,
+        pre_position_qty: position_basis.0,
+        pre_position_avg_price: position_basis.1,
+        sequence_allocation_frontier: replacement.working_book().total_sequence_frontier(),
+        stage6_dispatch_record_id: candidate.dispatch_record_id().as_str().to_string(),
+        stage6_dispatch_lifecycle_sequence: authority.dispatch_sequence(),
+        stage6_predecessor_frontier_sha256: authority.authenticated_checkpoint_sha256().to_string(),
+        target_stage6_reserved_checkpoint_sha256: target_reservation,
+        stage6_reserved_checkpoint_sha256: cancel_reservation,
+        previous_outcome_evidence_sha256: replacement
+            .previous_outcome_evidence_sha256()
+            .to_string(),
+    };
+    let plan = crate::stage8b_p1d3_working_limit::build_cancel_transition(
+        replacement.working_book(),
+        input,
+        bar,
+        schedule,
+    )?;
+    stage8b_p1d2_test_crash_barrier("p1d4-cancel-after-result-before-outcome-wal");
+    stage8b_p1d4_test_crash_frontier("F02");
+
+    match plan {
+        crate::stage8b_p1d3_working_limit::Stage8bP1d3CancelTransitionPlan::Ready(plan) => {
+            let kind = plan.evidence.outcome_kind();
+            let receipt = append_stage8b_p1d3_request_outcome(&mut recovered, authority, &plan)?;
+            let Stage6dStage5RuntimeAuthority::Restart(restart) = std::mem::replace(
+                &mut recovered.stage5_runtime,
+                Stage6dStage5RuntimeAuthority::FirstBoot(Box::new(reconstruction_runtime)),
+            ) else {
+                unreachable!("P1-d4 restart authority was checked above")
+            };
+            let applied = crate::stage8b_p1d3_working_limit::apply_stage8b_p1d3_request_ack_stage(
+                *restart,
+                &receipt.outcome_record,
+                receipt.recovery_binding,
+                commitment_key,
+            )?;
+            recovered.stage5_runtime =
+                Stage6dStage5RuntimeAuthority::Restart(Box::new(applied.restored));
+            recovered.refresh_after_append()?;
+            if kind == crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeKind::CancelCanceled {
+                Ok(Stage6Stage8bP1d3CancelTransition::AckCommitted {
+                    recovered,
+                    stage5g_restart_package: applied.restart_package,
+                })
+            } else {
+                Ok(Stage6Stage8bP1d3CancelTransition::RecoveredCommitted {
+                    recovered,
+                    stage5g_restart_package: applied.restart_package,
+                })
+            }
+        }
+        crate::stage8b_p1d3_working_limit::Stage8bP1d3CancelTransitionPlan::TargetThenCancel {
+            target_transition,
+            ..
+        } => {
+            let receipt = append_stage8b_p1d3_cancel_target_outcome(
+                &mut recovered,
+                &authority,
+                &target_transition,
+            )?;
+            stage8b_p1d4_test_crash_frontier("F13");
+            stage8b_p1d4_test_crash_frontier("F07");
+            let Stage6dStage5RuntimeAuthority::Restart(restart) = std::mem::replace(
+                &mut recovered.stage5_runtime,
+                Stage6dStage5RuntimeAuthority::FirstBoot(Box::new(reconstruction_runtime)),
+            ) else {
+                unreachable!("P1-d4 restart authority was checked above")
+            };
+            let applied =
+                crate::stage8b_p1d3_working_limit::apply_stage8b_p1d3_cancel_target_truth_stage(
+                    *restart,
+                    &receipt.outcome_record,
+                    receipt.recovery_binding,
+                    commitment_key,
+                )?;
+            recovered.stage5_runtime =
+                Stage6dStage5RuntimeAuthority::Restart(Box::new(applied.restored));
+            recovered.refresh_after_append()?;
+            Ok(Stage6Stage8bP1d3CancelTransition::TargetTruthCommitted {
+                recovered,
+                stage5g_restart_package: applied.restart_package,
+            })
+        }
+    }
+}
+
+/// Continues a cancel whose first successor M10 already filled the target and
+/// whose autonomous target truth is covered by a reread `S_terminal`.  Every
+/// input needed to construct the recovered cancel outcome is reconstructed
+/// from authenticated journal/restart state; callers cannot supply another
+/// bar, schedule witness, provider result or dispatch authority.
+pub fn continue_stage8b_p1d3_cancel_after_target_transition(
+    mut recovered: Stage6dDurableRuntimeRecovered,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1d3CancelTransition, Stage6dLiveCoreError> {
+    let (semantic, replacement, position_basis, reconstruction_runtime) =
+        match &recovered.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => {
+                let semantic = restart
+                    .stage8b_p1_semantic_commit()
+                    .filter(|projection| projection.validate() && projection.intent_count == 1)
+                    .cloned()
+                    .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?;
+                let replacement = restart
+                    .stage8b_p1d3_replacement()
+                    .filter(|replacement| {
+                        replacement
+                            .pending_cancel_after_target_matches_semantic_commit(Some(&semantic))
+                            .unwrap_or(false)
+                            && replacement.authenticated_stage6_checkpoint_sha256()
+                                == recovered.authenticated_checkpoint().checkpoint_sha256()
+                    })
+                    .cloned()
+                    .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?;
+                let position_basis = restart
+                    .stage8b_p1d3_position_basis()
+                    .ok_or(Stage6dLiveCoreError::Stage8bP1d3WorkingLimit)?;
+                (
+                    semantic,
+                    replacement,
+                    position_basis,
+                    restart.stage5g_fresh_reconstruction_candidate(),
+                )
+            }
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => {
+                return Err(Stage6dLiveCoreError::RestartRuntimeRequired)
+            }
+        };
+    let request_id = semantic
+        .request_id
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let command = semantic
+        .canonical_command
+        .as_ref()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let BrokerCommand::CancelOrder(cancel) = command else {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    };
+    let identity = semantic
+        .durable_request_identity
+        .as_ref()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let command_snapshot = semantic
+        .durable_command_snapshot
+        .as_ref()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let canonical_command_sha256 = semantic
+        .canonical_command_sha256
+        .as_ref()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let accepted = stage7a_accepted_record(&recovered, request_id)
+        .cloned()
+        .ok_or(Stage6dLiveCoreError::AcceptedRecordRequired)?;
+    let accepted_snapshot = match accepted.payload() {
+        Stage6JournalPayloadV1::RequestAccepted { command } => command.as_ref(),
+        _ => return Err(Stage6dLiveCoreError::AcceptedRecordRequired),
+    };
+    let target_evidence = replacement
+        .latest_outcome_evidence()
+        .filter(|evidence| {
+            evidence.outcome_kind()
+                == crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeKind::LaterFilled
+                && evidence.request_id().is_none()
+        })
+        .cloned()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let target_record = replacement
+        .working_book()
+        .record(&cancel.order_id)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let canonical_target_place_client_id = canonical_stage8b_p1d3_cancel_target_client_id(
+        identity.durable_client_order_id(),
+        cancel.client_order_id.as_ref(),
+        target_record.original_client_order_id(),
+    )?;
+    let authority =
+        recovered.authorize_stage8a4_durable_batch_source(identity, command_snapshot)?;
+    let accepted_stage6_identity_sha256 = authority
+        .durable_request_binding_sha256()?
+        .as_str()
+        .to_string();
+    let command_sha256 = sha256_hex(
+        &serde_json::to_vec(command).map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?,
+    );
+    let decision_m10_close_ts_utc_ms = semantic
+        .m10_redis_id
+        .strip_suffix("-0")
+        .and_then(|value| value.parse::<i64>().ok())
+        .filter(|value| *value > 0 && value.rem_euclid(600_000) == 0)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let decision_m10_open_ts_utc_ms = decision_m10_close_ts_utc_ms
+        .checked_sub(600_000)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let target_evidence_sha256 = target_evidence.digest_sha256()?;
+    let cancel_reservation = stage8b_p1d3_reservation_sha256(
+        target_evidence.stage6_reserved_checkpoint_sha256(),
+        authority.dispatch_record_id().as_str(),
+        request_id,
+        target_evidence.transition_received_ts_utc_ms(),
+        target_evidence.previous_outcome_evidence_sha256(),
+    );
+    if identity.action() != Stage6DurableActionKind::Cancel
+        || identity.strategy_request_id() != request_id
+        || identity.target_broker_order_id() != Some(&cancel.order_id)
+        || accepted.durable_request_identity() != identity
+        || accepted_snapshot != command_snapshot
+        || command_sha256 != *canonical_command_sha256
+        || target_evidence.broker_order_id() != &cancel.order_id
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    let input = crate::stage8b_p1d3_working_limit::Stage8bP1d3CancelInput {
+        operational_identity_sha256: replacement
+            .working_book()
+            .operational_identity_sha256()
+            .to_string(),
+        package_generation: replacement.working_book().package_generation(),
+        account_id: identity.account_id().clone(),
+        instrument: identity.instrument().clone(),
+        attribution: identity.attribution().clone(),
+        request_id,
+        durable_request_client_id: identity.durable_client_order_id().clone(),
+        canonical_command_sha256: canonical_command_sha256.clone(),
+        accepted_command_payload_sha256: accepted.canonical_payload_sha256().as_str().to_string(),
+        accepted_stage6_identity_sha256,
+        target_broker_order_id: cancel.order_id.clone(),
+        target_place_client_id: Some(canonical_target_place_client_id),
+        decision_m10_redis_id: semantic.m10_redis_id.clone(),
+        decision_m10_semantic_id_sha256: semantic.m10_semantic_id_sha256.clone(),
+        decision_m10_payload_sha256: semantic.m10_payload_sha256.clone(),
+        decision_m10_open_ts_utc_ms,
+        decision_m10_close_ts_utc_ms,
+        pre_position_qty: position_basis.0,
+        pre_position_avg_price: position_basis.1,
+        sequence_allocation_frontier: replacement.working_book().total_sequence_frontier(),
+        stage6_dispatch_record_id: authority.dispatch_record_id().as_str().to_string(),
+        stage6_dispatch_lifecycle_sequence: authority.dispatch_sequence(),
+        stage6_predecessor_frontier_sha256: authority.authenticated_checkpoint_sha256().to_string(),
+        target_stage6_reserved_checkpoint_sha256: None,
+        stage6_reserved_checkpoint_sha256: cancel_reservation,
+        previous_outcome_evidence_sha256: target_evidence_sha256,
+    };
+    let plan = crate::stage8b_p1d3_working_limit::build_cancel_after_target_transition(
+        replacement.working_book(),
+        input,
+        &target_evidence,
+    )?;
+    let receipt = append_stage8b_p1d3_request_outcome(&mut recovered, authority, &plan)?;
+    let Stage6dStage5RuntimeAuthority::Restart(restart) = std::mem::replace(
+        &mut recovered.stage5_runtime,
+        Stage6dStage5RuntimeAuthority::FirstBoot(Box::new(reconstruction_runtime)),
+    ) else {
+        unreachable!("P1-d3 cancel continuation authority was checked above")
+    };
+    let applied = crate::stage8b_p1d3_working_limit::apply_stage8b_p1d3_request_ack_stage(
+        *restart,
+        &receipt.outcome_record,
+        receipt.recovery_binding,
+        commitment_key,
+    )?;
+    recovered.stage5_runtime = Stage6dStage5RuntimeAuthority::Restart(Box::new(applied.restored));
+    recovered.refresh_after_append()?;
+    Ok(Stage6Stage8bP1d3CancelTransition::RecoveredCommitted {
+        recovered,
+        stage5g_restart_package: applied.restart_package,
+    })
+}
+
+/// Completes the sole pre-seal P1-d3 recovery path from an already durable
+/// V3 outcome.  The candidate contains the exact embedded outcome evidence;
+/// this function never accepts schedule, market-data or provider input and
+/// therefore cannot repeat the external decision after a crash.
+#[doc(hidden)]
+pub fn resume_stage8b_p1d3_initial_limit_ack_transition(
+    recovered: Stage6dDurableRuntimeRecovered,
+    candidate: Stage6Stage8bP1d3JournalAheadCandidate,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1d3AckTransition, Stage6dLiveCoreError> {
+    let Stage6Stage8bP1d3RecoveredTransition::AckCommitted(transition) =
+        resume_stage8b_p1d3_journal_ahead_transition(recovered, candidate, commitment_key)?
+    else {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    };
+    Ok(transition)
+}
+
+/// Reconstructs the exact replacement transition selected by an authenticated
+/// P1-d3 journal-ahead suffix. Request outcomes resolve through ACK; an
+/// autonomous outcome resolves through truth. A target fill under a sealed
+/// cancel semantic remains a no-input cancel continuation after its target
+/// replacement has been committed.
+pub fn resume_stage8b_p1d3_journal_ahead_transition(
+    mut recovered: Stage6dDurableRuntimeRecovered,
+    candidate: Stage6Stage8bP1d3JournalAheadCandidate,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1d3RecoveredTransition, Stage6dLiveCoreError> {
+    let (reconstruction_runtime, schedule_checkpoint) = match &recovered.stage5_runtime {
+        Stage6dStage5RuntimeAuthority::Restart(restart)
+            if restart.stage8b_p1d3_replacement().is_some() =>
+        {
+            let replacement = restart
+                .stage8b_p1d3_replacement()
+                .expect("guarded replacement exists");
+            (
+                restart.stage5g_fresh_reconstruction_candidate(),
+                recovered.stage8b_p1e_schedule_checkpoint_before_journal_ahead_outcome(
+                    replacement,
+                    &candidate.outcome_record,
+                )?,
+            )
+        }
+        _ => return Err(Stage6dLiveCoreError::RestartRuntimeRequired),
+    };
+    let receipt = resume_stage8b_p1d3_journal_ahead_candidate(&mut recovered, candidate)?;
+    let evidence =
+        crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeEvidenceV1::decode_canonical(
+            receipt.outcome_record.outcome_evidence_bytes(),
+        )?;
+    let request_scoped = evidence.is_request_scoped();
+    let cancel_target = !request_scoped
+        && matches!(
+            &recovered.stage5_runtime,
+            Stage6dStage5RuntimeAuthority::Restart(restart)
+                if restart.stage8b_p1_semantic_commit().is_some_and(|semantic| {
+                    matches!(
+                        semantic.canonical_command.as_ref(),
+                        Some(BrokerCommand::CancelOrder(cancel))
+                            if cancel.order_id == *evidence.broker_order_id()
+                    )
+                })
+        );
+    let Stage6dStage5RuntimeAuthority::Restart(restart) = std::mem::replace(
+        &mut recovered.stage5_runtime,
+        Stage6dStage5RuntimeAuthority::FirstBoot(Box::new(reconstruction_runtime)),
+    ) else {
+        unreachable!("P1-d3 restart authority was checked above")
+    };
+    let applied = if request_scoped {
+        crate::stage8b_p1d3_working_limit::apply_stage8b_p1d3_request_ack_stage(
+            *restart,
+            &receipt.outcome_record,
+            receipt.recovery_binding,
+            commitment_key,
+        )
+    } else if cancel_target {
+        crate::stage8b_p1d3_working_limit::apply_stage8b_p1d3_cancel_target_truth_stage(
+            *restart,
+            &receipt.outcome_record,
+            receipt.recovery_binding,
+            commitment_key,
+        )
+    } else if let Some(schedule_checkpoint) = schedule_checkpoint {
+        crate::stage8b_p1d3_working_limit::apply_stage8b_p1d3_autonomous_truth_stage_after_schedule_binding(
+            *restart,
+            &receipt.outcome_record,
+            receipt.recovery_binding,
+            schedule_checkpoint,
+            commitment_key,
+        )
+    } else {
+        crate::stage8b_p1d3_working_limit::apply_stage8b_p1d3_autonomous_truth_stage(
+            *restart,
+            &receipt.outcome_record,
+            receipt.recovery_binding,
+            commitment_key,
+        )
+    };
+    let applied = applied?;
+    recovered.stage5_runtime = Stage6dStage5RuntimeAuthority::Restart(Box::new(applied.restored));
+    recovered.refresh_after_append()?;
+    let transition = Stage6Stage8bP1d3TruthTransition {
+        recovered,
+        stage5g_restart_package: applied.restart_package,
+    };
+    let restart_phase = transition.recovered.stage8b_p1d3_restart_phase();
+    match restart_phase {
+        Some(Stage6Stage8bP1d3RestartPhase::ReadyForEvaluation) => {
+            Ok(Stage6Stage8bP1d3RecoveredTransition::Ready(transition))
+        }
+        Some(Stage6Stage8bP1d3RestartPhase::AckCommitted) => Ok(
+            Stage6Stage8bP1d3RecoveredTransition::AckCommitted(Stage6Stage8bP1d3AckTransition {
+                recovered: transition.recovered,
+                stage5g_restart_package: transition.stage5g_restart_package,
+            }),
+        ),
+        Some(Stage6Stage8bP1d3RestartPhase::TruthCommitted) => Ok(
+            Stage6Stage8bP1d3RecoveredTransition::TruthCommitted(transition),
+        ),
+        Some(Stage6Stage8bP1d3RestartPhase::CancelContinuationPending) => {
+            Ok(Stage6Stage8bP1d3RecoveredTransition::CancelContinuationPending(transition))
+        }
+        Some(Stage6Stage8bP1d3RestartPhase::SemanticCallbackPending) => {
+            Ok(Stage6Stage8bP1d3RecoveredTransition::SemanticCallbackPending(transition))
+        }
+        _ => Err(Stage6dLiveCoreError::DurableOrderingViolation),
+    }
+}
+
+/// Appends one request-scoped P1-d3 outcome as a single V3 write-ahead fact,
+/// rereads it through mixed replay, then appends the exact Stage 7
+/// `RequestFinalized` record. No Stage 5G ACK/truth reducer is reachable until
+/// both records and the resulting checkpoint have been authenticated.
+pub(crate) fn append_stage8b_p1d3_request_outcome(
+    recovered: &mut Stage6dDurableRuntimeRecovered,
+    authority: Stage6DurableRequestAuthorityV1,
+    plan: &crate::stage8b_p1d3_working_limit::Stage8bP1d3TransitionPlan,
+) -> Result<Stage6Stage8bP1d3OutcomeAppendReceipt, Stage6dLiveCoreError> {
+    if plan.evidence.encode_canonical()? != plan.evidence_bytes
+        || plan.evidence.digest_sha256()? != plan.evidence_sha256
+        || authority.durable_frontier_sha256()
+            != frontier_fingerprint(recovered.journal_frontier())?
+        || authority.authenticated_checkpoint_sha256()
+            != recovered.authenticated_checkpoint().checkpoint_sha256()
+        || plan.evidence.stage6_predecessor_checkpoint_sha256()
+            != authority.authenticated_checkpoint_sha256()
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    plan.evidence.validate_request_authority(&authority)?;
+
+    let prior_record_id = recovered
+        .journal_frontier()
+        .last_record_id()
+        .cloned()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let prior_sequence = recovered
+        .journal_frontier()
+        .last_lifecycle_sequence()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let outcome_sequence = Stage6LifecycleSequence::new(
+        prior_sequence
+            .get()
+            .checked_add(1)
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?,
+    )?;
+    let outcome_record = Stage6JournalRecordV3::from_p1d3_outcome_evidence(
+        outcome_sequence,
+        prior_record_id,
+        plan.evidence_bytes.clone(),
+    )?;
+    let observed_at = Utc
+        .timestamp_millis_opt(plan.evidence.transition_received_ts_utc_ms())
+        .single()
+        .ok_or(Stage6dLiveCoreError::Stage8bP1d3WorkingLimit)?;
+    let finalized = stage7a_request_finalization_record(
+        authority.identity().clone(),
+        outcome_record.journal_record_id().clone(),
+        outcome_sequence.get(),
+        observed_at,
+        Stage6RequestFinalDispositionV1::Completed,
+    )?;
+    let Some((expected_finalized_id, expected_finalized_fingerprint)) =
+        plan.evidence.stage7_request_finalized_binding()
+    else {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    };
+    if finalized.journal_record_id().as_str() != expected_finalized_id
+        || finalized.source_evidence_sha256().as_str() != expected_finalized_fingerprint
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+
+    recovered
+        .journal_mut()
+        .append_versioned(&Stage6JournalRecordVersioned::V3(outcome_record.clone()))
+        .map_err(classify_stage8a4_append_error)?;
+    recovered
+        .refresh_after_append()
+        .map_err(|_| Stage6dLiveCoreError::JournalMutationMayHaveOccurred)?;
+    let after_outcome = recovered
+        .replay()
+        .request(authority.identity().strategy_request_id())
+        .ok_or(Stage6dLiveCoreError::JournalMutationMayHaveOccurred)?;
+    if after_outcome.last_unique_record_id() != outcome_record.journal_record_id()
+        || after_outcome.last_unique_sequence() != outcome_sequence.get()
+        || after_outcome.final_disposition().is_some()
+        || after_outcome.dispatch_safety_state()
+            != crate::Stage6DispatchSafetyStateV1::DispatchForbidden
+    {
+        return Err(Stage6dLiveCoreError::JournalMutationMayHaveOccurred);
+    }
+    stage8b_p1d4_test_crash_frontier("F03");
+
+    recovered
+        .journal_mut()
+        .append(&finalized)
+        .map_err(classify_stage8a4_append_error)?;
+    recovered
+        .refresh_after_append()
+        .map_err(|_| Stage6dLiveCoreError::JournalMutationMayHaveOccurred)?;
+    let after_finalized = recovered
+        .replay()
+        .request(authority.identity().strategy_request_id())
+        .ok_or(Stage6dLiveCoreError::JournalMutationMayHaveOccurred)?;
+    if after_finalized.last_unique_record_id() != finalized.journal_record_id()
+        || after_finalized.last_unique_sequence() != finalized.lifecycle_sequence().get()
+        || after_finalized.final_disposition() != Some(Stage6RequestFinalDispositionV1::Completed)
+    {
+        return Err(Stage6dLiveCoreError::JournalMutationMayHaveOccurred);
+    }
+    stage8b_p1d4_test_crash_frontier("F04");
+
+    let recovery_binding = crate::stage8b_p1d3_working_limit::Stage8bP1d3Stage6RecoveryBinding {
+        outcome_record_id: outcome_record.journal_record_id().as_str().to_string(),
+        predecessor_frontier_sha256: plan
+            .evidence
+            .stage6_predecessor_checkpoint_sha256()
+            .to_string(),
+        reserved_checkpoint_sha256: plan
+            .evidence
+            .stage6_reserved_checkpoint_sha256()
+            .to_string(),
+        request_finalized_record_id: Some(finalized.journal_record_id().as_str().to_string()),
+        request_finalized_fingerprint_sha256: Some(
+            finalized.source_evidence_sha256().as_str().to_string(),
+        ),
+        authenticated_post_checkpoint_sha256: recovered
+            .authenticated_checkpoint()
+            .checkpoint_sha256()
+            .to_string(),
+    };
+    outcome_record.authenticate_p1d3_outcome(recovery_binding.clone())?;
+    Ok(Stage6Stage8bP1d3OutcomeAppendReceipt {
+        outcome_record,
+        recovery_binding,
+    })
+}
+
+/// Appends one autonomous later-fill/expiry outcome. The authenticated
+/// Stage5G replacement package supplies the exact pre-book and Stage 6
+/// predecessor checkpoint; the outcome carries no request-finalization row.
+pub(crate) fn append_stage8b_p1d3_autonomous_outcome(
+    recovered: &mut Stage6dDurableRuntimeRecovered,
+    plan: &crate::stage8b_p1d3_working_limit::Stage8bP1d3TransitionPlan,
+    authenticated_schedule_checkpoint_sha256: Option<&str>,
+) -> Result<Stage6Stage8bP1d3OutcomeAppendReceipt, Stage6dLiveCoreError> {
+    if plan.evidence.is_request_scoped()
+        || plan.evidence.stage7_request_finalized_binding().is_some()
+        || plan.evidence.encode_canonical()? != plan.evidence_bytes
+        || plan.evidence.digest_sha256()? != plan.evidence_sha256
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    let restart = match &recovered.stage5_runtime {
+        Stage6dStage5RuntimeAuthority::Restart(restart) => restart,
+        Stage6dStage5RuntimeAuthority::FirstBoot(_) => {
+            return Err(Stage6dLiveCoreError::RestartRuntimeRequired)
+        }
+    };
+    let replacement = restart
+        .stage8b_p1d3_replacement()
+        .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?;
+    let replacement_checkpoint_is_current = replacement.authenticated_stage6_checkpoint_sha256()
+        == recovered.authenticated_checkpoint().checkpoint_sha256();
+    let replacement_checkpoint_is_exact_v4_predecessor = authenticated_schedule_checkpoint_sha256
+        .is_some_and(|checkpoint| {
+            checkpoint == recovered.authenticated_checkpoint().checkpoint_sha256()
+                && replacement.authenticated_stage6_checkpoint_sha256() != checkpoint
+        });
+    if !matches!(
+        replacement.phase(),
+        crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Working
+            | crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Eval
+    ) || replacement.working_book().canonical_sha256()? != plan.evidence.pre_book_sha256()
+        || (!replacement_checkpoint_is_current && !replacement_checkpoint_is_exact_v4_predecessor)
+        || plan.evidence.stage6_predecessor_checkpoint_sha256()
+            != recovered.authenticated_checkpoint().checkpoint_sha256()
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    let prior_record_id = recovered
+        .journal_frontier()
+        .last_record_id()
+        .cloned()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let prior_sequence = recovered
+        .journal_frontier()
+        .last_lifecycle_sequence()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let outcome_record = Stage6JournalRecordV3::from_p1d3_outcome_evidence(
+        Stage6LifecycleSequence::new(
+            prior_sequence
+                .get()
+                .checked_add(1)
+                .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?,
+        )?,
+        prior_record_id,
+        plan.evidence_bytes.clone(),
+    )?;
+    recovered
+        .journal_mut()
+        .append_versioned(&Stage6JournalRecordVersioned::V3(outcome_record.clone()))
+        .map_err(classify_stage8a4_append_error)?;
+    recovered
+        .refresh_after_append()
+        .map_err(|_| Stage6dLiveCoreError::JournalMutationMayHaveOccurred)?;
+    if recovered.journal_frontier().last_record_id() != Some(outcome_record.journal_record_id())
+        || recovered.journal_frontier().last_lifecycle_sequence()
+            != Some(outcome_record.lifecycle_sequence())
+    {
+        return Err(Stage6dLiveCoreError::JournalMutationMayHaveOccurred);
+    }
+    let recovery_binding = crate::stage8b_p1d3_working_limit::Stage8bP1d3Stage6RecoveryBinding {
+        outcome_record_id: outcome_record.journal_record_id().as_str().to_string(),
+        predecessor_frontier_sha256: plan
+            .evidence
+            .stage6_predecessor_checkpoint_sha256()
+            .to_string(),
+        reserved_checkpoint_sha256: plan
+            .evidence
+            .stage6_reserved_checkpoint_sha256()
+            .to_string(),
+        request_finalized_record_id: None,
+        request_finalized_fingerprint_sha256: None,
+        authenticated_post_checkpoint_sha256: recovered
+            .authenticated_checkpoint()
+            .checkpoint_sha256()
+            .to_string(),
+    };
+    outcome_record.authenticate_p1d3_outcome(recovery_binding.clone())?;
+    Ok(Stage6Stage8bP1d3OutcomeAppendReceipt {
+        outcome_record,
+        recovery_binding,
+    })
+}
+
+/// Appends only the autonomous target-fill fact that may precede a cancel
+/// outcome. The cancel dispatch is already durable, but the target fact does
+/// not settle that request. Its replacement S_terminal must be committed and
+/// reread before the cancel continuation can be built.
+fn append_stage8b_p1d3_cancel_target_outcome(
+    recovered: &mut Stage6dDurableRuntimeRecovered,
+    cancel_authority: &Stage6DurableRequestAuthorityV1,
+    plan: &crate::stage8b_p1d3_working_limit::Stage8bP1d3TransitionPlan,
+) -> Result<Stage6Stage8bP1d3OutcomeAppendReceipt, Stage6dLiveCoreError> {
+    if plan.evidence.is_request_scoped()
+        || plan.evidence.outcome_kind()
+            != crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeKind::LaterFilled
+        || plan.evidence.stage7_request_finalized_binding().is_some()
+        || plan.evidence.encode_canonical()? != plan.evidence_bytes
+        || plan.evidence.digest_sha256()? != plan.evidence_sha256
+        || cancel_authority.identity().action() != Stage6DurableActionKind::Cancel
+        || cancel_authority.identity().target_broker_order_id()
+            != Some(plan.evidence.broker_order_id())
+        || cancel_authority.durable_frontier_sha256()
+            != frontier_fingerprint(recovered.journal_frontier())?
+        || cancel_authority.authenticated_checkpoint_sha256()
+            != recovered.authenticated_checkpoint().checkpoint_sha256()
+        || plan.evidence.stage6_predecessor_checkpoint_sha256()
+            != cancel_authority.authenticated_checkpoint_sha256()
+        || recovered.journal_frontier().last_record_id()
+            != Some(cancel_authority.dispatch_record_id())
+        || recovered
+            .journal_frontier()
+            .last_lifecycle_sequence()
+            .map(|value| value.get())
+            != Some(cancel_authority.dispatch_sequence())
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    let restart = match &recovered.stage5_runtime {
+        Stage6dStage5RuntimeAuthority::Restart(restart) => restart,
+        Stage6dStage5RuntimeAuthority::FirstBoot(_) => {
+            return Err(Stage6dLiveCoreError::RestartRuntimeRequired)
+        }
+    };
+    let replacement = restart
+        .stage8b_p1d3_replacement()
+        .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?;
+    if replacement.working_book().canonical_sha256()? != plan.evidence.pre_book_sha256()
+        || !restart
+            .stage8b_p1_semantic_commit()
+            .is_some_and(|semantic| {
+                matches!(
+                    semantic.canonical_command.as_ref(),
+                    Some(BrokerCommand::CancelOrder(cancel))
+                        if cancel.request_id == cancel_authority.identity().strategy_request_id()
+                            && cancel.order_id == *plan.evidence.broker_order_id()
+                )
+            })
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    let outcome_record = Stage6JournalRecordV3::from_p1d3_outcome_evidence(
+        Stage6LifecycleSequence::new(
+            cancel_authority
+                .dispatch_sequence()
+                .checked_add(1)
+                .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?,
+        )?,
+        cancel_authority.dispatch_record_id().clone(),
+        plan.evidence_bytes.clone(),
+    )?;
+    recovered
+        .journal_mut()
+        .append_versioned(&Stage6JournalRecordVersioned::V3(outcome_record.clone()))
+        .map_err(classify_stage8a4_append_error)?;
+    recovered
+        .refresh_after_append()
+        .map_err(|_| Stage6dLiveCoreError::JournalMutationMayHaveOccurred)?;
+    if recovered.journal_frontier().last_record_id() != Some(outcome_record.journal_record_id())
+        || recovered.journal_frontier().last_lifecycle_sequence()
+            != Some(outcome_record.lifecycle_sequence())
+    {
+        return Err(Stage6dLiveCoreError::JournalMutationMayHaveOccurred);
+    }
+    let recovery_binding = crate::stage8b_p1d3_working_limit::Stage8bP1d3Stage6RecoveryBinding {
+        outcome_record_id: outcome_record.journal_record_id().as_str().to_string(),
+        predecessor_frontier_sha256: plan
+            .evidence
+            .stage6_predecessor_checkpoint_sha256()
+            .to_string(),
+        reserved_checkpoint_sha256: plan
+            .evidence
+            .stage6_reserved_checkpoint_sha256()
+            .to_string(),
+        request_finalized_record_id: None,
+        request_finalized_fingerprint_sha256: None,
+        authenticated_post_checkpoint_sha256: recovered
+            .authenticated_checkpoint()
+            .checkpoint_sha256()
+            .to_string(),
+    };
+    outcome_record.authenticate_p1d3_outcome(recovery_binding.clone())?;
+    Ok(Stage6Stage8bP1d3OutcomeAppendReceipt {
+        outcome_record,
+        recovery_binding,
+    })
+}
+
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+fn stage8b_p1d4_pre_kill_audit_sha256(
+    root: &std::path::Path,
+    marker: &std::path::Path,
+    cell_id: &str,
+    scenario_id: &str,
+    frontier_id: &str,
+    phase: &str,
+) -> String {
+    fn collect(
+        root: &std::path::Path,
+        directory: &std::path::Path,
+        marker: &std::path::Path,
+        files: &mut Vec<(String, Vec<u8>)>,
+    ) {
+        let mut entries = std::fs::read_dir(directory)
+            .expect("P1-d4 audit directory must be readable")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("P1-d4 audit entries must be readable");
+        entries.sort_by_key(std::fs::DirEntry::file_name);
+        for entry in entries {
+            let path = entry.path();
+            if path == marker
+                || entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".p1d4-marker-")
+            {
+                continue;
+            }
+            let file_type = entry
+                .file_type()
+                .expect("P1-d4 audit file type must be readable");
+            assert!(!file_type.is_symlink(), "P1-d4 audit rejects symlinks");
+            if file_type.is_dir() {
+                collect(root, &path, marker, files);
+            } else if file_type.is_file() {
+                let relative = path
+                    .strip_prefix(root)
+                    .expect("P1-d4 audit path must remain under its root")
+                    .to_str()
+                    .expect("P1-d4 audit path must be UTF-8")
+                    .to_string();
+                files.push((
+                    relative,
+                    std::fs::read(&path).expect("P1-d4 audit file must be readable"),
+                ));
+            } else {
+                panic!("P1-d4 audit rejects special files");
+            }
+        }
+    }
+
+    fn frame(hasher: &mut Sha256, bytes: &[u8]) {
+        hasher.update((bytes.len() as u64).to_be_bytes());
+        hasher.update(bytes);
+    }
+
+    let mut files = Vec::new();
+    collect(root, root, marker, &mut files);
+    files.sort_by(|left, right| left.0.as_bytes().cmp(right.0.as_bytes()));
+    let mut hasher = Sha256::new();
+    hasher.update(b"moex.stage8b.p1d4.pre-kill-audit.v1\0");
+    for value in [cell_id, scenario_id, frontier_id, phase] {
+        frame(&mut hasher, value.as_bytes());
+    }
+    for (path, bytes) in files {
+        frame(&mut hasher, path.as_bytes());
+        frame(&mut hasher, &bytes);
+    }
+    format!("{:x}", hasher.finalize())
+}
+
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+fn stage8b_p1d2_test_crash_barrier(phase: &str) {
+    if std::env::var("STAGE8B_P1_TEST_CRASH_PHASE").as_deref() != Ok(phase) {
+        return;
+    }
+    let marker = std::path::PathBuf::from(
+        std::env::var_os("STAGE8B_P1_TEST_CRASH_MARKER")
+            .expect("P1-d2 crash child requires a marker path"),
+    );
+    let parent = marker
+        .parent()
+        .expect("P1 crash marker requires a parent directory");
+    let temporary = parent.join(format!(".p1d4-marker-{}.tmp", std::process::id()));
+    let bytes = if let Ok(frontier_id) = std::env::var("STAGE8B_P1D4_FRONTIER_ID") {
+        let cell_id = std::env::var("STAGE8B_P1D4_CELL_ID")
+            .expect("P1-d4 crash child requires the exact registry cell ID");
+        let scenario_id = std::env::var("STAGE8B_P1D4_SCENARIO_ID")
+            .expect("P1-d4 crash child requires the exact registry scenario ID");
+        let audit_root = std::path::PathBuf::from(
+            std::env::var_os("STAGE8B_P1_TEST_PARENT")
+                .expect("P1-d4 crash child requires its audit root"),
+        );
+        let pre_kill_audit_sha256 = stage8b_p1d4_pre_kill_audit_sha256(
+            &audit_root,
+            &marker,
+            &cell_id,
+            &scenario_id,
+            &frontier_id,
+            phase,
+        );
+        let canonical_cell_id = cell_id
+            .strip_prefix("P1D4C-")
+            .or_else(|| cell_id.strip_prefix("P1D4GM-"))
+            .is_some_and(|suffix| {
+                suffix.len() == 3 && suffix.bytes().all(|byte| byte.is_ascii_digit())
+            });
+        assert!(
+            canonical_cell_id,
+            "P1-d4 crash marker cell ID must be canonical"
+        );
+        assert!(
+            scenario_id.len() == 3
+                && scenario_id.starts_with('S')
+                && scenario_id[1..].bytes().all(|byte| byte.is_ascii_digit()),
+            "P1-d4 crash marker scenario ID must be canonical"
+        );
+        let canonical_frontier_id = frontier_id
+            .strip_prefix('F')
+            .or_else(|| frontier_id.strip_prefix("GM"))
+            .is_some_and(|suffix| {
+                suffix.len() == 2 && suffix.bytes().all(|byte| byte.is_ascii_digit())
+            });
+        assert!(
+            canonical_frontier_id,
+            "P1-d4 crash marker frontier ID must be canonical"
+        );
+        assert!(
+            phase.starts_with("p1d4-")
+                && phase
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'),
+            "P1-d4 crash marker hook name must be canonical"
+        );
+        assert!(
+            pre_kill_audit_sha256.len() == 64
+                && pre_kill_audit_sha256
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+            "P1-d4 pre-kill audit digest must be lowercase hexadecimal"
+        );
+        assert_ne!(
+            frontier_id, "F16",
+            "P1-d4 F16 must be emitted only after the Redis XACK reply is observed"
+        );
+        format!(
+            "{{\"cell_id\":\"{cell_id}\",\"child_pid\":{},\"domain\":\"moex.stage8b.p1d4.crash-marker.v1\",\"frontier_id\":\"{frontier_id}\",\"kill_hook_name\":\"{phase}\",\"pre_kill_audit_sha256\":\"{pre_kill_audit_sha256}\",\"scenario_id\":\"{scenario_id}\",\"schema_version\":1}}",
+            std::process::id()
+        )
+    } else {
+        format!("{{\"phase\":\"{phase}\",\"pid\":{}}}\n", std::process::id())
+    };
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)
+        .expect("P1 crash marker temporary file must be created exactly once");
+    std::io::Write::write_all(&mut file, bytes.as_bytes())
+        .expect("P1 crash marker bytes must be written completely");
+    file.sync_all()
+        .expect("P1 crash marker temporary file must be durable");
+    std::fs::rename(&temporary, &marker).expect("P1 crash marker rename must be atomic");
+    std::fs::File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .expect("P1 crash marker parent directory must be durable");
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+}
+
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+pub(crate) fn stage8b_p1d4_test_crash_frontier(frontier_id: &str) {
+    if std::env::var("STAGE8B_P1D4_ARMED").as_deref() != Ok("1")
+        || std::env::var("STAGE8B_P1D4_FRONTIER_ID").as_deref() != Ok(frontier_id)
+    {
+        return;
+    }
+    let phase = std::env::var("STAGE8B_P1_TEST_CRASH_PHASE")
+        .expect("P1-d4 frontier child requires the exact registry hook name");
+    stage8b_p1d2_test_crash_barrier(&phase);
+}
+
+#[cfg(not(any(test, feature = "stage5g-artifact-fixtures")))]
+#[inline(always)]
+pub(crate) fn stage8b_p1d4_test_crash_frontier(_: &str) {}
+
+#[cfg(not(any(test, feature = "stage5g-artifact-fixtures")))]
+#[inline(always)]
+fn stage8b_p1d2_test_crash_barrier(_: &str) {}
+
+fn validate_stage8b_p1_projection_source(
+    projection: &Stage5gP1SemanticCommitProjectionV1,
+    source: &Stage6Stage8bP1SealSourceV1,
+    prior_stage5_checkpoint_sha256: &str,
+    expected_intent_count: usize,
+) -> Result<(), Stage6dLiveCoreError> {
+    if !projection.validate()
+        || projection.intent_count != expected_intent_count
+        || projection.operational_identity_sha256 != source.operational_identity_sha256
+        || projection.prior_stage5g_checkpoint_sha256 != prior_stage5_checkpoint_sha256
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    Ok(())
+}
+
+fn stage8b_p1_request_accepted_source_evidence(
+    projection: &Stage5gP1SemanticCommitProjectionV1,
+    source: &Stage6Stage8bP1SealSourceV1,
+    expected_record_id: &Stage6JournalRecordId,
+) -> Result<Stage6Sha256Digest, Stage6dLiveCoreError> {
+    let request_id = projection
+        .request_id
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let command_sha256 = projection
+        .canonical_command_sha256
+        .as_deref()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let bytes = serde_json::to_vec(&Stage8bP1RequestAcceptedBindingV1 {
+        schema_version: STAGE8B_P1_REQUEST_ACCEPTED_BINDING_SCHEMA_VERSION,
+        domain: STAGE8B_P1_REQUEST_ACCEPTED_BINDING_DOMAIN,
+        source_seal_generation: source.seal_generation,
+        source_seal_commitment_sha256: &source.seal_commitment_sha256,
+        source_stage6_checkpoint_sha256: &source.stage6_checkpoint_sha256,
+        source_stage6_frontier_sha256: &source.stage6_frontier_sha256,
+        operational_identity_sha256: &source.operational_identity_sha256,
+        m10_redis_id: &projection.m10_redis_id,
+        m10_semantic_id_sha256: &projection.m10_semantic_id_sha256,
+        m10_payload_sha256: &projection.m10_payload_sha256,
+        semantic_batch_id_sha256: &projection.semantic_batch_id_sha256,
+        strategy_request_id: request_id,
+        canonical_command_sha256: command_sha256,
+        expected_request_accepted_record_id: expected_record_id.as_str(),
+    })
+    .map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?;
+    Stage6Sha256Digest::parse(sha256_hex(&bytes))
+        .map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)
+}
+
+fn projected_checkpoint_after_append(
+    recovered: &Stage6dDurableRuntimeRecovered,
+    record: &Stage6JournalRecordV1,
+) -> Result<String, Stage6dLiveCoreError> {
+    let bytes = recovered.journal.framed_bytes()?;
+    let mut projected = Stage6MemoryJournalBackend::from_framed_bytes(bytes)?;
+    projected.append(record)?;
+    Ok(
+        Stage6JournalCheckpointV1::from_frontier(projected.frontier().clone())?
+            .checkpoint_sha256()
+            .to_string(),
+    )
+}
+
+fn stage8b_p1_commit_evidence(
+    projection: &Stage5gP1SemanticCommitProjectionV1,
+    accepted: Option<&Stage6JournalRecordV1>,
+) -> Stage6Stage8bP1SemanticCommitEvidenceV1 {
+    Stage6Stage8bP1SemanticCommitEvidenceV1 {
+        schema_version: STAGE8B_P1_REQUEST_ACCEPTED_BINDING_SCHEMA_VERSION,
+        semantic_batch_id_sha256: projection.semantic_batch_id_sha256.clone(),
+        m10_redis_id: projection.m10_redis_id.clone(),
+        m10_semantic_id_sha256: projection.m10_semantic_id_sha256.clone(),
+        m10_payload_sha256: projection.m10_payload_sha256.clone(),
+        intent_count: projection.intent_count,
+        strategy_request_id: projection.request_id,
+        canonical_command_sha256: projection.canonical_command_sha256.clone(),
+        request_accepted_record_id: accepted
+            .map(|record| record.journal_record_id().as_str().to_string()),
+        request_accepted_source_evidence_sha256: accepted
+            .map(|record| record.source_evidence_sha256().as_str().to_string()),
+    }
+}
+
+/// Classifies only the structural Stage 6 half of the P1 journal-ahead crash
+/// frontier.  The outer P1 owner must still prove the exact pending M10 and
+/// reproduce the source-evidence digest before it may commit S1.
+pub fn classify_stage8b_p1_journal_ahead_candidate(
+    records: &[Stage6JournalRecordVersioned],
+    s0_checkpoint: &Stage6JournalCheckpointV1,
+) -> Result<Option<Stage6Stage8bP1JournalAheadCandidate>, Stage6dLiveCoreError> {
+    let prefix_len: usize = s0_checkpoint
+        .frontier()
+        .frame_count()
+        .try_into()
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+    if records.len() != prefix_len.saturating_add(1) {
+        return Ok(None);
+    }
+    let mut prefix = Stage6MemoryJournalBackend::new();
+    for record in records.iter().take(prefix_len) {
+        prefix.append_versioned(record)?;
+    }
+    if prefix.validate_checkpoint(s0_checkpoint).is_err() {
+        return Ok(None);
+    }
+    let Stage6JournalRecordVersioned::V1(accepted) = &records[prefix_len] else {
+        return Ok(None);
+    };
+    let command = match accepted.payload() {
+        Stage6JournalPayloadV1::RequestAccepted { command } => command.as_ref().clone(),
+        _ => return Ok(None),
+    };
+    if accepted.event_kind() != Stage6JournalEventKind::RequestAccepted
+        || accepted.lifecycle_sequence().get() != 1
+        || accepted.previous_record_id().is_some()
+        || accepted.causal_parent_id().is_some()
+    {
+        return Ok(None);
+    }
+    let replay = Stage6MixedReplayEngineV2::replay(records)?;
+    let request = replay
+        .requests()
+        .iter()
+        .find(|request| {
+            request.strategy_request_id()
+                == accepted.durable_request_identity().strategy_request_id()
+        })
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    if request.dispatch_safety_state() != crate::Stage6DispatchSafetyStateV1::ReadyForFirstDispatch
+        || request.final_disposition().is_some()
+        || request.last_unique_record_id() != accepted.journal_record_id()
+        || request.last_unique_sequence() != 1
+    {
+        return Ok(None);
+    }
+    Ok(Some(Stage6Stage8bP1JournalAheadCandidate {
+        identity: accepted.durable_request_identity().clone(),
+        command,
+        record_id: accepted.journal_record_id().clone(),
+        source_evidence_sha256: accepted.source_evidence_sha256().clone(),
+    }))
+}
+
+/// Classifies exactly one uncovered Stage 8B-P1-e V4 schedule binding. No
+/// other suffix is recoverable through this path: mixed versions, additional
+/// records, causal drift and sequence drift fail closed.
+pub fn classify_stage8b_p1e_schedule_journal_ahead_candidate(
+    records: &[Stage6JournalRecordVersioned],
+    predecessor_checkpoint: &Stage6JournalCheckpointV1,
+) -> Result<Option<crate::Stage6JournalRecordV4>, Stage6dLiveCoreError> {
+    let prefix_len: usize = predecessor_checkpoint
+        .frontier()
+        .frame_count()
+        .try_into()
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+    if records.len() != prefix_len.saturating_add(1) {
+        return Ok(None);
+    }
+    let mut prefix = Stage6MemoryJournalBackend::new();
+    for record in records.iter().take(prefix_len) {
+        prefix.append_versioned(record)?;
+    }
+    if prefix.validate_checkpoint(predecessor_checkpoint).is_err() {
+        return Ok(None);
+    }
+    let Some(previous_record_id) = prefix.frontier().last_record_id() else {
+        return Ok(None);
+    };
+    let Some(previous_sequence) = prefix.frontier().last_lifecycle_sequence() else {
+        return Ok(None);
+    };
+    let Stage6JournalRecordVersioned::V4(candidate) = &records[prefix_len] else {
+        return Ok(None);
+    };
+    if candidate.previous_record_id() != previous_record_id
+        || candidate.lifecycle_sequence().get()
+            != previous_sequence
+                .get()
+                .checked_add(1)
+                .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+    {
+        return Ok(None);
+    }
+    let replay = Stage6MixedReplayEngineV2::replay(records)?;
+    if replay.schedule_binding_records().len() != 1
+        || replay
+            .schedule_binding_records()
+            .last()
+            .map(crate::Stage6JournalRecordV4::encode_canonical)
+            != Some(candidate.encode_canonical())
+    {
+        return Ok(None);
+    }
+    Ok(Some(candidate.clone()))
+}
+
+/// Classifies only the two recoverable pre-S_ack Stage 6 shapes:
+/// dispatch/order/trade, with or without the final RequestFinalized record.
+/// Any extra, reordered, mixed-version or differently bound record is not a
+/// recovery candidate.
+pub fn classify_stage8b_p1d2_journal_ahead_candidate(
+    records: &[Stage6JournalRecordVersioned],
+    s_ack_predecessor_checkpoint: &Stage6JournalCheckpointV1,
+) -> Result<Option<Stage6Stage8bP1d2JournalAheadCandidate>, Stage6dLiveCoreError> {
+    let prefix_len: usize = s_ack_predecessor_checkpoint
+        .frontier()
+        .frame_count()
+        .try_into()
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let suffix_len = records.len().saturating_sub(prefix_len);
+    if !matches!(suffix_len, 3 | 4) || records.len() < prefix_len {
+        return Ok(None);
+    }
+    let mut prefix = Stage6MemoryJournalBackend::new();
+    for record in records.iter().take(prefix_len) {
+        prefix.append_versioned(record)?;
+    }
+    if prefix
+        .validate_checkpoint(s_ack_predecessor_checkpoint)
+        .is_err()
+    {
+        return Ok(None);
+    }
+    let Some(previous_record_id) = prefix.frontier().last_record_id().cloned() else {
+        return Ok(None);
+    };
+    let Some(previous_sequence) = prefix.frontier().last_lifecycle_sequence() else {
+        return Ok(None);
+    };
+    let suffix = records
+        .get(prefix_len..)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let mut v1 = Vec::with_capacity(suffix.len());
+    for record in suffix {
+        let Stage6JournalRecordVersioned::V1(record) = record else {
+            return Ok(None);
+        };
+        v1.push(record);
+    }
+    let [dispatch, order, trade, rest @ ..] = v1.as_slice() else {
+        return Ok(None);
+    };
+    let identity = dispatch.durable_request_identity();
+    let accepted = prefix.records().iter().find(|record| {
+        record.event_kind() == Stage6JournalEventKind::RequestAccepted
+            && record.durable_request_identity().strategy_request_id()
+                == identity.strategy_request_id()
+    });
+    let Some(accepted) = accepted else {
+        return Ok(None);
+    };
+    let accepted_command_sha256 = accepted.canonical_payload_sha256();
+    let dispatch_matches = matches!(
+        dispatch.payload(),
+        Stage6JournalPayloadV1::DispatchAttemptRecorded {
+            attempt_ordinal: 1,
+            accepted_request_payload_sha256,
+        } if accepted_request_payload_sha256 == accepted_command_sha256
+    );
+    let broker_order_id = match order.payload() {
+        Stage6JournalPayloadV1::BrokerOrderObserved { broker_order_id } => broker_order_id,
+        _ => return Ok(None),
+    };
+    let broker_trade_id = match trade.payload() {
+        Stage6JournalPayloadV1::BrokerTradeObserved {
+            broker_trade_id,
+            broker_order_id: trade_order_id,
+        } if trade_order_id == broker_order_id => broker_trade_id,
+        _ => return Ok(None),
+    };
+    let request_finalized = match rest {
+        [] => false,
+        [finalized]
+            if matches!(
+                finalized.payload(),
+                Stage6JournalPayloadV1::RequestFinalized {
+                    disposition: Stage6RequestFinalDispositionV1::Completed,
+                }
+            ) =>
+        {
+            true
+        }
+        _ => return Ok(None),
+    };
+    let same_identity = v1
+        .iter()
+        .all(|record| record.durable_request_identity() == identity);
+    let exact_chain = v1.iter().enumerate().all(|(index, record)| {
+        let expected_sequence = previous_sequence.get() + index as u64 + 1;
+        let expected_previous = if index == 0 {
+            &previous_record_id
+        } else {
+            v1[index - 1].journal_record_id()
+        };
+        record.lifecycle_sequence().get() == expected_sequence
+            && record.previous_record_id() == Some(expected_previous)
+            && record.causal_parent_id() == Some(expected_previous)
+    });
+    if !dispatch_matches
+        || !same_identity
+        || !exact_chain
+        || (accepted.journal_record_id() != &previous_record_id
+            && !stage8b_p1e_dispatch_follows_exact_schedule_binding_records(
+                records, accepted, identity, dispatch,
+            ))
+        || identity.action() != Stage6DurableActionKind::Place
+        || order.source_evidence_sha256() != trade.source_evidence_sha256()
+    {
+        return Ok(None);
+    }
+    let replay = Stage6MixedReplayEngineV2::replay(records)?;
+    let Some(request) = replay
+        .requests()
+        .iter()
+        .find(|request| request.strategy_request_id() == identity.strategy_request_id())
+    else {
+        return Ok(None);
+    };
+    if request.action() != Stage6DurableActionKind::Place
+        || request.dispatch_attempt_count() != 1
+        || request.dispatch_safety_state() != crate::Stage6DispatchSafetyStateV1::DispatchForbidden
+        || request.known_broker_order_id() != Some(broker_order_id)
+        || request.observed_broker_trade_ids() != [broker_trade_id.clone()]
+        || request.cancel_outcome().is_some()
+        || request.conflict_observed()
+        || request.final_disposition()
+            != request_finalized.then_some(Stage6RequestFinalDispositionV1::Completed)
+        || request.last_unique_record_id()
+            != v1
+                .last()
+                .expect("P1-d2 classifier has a non-empty suffix")
+                .journal_record_id()
+    {
+        return Ok(None);
+    }
+    Ok(Some(Stage6Stage8bP1d2JournalAheadCandidate {
+        identity: identity.clone(),
+        broker_order_id: broker_order_id.clone(),
+        broker_trade_id: broker_trade_id.clone(),
+        request_finalized,
+    }))
+}
+
+/// Classifies the four generated-Market V1 suffixes admitted by the P1-d4
+/// package-aware restart contract. The caller must separately authenticate a
+/// valid P1-d4 Prepublication package; this function intentionally cannot
+/// turn an ordinary P1-d2 package into P1-d4 authority.
+pub fn classify_stage8b_p1d4_generated_market_journal_ahead_candidate(
+    records: &[Stage6JournalRecordVersioned],
+    predecessor_checkpoint: &Stage6JournalCheckpointV1,
+) -> Result<Option<Stage6Stage8bP1d4JournalAheadCandidate>, Stage6dLiveCoreError> {
+    let prefix_len: usize = predecessor_checkpoint
+        .frontier()
+        .frame_count()
+        .try_into()
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+    if records.len() < prefix_len || !matches!(records.len() - prefix_len, 1..=4) {
+        return Ok(None);
+    }
+    let mut prefix = Stage6MemoryJournalBackend::new();
+    for record in records.iter().take(prefix_len) {
+        prefix.append_versioned(record)?;
+    }
+    if prefix.validate_checkpoint(predecessor_checkpoint).is_err() {
+        return Ok(None);
+    }
+    let Some(accepted) = prefix.records().last() else {
+        return Ok(None);
+    };
+    let Stage6JournalPayloadV1::RequestAccepted { command } = accepted.payload() else {
+        return Ok(None);
+    };
+    let identity = accepted.durable_request_identity();
+    let Some(shape) = command.place_order_shape() else {
+        return Ok(None);
+    };
+    if accepted.event_kind() != Stage6JournalEventKind::RequestAccepted
+        || identity.action() != Stage6DurableActionKind::Place
+        || shape.order_type() != broker_core::OrderType::Market
+        || shape.time_in_force() != broker_core::TimeInForce::Day
+        || shape.limit_price().is_some()
+        || shape.quantity() <= broker_core::Quantity::ZERO
+    {
+        return Ok(None);
+    }
+    let suffix = records
+        .get(prefix_len..)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let mut v1 = Vec::with_capacity(suffix.len());
+    for record in suffix {
+        let Stage6JournalRecordVersioned::V1(record) = record else {
+            return Ok(None);
+        };
+        v1.push(record);
+    }
+    let dispatch = v1[0];
+    let dispatch_matches = matches!(
+        dispatch.payload(),
+        Stage6JournalPayloadV1::DispatchAttemptRecorded {
+            attempt_ordinal: 1,
+            accepted_request_payload_sha256,
+        } if accepted_request_payload_sha256 == accepted.canonical_payload_sha256()
+    );
+    let exact_chain = v1.iter().enumerate().all(|(index, record)| {
+        let expected_sequence = accepted.lifecycle_sequence().get() + index as u64 + 1;
+        let expected_previous = if index == 0 {
+            accepted.journal_record_id()
+        } else {
+            v1[index - 1].journal_record_id()
+        };
+        record.durable_request_identity() == identity
+            && record.lifecycle_sequence().get() == expected_sequence
+            && record.previous_record_id() == Some(expected_previous)
+            && record.causal_parent_id() == Some(expected_previous)
+    });
+    if dispatch.event_kind() != Stage6JournalEventKind::DispatchAttemptRecorded
+        || !dispatch_matches
+        || !exact_chain
+    {
+        return Ok(None);
+    }
+    let broker_order_id = match v1.get(1) {
+        None => None,
+        Some(order) => match order.payload() {
+            Stage6JournalPayloadV1::BrokerOrderObserved { broker_order_id } => {
+                Some(broker_order_id.clone())
+            }
+            _ => return Ok(None),
+        },
+    };
+    let broker_trade_id = match v1.get(2) {
+        None => None,
+        Some(trade) => match trade.payload() {
+            Stage6JournalPayloadV1::BrokerTradeObserved {
+                broker_trade_id,
+                broker_order_id: trade_order_id,
+            } if Some(trade_order_id) == broker_order_id.as_ref() => Some(broker_trade_id.clone()),
+            _ => return Ok(None),
+        },
+    };
+    if let (Some(order), Some(trade)) = (v1.get(1), v1.get(2)) {
+        if order.source_evidence_sha256() != trade.source_evidence_sha256() {
+            return Ok(None);
+        }
+    }
+    if let Some(finalized) = v1.get(3) {
+        if !matches!(
+            finalized.payload(),
+            Stage6JournalPayloadV1::RequestFinalized {
+                disposition: Stage6RequestFinalDispositionV1::Completed,
+            }
+        ) {
+            return Ok(None);
+        }
+    }
+    let kind = match v1.len() {
+        1 => Stage6Stage8bP1d4JournalAheadKind::DispatchOnly,
+        2 => Stage6Stage8bP1d4JournalAheadKind::OrderOnly,
+        3 => Stage6Stage8bP1d4JournalAheadKind::PreFinalization,
+        4 => Stage6Stage8bP1d4JournalAheadKind::PreAck,
+        _ => return Ok(None),
+    };
+    let replay = Stage6MixedReplayEngineV2::replay(records)?;
+    let Some(request) = replay
+        .requests()
+        .iter()
+        .find(|request| request.strategy_request_id() == identity.strategy_request_id())
+    else {
+        return Ok(None);
+    };
+    let expected_dispatch_state = if kind == Stage6Stage8bP1d4JournalAheadKind::DispatchOnly {
+        crate::Stage6DispatchSafetyStateV1::ReconciliationRequired
+    } else {
+        crate::Stage6DispatchSafetyStateV1::DispatchForbidden
+    };
+    if request.action() != Stage6DurableActionKind::Place
+        || request.dispatch_attempt_count() != 1
+        || request.dispatch_safety_state() != expected_dispatch_state
+        || request.known_broker_order_id() != broker_order_id.as_ref()
+        || request.observed_broker_trade_ids()
+            != broker_trade_id.clone().into_iter().collect::<Vec<_>>()
+        || request.cancel_outcome().is_some()
+        || request.conflict_observed()
+        || request.final_disposition()
+            != (kind == Stage6Stage8bP1d4JournalAheadKind::PreAck)
+                .then_some(Stage6RequestFinalDispositionV1::Completed)
+        || request.last_unique_record_id()
+            != v1
+                .last()
+                .expect("P1-d4 generated-Market suffix is non-empty")
+                .journal_record_id()
+    {
+        return Ok(None);
+    }
+    Ok(Some(Stage6Stage8bP1d4JournalAheadCandidate {
+        identity: identity.clone(),
+        kind,
+        broker_order_id,
+        broker_trade_id,
+        dispatch_record_id: dispatch.journal_record_id().clone(),
+        predecessor_checkpoint_sha256: predecessor_checkpoint.checkpoint_sha256().to_string(),
+    }))
+}
+
+/// Classifies the narrow crash frontier where a P1-d3 request has exactly one
+/// durable dispatch row and no outcome.  Classification is intentionally
+/// performed against the reconstructed authenticated runtime so a structurally
+/// valid row cannot opt a Market or malformed command into P1-d3 recovery.
+pub fn classify_stage8b_p1d3_dispatch_only_candidate(
+    recovered: &Stage6dDurableRuntimeRecovered,
+    predecessor_checkpoint: &Stage6JournalCheckpointV1,
+) -> Result<Option<Stage6Stage8bP1d3DispatchOnlyCandidate>, Stage6dLiveCoreError> {
+    let records = recovered.journal.versioned_records();
+    let prefix_len: usize = predecessor_checkpoint
+        .frontier()
+        .frame_count()
+        .try_into()
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+    if records.len() != prefix_len.saturating_add(1) {
+        return Ok(None);
+    }
+
+    let mut prefix = Stage6MemoryJournalBackend::new();
+    for record in records.iter().take(prefix_len) {
+        prefix.append_versioned(record)?;
+    }
+    if prefix.validate_checkpoint(predecessor_checkpoint).is_err() {
+        return Ok(None);
+    }
+    let Some(accepted) = prefix.records().last() else {
+        return Ok(None);
+    };
+    let Stage6JournalRecordVersioned::V1(dispatch) = &records[prefix_len] else {
+        return Ok(None);
+    };
+    let command_snapshot = match accepted.payload() {
+        Stage6JournalPayloadV1::RequestAccepted { command } => command.as_ref(),
+        _ => return Ok(None),
+    };
+    let identity = accepted.durable_request_identity();
+    let dispatch_payload_matches = matches!(
+        dispatch.payload(),
+        Stage6JournalPayloadV1::DispatchAttemptRecorded {
+            attempt_ordinal: 1,
+            accepted_request_payload_sha256,
+        } if accepted_request_payload_sha256 == accepted.canonical_payload_sha256()
+    );
+    if accepted.event_kind() != Stage6JournalEventKind::RequestAccepted
+        || dispatch.event_kind() != Stage6JournalEventKind::DispatchAttemptRecorded
+        || !dispatch_payload_matches
+        || dispatch.durable_request_identity() != identity
+        || dispatch.previous_record_id() != Some(accepted.journal_record_id())
+        || dispatch.causal_parent_id() != Some(accepted.journal_record_id())
+        || dispatch.lifecycle_sequence().get()
+            != accepted
+                .lifecycle_sequence()
+                .get()
+                .checked_add(1)
+                .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+        || recovered.journal_frontier().last_record_id() != Some(dispatch.journal_record_id())
+    {
+        return Ok(None);
+    }
+
+    let current_checkpoint =
+        Stage6JournalCheckpointV1::from_frontier(recovered.journal_frontier().clone())?;
+    if recovered.authenticated_checkpoint() != &current_checkpoint {
+        return Ok(None);
+    }
+    let replay = Stage6MixedReplayEngineV2::replay(records)?;
+    let Some(request) = replay
+        .requests()
+        .iter()
+        .find(|request| request.strategy_request_id() == identity.strategy_request_id())
+    else {
+        return Ok(None);
+    };
+    if request.durable_client_order_id() != identity.durable_client_order_id()
+        || request.action() != identity.action()
+        || request.dispatch_attempt_count() != 1
+        || request.dispatch_safety_state()
+            != crate::Stage6DispatchSafetyStateV1::ReconciliationRequired
+        || request.final_disposition().is_some()
+        || request.conflict_observed()
+        || request.last_unique_record_id() != dispatch.journal_record_id()
+    {
+        return Ok(None);
+    }
+
+    let Stage6dStage5RuntimeAuthority::Restart(restart) = &recovered.stage5_runtime else {
+        return Ok(None);
+    };
+    let Some(semantic) = restart
+        .stage8b_p1_semantic_commit()
+        .filter(|projection| projection.validate() && projection.intent_count == 1)
+    else {
+        return Ok(None);
+    };
+    let Some(replacement) = restart.stage8b_p1d3_replacement() else {
+        return Ok(None);
+    };
+    if replacement.validate().is_err()
+        || replacement.authenticated_stage6_checkpoint_sha256()
+            != predecessor_checkpoint.checkpoint_sha256()
+    {
+        return Ok(None);
+    }
+    let Some(command) = semantic.canonical_command.as_ref() else {
+        return Ok(None);
+    };
+    let Some(semantic_identity) = semantic.durable_request_identity.as_ref() else {
+        return Ok(None);
+    };
+    let Some(semantic_snapshot) = semantic.durable_command_snapshot.as_ref() else {
+        return Ok(None);
+    };
+    let Some(canonical_command_sha256) = semantic.canonical_command_sha256.as_deref() else {
+        return Ok(None);
+    };
+    let operational_identity_sha256 = recovered
+        .authenticated_operational_identity()
+        .map(stage6d_operational_identity_sha256)
+        .transpose()?
+        .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?;
+    let book = replacement.working_book();
+    let command_sha256 = sha256_hex(
+        &serde_json::to_vec(command).map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?,
+    );
+    if semantic_identity != identity
+        || semantic_snapshot != command_snapshot
+        || !command_snapshot.matches_broker_command(identity, command)
+        || command_sha256 != canonical_command_sha256
+        || semantic.request_id != Some(identity.strategy_request_id())
+        || semantic.operational_identity_sha256 != operational_identity_sha256.as_str()
+        || book.operational_identity_sha256() != operational_identity_sha256.as_str()
+        || book.account_id() != identity.account_id()
+        || book.instrument() != identity.instrument()
+        || book.package_generation() == 0
+    {
+        return Ok(None);
+    }
+
+    let exact_domain = match command {
+        BrokerCommand::PlaceOrder(place) => {
+            let shape = command_snapshot.place_order_shape();
+            identity.action() == Stage6DurableActionKind::Place
+                && place.request_id == identity.strategy_request_id()
+                && place.account_id == *identity.account_id()
+                && place.instrument == *identity.instrument()
+                && place.client_order_id == *identity.durable_client_order_id()
+                && place.comment.as_deref() == Some(identity.attribution().internal_comment())
+                && identity.attribution() == book.attribution()
+                && place.order_type == broker_core::OrderType::Limit
+                && place.time_in_force == broker_core::TimeInForce::Day
+                && place.ttl_ms.is_none()
+                && place.qty > broker_core::Quantity::ZERO
+                && place.qty.fract().is_zero()
+                && place
+                    .limit_price
+                    .is_some_and(|price| price > broker_core::Price::ZERO)
+                && shape.is_some_and(|shape| {
+                    shape.order_type() == broker_core::OrderType::Limit
+                        && shape.time_in_force() == broker_core::TimeInForce::Day
+                        && shape.side() == place.side
+                        && shape.quantity() == place.qty
+                        && shape.limit_price() == place.limit_price
+                })
+        }
+        BrokerCommand::CancelOrder(cancel) => {
+            let Some(target) = book.record(&cancel.order_id) else {
+                return Ok(None);
+            };
+            let target_attribution = book.attribution();
+            identity.action() == Stage6DurableActionKind::Cancel
+                && identity.attribution().role()
+                    == Some(broker_core::HybridRuntimeOrderRole::Cancel)
+                && identity.attribution().strategy_id() == target_attribution.strategy_id()
+                && identity.attribution().cycle_id() == target_attribution.cycle_id()
+                && identity.attribution().owner() == target_attribution.owner()
+                && cancel.request_id == identity.strategy_request_id()
+                && cancel.account_id == *identity.account_id()
+                && cancel.ttl_ms.is_none()
+                && identity.target_broker_order_id() == Some(&cancel.order_id)
+                && identity.target_order_client_order_id() == cancel.client_order_id.as_ref()
+                && cancel.client_order_id.as_ref().map_or(true, |supplied| {
+                    supplied == target.original_client_order_id()
+                })
+                && identity.durable_client_order_id() != target.original_client_order_id()
+        }
+    };
+    if !exact_domain {
+        return Ok(None);
+    }
+
+    Ok(Some(Stage6Stage8bP1d3DispatchOnlyCandidate {
+        identity: identity.clone(),
+        command: command.clone(),
+        command_snapshot: command_snapshot.clone(),
+        accepted_record_id: accepted.journal_record_id().clone(),
+        dispatch_record_id: dispatch.journal_record_id().clone(),
+        dispatch_sequence: dispatch.lifecycle_sequence().get(),
+        predecessor_checkpoint_sha256: predecessor_checkpoint.checkpoint_sha256().to_string(),
+    }))
+}
+
+/// Classifies exactly one uncovered P1-d3 V3 outcome, optionally followed by
+/// its request-scoped Stage 7 finalization. The predecessor checkpoint is
+/// rebuilt from the durable prefix; no provider/schedule/Redis input is
+/// accepted by this recovery path.
+pub fn classify_stage8b_p1d3_journal_ahead_candidate(
+    records: &[Stage6JournalRecordVersioned],
+    predecessor_checkpoint: &Stage6JournalCheckpointV1,
+) -> Result<Option<Stage6Stage8bP1d3JournalAheadCandidate>, Stage6dLiveCoreError> {
+    let prefix_len: usize = predecessor_checkpoint
+        .frontier()
+        .frame_count()
+        .try_into()
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+    if records.len() < prefix_len || !matches!(records.len() - prefix_len, 1..=3) {
+        return Ok(None);
+    }
+    let mut prefix = Stage6MemoryJournalBackend::new();
+    for record in records.iter().take(prefix_len) {
+        prefix.append_versioned(record)?;
+    }
+    if prefix.validate_checkpoint(predecessor_checkpoint).is_err() {
+        return Ok(None);
+    }
+    let Some(previous_record_id) = prefix.frontier().last_record_id().cloned() else {
+        return Ok(None);
+    };
+    let Some(previous_sequence) = prefix.frontier().last_lifecycle_sequence() else {
+        return Ok(None);
+    };
+    let suffix = &records[prefix_len..];
+    let (dispatch, outcome_record, rest) = match suffix {
+        [Stage6JournalRecordVersioned::V3(outcome), rest @ ..] => (None, outcome, rest),
+        [Stage6JournalRecordVersioned::V1(dispatch), Stage6JournalRecordVersioned::V3(outcome), rest @ ..]
+            if dispatch.event_kind() == Stage6JournalEventKind::DispatchAttemptRecorded =>
+        {
+            (Some(dispatch), outcome, rest)
+        }
+        _ => return Ok(None),
+    };
+    let evidence =
+        crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeEvidenceV1::decode_canonical(
+            outcome_record.outcome_evidence_bytes(),
+        )?;
+
+    let request_effect = evidence.stage6_request_replay_effect()?;
+    let request_finalized = match request_effect {
+        None => {
+            if !rest.is_empty() || evidence.stage7_request_finalized_binding().is_some() {
+                return Ok(None);
+            }
+            match dispatch {
+                None => {
+                    if evidence.stage6_predecessor_checkpoint_sha256()
+                        != predecessor_checkpoint.checkpoint_sha256()
+                        || outcome_record.previous_record_id() != &previous_record_id
+                        || outcome_record.lifecycle_sequence().get()
+                            != previous_sequence
+                                .get()
+                                .checked_add(1)
+                                .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+                    {
+                        return Ok(None);
+                    }
+                }
+                Some(dispatch) => {
+                    let Some(accepted) = prefix.records().last() else {
+                        return Ok(None);
+                    };
+                    let identity = accepted.durable_request_identity();
+                    let dispatch_payload_matches = matches!(
+                        dispatch.payload(),
+                        Stage6JournalPayloadV1::DispatchAttemptRecorded {
+                            attempt_ordinal: 1,
+                            accepted_request_payload_sha256,
+                        } if accepted_request_payload_sha256 == accepted.canonical_payload_sha256()
+                    );
+                    if evidence.outcome_kind()
+                        != crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeKind::LaterFilled
+                        || accepted.event_kind() != Stage6JournalEventKind::RequestAccepted
+                        || identity.action() != Stage6DurableActionKind::Cancel
+                        || identity.target_broker_order_id() != Some(evidence.broker_order_id())
+                        || !dispatch_payload_matches
+                        || dispatch.durable_request_identity() != identity
+                        || dispatch.previous_record_id() != Some(accepted.journal_record_id())
+                        || dispatch.causal_parent_id() != Some(accepted.journal_record_id())
+                        || dispatch.lifecycle_sequence().get()
+                            != accepted
+                                .lifecycle_sequence()
+                                .get()
+                                .checked_add(1)
+                                .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+                        || accepted.journal_record_id() != &previous_record_id
+                        || accepted.lifecycle_sequence() != previous_sequence
+                        || outcome_record.previous_record_id() != dispatch.journal_record_id()
+                        || outcome_record.lifecycle_sequence().get()
+                            != dispatch
+                                .lifecycle_sequence()
+                                .get()
+                                .checked_add(1)
+                                .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+                    {
+                        return Ok(None);
+                    }
+                    prefix.append_versioned(&Stage6JournalRecordVersioned::V1(dispatch.clone()))?;
+                    let dispatch_checkpoint =
+                        Stage6JournalCheckpointV1::from_frontier(prefix.frontier().clone())?;
+                    if evidence.stage6_predecessor_checkpoint_sha256()
+                        != dispatch_checkpoint.checkpoint_sha256()
+                    {
+                        return Ok(None);
+                    }
+                }
+            }
+            false
+        }
+        Some(effect) => {
+            let Some(accepted) = prefix
+                .records()
+                .iter()
+                .find(|record| {
+                    record.event_kind() == Stage6JournalEventKind::RequestAccepted
+                        && record.durable_request_identity().strategy_request_id()
+                            == effect.request_id
+                })
+                .cloned()
+            else {
+                return Ok(None);
+            };
+            let dispatch_from_prefix = prefix.records().iter().find(|record| {
+                record.event_kind() == Stage6JournalEventKind::DispatchAttemptRecorded
+                    && record.journal_record_id().as_str() == effect.stage6_dispatch_record_id
+            });
+            let actual_dispatch = dispatch.or(dispatch_from_prefix);
+            let Some(actual_dispatch) = actual_dispatch else {
+                return Ok(None);
+            };
+            let dispatch_payload_matches = matches!(
+                actual_dispatch.payload(),
+                Stage6JournalPayloadV1::DispatchAttemptRecorded {
+                    attempt_ordinal: 1,
+                    accepted_request_payload_sha256,
+                } if accepted_request_payload_sha256 == accepted.canonical_payload_sha256()
+            );
+            let (expected_dispatch_predecessor, expected_dispatch_sequence) = if dispatch.is_some()
+            {
+                (
+                    &previous_record_id,
+                    previous_sequence
+                        .get()
+                        .checked_add(1)
+                        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?,
+                )
+            } else {
+                (
+                    accepted.journal_record_id(),
+                    accepted
+                        .lifecycle_sequence()
+                        .get()
+                        .checked_add(1)
+                        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?,
+                )
+            };
+            let dispatch_follows_predecessor = actual_dispatch.previous_record_id()
+                == Some(expected_dispatch_predecessor)
+                && actual_dispatch.causal_parent_id() == Some(expected_dispatch_predecessor)
+                && actual_dispatch.lifecycle_sequence().get() == expected_dispatch_sequence;
+            let dispatch_follows_schedule = dispatch.is_some()
+                && stage8b_p1e_dispatch_follows_exact_schedule_binding_records(
+                    records,
+                    &accepted,
+                    accepted.durable_request_identity(),
+                    actual_dispatch,
+                );
+            if !dispatch_payload_matches
+                || actual_dispatch.durable_request_identity() != accepted.durable_request_identity()
+                || !dispatch_follows_predecessor
+                || (dispatch.is_some()
+                    && accepted.journal_record_id() != &previous_record_id
+                    && !dispatch_follows_schedule)
+                || accepted
+                    .durable_request_identity()
+                    .durable_client_order_id()
+                    != &effect.durable_request_client_id
+                || accepted.durable_request_identity().account_id() != &effect.account_id
+                || accepted.durable_request_identity().instrument() != &effect.instrument
+                || accepted.canonical_payload_sha256().as_str()
+                    != effect.accepted_command_payload_sha256
+                || actual_dispatch.journal_record_id().as_str() != effect.stage6_dispatch_record_id
+            {
+                return Ok(None);
+            }
+            if let Some(dispatch) = dispatch {
+                if outcome_record.previous_record_id() != dispatch.journal_record_id()
+                    || outcome_record.lifecycle_sequence().get()
+                        != dispatch
+                            .lifecycle_sequence()
+                            .get()
+                            .checked_add(1)
+                            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+                {
+                    return Ok(None);
+                }
+                prefix.append_versioned(&Stage6JournalRecordVersioned::V1(dispatch.clone()))?;
+                let dispatch_checkpoint =
+                    Stage6JournalCheckpointV1::from_frontier(prefix.frontier().clone())?;
+                if evidence.stage6_predecessor_checkpoint_sha256()
+                    != dispatch_checkpoint.checkpoint_sha256()
+                {
+                    return Ok(None);
+                }
+            } else if evidence.stage6_predecessor_checkpoint_sha256()
+                != predecessor_checkpoint.checkpoint_sha256()
+                || outcome_record.previous_record_id() != &previous_record_id
+                || outcome_record.lifecycle_sequence().get()
+                    != previous_sequence
+                        .get()
+                        .checked_add(1)
+                        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+            {
+                return Ok(None);
+            }
+            let observed_at = Utc
+                .timestamp_millis_opt(evidence.transition_received_ts_utc_ms())
+                .single()
+                .ok_or(Stage6dLiveCoreError::Stage8bP1d3WorkingLimit)?;
+            let expected_finalized = stage7a_request_finalization_record(
+                accepted.durable_request_identity().clone(),
+                outcome_record.journal_record_id().clone(),
+                outcome_record.lifecycle_sequence().get(),
+                observed_at,
+                Stage6RequestFinalDispositionV1::Completed,
+            )?;
+            let Some((expected_id, expected_fingerprint)) =
+                evidence.stage7_request_finalized_binding()
+            else {
+                return Ok(None);
+            };
+            if expected_finalized.journal_record_id().as_str() != expected_id
+                || expected_finalized.source_evidence_sha256().as_str() != expected_fingerprint
+            {
+                return Ok(None);
+            }
+            match rest {
+                [] => false,
+                [Stage6JournalRecordVersioned::V1(actual)] if actual == &expected_finalized => true,
+                _ => return Ok(None),
+            }
+        }
+    };
+    Stage6MixedReplayEngineV2::replay(records)?;
+    Ok(Some(Stage6Stage8bP1d3JournalAheadCandidate {
+        outcome_record: outcome_record.clone(),
+        request_finalized,
+    }))
+}
+
+/// Revalidates a classified journal-ahead candidate against the reconstructed
+/// Stage5G authority. If the request finalization was the crash frontier, it
+/// appends only that deterministic row; the provider and schedule are never
+/// reacquired.
+pub(crate) fn resume_stage8b_p1d3_journal_ahead_candidate(
+    recovered: &mut Stage6dDurableRuntimeRecovered,
+    candidate: Stage6Stage8bP1d3JournalAheadCandidate,
+) -> Result<Stage6Stage8bP1d3OutcomeAppendReceipt, Stage6dLiveCoreError> {
+    let outcome_record = candidate.outcome_record;
+    let evidence =
+        crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeEvidenceV1::decode_canonical(
+            outcome_record.outcome_evidence_bytes(),
+        )?;
+    let restart = match &recovered.stage5_runtime {
+        Stage6dStage5RuntimeAuthority::Restart(restart) => restart,
+        Stage6dStage5RuntimeAuthority::FirstBoot(_) => {
+            return Err(Stage6dLiveCoreError::RestartRuntimeRequired)
+        }
+    };
+    let replacement = restart
+        .stage8b_p1d3_replacement()
+        .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?;
+    let replacement_book_sha256 = replacement.working_book().canonical_sha256()?;
+    if replacement_book_sha256 != evidence.pre_book_sha256() {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+
+    let schedule_checkpoint = recovered
+        .stage8b_p1e_schedule_checkpoint_before_journal_ahead_outcome(
+            replacement,
+            &outcome_record,
+        )?;
+    let request_effect = evidence.stage6_request_replay_effect()?;
+    match request_effect.as_ref() {
+        None => {
+            let ordinary_autonomous_chain = replacement.authenticated_stage6_checkpoint_sha256()
+                == evidence.stage6_predecessor_checkpoint_sha256();
+            let schedule_bound_autonomous_chain = schedule_checkpoint.is_some();
+            let target_first_cancel_chain = (|| -> Result<bool, Stage6dLiveCoreError> {
+                if evidence.outcome_kind()
+                    != crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeKind::LaterFilled
+                    || replacement.phase()
+                        != crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Working
+                {
+                    return Ok(false);
+                }
+                let Some(semantic) = restart.stage8b_p1_semantic_commit() else {
+                    return Ok(false);
+                };
+                let Some(BrokerCommand::CancelOrder(cancel)) = semantic.canonical_command.as_ref()
+                else {
+                    return Ok(false);
+                };
+                let Some(identity) = semantic.durable_request_identity.as_ref() else {
+                    return Ok(false);
+                };
+                if cancel.request_id != identity.strategy_request_id()
+                    || identity.action() != Stage6DurableActionKind::Cancel
+                    || identity.target_broker_order_id() != Some(evidence.broker_order_id())
+                    || cancel.order_id != *evidence.broker_order_id()
+                {
+                    return Ok(false);
+                }
+                let records = recovered.journal.versioned_records();
+                let Some(dispatch_index) = records.iter().position(|record| {
+                    matches!(
+                        record,
+                        Stage6JournalRecordVersioned::V1(dispatch)
+                            if dispatch.journal_record_id() == outcome_record.previous_record_id()
+                                && dispatch.event_kind()
+                                    == Stage6JournalEventKind::DispatchAttemptRecorded
+                    )
+                }) else {
+                    return Ok(false);
+                };
+                let Some(Stage6JournalRecordVersioned::V1(dispatch)) = records.get(dispatch_index)
+                else {
+                    return Ok(false);
+                };
+                let Some(Stage6JournalRecordVersioned::V1(accepted)) = dispatch_index
+                    .checked_sub(1)
+                    .and_then(|index| records.get(index))
+                else {
+                    return Ok(false);
+                };
+                let dispatch_payload_matches = matches!(
+                    dispatch.payload(),
+                    Stage6JournalPayloadV1::DispatchAttemptRecorded {
+                        attempt_ordinal: 1,
+                        accepted_request_payload_sha256,
+                    } if accepted_request_payload_sha256 == accepted.canonical_payload_sha256()
+                );
+                if accepted.event_kind() != Stage6JournalEventKind::RequestAccepted
+                    || accepted.durable_request_identity() != identity
+                    || dispatch.durable_request_identity() != identity
+                    || dispatch.previous_record_id() != Some(accepted.journal_record_id())
+                    || dispatch.causal_parent_id() != Some(accepted.journal_record_id())
+                    || !dispatch_payload_matches
+                {
+                    return Ok(false);
+                }
+                let mut before_dispatch = Stage6MemoryJournalBackend::new();
+                for record in records.iter().take(dispatch_index) {
+                    before_dispatch.append_versioned(record)?;
+                }
+                let before_dispatch_checkpoint =
+                    Stage6JournalCheckpointV1::from_frontier(before_dispatch.frontier().clone())?;
+                before_dispatch.append_versioned(&records[dispatch_index])?;
+                let after_dispatch_checkpoint =
+                    Stage6JournalCheckpointV1::from_frontier(before_dispatch.frontier().clone())?;
+                Ok(replacement.authenticated_stage6_checkpoint_sha256()
+                    == before_dispatch_checkpoint.checkpoint_sha256()
+                    && evidence.stage6_predecessor_checkpoint_sha256()
+                        == after_dispatch_checkpoint.checkpoint_sha256())
+            })()?;
+            if !ordinary_autonomous_chain
+                && !schedule_bound_autonomous_chain
+                && !target_first_cancel_chain
+            {
+                return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+            }
+        }
+        Some(effect) => {
+            let dispatch_index = recovered
+                .journal
+                .versioned_records()
+                .iter()
+                .position(|record| {
+                    matches!(
+                        record,
+                        Stage6JournalRecordVersioned::V1(record)
+                            if record.journal_record_id().as_str()
+                                == effect.stage6_dispatch_record_id
+                    )
+                })
+                .ok_or(Stage6dLiveCoreError::DispatchAttemptRecordRequired)?;
+            let mut before_dispatch = Stage6MemoryJournalBackend::new();
+            for record in recovered
+                .journal
+                .versioned_records()
+                .iter()
+                .take(dispatch_index)
+            {
+                before_dispatch.append_versioned(record)?;
+            }
+            let before_dispatch_checkpoint =
+                Stage6JournalCheckpointV1::from_frontier(before_dispatch.frontier().clone())?;
+            before_dispatch.append_versioned(
+                recovered
+                    .journal
+                    .versioned_records()
+                    .get(dispatch_index)
+                    .ok_or(Stage6dLiveCoreError::DispatchAttemptRecordRequired)?,
+            )?;
+            let after_dispatch_checkpoint =
+                Stage6JournalCheckpointV1::from_frontier(before_dispatch.frontier().clone())?;
+            let ordinary_request_chain = replacement.authenticated_stage6_checkpoint_sha256()
+                == before_dispatch_checkpoint.checkpoint_sha256()
+                && evidence.stage6_predecessor_checkpoint_sha256()
+                    == after_dispatch_checkpoint.checkpoint_sha256();
+            let schedule_bound_request_chain = schedule_checkpoint.is_some();
+            let target_first_recovered_cancel = matches!(
+                evidence.outcome_kind(),
+                crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeKind::CancelExecutionObserved
+                    | crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeKind::CancelAlreadyTerminalNonExecution
+            ) && matches!(
+                replacement.phase(),
+                crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Terminal
+            ) && replacement.authenticated_stage6_checkpoint_sha256()
+                == evidence.stage6_predecessor_checkpoint_sha256();
+            if !ordinary_request_chain
+                && !schedule_bound_request_chain
+                && !target_first_recovered_cancel
+            {
+                return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+            }
+        }
+    }
+    let mut finalized_record = None;
+    if let Some(effect) = request_effect {
+        let accepted = stage7a_accepted_record(recovered, effect.request_id)
+            .ok_or(Stage6dLiveCoreError::AcceptedRecordRequired)?;
+        let command = match accepted.payload() {
+            Stage6JournalPayloadV1::RequestAccepted { command } => command.as_ref().clone(),
+            _ => return Err(Stage6dLiveCoreError::AcceptedRecordRequired),
+        };
+        let authority = recovered.authorize_stage8a4_durable_batch_source(
+            accepted.durable_request_identity(),
+            &command,
+        )?;
+        evidence.validate_request_authority(&authority)?;
+        let observed_at = Utc
+            .timestamp_millis_opt(evidence.transition_received_ts_utc_ms())
+            .single()
+            .ok_or(Stage6dLiveCoreError::Stage8bP1d3WorkingLimit)?;
+        let finalized = stage7a_request_finalization_record(
+            accepted.durable_request_identity().clone(),
+            outcome_record.journal_record_id().clone(),
+            outcome_record.lifecycle_sequence().get(),
+            observed_at,
+            Stage6RequestFinalDispositionV1::Completed,
+        )?;
+        let Some((expected_id, expected_fingerprint)) = evidence.stage7_request_finalized_binding()
+        else {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        };
+        if finalized.journal_record_id().as_str() != expected_id
+            || finalized.source_evidence_sha256().as_str() != expected_fingerprint
+        {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        if candidate.request_finalized {
+            if recovered.journal_frontier().last_record_id() != Some(finalized.journal_record_id())
+                || recovered.journal_frontier().last_lifecycle_sequence()
+                    != Some(finalized.lifecycle_sequence())
+            {
+                return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+            }
+        } else {
+            if recovered.journal_frontier().last_record_id()
+                != Some(outcome_record.journal_record_id())
+                || recovered.journal_frontier().last_lifecycle_sequence()
+                    != Some(outcome_record.lifecycle_sequence())
+            {
+                return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+            }
+            recovered
+                .journal_mut()
+                .append(&finalized)
+                .map_err(classify_stage8a4_append_error)?;
+            recovered
+                .refresh_after_append()
+                .map_err(|_| Stage6dLiveCoreError::JournalMutationMayHaveOccurred)?;
+        }
+        finalized_record = Some(finalized);
+    } else {
+        let record_matches = recovered.journal_frontier().last_record_id()
+            == Some(outcome_record.journal_record_id());
+        let sequence_matches = recovered.journal_frontier().last_lifecycle_sequence()
+            == Some(outcome_record.lifecycle_sequence());
+        if candidate.request_finalized || !record_matches || !sequence_matches {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+    }
+
+    let (request_finalized_record_id, request_finalized_fingerprint_sha256) = finalized_record
+        .as_ref()
+        .map(|record| {
+            (
+                Some(record.journal_record_id().as_str().to_string()),
+                Some(record.source_evidence_sha256().as_str().to_string()),
+            )
+        })
+        .unwrap_or((None, None));
+    let recovery_binding = crate::stage8b_p1d3_working_limit::Stage8bP1d3Stage6RecoveryBinding {
+        outcome_record_id: outcome_record.journal_record_id().as_str().to_string(),
+        predecessor_frontier_sha256: evidence.stage6_predecessor_checkpoint_sha256().to_string(),
+        reserved_checkpoint_sha256: evidence.stage6_reserved_checkpoint_sha256().to_string(),
+        request_finalized_record_id,
+        request_finalized_fingerprint_sha256,
+        authenticated_post_checkpoint_sha256: recovered
+            .authenticated_checkpoint()
+            .checkpoint_sha256()
+            .to_string(),
+    };
+    outcome_record.authenticate_p1d3_outcome(recovery_binding.clone())?;
+    Ok(Stage6Stage8bP1d3OutcomeAppendReceipt {
+        outcome_record,
+        recovery_binding,
+    })
+}
+
+/// Test-only construction of the forbidden two-record S0-ahead suffix. This
+/// proves that the P1 restart exception remains limited to one exact
+/// RequestAccepted and cannot absorb a Stage 7B dispatch attempt.
+#[cfg(feature = "stage5g-artifact-fixtures")]
+#[doc(hidden)]
+pub fn stage8b_p1_test_append_dispatch_attempt(
+    recovered: &mut Stage6dDurableRuntimeRecovered,
+    identity: &Stage6DurableRequestIdentityV1,
+) -> Result<(), Stage6dLiveCoreError> {
+    let accepted = stage7a_accepted_record(recovered, identity.strategy_request_id())
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let dispatch = Stage6JournalRecordV1::dispatch_attempt_recorded(
+        identity.clone(),
+        1,
+        accepted.canonical_payload_sha256().clone(),
+        Stage6LifecycleSequence::new(2)?,
+        Some(accepted.journal_record_id().clone()),
+        Stage6Sha256Digest::parse("f".repeat(64))?,
+    )?;
+    recovered.journal_mut().append(&dispatch)?;
+    recovered.refresh_after_append()
+}
+
+/// Test-only P1-d4 seam that appends the dispatch row for the exact current
+/// semantic command without invoking any provider or schedule authority.
+/// Production recovery still has to classify the resulting on-disk suffix.
+#[cfg(feature = "stage5g-artifact-fixtures")]
+#[doc(hidden)]
+pub fn stage8b_p1d4_test_append_current_semantic_dispatch(
+    recovered: &mut Stage6dDurableRuntimeRecovered,
+) -> Result<(), Stage6dLiveCoreError> {
+    let Stage6dStage5RuntimeAuthority::Restart(restart) = &recovered.stage5_runtime else {
+        return Err(Stage6dLiveCoreError::RestartRuntimeRequired);
+    };
+    let identity = restart
+        .stage8b_p1_semantic_commit()
+        .and_then(|projection| projection.durable_request_identity.as_ref())
+        .cloned()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    stage8b_p1_test_append_dispatch_attempt(recovered, &identity)
 }
 
 fn replay_versioned_journal(
@@ -2375,6 +9506,9 @@ pub enum Stage6dPaperOutcome {
     LimitPending {
         broker_order_id: BrokerOrderId,
     },
+    LimitExpired {
+        broker_order_id: BrokerOrderId,
+    },
     LimitFilled {
         broker_order_id: BrokerOrderId,
         broker_trade_id: BrokerTradeId,
@@ -2394,9 +9528,78 @@ pub enum Stage6dPaperOutcome {
 /// constructor is exposed and the type is neither Clone nor serializable.
 pub struct Stage6dPaperDispatchReceipt {
     identity: Stage6DurableRequestIdentityV1,
+    command_snapshot: Stage6DurableCommandSnapshotV1,
+    accepted_command_payload_sha256: Stage6Sha256Digest,
     dispatch_record_id: Stage6JournalRecordId,
     dispatch_sequence: Stage6LifecycleSequence,
     durable_frontier_sha256: String,
+}
+
+impl Stage6dPaperDispatchReceipt {
+    /// Crate-private identity view used by the P1-d1 provider gate.  The
+    /// dispatch receipt itself remains linear and opaque to downstream code.
+    pub(crate) fn stage8b_p1d1_identity(&self) -> &Stage6DurableRequestIdentityV1 {
+        &self.identity
+    }
+
+    pub(crate) fn stage8b_p1d1_command_snapshot(&self) -> &Stage6DurableCommandSnapshotV1 {
+        &self.command_snapshot
+    }
+
+    pub(crate) fn stage8b_p1d1_accepted_payload_sha256(&self) -> &Stage6Sha256Digest {
+        &self.accepted_command_payload_sha256
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn stage8b_p1d1_test_dispatch_receipt(
+    command: &BrokerCommand,
+) -> Stage6dPaperDispatchReceipt {
+    let BrokerCommand::PlaceOrder(place) = command else {
+        panic!("P1-d1 test receipt supports PLACE only");
+    };
+    let attribution = HybridRuntimeAttribution::parse_source_comment(
+        place.comment.as_deref().expect("test command attribution"),
+    )
+    .expect("test command attribution must parse");
+    let identity = Stage6DurableRequestIdentityV1::from_place(place, attribution)
+        .expect("test command identity must validate");
+    let command_snapshot = Stage6DurableCommandSnapshotV1::from_place(&identity, place)
+        .expect("test command snapshot must validate");
+    let accepted_command_payload_sha256 = Stage6Sha256Digest::parse(sha256_hex(
+        &serde_json::to_vec(&command_snapshot).expect("test snapshot must serialize"),
+    ))
+    .expect("test snapshot digest must validate");
+    stage8b_p1d1_test_dispatch_receipt_with_payload_sha256(command, accepted_command_payload_sha256)
+}
+
+#[cfg(test)]
+pub(crate) fn stage8b_p1d1_test_dispatch_receipt_with_payload_sha256(
+    command: &BrokerCommand,
+    accepted_command_payload_sha256: Stage6Sha256Digest,
+) -> Stage6dPaperDispatchReceipt {
+    let BrokerCommand::PlaceOrder(place) = command else {
+        panic!("P1-d1 test receipt supports PLACE only");
+    };
+    let attribution = HybridRuntimeAttribution::parse_source_comment(
+        place.comment.as_deref().expect("test command attribution"),
+    )
+    .expect("test command attribution must parse");
+    let identity = Stage6DurableRequestIdentityV1::from_place(place, attribution)
+        .expect("test command identity must validate");
+    let command_snapshot = Stage6DurableCommandSnapshotV1::from_place(&identity, place)
+        .expect("test command snapshot must validate");
+    Stage6dPaperDispatchReceipt {
+        identity,
+        command_snapshot,
+        accepted_command_payload_sha256,
+        dispatch_record_id: Stage6JournalRecordId::derive(
+            place.request_id,
+            Stage6LifecycleSequence::new(2).expect("test sequence"),
+        ),
+        dispatch_sequence: Stage6LifecycleSequence::new(2).expect("test sequence"),
+        durable_frontier_sha256: "a".repeat(64),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -2427,9 +9630,11 @@ pub struct Stage6dPaperExecutionReport {
 /// This is evidence input to the Stage 7B seal authority, not a settlement
 /// capability and not a transport identity.
 pub struct Stage7bFinalizedRequestFacts {
+    durable_request_identity: Stage6DurableRequestIdentityV1,
     strategy_request_id: StrategyRequestId,
     durable_client_order_id: broker_core::ClientOrderId,
     broker_order_id: Option<BrokerOrderId>,
+    broker_trade_ids: Vec<BrokerTradeId>,
     canonical_command_sha256: Stage6Sha256Digest,
     final_disposition: Stage6RequestFinalDispositionV1,
     final_record_id: Stage6JournalRecordId,
@@ -2491,6 +9696,10 @@ impl Stage8a4CompletedTransitionFacts {
 }
 
 impl Stage7bFinalizedRequestFacts {
+    pub fn durable_request_identity(&self) -> &Stage6DurableRequestIdentityV1 {
+        &self.durable_request_identity
+    }
+
     pub fn strategy_request_id(&self) -> StrategyRequestId {
         self.strategy_request_id
     }
@@ -2501,6 +9710,10 @@ impl Stage7bFinalizedRequestFacts {
 
     pub fn broker_order_id(&self) -> Option<&BrokerOrderId> {
         self.broker_order_id.as_ref()
+    }
+
+    pub fn broker_trade_ids(&self) -> &[BrokerTradeId] {
+        &self.broker_trade_ids
     }
 
     pub fn canonical_command_sha256(&self) -> &Stage6Sha256Digest {
@@ -2536,9 +9749,11 @@ pub fn stage7b_finalized_request_facts(
         .final_disposition()
         .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
     Ok(Stage7bFinalizedRequestFacts {
+        durable_request_identity: accepted.durable_request_identity().clone(),
         strategy_request_id: request_id,
         durable_client_order_id: request.durable_client_order_id().clone(),
         broker_order_id: request.known_broker_order_id().cloned(),
+        broker_trade_ids: request.observed_broker_trade_ids().to_vec(),
         canonical_command_sha256: accepted.canonical_payload_sha256().clone(),
         final_disposition,
         final_record_id: request.last_unique_record_id().clone(),
@@ -3196,6 +10411,74 @@ pub fn admit_stage7a_paper_command(
         .map(Stage7aPaperAdmission::DispatchReady)
 }
 
+/// P1-specific pre-effect transition.  It consumes exact next-bar eligibility
+/// before the sole Stage6 writer may append DispatchAttemptRecorded.  The
+/// accepted command snapshot and full durable identity are re-read from the
+/// journal and cross-bound before any mutation.
+pub fn admit_stage7a_p1d1_market_dispatch(
+    recovered: &mut Stage6dDurableRuntimeRecovered,
+    eligibility: crate::Stage8bP1d1ExecutionEligible,
+) -> Result<crate::Stage8bP1d1MarketDispatchReady, Stage6dLiveCoreError> {
+    let identity = eligibility.durable_identity();
+    let request_id = identity.strategy_request_id();
+    let accepted = stage7a_accepted_record(recovered, request_id)
+        .ok_or(Stage6dLiveCoreError::AcceptedRecordRequired)?
+        .clone();
+    let accepted_snapshot = match accepted.payload() {
+        Stage6JournalPayloadV1::RequestAccepted { command } => command.as_ref(),
+        _ => return Err(Stage6dLiveCoreError::AcceptedRecordRequired),
+    };
+    let replayed = recovered
+        .replay()
+        .request(request_id)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let market_binding = stage8b_p1e_market_binding_tail(
+        recovered,
+        request_id,
+        eligibility.canonical_command_sha256(),
+    );
+    let (predecessor_sequence, predecessor_record_id) = if let Some(record) = market_binding {
+        (
+            record.lifecycle_sequence(),
+            record.journal_record_id().clone(),
+        )
+    } else if replayed.last_unique_record_id() == accepted.journal_record_id()
+        && replayed.last_unique_sequence() == accepted.lifecycle_sequence().get()
+        && recovered.journal_frontier().last_record_id() == Some(accepted.journal_record_id())
+    {
+        (
+            accepted.lifecycle_sequence(),
+            accepted.journal_record_id().clone(),
+        )
+    } else {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    };
+    if accepted.durable_request_identity() != identity
+        || accepted_snapshot != eligibility.durable_command_snapshot()
+        || accepted.canonical_payload_sha256() != eligibility.accepted_command_payload_sha256()
+        || replayed.dispatch_safety_state()
+            != crate::Stage6DispatchSafetyStateV1::ReadyForFirstDispatch
+        || replayed.dispatch_attempt_count() != 0
+        || replayed.last_unique_record_id() != &predecessor_record_id
+        || replayed.last_unique_sequence() != predecessor_sequence.get()
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    let observed_at =
+        DateTime::<Utc>::from_timestamp_millis(eligibility.execution_close_ts_utc_ms())
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let dispatch = stage7a_dispatch_record_after(
+        identity,
+        &accepted,
+        predecessor_sequence,
+        &predecessor_record_id,
+        observed_at,
+    )?;
+    let receipt = prepare_stage6d_existing_accepted_paper_dispatch(recovered, &accepted, dispatch)?;
+    crate::stage8b_p1d1_paper_provider::bind_stage8b_p1d1_market_dispatch(eligibility, receipt)
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)
+}
+
 /// Resolves CANCEL context only from a Stage 6-correlated paper order. The
 /// cancel DTO intentionally carries no strategy attribution, so transport
 /// configuration cannot invent a cycle/owner for an unrelated broker order.
@@ -3311,6 +10594,172 @@ fn stage7a_accepted_record(
     })
 }
 
+fn stage8b_p1e_market_binding_tail<'a>(
+    recovered: &'a Stage6dDurableRuntimeRecovered,
+    request_id: StrategyRequestId,
+    canonical_command_sha256: &str,
+) -> Option<&'a Stage6JournalRecordV4> {
+    let accepted = stage7a_accepted_record(recovered, request_id)?;
+    let Stage6JournalRecordVersioned::V4(record) = recovered.journal.versioned_records().last()?
+    else {
+        return None;
+    };
+    let binding = record.request_or_order_binding();
+    let request_id_text = request_id.to_string();
+    (record.transition_kind() == crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution
+        && record.previous_record_id() == accepted.journal_record_id()
+        && record.lifecycle_sequence().get()
+            == accepted.lifecycle_sequence().get().checked_add(1)?
+        && binding.strategy_request_id.as_deref() == Some(request_id_text.as_str())
+        && binding.canonical_command_sha256.as_deref() == Some(canonical_command_sha256)
+        && recovered.journal_frontier().last_record_id() == Some(record.journal_record_id())
+        && recovered.journal_frontier().last_lifecycle_sequence()
+            == Some(record.lifecycle_sequence()))
+    .then_some(record)
+}
+
+fn stage8b_p1e_market_binding_before_recovered_dispatch<'a>(
+    recovered: &'a Stage6dDurableRuntimeRecovered,
+    request_id: StrategyRequestId,
+    canonical_command_sha256: &str,
+) -> Result<Option<&'a Stage6JournalRecordV4>, Stage6dLiveCoreError> {
+    let accepted = stage7a_accepted_record(recovered, request_id)
+        .ok_or(Stage6dLiveCoreError::AcceptedRecordRequired)?;
+    let identity = accepted.durable_request_identity();
+    let mut dispatches = recovered.journal.records().iter().filter(|record| {
+        record.event_kind() == Stage6JournalEventKind::DispatchAttemptRecorded
+            && record.durable_request_identity() == identity
+    });
+    let dispatch = dispatches
+        .next()
+        .ok_or(Stage6dLiveCoreError::DispatchAttemptRecordRequired)?;
+    if dispatches.next().is_some() {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    if dispatch.previous_record_id() == Some(accepted.journal_record_id()) {
+        return Ok(None);
+    }
+    if !stage8b_p1e_dispatch_follows_exact_schedule_binding(recovered, accepted, identity, dispatch)
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    let Some(Stage6JournalRecordVersioned::V4(binding)) = recovered
+        .journal
+        .versioned_records()
+        .iter()
+        .find(|record| record.journal_record_id() == dispatch.previous_record_id().unwrap())
+    else {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    };
+    let request_id_text = request_id.to_string();
+    let request_binding = binding.request_or_order_binding();
+    if binding.transition_kind() != crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution
+        || request_binding.strategy_request_id.as_deref() != Some(request_id_text.as_str())
+        || request_binding.canonical_command_sha256.as_deref() != Some(canonical_command_sha256)
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    Ok(Some(binding))
+}
+
+fn stage8b_p1e_dispatch_follows_exact_schedule_binding(
+    recovered: &Stage6dDurableRuntimeRecovered,
+    accepted: &Stage6JournalRecordV1,
+    identity: &Stage6DurableRequestIdentityV1,
+    dispatch: &Stage6JournalRecordV1,
+) -> bool {
+    if !stage8b_p1e_dispatch_follows_exact_schedule_binding_records(
+        recovered.journal.versioned_records(),
+        accepted,
+        identity,
+        dispatch,
+    ) {
+        return false;
+    }
+    let Some(previous_record_id) = dispatch.previous_record_id() else {
+        return false;
+    };
+    let Some(Stage6JournalRecordVersioned::V4(binding_record)) = recovered
+        .journal
+        .versioned_records()
+        .iter()
+        .find(|record| record.journal_record_id() == previous_record_id)
+    else {
+        return false;
+    };
+    if !matches!(
+        binding_record.transition_kind(),
+        crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution
+            | crate::Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation
+    ) {
+        return true;
+    }
+    let expected_command_sha256 = match &recovered.stage5_runtime {
+        Stage6dStage5RuntimeAuthority::Restart(restart) => restart
+            .stage8b_p1_semantic_commit()
+            .filter(|semantic| semantic.request_id == Some(identity.strategy_request_id()))
+            .and_then(|semantic| semantic.canonical_command_sha256.as_deref()),
+        Stage6dStage5RuntimeAuthority::FirstBoot(_) => None,
+    };
+    binding_record
+        .request_or_order_binding()
+        .canonical_command_sha256
+        .as_deref()
+        == expected_command_sha256
+}
+
+fn stage8b_p1e_dispatch_follows_exact_schedule_binding_records(
+    records: &[Stage6JournalRecordVersioned],
+    accepted: &Stage6JournalRecordV1,
+    identity: &Stage6DurableRequestIdentityV1,
+    dispatch: &Stage6JournalRecordV1,
+) -> bool {
+    let Some(previous_record_id) = dispatch.previous_record_id() else {
+        return false;
+    };
+    let Some(Stage6JournalRecordVersioned::V4(binding_record)) = records
+        .iter()
+        .find(|record| record.journal_record_id() == previous_record_id)
+    else {
+        return false;
+    };
+    if binding_record.previous_record_id() != accepted.journal_record_id()
+        || binding_record.lifecycle_sequence().get()
+            != accepted.lifecycle_sequence().get().saturating_add(1)
+        || dispatch.lifecycle_sequence().get()
+            != binding_record.lifecycle_sequence().get().saturating_add(1)
+    {
+        return false;
+    }
+    let binding = binding_record.request_or_order_binding();
+    match binding_record.transition_kind() {
+        crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution
+        | crate::Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation => {
+            let request_id = identity.strategy_request_id().to_string();
+            identity.action() == Stage6DurableActionKind::Place
+                && binding.strategy_request_id.as_deref() == Some(request_id.as_str())
+                && binding
+                    .canonical_command_sha256
+                    .as_deref()
+                    .is_some_and(|value| Stage6Sha256Digest::parse(value.to_string()).is_ok())
+        }
+        crate::Stage8bP1eScheduleTransitionKindV1::CancelStep => {
+            let request_id = identity.strategy_request_id().to_string();
+            identity.action() == Stage6DurableActionKind::Cancel
+                && binding.strategy_request_id.as_deref() == Some(request_id.as_str())
+                && binding
+                    .canonical_command_sha256
+                    .as_deref()
+                    .is_some_and(|value| Stage6Sha256Digest::parse(value.to_string()).is_ok())
+                && identity.target_broker_order_id().is_some_and(|order_id| {
+                    binding.active_broker_order_id.as_deref() == Some(order_id.as_str())
+                })
+        }
+        crate::Stage8bP1eScheduleTransitionKindV1::WorkingLimitEvaluation
+        | crate::Stage8bP1eScheduleTransitionKindV1::DayExpiry => false,
+    }
+}
+
 fn stage7a_has_other_unresolved_lifecycle(
     recovered: &Stage6dDurableRuntimeRecovered,
     candidate: &Stage6DurableRequestIdentityV1,
@@ -3329,6 +10778,43 @@ fn stage7a_has_other_unresolved_lifecycle(
             same_scope
         })
     })
+}
+
+pub(crate) fn stage7a_request_finalization_record(
+    identity: Stage6DurableRequestIdentityV1,
+    prior_record_id: Stage6JournalRecordId,
+    prior_sequence: u64,
+    observed_at: DateTime<Utc>,
+    disposition: Stage6RequestFinalDispositionV1,
+) -> Result<Stage6JournalRecordV1, Stage6dLiveCoreError> {
+    #[derive(Serialize)]
+    struct FinalizationEvidence<'a> {
+        domain: &'static str,
+        observed_at: DateTime<Utc>,
+        strategy_request_id: StrategyRequestId,
+        final_record_id: &'a str,
+        disposition: Stage6RequestFinalDispositionV1,
+    }
+    let evidence = serde_json::to_vec(&FinalizationEvidence {
+        domain: "moex.stage7a.paper-command-finalization.v1",
+        observed_at,
+        strategy_request_id: identity.strategy_request_id(),
+        final_record_id: prior_record_id.as_str(),
+        disposition,
+    })
+    .map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?;
+    Stage6JournalRecordV1::request_finalized(
+        identity,
+        disposition,
+        Stage6LifecycleSequence::new(
+            prior_sequence
+                .checked_add(1)
+                .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?,
+        )?,
+        Some(prior_record_id),
+        Stage6Sha256Digest::parse(sha256_hex(&evidence))?,
+    )
+    .map_err(Stage6dLiveCoreError::from)
 }
 
 /// Appends the explicit command-request terminal record required by the
@@ -3361,28 +10847,12 @@ pub fn finalize_stage7a_paper_request(
     } else {
         Stage6RequestFinalDispositionV1::Completed
     };
-    #[derive(Serialize)]
-    struct FinalizationEvidence<'a> {
-        domain: &'static str,
-        observed_at: DateTime<Utc>,
-        strategy_request_id: StrategyRequestId,
-        final_record_id: &'a str,
-        disposition: Stage6RequestFinalDispositionV1,
-    }
-    let evidence = serde_json::to_vec(&FinalizationEvidence {
-        domain: "moex.stage7a.paper-command-finalization.v1",
-        observed_at,
-        strategy_request_id: report.strategy_request_id,
-        final_record_id: &report.final_record_id,
-        disposition,
-    })
-    .map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?;
-    let finalized = Stage6JournalRecordV1::request_finalized(
+    let finalized = stage7a_request_finalization_record(
         identity,
+        request.last_unique_record_id().clone(),
+        report.final_sequence,
+        observed_at,
         disposition,
-        Stage6LifecycleSequence::new(report.final_sequence.saturating_add(1))?,
-        Some(request.last_unique_record_id().clone()),
-        Stage6Sha256Digest::parse(sha256_hex(&evidence))?,
     )?;
     recovered.journal_mut().append(&finalized)?;
     recovered.refresh_after_append()?;
@@ -3438,14 +10908,14 @@ pub fn finalize_stage7a_replayed_paper_request(
         domain: &'static str,
         observed_at: DateTime<Utc>,
         strategy_request_id: StrategyRequestId,
-        previous_record_id: &'a str,
+        final_record_id: &'a str,
         disposition: Stage6RequestFinalDispositionV1,
     }
     let evidence = serde_json::to_vec(&ReplayFinalizationEvidence {
-        domain: "moex.stage7a.paper-command-replay-finalization.v1",
+        domain: "moex.stage7a.paper-command-finalization.v1",
         observed_at,
         strategy_request_id: request_id,
-        previous_record_id: previous.as_str(),
+        final_record_id: previous.as_str(),
         disposition,
     })
     .map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?;
@@ -3488,6 +10958,22 @@ fn stage7a_dispatch_record(
     accepted: &Stage6JournalRecordV1,
     observed_at: DateTime<Utc>,
 ) -> Result<Stage6JournalRecordV1, Stage6dLiveCoreError> {
+    stage7a_dispatch_record_after(
+        identity,
+        accepted,
+        accepted.lifecycle_sequence(),
+        accepted.journal_record_id(),
+        observed_at,
+    )
+}
+
+fn stage7a_dispatch_record_after(
+    identity: &Stage6DurableRequestIdentityV1,
+    accepted: &Stage6JournalRecordV1,
+    predecessor_sequence: Stage6LifecycleSequence,
+    predecessor_record_id: &Stage6JournalRecordId,
+    observed_at: DateTime<Utc>,
+) -> Result<Stage6JournalRecordV1, Stage6dLiveCoreError> {
     let command = match accepted.payload() {
         Stage6JournalPayloadV1::RequestAccepted { command } => command,
         _ => return Err(Stage6dLiveCoreError::AcceptedRecordRequired),
@@ -3507,8 +10993,8 @@ fn stage7a_dispatch_record(
         identity.clone(),
         1,
         accepted.canonical_payload_sha256().clone(),
-        Stage6LifecycleSequence::new(accepted.lifecycle_sequence().get().saturating_add(1))?,
-        Some(accepted.journal_record_id().clone()),
+        Stage6LifecycleSequence::new(predecessor_sequence.get().saturating_add(1))?,
+        Some(predecessor_record_id.clone()),
         evidence,
     )?)
 }
@@ -3518,10 +11004,70 @@ fn prepare_stage6d_existing_accepted_paper_dispatch(
     accepted: &Stage6JournalRecordV1,
     dispatch_attempt: Stage6JournalRecordV1,
 ) -> Result<Stage6dPaperDispatchReceipt, Stage6dLiveCoreError> {
+    let pre_dispatch = recovered
+        .replay()
+        .request(accepted.durable_request_identity().strategy_request_id())
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    if recovered.journal_frontier().last_record_id() != Some(pre_dispatch.last_unique_record_id())
+        || recovered.journal_frontier().last_lifecycle_sequence()
+            != Stage6LifecycleSequence::new(pre_dispatch.last_unique_sequence()).ok()
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    prepare_stage6d_existing_accepted_paper_dispatch_after_current_frontier(
+        recovered,
+        accepted,
+        dispatch_attempt,
+    )
+}
+
+fn prepare_stage6d_existing_accepted_paper_dispatch_after_schedule_binding(
+    recovered: &mut Stage6dDurableRuntimeRecovered,
+    accepted: &Stage6JournalRecordV1,
+    dispatch_attempt: Stage6JournalRecordV1,
+    binding: &Stage6JournalRecordV4,
+) -> Result<Stage6dPaperDispatchReceipt, Stage6dLiveCoreError> {
+    if recovered.current_stage8b_p1e_schedule_binding_record()? != Some(binding)
+        || recovered.journal_frontier().last_record_id() != Some(binding.journal_record_id())
+        || recovered.journal_frontier().last_lifecycle_sequence()
+            != Some(binding.lifecycle_sequence())
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    prepare_stage6d_existing_accepted_paper_dispatch_after_current_frontier(
+        recovered,
+        accepted,
+        dispatch_attempt,
+    )
+}
+
+fn prepare_stage6d_existing_accepted_paper_dispatch_after_current_frontier(
+    recovered: &mut Stage6dDurableRuntimeRecovered,
+    accepted: &Stage6JournalRecordV1,
+    dispatch_attempt: Stage6JournalRecordV1,
+) -> Result<Stage6dPaperDispatchReceipt, Stage6dLiveCoreError> {
+    let command_snapshot = match accepted.payload() {
+        Stage6JournalPayloadV1::RequestAccepted { command } => command.as_ref().clone(),
+        _ => return Err(Stage6dLiveCoreError::AcceptedRecordRequired),
+    };
+    let pre_dispatch = recovered
+        .replay()
+        .request(accepted.durable_request_identity().strategy_request_id())
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
     if accepted.event_kind() != Stage6JournalEventKind::RequestAccepted
         || dispatch_attempt.event_kind() != Stage6JournalEventKind::DispatchAttemptRecorded
         || accepted.durable_request_identity() != dispatch_attempt.durable_request_identity()
-        || dispatch_attempt.previous_record_id() != Some(accepted.journal_record_id())
+        || pre_dispatch.dispatch_attempt_count() != 0
+        || pre_dispatch.dispatch_safety_state()
+            != crate::Stage6DispatchSafetyStateV1::ReadyForFirstDispatch
+        || dispatch_attempt.previous_record_id() != recovered.journal_frontier().last_record_id()
+        || dispatch_attempt.lifecycle_sequence().get()
+            != recovered
+                .journal_frontier()
+                .last_lifecycle_sequence()
+                .map(Stage6LifecycleSequence::get)
+                .and_then(|value| value.checked_add(1))
+                .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
     {
         return Err(Stage6dLiveCoreError::DurableOrderingViolation);
     }
@@ -3538,6 +11084,8 @@ fn prepare_stage6d_existing_accepted_paper_dispatch(
     }
     Ok(Stage6dPaperDispatchReceipt {
         identity: accepted.durable_request_identity().clone(),
+        command_snapshot,
+        accepted_command_payload_sha256: accepted.canonical_payload_sha256().clone(),
         dispatch_record_id: dispatch_attempt.journal_record_id().clone(),
         dispatch_sequence: dispatch_attempt.lifecycle_sequence(),
         durable_frontier_sha256: frontier_fingerprint(recovered.journal_frontier())?,
@@ -3554,6 +11102,10 @@ pub fn prepare_stage6d_paper_dispatch(
     if accepted.event_kind() != Stage6JournalEventKind::RequestAccepted {
         return Err(Stage6dLiveCoreError::AcceptedRecordRequired);
     }
+    let command_snapshot = match accepted.payload() {
+        Stage6JournalPayloadV1::RequestAccepted { command } => command.as_ref().clone(),
+        _ => return Err(Stage6dLiveCoreError::AcceptedRecordRequired),
+    };
     if dispatch_attempt.event_kind() != Stage6JournalEventKind::DispatchAttemptRecorded {
         return Err(Stage6dLiveCoreError::DispatchAttemptRecordRequired);
     }
@@ -3583,6 +11135,8 @@ pub fn prepare_stage6d_paper_dispatch(
 
     Ok(Stage6dPaperDispatchReceipt {
         identity: accepted.durable_request_identity().clone(),
+        command_snapshot,
+        accepted_command_payload_sha256: accepted.canonical_payload_sha256().clone(),
         dispatch_record_id: dispatch_attempt.journal_record_id().clone(),
         dispatch_sequence: dispatch_attempt.lifecycle_sequence(),
         durable_frontier_sha256: frontier_fingerprint(recovered.journal_frontier())?,
@@ -3596,6 +11150,7 @@ pub fn execute_stage6d_paper_outcome(
     receipt: Stage6dPaperDispatchReceipt,
     outcome: Stage6dPaperOutcome,
 ) -> Result<Stage6dPaperExecutionReport, Stage6dLiveCoreError> {
+    let generated_market_fill = matches!(&outcome, Stage6dPaperOutcome::MarketFilled { .. });
     let runtime_pre_fingerprint_sha256 =
         stage5_runtime_authority_fingerprint(&recovered.stage5_runtime)?;
     let current_frontier = frontier_fingerprint(recovered.journal_frontier())?;
@@ -3648,7 +11203,8 @@ pub fn execute_stage6d_paper_outcome(
                 evidence,
             )?);
         }
-        Stage6dPaperOutcome::LimitPending { broker_order_id } => {
+        Stage6dPaperOutcome::LimitPending { broker_order_id }
+        | Stage6dPaperOutcome::LimitExpired { broker_order_id } => {
             records.push(Stage6JournalRecordV1::broker_order_observed(
                 receipt.identity.clone(),
                 broker_order_id,
@@ -3715,9 +11271,16 @@ pub fn execute_stage6d_paper_outcome(
         }
     }
 
-    for record in records {
+    for (record_index, record) in records.into_iter().enumerate() {
         recovered.journal_mut().append(&record)?;
         recovered.refresh_after_append()?;
+        if generated_market_fill {
+            match record_index {
+                0 => stage8b_p1d4_test_crash_frontier("GM05"),
+                1 => stage8b_p1d4_test_crash_frontier("GM06"),
+                _ => {}
+            }
+        }
     }
     let request = recovered
         .replay()
@@ -3816,11 +11379,10 @@ fn stage6e_semantic_cross_bind_restart(
             || replay_request.action() != expected_action
             || identity.target_broker_order_id() != expected_cancel_target
             || (expected_action == Stage6DurableActionKind::Cancel
-                && slot
-                    .target_order_client_order_id
-                    .as_ref()
-                    .is_some_and(|expected| {
-                        identity.target_order_client_order_id() != Some(expected)
+                && identity
+                    .target_order_client_order_id()
+                    .is_some_and(|supplied| {
+                        slot.target_order_client_order_id.as_ref() != Some(supplied)
                     }))
         {
             return Err(Stage6dLiveCoreError::RestartSemanticCrossBindingMismatch);
@@ -4021,6 +11583,7 @@ fn validate_paper_outcome_action(
             outcome,
             Stage6dPaperOutcome::MarketFilled { .. }
                 | Stage6dPaperOutcome::LimitPending { .. }
+                | Stage6dPaperOutcome::LimitExpired { .. }
                 | Stage6dPaperOutcome::LimitFilled { .. }
                 | Stage6dPaperOutcome::PlaceBrokerOrderFound { .. }
                 | Stage6dPaperOutcome::PlaceNoBrokerOrderFound
@@ -4095,44 +11658,128 @@ pub fn stage6_frontier_fingerprint_sha256(
 fn decode_and_authenticate_restart_package(
     bytes: &[u8],
     commitment_key: &Stage5gLifecycleCommitmentKey,
-) -> Result<Stage6dAuthenticatedRestartPackageV1, Stage6dLiveCoreError> {
-    let package: Stage6dAuthenticatedRestartPackageV1 =
+) -> Result<Stage6dDecodedAuthenticatedRestartPackage, Stage6dLiveCoreError> {
+    let value: serde_json::Value =
         serde_json::from_slice(bytes).map_err(|_| Stage6dLiveCoreError::RestartPackageDecode)?;
-    if package.schema_version != STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION {
-        return Err(Stage6dLiveCoreError::UnsupportedRestartPackageSchema);
+    let schema_version = value
+        .get("schema_version")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|value| u16::try_from(value).ok())
+        .ok_or(Stage6dLiveCoreError::RestartPackageDecode)?;
+    match schema_version {
+        STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION => {
+            let package: Stage6dAuthenticatedRestartPackageV1 = serde_json::from_slice(bytes)
+                .map_err(|_| Stage6dLiveCoreError::RestartPackageDecode)?;
+            let canonical = serde_json::to_vec(&package)
+                .map_err(|_| Stage6dLiveCoreError::RestartPackageDecode)?;
+            if canonical != bytes {
+                return Err(Stage6dLiveCoreError::RestartPackageNonCanonical);
+            }
+            validate_restart_package_components(
+                &package.stage5g_restart_package,
+                &package.stage5g_restart_package_sha256,
+                &package.stage6_checkpoint,
+                &package.stage6_checkpoint_bytes_sha256,
+                &package.operational_identity,
+                &package.operational_identity_sha256,
+            )?;
+            let commitment = restart_commitment_sha256(
+                &package.stage5g_restart_package_sha256,
+                &package.stage6_checkpoint_bytes_sha256,
+                &package.operational_identity_sha256,
+            )?;
+            if commitment != package.restart_commitment_sha256 {
+                return Err(Stage6dLiveCoreError::RestartCommitmentMismatch);
+            }
+            if !commitment_key
+                .stage6d_verify_hmac_sha256(&commitment, &package.restart_commitment_hmac_sha256)
+            {
+                return Err(Stage6dLiveCoreError::RestartAuthenticationFailed);
+            }
+            Ok(Stage6dDecodedAuthenticatedRestartPackage {
+                schema_version,
+                stage5g_restart_package: package.stage5g_restart_package,
+                stage6_checkpoint: package.stage6_checkpoint,
+                operational_identity: package.operational_identity,
+                first_boot_provenance_v1: None,
+                canonical_sha256: sha256_hex(bytes),
+            })
+        }
+        STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION_V2 => {
+            let package: Stage6dAuthenticatedRestartPackageV2 = serde_json::from_slice(bytes)
+                .map_err(|_| Stage6dLiveCoreError::RestartPackageDecode)?;
+            let canonical = serde_json::to_vec(&package)
+                .map_err(|_| Stage6dLiveCoreError::RestartPackageDecode)?;
+            if canonical != bytes {
+                return Err(Stage6dLiveCoreError::RestartPackageNonCanonical);
+            }
+            validate_restart_package_components(
+                &package.stage5g_restart_package,
+                &package.stage5g_restart_package_sha256,
+                &package.stage6_checkpoint,
+                &package.stage6_checkpoint_bytes_sha256,
+                &package.operational_identity,
+                &package.operational_identity_sha256,
+            )?;
+            package.first_boot_provenance_v1.validate()?;
+            let provenance_sha256 = package.first_boot_provenance_v1.canonical_sha256()?;
+            if provenance_sha256 != package.first_boot_provenance_canonical_sha256
+                || package
+                    .first_boot_provenance_v1
+                    .operational_identity_sha256()
+                    != package.operational_identity_sha256
+            {
+                return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+            }
+            let commitment = restart_commitment_v2_sha256(
+                &package.stage5g_restart_package_sha256,
+                &package.stage6_checkpoint_bytes_sha256,
+                &package.operational_identity_sha256,
+                &package.first_boot_provenance_canonical_sha256,
+            )?;
+            if commitment != package.restart_commitment_sha256 {
+                return Err(Stage6dLiveCoreError::RestartCommitmentMismatch);
+            }
+            if !commitment_key
+                .stage6d_v2_verify_hmac_sha256(&commitment, &package.restart_commitment_hmac_sha256)
+            {
+                return Err(Stage6dLiveCoreError::RestartAuthenticationFailed);
+            }
+            Ok(Stage6dDecodedAuthenticatedRestartPackage {
+                schema_version,
+                stage5g_restart_package: package.stage5g_restart_package,
+                stage6_checkpoint: package.stage6_checkpoint,
+                operational_identity: package.operational_identity,
+                first_boot_provenance_v1: Some(package.first_boot_provenance_v1),
+                canonical_sha256: sha256_hex(bytes),
+            })
+        }
+        _ => Err(Stage6dLiveCoreError::UnsupportedRestartPackageSchema),
     }
-    let canonical =
-        serde_json::to_vec(&package).map_err(|_| Stage6dLiveCoreError::RestartPackageDecode)?;
-    if canonical != bytes {
-        return Err(Stage6dLiveCoreError::RestartPackageNonCanonical);
-    }
-    if sha256_hex(&package.stage5g_restart_package) != package.stage5g_restart_package_sha256 {
+}
+
+fn validate_restart_package_components(
+    stage5g_restart_package: &[u8],
+    stage5g_restart_package_sha256: &str,
+    stage6_checkpoint: &Stage6JournalCheckpointV1,
+    stage6_checkpoint_bytes_sha256: &str,
+    operational_identity: &Stage6dOperationalIdentityConfig,
+    operational_identity_sha256: &str,
+) -> Result<(), Stage6dLiveCoreError> {
+    if sha256_hex(stage5g_restart_package) != stage5g_restart_package_sha256 {
         return Err(Stage6dLiveCoreError::Stage5gPackageDigestMismatch);
     }
-    let checkpoint_bytes = package.stage6_checkpoint.encode_canonical();
-    if sha256_hex(&checkpoint_bytes) != package.stage6_checkpoint_bytes_sha256 {
+    let checkpoint_bytes = stage6_checkpoint.encode_canonical();
+    if sha256_hex(&checkpoint_bytes) != stage6_checkpoint_bytes_sha256 {
         return Err(Stage6dLiveCoreError::CheckpointDigestMismatch);
     }
-    validate_operational_identity_config(&package.operational_identity)?;
-    let operational_identity_bytes = serde_json::to_vec(&package.operational_identity)
+    validate_operational_identity_config(operational_identity)?;
+    let operational_identity_bytes = serde_json::to_vec(operational_identity)
         .map_err(|_| Stage6dLiveCoreError::OperationalIdentityInvalid)?;
-    if sha256_hex(&operational_identity_bytes) != package.operational_identity_sha256 {
+    if sha256_hex(&operational_identity_bytes) != operational_identity_sha256 {
         return Err(Stage6dLiveCoreError::OperationalIdentityInvalid);
     }
-    let commitment = restart_commitment_sha256(
-        &package.stage5g_restart_package_sha256,
-        &package.stage6_checkpoint_bytes_sha256,
-        &package.operational_identity_sha256,
-    )?;
-    if commitment != package.restart_commitment_sha256 {
-        return Err(Stage6dLiveCoreError::RestartCommitmentMismatch);
-    }
-    if !commitment_key
-        .stage6d_verify_hmac_sha256(&commitment, &package.restart_commitment_hmac_sha256)
-    {
-        return Err(Stage6dLiveCoreError::RestartAuthenticationFailed);
-    }
-    Ok(package)
+    Ok(())
 }
 
 fn restart_commitment_sha256(
@@ -4152,6 +11799,34 @@ fn restart_commitment_sha256(
         stage5g_restart_package_sha256,
         stage6_checkpoint_bytes_sha256,
         operational_identity_sha256,
+    };
+    let bytes =
+        serde_json::to_vec(&input).map_err(|_| Stage6dLiveCoreError::RestartCommitmentMismatch)?;
+    Ok(sha256_hex(&bytes))
+}
+
+fn restart_commitment_v2_sha256(
+    stage5g_restart_package_sha256: &str,
+    stage6_checkpoint_bytes_sha256: &str,
+    operational_identity_sha256: &str,
+    first_boot_provenance_canonical_sha256: &str,
+) -> Result<String, Stage6dLiveCoreError> {
+    for value in [
+        stage5g_restart_package_sha256,
+        stage6_checkpoint_bytes_sha256,
+        operational_identity_sha256,
+        first_boot_provenance_canonical_sha256,
+    ] {
+        Stage6Sha256Digest::parse(value.to_string())
+            .map_err(|_| Stage6dLiveCoreError::RestartCommitmentMismatch)?;
+    }
+    let input = Stage6dRestartCommitmentV2 {
+        schema_version: STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION_V2,
+        domain: STAGE6D_RESTART_COMMITMENT_V2_DOMAIN,
+        stage5g_restart_package_sha256,
+        stage6_checkpoint_bytes_sha256,
+        operational_identity_sha256,
+        first_boot_provenance_canonical_sha256,
     };
     let bytes =
         serde_json::to_vec(&input).map_err(|_| Stage6dLiveCoreError::RestartCommitmentMismatch)?;
@@ -4248,6 +11923,29 @@ fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
+fn stage8b_p1d3_reservation_sha256(
+    pre_dispatch_checkpoint_sha256: &str,
+    dispatch_record_id: &str,
+    request_id: StrategyRequestId,
+    transition_ts_utc_ms: i64,
+    source_m10_semantic_id_sha256: &str,
+) -> String {
+    let request_id = request_id.to_string();
+    let mut hasher = Sha256::new();
+    hasher.update(b"moex.stage8b.p1d3.stage6-reservation.v1");
+    for field in [
+        pre_dispatch_checkpoint_sha256.as_bytes(),
+        dispatch_record_id.as_bytes(),
+        request_id.as_bytes(),
+        source_m10_semantic_id_sha256.as_bytes(),
+    ] {
+        hasher.update((field.len() as u64).to_be_bytes());
+        hasher.update(field);
+    }
+    hasher.update(transition_ts_utc_ms.to_be_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4286,6 +11984,7 @@ mod tests {
             symbol: "IMOEXF".to_string(),
             profile: HybridIntradayProfile::BaselineRuntimeHybrid,
             mr_variant: MeanReversionVariant::ClassicPrevDayRange,
+            live_mr_entries_enabled: true,
             mr_gate_policy: MrGatePolicy::Disabled,
             risk_gate_mode: RiskGateMode::Disabled,
             risk_gate_seed_file: None,
@@ -4477,6 +12176,66 @@ mod tests {
         assert_eq!(
             authority.authenticated_checkpoint_sha256(),
             owner.authenticated_checkpoint().checkpoint_sha256()
+        );
+    }
+
+    #[test]
+    fn p1e_v4_journal_ahead_classifier_accepts_only_one_exact_successor() {
+        let fixture = place_fixture(90_001, OrderType::Limit);
+        let snapshot =
+            Stage6DurableCommandSnapshotV1::from_place(&fixture.identity, &fixture.command)
+                .unwrap();
+        let accepted = Stage6JournalRecordV1::request_accepted(
+            fixture.identity,
+            snapshot,
+            Stage6LifecycleSequence::new(1).unwrap(),
+            None,
+            None,
+            digest('1'),
+        )
+        .unwrap();
+        let mut predecessor = Stage6MemoryJournalBackend::new();
+        predecessor
+            .append_versioned(&Stage6JournalRecordVersioned::V1(accepted.clone()))
+            .unwrap();
+        let checkpoint =
+            Stage6JournalCheckpointV1::from_frontier(predecessor.frontier().clone()).unwrap();
+        let candidate = crate::stage8b_p1e_test_working_limit_binding_candidate("d".repeat(64));
+        let binding = Stage6JournalRecordV4::from_stage8b_p1e_candidate(
+            &candidate,
+            Stage6LifecycleSequence::new(2).unwrap(),
+            accepted.journal_record_id().clone(),
+            7,
+            Utc.with_ymd_and_hms(2026, 9, 14, 12, 30, 0).unwrap(),
+        )
+        .unwrap();
+        let exact = vec![
+            Stage6JournalRecordVersioned::V1(accepted.clone()),
+            Stage6JournalRecordVersioned::V4(binding.clone()),
+        ];
+        assert_eq!(
+            classify_stage8b_p1e_schedule_journal_ahead_candidate(&exact, &checkpoint)
+                .unwrap()
+                .unwrap()
+                .encode_canonical(),
+            binding.encode_canonical()
+        );
+
+        let mut extra = exact.clone();
+        extra.push(Stage6JournalRecordVersioned::V4(binding));
+        assert!(
+            classify_stage8b_p1e_schedule_journal_ahead_candidate(&extra, &checkpoint)
+                .unwrap()
+                .is_none()
+        );
+        let wrong_checkpoint = Stage6JournalCheckpointV1::from_frontier(
+            Stage6MemoryJournalBackend::new().frontier().clone(),
+        )
+        .unwrap();
+        assert!(
+            classify_stage8b_p1e_schedule_journal_ahead_candidate(&exact, &wrong_checkpoint,)
+                .unwrap()
+                .is_none()
         );
     }
 
@@ -5610,6 +13369,180 @@ mod tests {
     }
 
     #[test]
+    fn stage8b_p1e_v2_advance_preserves_exact_first_boot_provenance() {
+        let key = Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x68; 32]).unwrap();
+        let operational_identity = operational_config();
+        let operational_identity_sha256 =
+            stage6d_operational_identity_sha256(&operational_identity)
+                .unwrap()
+                .as_str()
+                .to_string();
+        let provenance = Stage8bP1eFirstBootProvenanceV1::new(
+            operational_identity_sha256,
+            "1".repeat(64),
+            "2".repeat(64),
+            "3".repeat(64),
+            7,
+            "4".repeat(64),
+            "5".repeat(64),
+            "6".repeat(64),
+            "7".repeat(64),
+        )
+        .unwrap();
+        let provenance_bytes = provenance.encode_canonical().unwrap();
+        let mut journal = Stage6MemoryJournalBackend::new();
+        let current_checkpoint =
+            Stage6JournalCheckpointV1::from_frontier(journal.frontier().clone()).unwrap();
+        let package = seal_stage6d_restart_package_v2(
+            b"authenticated-stage5g-bytes",
+            current_checkpoint.clone(),
+            operational_identity.clone(),
+            provenance,
+            &key,
+        )
+        .unwrap();
+
+        let fixture = place_fixture(90_002, OrderType::Market);
+        let (accepted, _) = accepted_and_dispatch_place(&fixture);
+        journal
+            .append_versioned(&Stage6JournalRecordVersioned::V1(accepted))
+            .unwrap();
+        let next_checkpoint =
+            Stage6JournalCheckpointV1::from_frontier(journal.frontier().clone()).unwrap();
+        let advanced = advance_stage6d_restart_package(
+            &package,
+            &current_checkpoint,
+            next_checkpoint.clone(),
+            &operational_identity,
+            &key,
+        )
+        .unwrap();
+
+        let before = inspect_stage8b_p1e_authenticated_restart_package_v2(&package, &key).unwrap();
+        let after = inspect_stage8b_p1e_authenticated_restart_package_v2(&advanced, &key).unwrap();
+        assert_eq!(
+            after.first_boot_provenance.encode_canonical().unwrap(),
+            provenance_bytes
+        );
+        assert_eq!(
+            after.first_boot_provenance_canonical_sha256,
+            before.first_boot_provenance_canonical_sha256
+        );
+        assert_eq!(
+            after.stage6_checkpoint_sha256,
+            next_checkpoint.checkpoint_sha256()
+        );
+        assert_ne!(
+            after.stage6_checkpoint_sha256,
+            before.stage6_checkpoint_sha256
+        );
+
+        let replacement = replace_stage5g_in_stage6d_restart_package_v2(
+            &advanced,
+            &next_checkpoint,
+            b"replacement-authenticated-stage5g-bytes",
+            next_checkpoint.clone(),
+            &operational_identity,
+            &key,
+        )
+        .unwrap();
+        let decoded = decode_and_authenticate_restart_package(&replacement, &key).unwrap();
+        let replacement_audit =
+            inspect_stage8b_p1e_authenticated_restart_package_v2(&replacement, &key).unwrap();
+        assert_eq!(
+            decoded.stage5g_restart_package,
+            b"replacement-authenticated-stage5g-bytes"
+        );
+        assert_eq!(
+            replacement_audit
+                .first_boot_provenance
+                .encode_canonical()
+                .unwrap(),
+            provenance_bytes
+        );
+        assert_eq!(
+            replacement_audit.first_boot_provenance_canonical_sha256,
+            before.first_boot_provenance_canonical_sha256
+        );
+    }
+
+    #[test]
+    fn stage8b_p1e_v2_missing_or_changed_provenance_fails_closed() {
+        let key = Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x69; 32]).unwrap();
+        let operational_identity = operational_config();
+        let operational_identity_sha256 =
+            stage6d_operational_identity_sha256(&operational_identity)
+                .unwrap()
+                .as_str()
+                .to_string();
+        let provenance = Stage8bP1eFirstBootProvenanceV1::new(
+            operational_identity_sha256,
+            "1".repeat(64),
+            "2".repeat(64),
+            "3".repeat(64),
+            7,
+            "4".repeat(64),
+            "5".repeat(64),
+            "6".repeat(64),
+            "7".repeat(64),
+        )
+        .unwrap();
+        let journal = Stage6MemoryJournalBackend::new();
+        let checkpoint =
+            Stage6JournalCheckpointV1::from_frontier(journal.frontier().clone()).unwrap();
+        let package = seal_stage6d_restart_package_v2(
+            b"authenticated-stage5g-bytes",
+            checkpoint,
+            operational_identity,
+            provenance,
+            &key,
+        )
+        .unwrap();
+
+        let mut missing: serde_json::Value = serde_json::from_slice(&package).unwrap();
+        missing
+            .as_object_mut()
+            .unwrap()
+            .remove("first_boot_provenance_v1");
+        assert!(inspect_stage8b_p1e_authenticated_restart_package_v2(
+            &serde_json::to_vec(&missing).unwrap(),
+            &key,
+        )
+        .is_err());
+
+        let mut changed: serde_json::Value = serde_json::from_slice(&package).unwrap();
+        changed["first_boot_provenance_v1"]["source_bundle_sha256"] =
+            serde_json::Value::String("8".repeat(64));
+        assert!(inspect_stage8b_p1e_authenticated_restart_package_v2(
+            &serde_json::to_vec(&changed).unwrap(),
+            &key,
+        )
+        .is_err());
+
+        let legacy_journal = Stage6MemoryJournalBackend::new();
+        let legacy_checkpoint =
+            Stage6JournalCheckpointV1::from_frontier(legacy_journal.frontier().clone()).unwrap();
+        let legacy = seal_stage6d_restart_package(
+            b"legacy-stage5g-bytes",
+            legacy_checkpoint.clone(),
+            operational_config(),
+            &key,
+        )
+        .unwrap();
+        assert!(matches!(
+            replace_stage5g_in_stage6d_restart_package_v2(
+                &legacy,
+                &legacy_checkpoint,
+                b"replacement-stage5g-bytes",
+                legacy_checkpoint.clone(),
+                &operational_config(),
+                &key,
+            ),
+            Err(Stage6dLiveCoreError::RestartPackageBindingMismatch)
+        ));
+    }
+
+    #[test]
     fn stage6d_authenticated_stage5g_and_exact_journal_restart_end_to_end() {
         let (stage5g_bytes, key, fresh_runtime) =
             crate::stage5g_protective_completion::stage6d_test_authenticated_restart_fixture();
@@ -5984,6 +13917,108 @@ mod tests {
                 .dispatch_safety_state(),
             crate::Stage6DispatchSafetyStateV1::ReadyForFirstDispatch
         );
+    }
+
+    #[test]
+    fn stage8b_p1d1_eligibility_is_consumed_before_the_only_dispatch_append() {
+        let mut fixture = place_fixture(111, OrderType::Market);
+        fixture.command.ttl_ms = None;
+        let (accepted, _) = accepted_and_dispatch_place(&fixture);
+        let accepted_payload_sha256 = accepted.canonical_payload_sha256().clone();
+        let mut recovered = recovered();
+        recovered.journal_mut().append(&accepted).unwrap();
+        recovered.refresh_after_append().unwrap();
+
+        assert_eq!(recovered.journal_frontier().frame_count(), 1);
+        assert_eq!(
+            recovered
+                .replay()
+                .request(fixture.identity.strategy_request_id())
+                .unwrap()
+                .dispatch_safety_state(),
+            crate::Stage6DispatchSafetyStateV1::ReadyForFirstDispatch
+        );
+
+        let predecessor_close_ts_utc_ms = 1_788_422_400_000;
+        let eligibility = crate::stage8b_p1d1_paper_provider::stage8b_p1d1_test_eligible(
+            &BrokerCommand::PlaceOrder(fixture.command.clone()),
+            accepted_payload_sha256,
+            predecessor_close_ts_utc_ms,
+            predecessor_close_ts_utc_ms + 600_000,
+        );
+        let ready = admit_stage7a_p1d1_market_dispatch(&mut recovered, eligibility).unwrap();
+
+        assert_eq!(recovered.journal_frontier().frame_count(), 2);
+        assert_eq!(
+            recovered
+                .replay()
+                .request(fixture.identity.strategy_request_id())
+                .unwrap()
+                .dispatch_safety_state(),
+            crate::Stage6DispatchSafetyStateV1::ReconciliationRequired
+        );
+        let outcome = ready.execute();
+        assert_eq!(outcome.strategy_request_id(), fixture.command.request_id);
+        assert!(!outcome.ack_allowed());
+        assert!(!outcome.source_m10_xack_allowed());
+    }
+
+    #[test]
+    fn stage8b_p1d1_mismatched_eligibility_never_appends_dispatch() {
+        let mut baseline = place_fixture(112, OrderType::Market);
+        baseline.command.ttl_ms = None;
+        let (accepted, _) = accepted_and_dispatch_place(&baseline);
+        let accepted_payload_sha256 = accepted.canonical_payload_sha256().clone();
+        let mut mutations = Vec::new();
+
+        let mut qty = baseline.command.clone();
+        qty.qty = Decimal::new(2, 0);
+        mutations.push(qty);
+
+        let mut side = baseline.command.clone();
+        side.side = OrderSide::Sell;
+        mutations.push(side);
+
+        let mut attribution = baseline.command.clone();
+        attribution.comment = Some(
+            HybridRuntimeAttribution::parse_source_comment(
+                "HYB|sid=hybrid_imoexf|c=different-cycle|o=BO|r=ENTRY",
+            )
+            .unwrap()
+            .internal_comment()
+            .to_string(),
+        );
+        mutations.push(attribution);
+
+        let mut created_ts = baseline.command.clone();
+        created_ts.created_ts += chrono::Duration::seconds(1);
+        mutations.push(created_ts);
+
+        for mutation in mutations {
+            let mut recovered = recovered();
+            recovered.journal_mut().append(&accepted).unwrap();
+            recovered.refresh_after_append().unwrap();
+            let predecessor_close_ts_utc_ms = 1_788_422_400_000;
+            let eligibility = crate::stage8b_p1d1_paper_provider::stage8b_p1d1_test_eligible(
+                &BrokerCommand::PlaceOrder(mutation),
+                accepted_payload_sha256.clone(),
+                predecessor_close_ts_utc_ms,
+                predecessor_close_ts_utc_ms + 600_000,
+            );
+            assert!(matches!(
+                admit_stage7a_p1d1_market_dispatch(&mut recovered, eligibility),
+                Err(Stage6dLiveCoreError::DurableOrderingViolation)
+            ));
+            assert_eq!(recovered.journal_frontier().frame_count(), 1);
+            assert_eq!(
+                recovered
+                    .replay()
+                    .request(baseline.identity.strategy_request_id())
+                    .unwrap()
+                    .dispatch_safety_state(),
+                crate::Stage6DispatchSafetyStateV1::ReadyForFirstDispatch
+            );
+        }
     }
 
     #[test]

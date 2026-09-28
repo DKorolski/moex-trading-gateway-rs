@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""Create immutable review package for the Generation-2 native runner."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import zipfile
+from pathlib import Path
+
+import make_stage8b_design_handoff as common
+import stage8b_p_r2b_generation2_full_transaction_native_r0_check as checker
+import stage8b_p_r2b_generation2_full_transaction_native_r0_handoff_safety_check as safety
+import stage8b_p_r2b_generation2_full_transaction_native_r0_negative_harness as contract_negative
+import stage8b_p_r2b_generation2_full_transaction_native_r0_host_preflight_negative_harness as host_negative
+
+
+ROOT = Path(__file__).resolve().parents[1]
+OUTPUT = ROOT / "reports/handoff"
+BRANCH = "stage8b-p-r2b-generation2-full-transaction-native-r0"
+UPSTREAM_ROOT = ROOT / "tmp/stage8b-r2b-r4r2-production-a/release"
+GENERATION2_ROOT = ROOT / "reports/stage8b-p-r2b-generation2-composition-r0/linux-amd64/build-a"
+PROOF_TOOL_SOURCES = {
+    "stage8b-r2a5-controlled-layout": ROOT / "tmp/stage8b-g2-r0-r1-controlled.tB20fg/x86_64-unknown-linux-musl/release/stage8b-r2a5-controlled-layout",
+    "stage8b-r2b-creator-chain-seeder": ROOT / "tmp/stage8b-r2b-r4-controlled-a/release/stage8b-r2b-creator-chain-seeder",
+    "stage8b-r2b-trust-rebind-key-ceremony-verify": ROOT / "tmp/stage8b-g2-native-r1-verifier-linux-amd64/stage8b-r2b-trust-rebind-key-ceremony-verify",
+}
+FAILED_ATTEMPT_SUMMARY = ROOT / "docs/stage-8/stage8b-p-r2b-generation2-native-r2a-failed-attempt.json"
+FAILED_ATTEMPT_SOURCE = ROOT / "reports/stage8b-p-r2b-generation2-native-r2a-attempt1"
+FAILED_ATTEMPT_PREFIX = "handoff-evidence/native-r2a-failed-attempt"
+
+
+def run(*args: str) -> bytes:
+    return subprocess.check_output(args, cwd=ROOT)
+
+
+def digest(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def binary_source(name: str) -> Path:
+    if name in checker.UPSTREAM_NAMES:
+        return UPSTREAM_ROOT / name
+    source_name = "stage8b-readonly-preflight" if name == "accepted-stage8b-readonly-preflight" else name
+    return GENERATION2_ROOT / source_name
+
+
+def main() -> None:
+    if run("git", "status", "--porcelain", "--untracked-files=all").decode().strip():
+        raise SystemExit("stage8b-generation2-native-r0-handoff: FAIL dirty worktree")
+    branch = run("git", "branch", "--show-current").decode().strip()
+    if branch != BRANCH:
+        raise SystemExit(f"stage8b-generation2-native-r0-handoff: FAIL branch={branch}")
+    source_ref = run("git", "rev-parse", "HEAD").decode().strip()
+    source_tree = run("git", "rev-parse", "HEAD^{tree}").decode().strip()
+    gate = subprocess.run(
+        ["bash", "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_gate.sh"],
+        cwd=ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    if gate.returncode != 0 or b"stage8b-generation2-full-transaction-native-r0-gate: PASS" not in gate.stdout:
+        raise SystemExit(gate.stdout.decode(errors="replace"))
+
+    contract = json.loads((ROOT / checker.CONTRACT).read_text())
+    binaries: dict[str, bytes] = {}
+    for name, expected in contract["production_linux_amd64_sha256"].items():
+        source = binary_source(name)
+        data = source.read_bytes()
+        if digest(data) != expected:
+            raise SystemExit(f"stage8b-generation2-native-r0-handoff: FAIL binary drift {name}")
+        binaries[f"{safety.BIN_ROOT}/{name}"] = data
+    for name, expected in contract["proof_tool_linux_amd64_sha256"].items():
+        data = PROOF_TOOL_SOURCES[name].read_bytes()
+        if digest(data) != expected:
+            raise SystemExit(f"stage8b-generation2-native-r0-handoff: FAIL proof tool drift {name}")
+        binaries[f"{safety.TOOL_ROOT}/{name}"] = data
+    for build_name in ("build-a", "build-b"):
+        for name in sorted(checker.composition.EXPECTED_BINARY_HASHES):
+            source = GENERATION2_ROOT.parent / build_name / name
+            data = source.read_bytes()
+            expected = checker.composition.EXPECTED_BINARY_HASHES[name]
+            if digest(data) != expected:
+                raise SystemExit(
+                    f"stage8b-generation2-native-r0-handoff: FAIL reproducible binary drift {build_name}/{name}"
+                )
+            binaries[f"{safety.GENERATION2_ROOT}/{build_name}/{name}"] = data
+
+    failed_attempt = json.loads(FAILED_ATTEMPT_SUMMARY.read_text(encoding="utf-8"))
+    failed_evidence: dict[str, bytes] = {}
+    for relative, expected in failed_attempt["runtime_evidence_sha256"].items():
+        source = FAILED_ATTEMPT_SOURCE / relative
+        data = source.read_bytes()
+        if digest(data) != expected:
+            raise SystemExit(
+                f"stage8b-generation2-native-r0-handoff: FAIL failed-attempt evidence drift {relative}"
+            )
+        if any(marker in data for marker in (b"AGE-SECRET-KEY-", b"issuer-private-keys")):
+            raise SystemExit(
+                f"stage8b-generation2-native-r0-handoff: FAIL private marker in failed-attempt evidence {relative}"
+            )
+        failed_evidence[f"{FAILED_ATTEMPT_PREFIX}/{relative}"] = data
+
+    short_ref = source_ref[:7]
+    archive_name = f"moex-trading-project-{short_ref}.zip"
+    archive_path = OUTPUT / archive_name
+    manifest, entries = common.source_manifest(source_ref)
+    evidence = (
+        json.dumps(
+            {
+                "schema_version": 1,
+                "stage": "Stage 8B-P R2B Generation-2 native runner R0-R2B verifier-workdir repair review package",
+                "source_ref": source_ref,
+                "source_tree": source_tree,
+                "source_short_ref": short_ref,
+                "archive_name": archive_name,
+                "branch": branch,
+                "accepted_predecessor_ref": checker.ACCEPTED_COMPOSITION_REF,
+                "accepted_predecessor_archive_sha256": checker.ACCEPTED_COMPOSITION_ARCHIVE,
+                "manifest_sha256": digest(manifest),
+                "gate_sha256": digest(gate.stdout),
+                "production_binary_count": 12,
+                "generation2_reproducible_binary_members": 16,
+                "proof_tool_binary_count": 3,
+                "phase_count": 6,
+                "service_invocation_count": 31,
+                "contract_negative_cases": len(contract_negative.CASES),
+                "host_negative_cases": len(host_negative.CASES),
+                "live_swap_mismatch_case": True,
+                "early_cleanup_guard": True,
+                "host_swap_entries_required": 0,
+                "container_visible_swap_entries_required": 0,
+                "docker_cleanup_state_must_be_known": True,
+                "docker_cleanup_runtime_cases": 10,
+                "eligible_disposable_host_identified": True,
+                "predecessor_native_attempt_recorded": True,
+                "predecessor_native_attempt_container_created": True,
+                "predecessor_native_attempt_phase_graph_started": False,
+                "predecessor_native_attempt_custody_cleanup_passed": True,
+                "predecessor_native_attempt_private_material_retained": False,
+                "failed_attempt_evidence_members": len(failed_evidence),
+                "ceremony_verifier_working_directory": "/work",
+                "container_created": False,
+                "native_execution": False,
+                "generation_2_active": False,
+                "authorization": "NOT_ISSUED",
+                "external_finam_network": False,
+                "broker_dispatch": False,
+                "real_orders": False,
+                "next_step": "INDEPENDENT_REVIEW_OF_R0_R2B_THEN_FRESH_NATIVE_EXECUTION",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode()
+    additions = {
+        "handoff-commit.txt": (
+            f"source_short_ref={short_ref}\nsource_ref={source_ref}\n"
+            f"source_tree={source_tree}\narchive_name={archive_name}\n"
+        ).encode(),
+        safety.EVIDENCE: evidence,
+        safety.GATE: gate.stdout,
+        safety.MANIFEST: manifest,
+        **binaries,
+        **failed_evidence,
+    }
+
+    OUTPUT.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+        for entry in entries:
+            archive.writestr(
+                common.zip_info(entry["path"], entry["mode"]),
+                run("git", "show", f"{source_ref}:{entry['path']}"),
+            )
+        for name, data in sorted(additions.items()):
+            file_mode = "100755" if name in binaries else "100644"
+            archive.writestr(common.zip_info(name, file_mode), data)
+
+    result = safety.check(str(archive_path))
+    with tempfile.TemporaryDirectory(prefix="stage8b-g2-native-r0-handoff-") as temporary:
+        extracted = Path(temporary)
+        with zipfile.ZipFile(archive_path) as archive:
+            archive.extractall(extracted)
+        os.chmod(extracted / "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_runner.sh", 0o755)
+        commands = (
+            [sys.executable, "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_check.py", "--root", str(extracted)],
+            [sys.executable, "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_negative_harness.py"],
+            [sys.executable, "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_host_preflight_negative_harness.py"],
+            [sys.executable, "scripts/stage8b_p_r2b_generation2_full_transaction_native_r1_review_archive_negative_harness.py", str(archive_path)],
+            [sys.executable, "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_handoff_safety_check.py", str(archive_path)],
+        )
+        for command in commands:
+            completed = subprocess.run(
+                command, cwd=extracted, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False,
+            )
+            if completed.returncode != 0:
+                raise SystemExit(completed.stdout.decode(errors="replace"))
+
+    archive_digest = digest(archive_path.read_bytes())
+    archive_path.with_suffix(".zip.sha256").write_text(f"{archive_digest}  {archive_name}\n")
+    archive_path.with_suffix(".zip.safety.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+    print(
+        f"archive={archive_path}\nsha256={archive_digest}\nsource_ref={source_ref}\n"
+        "stage8b-generation2-native-r0-handoff: PASS"
+    )
+
+
+if __name__ == "__main__":
+    main()

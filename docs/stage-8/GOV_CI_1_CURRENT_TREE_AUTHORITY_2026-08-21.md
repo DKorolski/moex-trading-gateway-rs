@@ -35,12 +35,23 @@ The current authority is intentionally split into independent layers:
 6. semantic closed-surface checks independent of the generic production fingerprint.
 7. canonical CI action identities pinned to full upstream commit SHA values and Rust
    pinned to exact release `1.95.0`; mutable action tags and `stable` are rejected.
+8. canonical workspace debug/release/doctest execution inherits the accepted P1-d4
+   source-gate stack contract `RUST_MIN_STACK=33554432`; removal or value drift is
+   rejected before current-tree evidence can be accepted.
+9. the immutable Stage 8A-5 gate remains byte-exact, while its detached Stage 7B
+   checkout receives the later accepted `e7ae487` test-only chronology-fixture repair.
+   The repair is limited to one `#[cfg(test)]` block and is bound by exact source-ref,
+   pre-image, post-image and diff SHA-256 values. It changes no current-tree Rust,
+   Cargo, runtime, Redis or FINAM surface. Each wrapped test transaction restores
+   the exact pristine historical source before preseal and preserves cargo status.
 
 The accepted pin candidates used by this governance rotation are:
 
 - `actions/checkout@11d5960a326750d5838078e36cf38b85af677262`;
 - `dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c`;
 - Rust toolchain `1.95.0`.
+- Rust test-thread stack `RUST_MIN_STACK=33554432`.
+- detached replay repair source `e7ae487f9897be297bd9fabcee9ffad302e6dd3e`.
 
 Exact governance hashes make echo, comment, wrapper, alias and command-removal no-ops
 fail closed. Semantic negatives deliberately recompute the production manifest after

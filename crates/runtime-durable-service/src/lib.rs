@@ -114,22 +114,202 @@
 //! let authority: Stage7bStage8a4TerminalAuthority = unreachable!();
 //! let _ = serde_json::to_vec(&authority).unwrap();
 //! ```
+//!
+//! Stage 8B-P1 validated bootstrap config and its first-boot command are also
+//! opaque linear authorities. They cannot be cloned, serialized or constructed
+//! from public fields:
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1ValidatedBootstrapConfig;
+//! fn require_clone<T: Clone>() {}
+//! require_clone::<Stage8bP1ValidatedBootstrapConfig>();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1ValidatedBootstrapConfig;
+//! let config: Stage8bP1ValidatedBootstrapConfig = unreachable!();
+//! let _ = serde_json::to_vec(&config).unwrap();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1FirstBootAdminCommand;
+//! fn require_clone<T: Clone>() {}
+//! require_clone::<Stage8bP1FirstBootAdminCommand>();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1FirstBootAdminCommand;
+//! let _forged = Stage8bP1FirstBootAdminCommand {};
+//! ```
+//!
+//! P1-b semantic composition, journal-ahead/zero-intent ACK recovery and M10
+//! delivery authorities remain linear and opaque. They cannot be cloned,
+//! serialized, forged or split into independently reusable owners:
+//!
+//! ```compile_fail
+//! use runtime_durable_service::P1SemanticPrepublicationPending;
+//! fn require_clone<T: Clone>() {}
+//! require_clone::<P1SemanticPrepublicationPending>();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::P1SemanticPrepublicationPending;
+//! let pending: P1SemanticPrepublicationPending = unreachable!();
+//! let _ = serde_json::to_vec(&pending).unwrap();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::P1SemanticZeroIntentAckPending;
+//! fn require_clone<T: Clone>() {}
+//! require_clone::<P1SemanticZeroIntentAckPending>();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::P1SemanticZeroIntentAckPending;
+//! let pending: P1SemanticZeroIntentAckPending = unreachable!();
+//! let _ = serde_json::to_vec(&pending).unwrap();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::{Stage8bP1LocalM10Stream, Stage8bP1SemanticCompositionOwner};
+//! let stage7 = unreachable!();
+//! let stream: Stage8bP1LocalM10Stream = unreachable!();
+//! let owner = Stage8bP1SemanticCompositionOwner { stage7, m10_stream: stream };
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1PendingM10Delivery;
+//! fn require_clone<T: Clone>() {}
+//! require_clone::<Stage8bP1PendingM10Delivery>();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1SemanticPrepublicationOwner;
+//! let authority: Stage8bP1SemanticPrepublicationOwner = unreachable!();
+//! let _ = serde_json::to_vec(&authority).unwrap();
+//! ```
+//!
+//! P1-c adds a real-Redis source/publication boundary without exposing its
+//! connection, source XACK or retained Stage 7 owner. Its capabilities remain
+//! linear and non-serializable:
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1RedisSemanticCompositionTransport;
+//! fn require_clone<T: Clone>() {}
+//! require_clone::<Stage8bP1RedisSemanticCompositionTransport>();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1RedisPrepublicationPending;
+//! let pending: Stage8bP1RedisPrepublicationPending = unreachable!();
+//! let _ = serde_json::to_vec(&pending).unwrap();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1RedisCommandPublished;
+//! let published: Stage8bP1RedisCommandPublished = unreachable!();
+//! published.xack_source_m10().unwrap();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1RedisCommandPublished;
+//! let published: Stage8bP1RedisCommandPublished = unreachable!();
+//! let _stage7_owner = published.into_stage7_owner();
+//! ```
+//!
+//! P1-d2 feedback authority is also phase-linear. The post-ACK owner cannot
+//! replay ACK or resolve the source, while the post-truth owner cannot apply
+//! truth again:
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1RedisFeedbackAckCommitted;
+//! async fn early_xack(ack: Stage8bP1RedisFeedbackAckCommitted) {
+//!     ack.acknowledge_source().await.unwrap();
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1RedisFeedbackAckCommitted;
+//! let ack: Stage8bP1RedisFeedbackAckCommitted = unreachable!();
+//! ack.replay_ack().unwrap();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1RedisFeedbackTruthCommitted;
+//! fn duplicate_truth(truth: Stage8bP1RedisFeedbackTruthCommitted) {
+//!     truth.commit_truth(unreachable!()).unwrap();
+//! }
+//! ```
+//!
+//! P1-d3 LIMIT/CANCEL owners preserve the same phase split. S_ack cannot
+//! acknowledge its source, S_truth cannot apply truth again, and the
+//! fill-before-cancel intermediate cannot skip its recovered-cancel seal:
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1RedisLimitAckCommitted;
+//! async fn early_limit_xack(ack: Stage8bP1RedisLimitAckCommitted) {
+//!     ack.acknowledge_source().await.unwrap();
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1RedisLimitTruthCommitted;
+//! fn duplicate_limit_truth(truth: Stage8bP1RedisLimitTruthCommitted) {
+//!     truth.commit_truth(unreachable!()).unwrap();
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1RedisCancelContinuationPending;
+//! async fn skip_recovered_cancel_seal(pending: Stage8bP1RedisCancelContinuationPending) {
+//!     pending.acknowledge_source().await.unwrap();
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1d3SemanticPendingOwner;
+//! fn reacquire_schedule(pending: Stage8bP1d3SemanticPendingOwner) {
+//!     pending.commit_later_limit(unreachable!(), unreachable!()).unwrap();
+//! }
+//! ```
 
 #[cfg(not(unix))]
 compile_error!("runtime-durable-service requires Unix kernel file locking");
 
 mod recovery;
+mod stage8b_p1_bootstrap;
+mod stage8b_p1_semantic;
+mod stage8b_p1_supervisor;
+mod stage8b_p1e_first_boot_source;
+mod stage8b_p1e_first_boot_transaction;
+mod stage8b_p1e_process;
+mod stage8b_p1e_schedule_source;
+mod stage8b_p1f_fixed_redis;
+mod stage8b_p1f_guardian;
+mod stage8b_p1f_local_supervision;
+mod stage8b_p1f_o2_systemd;
 
 pub use recovery::{
-    spawn_stage7b_supervised_task, Stage7bCompositeHealthSnapshot,
-    Stage7bCompositeReadinessSnapshot, Stage7bPaperReadinessPhase, Stage7bPaperReadinessReason,
-    Stage7bRecoveryBlockReason, Stage7bRecoveryBlocked, Stage7bRecoveryError,
-    Stage7bRecoveryReadyOwner, Stage7bRecoverySealV1, Stage7bRedisService,
+    spawn_stage7b_supervised_task, P1SemanticPrepublicationPending, P1SemanticZeroIntentAckPending,
+    Stage7bCompositeHealthSnapshot, Stage7bCompositeReadinessSnapshot, Stage7bPaperReadinessPhase,
+    Stage7bPaperReadinessReason, Stage7bRecoveryBlockReason, Stage7bRecoveryBlocked,
+    Stage7bRecoveryError, Stage7bRecoveryReadyOwner, Stage7bRecoverySealV1, Stage7bRedisService,
     Stage7bRedisServiceConfig, Stage7bRedisServiceError, Stage7bRestartOutcome,
     Stage7bServiceRunSummary, Stage7bServiceSupervisor, Stage7bServiceTaskHandle,
     Stage7bServiceTaskOutput, Stage7bStage8a1DurableRequestAuthority,
     Stage7bStage8a4DurableBatchReceipt, Stage7bStage8a4TerminalAuthority,
-    Stage7bTaskReadinessHandle, Stage8a4I3RecoveryPendingOwner,
+    Stage7bTaskReadinessHandle, Stage8a4I3RecoveryPendingOwner, Stage8bP1MultiIntentBlocked,
+    Stage8bP1SemanticCommitOutcome, Stage8bP1SemanticPrepublicationOwner,
+    Stage8bP1ZeroIntentCommitReceipt, Stage8bP1d2AckCommittedOwner,
+    Stage8bP1d2FeedbackAuditEvidenceV1, Stage8bP1d2PreAckPendingOwner,
+    Stage8bP1d2TruthCommittedOwner, Stage8bP1d3AckCommittedOwner, Stage8bP1d3DispatchPendingOwner,
+    Stage8bP1d3LaterCommitOutcome, Stage8bP1d3PreAckPendingOwner, Stage8bP1d3SemanticPendingOwner,
+    Stage8bP1d3TruthCommittedOwner, Stage8bP1d4GeneratedMarketAckCommittedOwner,
+    Stage8bP1d4GeneratedMarketDispatchPendingOwner, Stage8bP1d4GeneratedMarketOrderPendingOwner,
+    Stage8bP1d4GeneratedMarketPreAckPendingOwner,
+    Stage8bP1d4GeneratedMarketPreFinalizationPendingOwner,
+    Stage8bP1d4GeneratedMarketPrepublicationOwner, Stage8bP1d4GeneratedMarketTruthCommittedOwner,
+    Stage8bP1eScheduleBindingCommitReceipt, Stage8bP1eScheduleBindingCommittedOwner,
     STAGE7B_RECOVERY_SEAL_SCHEMA_VERSION,
 };
 #[cfg(feature = "stage8a4-i3-test-fixtures")]
@@ -142,6 +322,261 @@ pub use recovery::{
 #[doc(hidden)]
 pub use recovery::{
     stage8a4_i3_test_fail_before_covering_seal, stage8a4_i3_test_set_owner_journal_failpoint,
+};
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+#[doc(hidden)]
+pub use recovery::{
+    stage8b_p1_test_stop_after_dispatch_attempt, stage8b_p1_test_stop_after_request_accepted,
+};
+pub use stage8b_p1_bootstrap::{
+    authorize_stage8b_p1_first_boot, first_boot_stage8b_p1,
+    load_stage8b_p1_commitment_key_from_systemd_credential, restart_stage8b_p1,
+    stage8b_p1_imoexf_instrument_map_fingerprint_sha256, stage8b_p1_redis_namespace,
+    validate_stage8b_p1_bootstrap_config, Stage8bP1BootstrapConfig, Stage8bP1BootstrapError,
+    Stage8bP1BootstrapReceipt, Stage8bP1FirstBootAdminCommand, Stage8bP1FirstBootOutcome,
+    Stage8bP1RedisNamespace, Stage8bP1ValidatedBootstrapConfig,
+    STAGE8B_P1_BOOTSTRAP_CONFIG_SCHEMA_VERSION, STAGE8B_P1_BROKER_ID,
+    STAGE8B_P1_COMMITMENT_CREDENTIAL_FILE, STAGE8B_P1_EXCHANGE, STAGE8B_P1_FIRST_BOOT_CONFIRMATION,
+    STAGE8B_P1_INTERNAL_SYMBOL, STAGE8B_P1_M10_CONSUMER_GROUP, STAGE8B_P1_MARKET,
+    STAGE8B_P1_REDIS_HASH_TAG, STAGE8B_P1_STAGE7B_CONSUMER_GROUP, STAGE8B_P1_STRATEGY_ID,
+    STAGE8B_P1_TICK_SIZE, STAGE8B_P1_VENUE_SYMBOL,
+};
+pub use stage8b_p1_semantic::{
+    acquire_stage8b_p1_journal_ahead_with_redis, acquire_stage8b_p1_prepublication_with_redis,
+    acquire_stage8b_p1_zero_intent_ack_with_redis, acquire_stage8b_p1d2_ack_with_redis,
+    acquire_stage8b_p1d2_pre_ack_with_redis, acquire_stage8b_p1d2_truth_with_redis,
+    acquire_stage8b_p1d3_ack_with_redis, acquire_stage8b_p1d3_cancel_continuation_with_redis,
+    acquire_stage8b_p1d3_dispatch_cancel_with_redis,
+    acquire_stage8b_p1d3_dispatch_expiry_with_redis,
+    acquire_stage8b_p1d3_dispatch_limit_with_redis, acquire_stage8b_p1d3_pre_ack_with_redis,
+    acquire_stage8b_p1d3_semantic_with_redis, acquire_stage8b_p1d3_truth_with_redis,
+    acquire_stage8b_p1d4_ack_with_redis, acquire_stage8b_p1d4_dispatch_pending_with_redis,
+    acquire_stage8b_p1d4_order_pending_with_redis, acquire_stage8b_p1d4_pre_ack_with_redis,
+    acquire_stage8b_p1d4_pre_finalization_with_redis,
+    acquire_stage8b_p1d4_prepublication_with_redis, acquire_stage8b_p1d4_truth_with_redis,
+    acquire_stage8b_p1e_ready_pending_with_redis, attach_stage8b_p1_redis,
+    build_stage8b_p1_canonical_m10, decide_stage8b_p1e_post_acquisition_latch,
+    initialize_stage8b_p1_redis_namespace, parse_stage8b_p1_canonical_m10,
+    poll_stage8b_p1e_ready_fresh_with_redis, resolve_stage8b_p1_zero_intent_ack_with_local_m10,
+    resolve_stage8b_p1_zero_intent_ack_with_redis, resume_stage8b_p1_journal_ahead_with_local_m10,
+    resume_stage8b_p1_journal_ahead_with_redis, resume_stage8b_p1_prepublication_with_redis,
+    resume_stage8b_p1d2_ack_with_redis, resume_stage8b_p1d2_pre_ack_with_redis,
+    resume_stage8b_p1d2_truth_with_redis, resume_stage8b_p1d3_ack_with_redis,
+    resume_stage8b_p1d3_cancel_continuation_with_redis,
+    resume_stage8b_p1d3_dispatch_cancel_with_redis, resume_stage8b_p1d3_dispatch_expiry_with_redis,
+    resume_stage8b_p1d3_dispatch_limit_with_redis, resume_stage8b_p1d3_pre_ack_with_redis,
+    resume_stage8b_p1d3_semantic_with_redis, resume_stage8b_p1d3_truth_with_redis,
+    resume_stage8b_p1d4_ack_with_redis, resume_stage8b_p1d4_dispatch_pending_with_redis,
+    resume_stage8b_p1d4_order_pending_with_redis, resume_stage8b_p1d4_pre_ack_with_redis,
+    resume_stage8b_p1d4_pre_finalization_with_redis, resume_stage8b_p1d4_prepublication_with_redis,
+    resume_stage8b_p1d4_truth_with_redis, resume_stage8b_p1e_cancel_with_signed_schedule,
+    resume_stage8b_p1e_command_published_with_signed_schedule,
+    resume_stage8b_p1e_committed_cancel_with_redis, resume_stage8b_p1e_committed_day_expiry,
+    resume_stage8b_p1e_committed_generated_market_with_redis,
+    resume_stage8b_p1e_committed_initial_limit_with_redis,
+    resume_stage8b_p1e_committed_market_with_redis,
+    resume_stage8b_p1e_generated_market_with_signed_schedule,
+    resume_stage8b_p1e_initial_limit_with_signed_schedule,
+    resume_stage8b_p1e_ready_source_with_redis,
+    resume_stage8b_p1e_ready_working_limit_source_with_redis,
+    resume_stage8b_p1e_ready_working_limit_with_signed_schedule,
+    route_stage8b_p1e_post_acquisition_v1, Stage8bP1CanonicalM10BuildInput,
+    Stage8bP1CanonicalM10Error, Stage8bP1CanonicalM10SourceM1, Stage8bP1LocalM10Error,
+    Stage8bP1LocalM10Stream, Stage8bP1LocalMultiIntentBlocked, Stage8bP1LocalPrepublicationPending,
+    Stage8bP1LocalSemanticOutcome, Stage8bP1M10PublishDisposition, Stage8bP1PendingM10Delivery,
+    Stage8bP1RedisCancelCommitOutcome, Stage8bP1RedisCancelContinuationPending,
+    Stage8bP1RedisCommandPublicationDisposition, Stage8bP1RedisCommandPublicationReceipt,
+    Stage8bP1RedisCommandPublished, Stage8bP1RedisConfig, Stage8bP1RedisFeedbackAckCommitted,
+    Stage8bP1RedisFeedbackResolved, Stage8bP1RedisFeedbackTruthCommitted,
+    Stage8bP1RedisGeneratedMarketAckCommitted, Stage8bP1RedisGeneratedMarketTruthCommitted,
+    Stage8bP1RedisLimitAckCommitted, Stage8bP1RedisLimitResolved,
+    Stage8bP1RedisLimitTruthCommitted, Stage8bP1RedisM10PublishDisposition,
+    Stage8bP1RedisPreAckRecoveryOutcome, Stage8bP1RedisPrepublicationPending,
+    Stage8bP1RedisSemanticCompositionOwner, Stage8bP1RedisSemanticCompositionTransport,
+    Stage8bP1RedisSemanticError, Stage8bP1RedisSemanticOutcome,
+    Stage8bP1RedisZeroIntentAckDisposition, Stage8bP1RedisZeroIntentAckResolved,
+    Stage8bP1SemanticCompositionError, Stage8bP1SemanticCompositionOwner,
+    Stage8bP1ValidatedCanonicalM10, Stage8bP1ZeroIntentAckDisposition,
+    Stage8bP1ZeroIntentAckResolved, Stage8bP1eClaimedM10DeliveryV2, Stage8bP1eContinuationPermitV1,
+    Stage8bP1eContinuationRouteKindV1, Stage8bP1ePostAcquisitionDecisionV1,
+    Stage8bP1ePostAcquisitionOwnerV1, Stage8bP1ePublishedScheduleRouteV1,
+    Stage8bP1eReadyFreshAcquisitionOutcomeV1, Stage8bP1eReadyPendingAcquisitionOutcomeV1,
+    Stage8bP1eReadySourceRouteV1, Stage8bP1eRecoveredCancelScheduleOutcomeV1,
+    Stage8bP1eRecoveredDayExpiryScheduleOutcomeV1,
+    Stage8bP1eRecoveredGeneratedMarketScheduleOutcomeV1,
+    Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1, Stage8bP1eRecoveredMarketScheduleOutcomeV1,
+    Stage8bP1eRetainedSourceReceiptV1, Stage8bP1eRoutedContinuationV1,
+    Stage8bP1eRoutedPostAcquisitionDecisionV1, Stage8bP1eScheduleStoppedV1,
+    Stage8bP1eShutdownCauseV1, Stage8bP1eShutdownIntentV1, Stage8bP1eShutdownLatchV1,
+    Stage8bP1eSignedCancelScheduleOutcomeV1, Stage8bP1eSignedDayExpiryScheduleOutcomeV1,
+    Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1,
+    Stage8bP1eSignedInitialLimitScheduleOutcomeV1, Stage8bP1eSignedMarketScheduleOutcomeV1,
+    Stage8bP1eSignedWorkingScheduleOutcomeV1, STAGE8B_P1_CANONICAL_M10_IDENTITY_DOMAIN,
+    STAGE8B_P1_CANONICAL_M10_MESSAGE_TYPE, STAGE8B_P1_CANONICAL_M10_SCHEMA_VERSION,
+    STAGE8B_P1_LOCAL_M10_MIN_RETENTION,
+};
+pub use stage8b_p1_supervisor::{
+    attach_stage8b_p1e_verified_redis, parse_stage8b_p1e_supervisor_config_v1,
+    stage8b_p1e_classify_restart_v1, stage8b_p1e_readiness_v1, stage8b_p1e_redact_account_id,
+    stage8b_p1e_redact_request_id, stage8b_p1e_telemetry_envelope_v1,
+    validate_stage8b_p1e_supervisor_config_v1, Stage8bP1RuntimeProfileV1,
+    Stage8bP1eConsumerHygieneReportV1, Stage8bP1eCoordinatorActionV1,
+    Stage8bP1eCoordinatorDecisionV1, Stage8bP1eCoordinatorV1, Stage8bP1eFailureClassV1,
+    Stage8bP1eHealthPayloadV1, Stage8bP1eHealthStatusV1, Stage8bP1eReadinessInputsV1,
+    Stage8bP1eReadinessPayloadV1, Stage8bP1eReadinessPhaseV1, Stage8bP1eReadinessReasonV1,
+    Stage8bP1eRedisAttachPlanV1, Stage8bP1eRedisControlError, Stage8bP1eRedisControlV1,
+    Stage8bP1eRestartKindV1, Stage8bP1eRunSettingsV1, Stage8bP1eShutdownPhaseV1,
+    Stage8bP1eSupervisorConfigError, Stage8bP1eSupervisorConfigV1, Stage8bP1eSupervisorEventV1,
+    Stage8bP1eTelemetryEnvelopeV1, Stage8bP1eTelemetryPublisherV1, Stage8bP1eTerminalFailureV1,
+    Stage8bP1eValidatedSupervisorConfigV1, Stage8bP1eVerifiedRedisSessionV1,
+    STAGE8B_P1E_DEPLOYMENT_MANIFEST_KEY, STAGE8B_P1E_FIRST_BOOT_SOURCE_PATH,
+    STAGE8B_P1E_HEALTH_INTERVAL_MAX_MS, STAGE8B_P1E_HEALTH_INTERVAL_MIN_MS,
+    STAGE8B_P1E_NAMESPACE_DIGEST_SHA256, STAGE8B_P1E_REDIS_OPERATION_TIMEOUT_MS,
+    STAGE8B_P1E_REDIS_RUNTIME_POLICY_ID, STAGE8B_P1E_REDIS_RUNTIME_POLICY_SHA256,
+    STAGE8B_P1E_REDIS_URL_IPV4, STAGE8B_P1E_REDIS_URL_IPV6, STAGE8B_P1E_RUNTIME_PROFILE_ID,
+    STAGE8B_P1E_RUNTIME_PROFILE_SHA256, STAGE8B_P1E_SHUTDOWN_GRACE_MAX_MS,
+    STAGE8B_P1E_SHUTDOWN_GRACE_MIN_MS, STAGE8B_P1E_STALE_CONSUMER_EXAMINE_MAX,
+    STAGE8B_P1E_STALE_CONSUMER_IDLE_MS, STAGE8B_P1E_STALE_CONSUMER_INVENTORY_MAX,
+    STAGE8B_P1E_SUPERVISOR_CONFIG_PATH, STAGE8B_P1E_SUPERVISOR_CONFIG_SCHEMA_VERSION,
+    STAGE8B_P1E_SYSTEMD_STOP_TIMEOUT_MS, STAGE8B_P1E_TELEMETRY_CONTRACT_SHA256,
+    STAGE8B_P1E_TELEMETRY_RETENTION,
+};
+pub use stage8b_p1e_first_boot_source::{
+    build_stage8b_p1_first_boot_source_v1, load_stage8b_p1e_first_boot_source_v1,
+    validate_stage8b_p1e_first_boot_source_bytes_v1, Stage8bP1eFirstBootBarV1,
+    Stage8bP1eFirstBootBuildError, Stage8bP1eFirstBootSourceError, Stage8bP1ePreparedFirstBootV1,
+    Stage8bP1eRiskGateObservationV1, Stage8bP1eValidatedFirstBootSourceV1,
+    STAGE8B_P1E_FIRST_BOOT_MIN_HISTORY_SESSIONS, STAGE8B_P1E_FIRST_BOOT_MIN_RISKGATE_SESSIONS,
+    STAGE8B_P1E_FIRST_BOOT_SOURCE_DOMAIN, STAGE8B_P1E_FIRST_BOOT_SOURCE_GROUP,
+    STAGE8B_P1E_FIRST_BOOT_SOURCE_MAX_BYTES, STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V2_SHA256,
+    STAGE8B_P1E_FIRST_BOOT_SOURCE_SCHEMA_VERSION, STAGE8B_P1E_FIRST_BOOT_TRUTH_MAX_AGE_SECONDS,
+};
+pub use stage8b_p1e_first_boot_transaction::{
+    admit_stage8b_p1e_ordinary_run_v1, authorize_stage8b_p1e_pre_seal_recovery_v5,
+    classify_stage8b_p1e_first_boot_v5, first_boot_stage8b_p1e_transaction_v5,
+    recover_stage8b_p1e_first_boot_adoption_v5,
+    recover_stage8b_p1e_first_boot_pre_seal_administrative_v5,
+    recover_stage8b_p1e_first_boot_pre_seal_from_supervisor_v5,
+    recover_stage8b_p1e_first_boot_pre_seal_v5, Stage8bP1FirstBootReceiptV2,
+    Stage8bP1eAdoptionRecoveryActionV5, Stage8bP1eFirstBootClassificationV5,
+    Stage8bP1eFirstBootInspectionV5, Stage8bP1eFirstBootTransactionError,
+    Stage8bP1eFirstBootTransactionMarkerV4, Stage8bP1eFirstBootTransactionOutcomeV5,
+    Stage8bP1eFirstBootTransactionPhaseV4, Stage8bP1ePreSealRecoveryActionV5,
+    Stage8bP1ePreSealRecoveryOutcomeV5, Stage8bP1ePreSealRecoverySelectorV5,
+    STAGE8B_P1E_ADOPTION_PREDICATE_VERSION, STAGE8B_P1E_DEPLOYMENT_IDENTITY_V2_SHA256,
+    STAGE8B_P1E_FIRST_BOOT_QUARANTINE_DIRECTORY, STAGE8B_P1E_FIRST_BOOT_RECEIPT_FILE,
+    STAGE8B_P1E_FIRST_BOOT_RECEIPT_SCHEMA_VERSION, STAGE8B_P1E_FIRST_BOOT_RECEIPT_TEMP_FILE,
+    STAGE8B_P1E_FIRST_BOOT_RECOVERY_CONFIRMATION, STAGE8B_P1E_TRANSACTION_MARKER_FILE,
+    STAGE8B_P1E_TRANSACTION_MARKER_SCHEMA_VERSION, STAGE8B_P1E_TRANSACTION_MARKER_TEMP_FILE,
+    STAGE8B_P1E_TRANSACTION_V5_CONTRACT_VERSION,
+};
+pub use stage8b_p1e_process::{
+    acquire_stage8b_p1e_startup_owner_v1, advance_stage8b_p1e_cancel_schedule_v1,
+    advance_stage8b_p1e_day_expiry_schedule_v1, advance_stage8b_p1e_generated_market_schedule_v1,
+    advance_stage8b_p1e_initial_limit_schedule_v1, advance_stage8b_p1e_market_schedule_v1,
+    advance_stage8b_p1e_ready_working_schedule_v1, advance_stage8b_p1e_recovery_once_v1,
+    advance_stage8b_p1e_supported_schedule_bounded_v1,
+    advance_stage8b_p1e_supported_schedule_once_v1, continue_stage8b_p1e_recovery_once_v1,
+    drain_stage8b_p1e_recovery_lifecycle_v1, drain_stage8b_p1e_schedule_free_recovery_v1,
+    execute_stage8b_p1e_process_command_v1, latch_stage8b_p1e_startup_owner_v1,
+    parse_stage8b_p1e_process_command_v1, poll_stage8b_p1e_ready_once_v1,
+    recheck_stage8b_p1e_recovery_step_latch_v1, run_stage8b_p1e_owner_loop_v1,
+    run_stage8b_p1e_schedule_free_owner_loop_v1, run_stage8b_p1e_startup_owner_loop_v1,
+    stage8b_p1e_route_pre_redis_restart_v1, Stage8bP1eAttachableRestartV1,
+    Stage8bP1eBlockedRestartV1, Stage8bP1eBoundedScheduleCycleOutcomeV1,
+    Stage8bP1eCancelScheduleAdvanceOutcomeV1, Stage8bP1eCommittedCancelResolvedV1,
+    Stage8bP1eCommittedCancelRestartRequiredV1, Stage8bP1eCommittedDayExpiryResolvedV1,
+    Stage8bP1eCommittedScheduleStartupV1, Stage8bP1eContinuingStartupV1,
+    Stage8bP1eDayExpiryScheduleAdvanceOutcomeV1, Stage8bP1eGeneratedMarketScheduleAdvanceOutcomeV1,
+    Stage8bP1eInitialLimitScheduleAdvanceOutcomeV1, Stage8bP1eLimitScheduleStartupV1,
+    Stage8bP1eMarketScheduleAdvanceOutcomeV1, Stage8bP1eOwnerLoopOutcomeV1,
+    Stage8bP1ePendingNotClaimableStartupV1, Stage8bP1ePreRedisRestartV1,
+    Stage8bP1eProcessCommandV1, Stage8bP1eProcessErrorV1, Stage8bP1eProcessRecoveryActionV1,
+    Stage8bP1eProcessSuccessV1, Stage8bP1eReadyIdleStartupV1, Stage8bP1eReadyPollOutcomeV1,
+    Stage8bP1eReadyPollingV1, Stage8bP1eRecoveredBlockedV1,
+    Stage8bP1eRecoveredPendingNotClaimableV1, Stage8bP1eRecoveredReadyKindV1,
+    Stage8bP1eRecoveredReadyV1, Stage8bP1eRecoveryAdvanceOutcomeV1,
+    Stage8bP1eRecoveryAdvancePermitV1, Stage8bP1eRecoveryBoundaryKindV1,
+    Stage8bP1eRecoveryLatchDecisionV1, Stage8bP1eRecoveryStepRouteV1, Stage8bP1eRecoveryStepV1,
+    Stage8bP1eRetainedRecoveryBoundaryV1, Stage8bP1eRetainedStartupV1,
+    Stage8bP1eScheduleDeferredKindV1, Stage8bP1eScheduleDeferredRecoveryV1,
+    Stage8bP1eScheduleFreeDrainOutcomeV1, Stage8bP1eScheduleFreeOwnerLoopOutcomeV1,
+    Stage8bP1eScheduleStoppedRecoveryV1, Stage8bP1eStartupErrorV1,
+    Stage8bP1eStartupLatchDecisionV1, Stage8bP1eStartupLatchKindV1, Stage8bP1eStartupOwnerKindV1,
+    Stage8bP1eStartupOwnerV1, Stage8bP1eStoppedReadyPollingV1,
+    Stage8bP1eSupportedScheduleCycleOutcomeV1, Stage8bP1eWorkingScheduleAdvanceOutcomeV1,
+};
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+#[doc(hidden)]
+pub use stage8b_p1e_process::{
+    stage8b_p1f_ie_run_linked_composition_v1, Stage8bP1fIeCompositionEvidenceV1,
+    Stage8bP1fIeCompositionInputV1,
+};
+pub use stage8b_p1e_schedule_source::{
+    bind_stage8b_p1e_cancel_schedule, bind_stage8b_p1e_day_expiry_schedule,
+    bind_stage8b_p1e_generated_market_schedule, bind_stage8b_p1e_initial_limit_schedule,
+    bind_stage8b_p1e_market_schedule, bind_stage8b_p1e_working_limit_schedule,
+    commit_stage8b_p1e_cancel_schedule, commit_stage8b_p1e_day_expiry_schedule,
+    commit_stage8b_p1e_initial_limit_schedule, commit_stage8b_p1e_market_schedule,
+    commit_stage8b_p1e_working_limit_schedule, continue_stage8b_p1e_day_expiry_schedule,
+    continue_stage8b_p1e_market_schedule, continue_stage8b_p1e_schedule_step,
+    resume_stage8b_p1e_committed_schedule_binding, Stage8bP1eGuardedScheduleReadV1,
+    Stage8bP1eNewestScheduleReadV1, Stage8bP1ePostBindingPermitV1, Stage8bP1eRedisScheduleReader,
+    Stage8bP1eScheduleAuthorityDecisionV1, Stage8bP1eScheduleBindingCommitV1,
+    Stage8bP1eScheduleBindingDecisionV1, Stage8bP1eScheduleLatchCheckpointV1,
+    Stage8bP1eScheduleReadError, Stage8bP1eScheduleStopReceiptV1,
+    Stage8bP1eVerifiedScheduleSnapshotV1,
+};
+pub use stage8b_p1f_fixed_redis::{
+    authorize_stage8b_p1f_redis_operation, coordinate_stage8b_p1f_resource_sample_v1,
+    evaluate_stage8b_p1f_resource_sample_v1, provision_stage8b_p1f_fresh_namespace_v1,
+    stage8b_p1f_redis_role_contract_v1, stage8b_p1f_redis_source_operation_contract_v1,
+    Stage8bP1fM10FeederRedisV1, Stage8bP1fM10RedisPublicationReceiptV1,
+    Stage8bP1fRedisAuditResultV1, Stage8bP1fRedisAuditedOperationV1,
+    Stage8bP1fRedisAuxiliaryOperationV1, Stage8bP1fRedisCommandAuditHandleV1,
+    Stage8bP1fRedisCommandAuditRecordV1, Stage8bP1fRedisCommandAuditV1,
+    Stage8bP1fRedisDatabaseScopeV1, Stage8bP1fRedisRoleContractV1, Stage8bP1fRedisRoleErrorV1,
+    Stage8bP1fRedisRoleV1, Stage8bP1fRedisScriptV1, Stage8bP1fRedisSourceOperationContractV1,
+    Stage8bP1fRedisSourceOperationV1, Stage8bP1fResourceDispositionV1,
+    Stage8bP1fResourceMonitorOutcomeV1, Stage8bP1fResourceProbeV1, Stage8bP1fResourceSampleV1,
+    Stage8bP1fResourceStopReasonV1, STAGE8B_P1F_COMMAND_AUDIT_CAPACITY,
+    STAGE8B_P1F_DB15_EVIDENCE_BUDGET_BYTES, STAGE8B_P1F_MINIMUM_ROOT_FREE_BYTES,
+    STAGE8B_P1F_REDIS_DATABASE, STAGE8B_P1F_REDIS_ROLES, STAGE8B_P1F_REDIS_ROLE_COUNT,
+    STAGE8B_P1F_REDIS_SCRIPTS, STAGE8B_P1F_REDIS_SCRIPT_COUNT, STAGE8B_P1F_REDIS_SOURCE_OPERATIONS,
+    STAGE8B_P1F_REDIS_SOURCE_OPERATION_COUNT, STAGE8B_P1F_RESOURCE_POLL_INTERVAL_SECONDS,
+    STAGE8B_P1F_TOTAL_PEL_FAIL_STOP_THRESHOLD,
+};
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+#[doc(hidden)]
+pub use stage8b_p1f_guardian::Stage8bP1fIeLinkedFixtureV1;
+pub use stage8b_p1f_guardian::{
+    execute_stage8b_p1f_permitted_restore_v1, sign_stage8b_p1f_activation_certificate_v1,
+    sign_stage8b_p1f_genesis_manifest_v1, sign_stage8b_p1f_phase_manifest_v1,
+    stage8b_p1f_authority_public_key_hex, Stage8bP1fActivationCertificateV1,
+    Stage8bP1fAuthorityErrorV1, Stage8bP1fAuthorityInspectionV1, Stage8bP1fAuthorityStoreV1,
+    Stage8bP1fClaimDispositionV1, Stage8bP1fClaimReceiptV1, Stage8bP1fDeadlineDecisionV1,
+    Stage8bP1fGenesisManifestV1, Stage8bP1fGenesisReceiptV1, Stage8bP1fMaterializedSetReceiptV1,
+    Stage8bP1fOperatorStopCauseV1, Stage8bP1fPhaseManifestV1, Stage8bP1fPhaseStateV1,
+    Stage8bP1fPhaseV1, Stage8bP1fQuarantineReceiptV1, Stage8bP1fRestorePlanV1,
+    Stage8bP1fRestoreWriteV1, Stage8bP1fRunPermitV1, Stage8bP1fStoppingReceiptV1,
+    Stage8bP1fTerminalReceiptV1, STAGE8B_P1F_AUTHORITY_CONTROL_ROOT,
+    STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION, STAGE8B_P1F_CONFIG_ROOT, STAGE8B_P1F_MAX_AUTHORITY_BYTES,
+    STAGE8B_P1F_SERVICE_USER, STAGE8B_P1F_SOURCE_SHA256_TEMPLATE_SENTINEL,
+    STAGE8B_P1F_TARGET_HOST_ID,
+};
+pub use stage8b_p1f_local_supervision::{
+    run_stage8b_p1f_local_supervisor_v1, Stage8bP1fLocalSupervisionDispositionV1,
+    Stage8bP1fLocalSupervisionErrorV1, Stage8bP1fLocalSupervisionResultV1,
+    STAGE8B_P1F_I1_BINARY_PATH,
+};
+pub use stage8b_p1f_o2_systemd::{
+    collect_stage8b_p1f_o2_readonly_evidence_v1, collect_stage8b_p1f_o2_unit_evidence_v1,
+    run_stage8b_p1f_o2_cleanup_v1, run_stage8b_p1f_o2_fixed_cleanup_v1,
+    run_stage8b_p1f_o2_fixed_systemd_runner_v1, run_stage8b_p1f_o2_systemd_runner_v1,
+    stage8b_p1f_o2_active_manifest_sha256_v1, Stage8bP1fO2ReadOnlyEvidenceV1,
+    Stage8bP1fO2RunnerErrorV1, Stage8bP1fO2RunnerResultV1, Stage8bP1fO2UnitEvidenceV1,
+    STAGE8B_P1F_O2_ACTIVE_MANIFEST_PATH, STAGE8B_P1F_O2_RUNNER_BINARY_PATH,
+    STAGE8B_P1F_O2_RUNNER_UNIT,
 };
 
 use std::{

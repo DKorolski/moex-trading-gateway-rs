@@ -1,0 +1,66 @@
+id,category,requirement,evidence,status
+G2FTN-001,lineage,Accepted R0-R1 commit is exact,new transaction contract,PASS
+G2FTN-002,lineage,Accepted R0-R1 archive SHA is exact,new transaction contract,PASS
+G2FTN-003,lineage,Legacy full transaction contract is hash-bound,new transaction contract,PASS
+G2FTN-004,lineage,Accepted typed preflight authority is hash-bound,new transaction contract,PASS
+G2FTN-005,topology,Phase count remains exactly six,new transaction contract,PASS
+G2FTN-006,topology,Service invocation count remains exactly 31,new transaction contract,PASS
+G2FTN-007,topology,Phase order is unchanged,checker,PASS
+G2FTN-008,topology,Source identity order is unchanged,checker,PASS
+G2FTN-009,units,All 18 production unit and target files are exact hash-bound,new transaction contract,PASS
+G2FTN-010,units,Proof trigger is not counted as a production invocation,design contract,PASS
+G2FTN-011,binaries,Six Phase-1 and Phase-2 binaries are inherited unchanged,build lineage,PASS
+G2FTN-012,binaries,Six Phase-3 through Phase-6 roles use accepted Generation-2 hashes,build lineage,PASS
+G2FTN-013,binaries,All 12 executable roles are unique and exact,checker,PASS
+G2FTN-014,binaries,No production ELF is rebuilt by the rebind,contract and checker,PASS
+G2FTN-015,authority,Generation-2 public authority is exact hash-bound,new transaction contract,PASS
+G2FTN-016,authority,Generation equals two,checker,PASS
+G2FTN-017,authority,Generation 2 remains inactive,closed surfaces,PASS
+G2FTN-018,authorization,R2B remains NOT_ISSUED,closed surfaces,PASS
+G2FTN-019,host,Disposable native Linux amd64 host is required,proof requirements,PASS
+G2FTN-020,host,QEMU and binfmt emulation are rejected,proof requirements,PASS
+G2FTN-021,host,Production account host is rejected,proof requirements,PASS
+G2FTN-022,host,Sensitive co-tenant host is rejected,proof requirements,PASS
+G2FTN-023,source,Fresh reviewed handoff extraction is required,proof requirements,PASS
+G2FTN-024,source,Actual reviewed ZIP digest source tree and complete manifest are verified,review archive extractor,PASS
+G2FTN-025,network,Container network mode is none,proof requirements,PASS
+G2FTN-026,network,Default route DNS and FINAM route are absent,proof requirements,PASS
+G2FTN-027,phase6,Exact typed terminal oracle is required,inherited preflight,PASS
+G2FTN-028,phase6,Attempt one is POST /v1/sessions,design contract,PASS
+G2FTN-029,phase6,Only network connect failure or request timeout is accepted,design contract,PASS
+G2FTN-030,phase6,TIMEOUT requires timeout stage request,design contract,PASS
+G2FTN-031,effects,All effect and dispatch flags remain false,design contract,PASS
+G2FTN-032,failure,Five representative failure edges block downstream work,hash-bound accepted Implementation R0-R1A evidence,PASS
+G2FTN-033,replay,Stale transaction outputs are rejected,hash-bound accepted Implementation R0-R1A evidence,PASS
+G2FTN-034,reset,Run one state is destroyed before run two,proof requirements,PASS
+G2FTN-035,reset,Run two uses a fresh tmpfs projection,design contract,PASS
+G2FTN-036,evidence,Raw redacted root terminal is preserved,proof requirements,PASS
+G2FTN-037,evidence,Redacted helper journal is preserved,proof requirements,PASS
+G2FTN-038,evidence,Typed proof is hash-bound to raw evidence,proof requirements,PASS
+G2FTN-039,custody,Private material stays on tmpfs is verified in memory and is destroyed,proof requirements and pinned verifier,PASS
+G2FTN-040,cleanup,All units binaries state and credentials are removed,proof requirements,PASS
+G2FTN-041,cleanup,Container destruction is mandatory,design contract,PASS
+G2FTN-042,closure,Production credentials remain uninstalled,closed surfaces,PASS
+G2FTN-043,closure,External FINAM remains unreachable,closed surfaces,PASS
+G2FTN-044,closure,HTTP POST DELETE and broker GET remain closed,closed surfaces,PASS
+G2FTN-045,closure,Broker dispatch Redis live and runtime-live remain closed,closed surfaces,PASS
+G2FTN-046,closure,Real orders remain closed,closed surfaces,PASS
+G2FTN-047,next,Native execution is allowed only after fail-closed preflight,next allowed step,PASS
+G2FTN-048,next,Real read-only issuance remains a separate later package,design contract,PASS
+G2FTN-049,custody,Fixed ceremony cleanup guard is installed before argument and archive validation,native runner R2,PASS
+G2FTN-050,custody,Cleanup removes only the code-level fixed ceremony source and fails closed on deletion failure,native runner R2,PASS
+G2FTN-051,custody,Proof container cleanup is active for outer and recursive failure paths,native runner R2,PASS
+G2FTN-052,custody,Host live swap inventory is empty before reviewed archive processing,runner and host preflight,PASS
+G2FTN-053,custody,Container-visible swap inventory is empty before ceremony projection,native runner R2,PASS
+G2FTN-054,attestation,Host attestation binds swap disabled and is at most 15 minutes old,host preflight R2,PASS
+G2FTN-055,evidence,Public swap custody and ceremony destruction receipts are hash-bound to aggregate evidence,native runner R2,PASS
+G2FTN-056,custody,Host ceremony source is destroyed before any bounded Docker cleanup operation,native runner R2A,PASS
+G2FTN-057,custody,Docker state query errors and timeouts are classified as unknown rather than absent,native runner R2A,PASS
+G2FTN-058,custody,Docker removal errors and timeouts make cleanup fail and require VPS destruction,native runner R2A,PASS
+G2FTN-059,custody,Container absence is accepted only after a successful bounded exact-name query,native runner R2A,PASS
+G2FTN-060,custody,A container still present after removal makes cleanup fail,native runner R2A,PASS
+G2FTN-061,evidence,Cleanup receipt distinguishes host source container removal attempt state-known and removed,native runner R2A,PASS
+G2FTN-062,evidence,Private material retained false requires host destroyed plus known removed container,native runner R2A,PASS
+G2FTN-063,evidence,Docker uncertainty records result FAIL and vps destruction required,native runner R2A,PASS
+G2FTN-064,closure,Docker cleanup uncertainty cannot produce an accepted aggregate proof,native runner R2A,PASS
+G2FTN-065,ceremony,In-container ceremony verifier runs from fixed workdir /work outside the ceremony path,native runner R2B,PASS

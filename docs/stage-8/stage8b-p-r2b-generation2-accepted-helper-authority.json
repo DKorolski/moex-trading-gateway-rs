@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "stage": "8B-P",
+  "revision": "R2A5",
+  "status": "ACCEPTED",
+  "helper_executable_sha256": "90508e097c8668d6fe90a15ef6014e480a9042bb36f0613351c02465d10aaca1",
+  "effect_build_identity_sha256": "ca330934df540de69b52d0463a665a1ab0ff89fa13eeb663b162763cc6bc83a0",
+  "valid_from_utc": "2026-08-30T00:00:00Z",
+  "valid_until_utc": "2027-08-30T00:00:00Z",
+  "acceptance_key_id": "stage8b-r2a5-production-helper-acceptance-v1",
+  "signature_ed25519_hex": "4e27a7eaa913c062168ff556982c2ec7de7c9aef4e5bbba3b76b4c0720f02fa7562e3450c4b355804205425143a1d007ea5cf782a869abd5b40e6f69472b9e0d"
+}

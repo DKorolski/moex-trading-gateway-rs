@@ -1,0 +1,49 @@
+id,area,requirement,status
+P1ER2-001,lineage,Accepted immutable predecessor is exact P1-d4 closure c2a9e1246dfdd59f3a6297268de907dedcb19903,REQUIRED
+P1ER2-002,lineage,R1 693fab351f099b5f16ebb73d4956918b34d8ea1e is HOLD and superseded by R2,REQUIRED
+P1ER2-003,lineage,R1 review digest is eb451af76c9b4030705d900ae0b96fabf62452dde47810e4b007cd4410d58cca,REQUIRED
+P1ER2-004,scope,R2 changes design checker evidence and status only with zero Rust Cargo workflow unit or deployed config change,REQUIRED
+P1ER2-005,scope,All 88 R1 acceptance rows remain inherited and byte-bound,REQUIRED
+P1ER2-006,scope,P1-e source implementation remains unauthorized until independent R2 acceptance,REQUIRED
+P1ER2-007,first_boot,Stage8bP1FirstBootTransactionV1 is canonical-hash bound,REQUIRED
+P1ER2-008,first_boot,HMAC transaction marker is durably persisted and reread before canonical root creation,REQUIRED
+P1ER2-009,first_boot,Ordinary bootstrap requires root marker and receipt all absent,REQUIRED
+P1ER2-010,first_boot,Marker binds identity profile source plan history riskgate candidate root and attempt generation,REQUIRED
+P1ER2-011,first_boot,Marker updates use exclusive temp write sync rename parent fsync and nofollow reread,REQUIRED
+P1ER2-012,first_boot,Nine exact filesystem plus marker classifications have one legal action each including temp and quarantine response loss,REQUIRED
+P1ER2-013,first_boot,RootWithoutJournal permits only authenticated atomic quarantine,REQUIRED
+P1ER2-014,first_boot,JournalWithoutSeal permits only authenticated atomic quarantine,REQUIRED
+P1ER2-015,first_boot,Recursive or automatic deletion of incomplete or quarantined material is forbidden,REQUIRED
+P1ER2-016,first_boot,CommittedRootResponseLost permits adoption only after fresh authenticated restart from final path,REQUIRED
+P1ER2-017,first_boot,Adoption never invokes first boot and the persisted reread receipt is the commit point while marker adopted is diagnostic,REQUIRED
+P1ER2-018,first_boot,Ordinary run requires an adopted committed root and cannot perform adoption implicitly,REQUIRED
+P1ER2-019,first_boot,Corrupt or identity mismatched material is preserved and blocks cleanup adoption and run,REQUIRED
+P1ER2-020,first_boot,Three exact release subprocess SIGKILL windows prove the sole next action,REQUIRED
+P1ER2-021,first_boot,No interruption retry quarantine or adoption can create a second durable authority,REQUIRED
+P1ER2-022,provenance,Stage8bP1FirstBootProvenanceV1 is HMAC covered inside the initial durable package and first seal,REQUIRED
+P1ER2-023,provenance,Run compares every provenance field to fixed config before Redis contact,REQUIRED
+P1ER2-024,provenance,Provenance binds source profile history riskgate candidate and operational identity hashes,REQUIRED
+P1ER2-025,restart,Restart outer dispatch has exactly all 22 current Stage7bRestartOutcome variants and no wildcard,REQUIRED
+P1ER2-026,restart,Operational continuation matrix has 54 exact local plus PEL plus timer rows,REQUIRED
+P1ER2-027,restart,Ready no PEL and no due timer alone may proceed to one bounded fresh poll,REQUIRED
+P1ER2-028,restart,Ready P1D4C 031 032 036 037 041 and 042 claims exact source and reissues only exact schedule authority,REQUIRED
+P1ER2-029,restart,Ready with one unclaimable source remains Degraded with no authority XACK or fresh read,REQUIRED
+P1ER2-030,restart,Ready P1D4C 047 reissues exact Day authority while P1D4C 049 reissues nothing,REQUIRED
+P1ER2-031,restart,Exact pending source is resolved before a simultaneously due timer and before fresh read,REQUIRED
+P1ER2-032,restart,P1d3CancelContinuationPending reaches exact S_cancel_recovered before source XACK,REQUIRED
+P1ER2-033,restart,Every AckCommitted variant reaches its exact TruthCommitted replacement before XACK,REQUIRED
+P1ER2-034,restart,Already acknowledged recovery requires an explicitly named continuous group frontier proof,REQUIRED
+P1ER2-035,restart,S08 delivery is processed in the same invocation with no second fresh read or premature PaperReady,REQUIRED
+P1ER2-036,restart,Every composite row fixes boundary reissue transition owner completion source XACK poll and readiness while every unlisted combination maps to one closed exit-67 classifier error,REQUIRED
+P1ER2-037,redis,Stage8bP1eRedisRuntimePolicyV1 is canonical-hash and supervisor-config bound,REQUIRED
+P1ER2-038,redis,Read claim threshold pages retention operation timeout poll timeout and PEL maximum are exact,REQUIRED
+P1ER2-039,redis,Claim threshold plus completion allowance must fit inside the global startup deadline,REQUIRED
+P1ER2-040,redis,PEL count greater than one exits 67 with no claim dispatch XACK or fresh read,REQUIRED
+P1ER2-041,redis,Pending age below exact and above claim threshold has three distinct deterministic tests,REQUIRED
+P1ER2-042,redis,Operation timeout page exhaustion wrong binding and nonterminal cursor exit 67 without fresh read,REQUIRED
+P1ER2-043,redis,Ordinary environment unchecked defaults and paper_default_auto cannot override the reviewed runtime policy,REQUIRED
+P1ER2-044,systemd,RestartPrevent and 600 second five-start limit produce finite failure under repeated 60 second claim attempts,REQUIRED
+P1ER2-045,pel,Stale consumers use exact pending idle and bytewise-name ordering with a 64 item inventory cap,REQUIRED
+P1ER2-046,pel,At most 16 zero-pending stale consumers are removed per boot and greater-than-16 inventory progresses across boots,REQUIRED
+P1ER2-047,checker,Focused R2 negative mutations cover every new transaction continuation Redis policy readiness and hygiene invariant,REQUIRED
+P1ER2-048,closed,P1-f DB0 VPS FINAM dispatch runtime-live real orders partial fills and protective orders remain closed and child PID bound stays deferred,REQUIRED

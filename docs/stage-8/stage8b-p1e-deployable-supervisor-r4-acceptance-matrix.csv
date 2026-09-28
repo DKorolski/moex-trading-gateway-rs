@@ -1,0 +1,57 @@
+id,area,semantic_key,requirement,status
+P1ER4-001,lineage,lineage.accepted_predecessor,Accepted immutable predecessor is exact P1-d4 closure c2a9e1246dfdd59f3a6297268de907dedcb19903,REQUIRED
+P1ER4-002,lineage,lineage.active_design,R3 913424b73c5a83df2131a1f9a2901b78035bfc4c is HOLD and superseded only by this direct-child R4 candidate,REQUIRED
+P1ER4-003,scope,scope.design_only,R4 changes design matrices checker evidence status and handoff only with zero production Rust Cargo workflow active unit or deployed config change,REQUIRED
+P1ER4-004,scope,scope.source_authority,P1-e source implementation remains unauthorized until independent acceptance of this exact R4 package,REQUIRED
+P1ER4-005,scope,scope.operational_authority,P1-f operational Redis VPS FINAM dispatch runtime-live and real-order surfaces remain unauthorized,REQUIRED
+P1ER4-006,contract,contract.active_merge,Stage8bP1eAcceptanceContractV4 activates only exact inherited non-superseded rows plus all R4 rows,REQUIRED
+P1ER4-007,contract,contract.supersession,Every conflicting R1 R2 and R3 row is formally superseded exactly once by active R4 authority,REQUIRED
+P1ER4-008,contract,contract.semantic_registry,SemanticAuthorityRegistryV4 binds exact cross-version contract keys rather than synthetic legacy row keys,REQUIRED
+P1ER4-009,contract,contract.semantic_conflict,Any two active authorities prescribing unequal values for one semantic contract key fail the gate after artifact redigestion,REQUIRED
+P1ER4-010,systemd,systemd.User,Main bootstrap and recovery units all run as exact user moex-p1-paper,REQUIRED
+P1ER4-011,systemd,systemd.Group,Main bootstrap and recovery units all run as exact group moex-p1-paper,REQUIRED
+P1ER4-012,systemd,systemd.BinaryPath,All three units use exact binary /usr/local/libexec/moex/stage8b-p1-paper-supervisor,REQUIRED
+P1ER4-013,systemd,systemd.ConfigPath,All three units use exact config /etc/moex-finam-p1-paper/supervisor.json,REQUIRED
+P1ER4-014,systemd,systemd.CredentialPath,All three units load only /etc/moex-finam-p1-paper/credentials/stage8b-p1-lifecycle.key through CREDENTIALS_DIRECTORY,REQUIRED
+P1ER4-015,systemd,systemd.MainUnit,The ordinary unit is exactly moex-finam-p1-paper.service and invokes run only,REQUIRED
+P1ER4-016,systemd,systemd.BootstrapUnit,The bootstrap unit is exactly moex-finam-p1-paper-bootstrap.service and invokes bootstrap only,REQUIRED
+P1ER4-017,systemd,systemd.RecoveryUnit,The recovery template is exactly moex-finam-p1-paper-bootstrap-recover@.service and invokes bootstrap-recover only,REQUIRED
+P1ER4-018,filesystem,filesystem.DurableParentPath,All three units bind the exact durable parent /var/lib/moex-finam-p1-paper and mutable state directory beneath it,REQUIRED
+P1ER4-019,filesystem,filesystem.DurableParentOwner,Top-level durable parent is root:moex-p1-paper mode 0750 and is not directly mutable by the service process,REQUIRED
+P1ER4-020,filesystem,filesystem.MutableStateOwner,Preprovisioned mutable state directory is moex-p1-paper:moex-p1-paper mode 0700,REQUIRED
+P1ER4-021,filesystem,filesystem.MarkerOwner,Transaction marker and marker temp are moex-p1-paper:moex-p1-paper mode 0600,REQUIRED
+P1ER4-022,filesystem,filesystem.ReceiptOwner,Receipt and receipt temp are moex-p1-paper:moex-p1-paper mode 0600,REQUIRED
+P1ER4-023,filesystem,filesystem.RootJournalSealOwner,Canonical root and quarantine directories are service-owned 0700 while journal and seal files are service-owned 0600,REQUIRED
+P1ER4-024,filesystem,filesystem.PostCreateValidation,Every create is followed by fstat effective UID GID exact ownership mode O_NOFOLLOW single-link and no group/world-write validation,REQUIRED
+P1ER4-025,filesystem,filesystem.SingleDeploymentIdentity,A second deployment UID GID or alternate binary config credential or mutable parent cannot access or mutate this authority,REQUIRED
+P1ER4-026,first_boot,firstboot.MarkerUpdateProtocol,Every non-initial marker phase update has a phase-aware authenticated temp-pending classification,REQUIRED
+P1ER4-027,first_boot,firstboot.PreparedToRootPublished,PreparedToRootPublishedMarkerTempPending completes only the exact durable root-published marker update without recreating root,REQUIRED
+P1ER4-028,first_boot,firstboot.RootPublishedToJournalDurable,RootPublishedToJournalDurableMarkerTempPending completes only the exact journal-durable marker update without recreating journal,REQUIRED
+P1ER4-029,first_boot,firstboot.JournalDurableToSealCommitted,JournalDurableToSealCommittedMarkerTempPending completes only the exact seal-committed marker update without recreating initial seal,REQUIRED
+P1ER4-030,first_boot,firstboot.SealCommittedToAdopted,SealCommittedToAdoptedMarkerTempPending completes only the exact adopted marker update without recreating receipt,REQUIRED
+P1ER4-031,first_boot,firstboot.MarkerTempConflict,Cross-transaction cross-identity incompatible-phase and unknown-version marker temps fail closed without deletion or mutation,REQUIRED
+P1ER4-032,first_boot,firstboot.MarkerTempCrashTests,Each of four marker temp sync-before-rename windows has release subprocess SIGKILL restart and idempotent completion coverage,REQUIRED
+P1ER4-033,redis,redis.NonReadyAcquisitionOwner,S06 performs observation and claimability classification only for all source-bearing non-Ready owners,REQUIRED
+P1ER4-034,redis,redis.NonReadySoleReclaim,Each accepted non-Ready resume with Redis wrapper performs its sole reclaim and mandatory post-acquisition latch check,REQUIRED
+P1ER4-035,redis,redis.ReadyLinearDeliveryOwner,Only Ready existing-PEL and Ready S08 fresh paths construct Stage8bP1eClaimedM10DeliveryV2,REQUIRED
+P1ER4-036,redis,redis.LinearDeliveryPayload,The linear owner carries exact stream group entry ID canonical M10 payload bytes payload hash semantic identity disposition consumer and delivery generation,REQUIRED
+P1ER4-037,redis,redis.NoSecondAcquisition,Ready processing facades consuming the linear owner cannot execute XPENDING XAUTOCLAIM or XREADGROUP,REQUIRED
+P1ER4-038,shutdown,shutdown.PostDeliveryLatch,Every sole reclaim or read checks shutdown immediately after delivery and before parse callback provider schedule or XACK,REQUIRED
+P1ER4-039,redis,redis.AcquisitionInstrumentation,Successful source acquisition callback provider and XACK totals are each bounded by one with exact per-path instrumentation,REQUIRED
+P1ER4-040,redis,redis.PendingNotClaimable,Pending-not-claimable remains degraded and retries without fresh read callback provider schedule or XACK,REQUIRED
+P1ER4-041,ordering,ordering.SourceBeforeTimer,Every exact pending or claimable source takes precedence and a simultaneous due Day timer is deferred,REQUIRED
+P1ER4-042,ordering,ordering.TimerReclassification,After source terminal and lawful XACK-last the timer is reclassified against the returned authenticated owner,REQUIRED
+P1ER4-043,ordering,ordering.StaleTimerDiscard,Filled canceled expired replaced absent or wrong-day working orders discard the deferred timer as stale,REQUIRED
+P1ER4-044,ordering,ordering.NoPrematureTimer,No expiry authority outcome truth terminal book transition or new callback occurs before source completion,REQUIRED
+P1ER4-045,classifier,classifier.OrthogonalTimerDerivation,The checker derives source-first timer deferral for every named source-bearing owner without incomplete Cartesian enumeration,REQUIRED
+P1ER4-046,classifier,classifier.UnlistedTupleDisposition,Every tuple not listed or derivable by the exact orthogonal rule exits class 67 before transition with no Ready or fresh-poll fallback,REQUIRED
+P1ER4-047,digest,digest.TransactionId,Transaction ID canonical bytes domain field order length framing integer endianness raw digest inputs and lowercase-hex output are exact,REQUIRED
+P1ER4-048,digest,digest.RootIdentity,Canonical root identity digest exact-freezes device inode basename framing and representation,REQUIRED
+P1ER4-049,digest,digest.AdoptionReadyOwner,Adoption-ready-owner digest exact-freezes all owner fields framing and representation,REQUIRED
+P1ER4-050,digest,digest.ReceiptHmacPreimage,Receipt V2 HMAC preimage exact-freezes receipt generation all bindings field order framing and HMAC output representation,REQUIRED
+P1ER4-051,digest,digest.GoldenFixtures,Checked-in golden fixtures contain canonical preimage bytes and independently recomputed expected SHA-256 and HMAC values,REQUIRED
+P1ER4-052,checker,checker.IdentityMutations,Redigested negatives reject user group binary config credential ownership mode and cross-unit identity drift,REQUIRED
+P1ER4-053,checker,checker.MarkerAcquisitionTimerMutations,Redigested negatives reject omitted marker recovery double acquisition preview callback premature timer and unlisted tuple fallback,REQUIRED
+P1ER4-054,checker,checker.DigestMutations,Redigested negatives reject provenance omission receipt replay digest field order domain framing and representation drift,REQUIRED
+P1ER4-055,closed,closed.operational,P1-f DB0 VPS non-loopback Redis FINAM dispatch runtime-live real orders partial fills and protective orders remain closed,REQUIRED
+P1ER4-056,deferred,deferred.child_pid,The nonblocking bound 0 less-than child_pid less-than-or-equal u32 MAX remains deferred to separately authorized source hardening,REQUIRED

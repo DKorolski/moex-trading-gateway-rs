@@ -1,0 +1,23 @@
+id,area,requirement,status
+P1FO0-001,lineage,O0 correction is based on held O0 and preserves independently accepted Ie source,REQUIRED
+P1FO0-002,target,Target id hostname IPv4 and SSH ED25519 fingerprint are exact,REQUIRED
+P1FO0-003,platform,Ubuntu 24.04 x86_64 and systemd major at least 255 are observed,REQUIRED
+P1FO0-004,resources,At least two CPUs and 3.5 GiB memory are available,REQUIRED
+P1FO0-005,resources,At least 20 GiB root filesystem space is free,REQUIRED
+P1FO0-006,time,NTP synchronization is active,REQUIRED
+P1FO0-007,redis,Redis server 7.0.15 is obtained from INFO server on loopback with no CLI-version fallback,REQUIRED
+P1FO0-008,redis,Redis bind and listeners are loopback-only,REQUIRED
+P1FO0-009,redis,Protected mode is enabled and database count is 16,REQUIRED
+P1FO0-010,redis,AOF persistence is enabled,REQUIRED
+P1FO0-011,p0,DB0 is observed only through count and hash with no mutation,REQUIRED
+P1FO0-012,p1,DB15 is exactly empty with the empty keyspace digest,REQUIRED
+P1FO0-013,p0,Existing runtime unit is loaded active running enabled and hash-bound,REQUIRED
+P1FO0-014,p0,Existing websocket unit is loaded active running enabled and hash-bound,REQUIRED
+P1FO0-015,isolation,P1 service user and service group are absent,REQUIRED
+P1FO0-016,isolation,All 17 fixed installer and operational conflict paths are absent,REQUIRED
+P1FO0-017,evidence,Raw probe has an exact SHA-256 and strict key inventory,REQUIRED
+P1FO0-018,probe,Probe command inventory is read-only and contains no remote mutation operation,REQUIRED
+P1FO0-019,boundary,O1 installation Redis mutation service activation provider execution and FINAM send remain closed,REQUIRED
+P1FO0-020,next,Only independent O0 acceptance may authorize a separate O1 package,REQUIRED
+P1FO0-021,isolation,Two regular P1 units recovery template and all loaded recovery instances are fresh-absent,REQUIRED
+P1FO0-022,evidence,Redis server and systemd query errors fail closed through parent-shell status checks and executed behavioral controls,REQUIRED

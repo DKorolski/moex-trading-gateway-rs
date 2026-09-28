@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "domain": "moex.stage8b.p1f.alor-finam-source-correction-evidence.v1",
+  "status": "SOURCE_CORRECTION_VERIFIED_REVIEW_PENDING",
+  "baseline_ref": "1090de48cd7f216ce7868cfc5c141208579d7d33",
+  "migration_target": "baseline07_bo_only",
+  "profile_id": "imoexf-baseline07-bo-only-paper-v1",
+  "profile_canonical_sha256": "8f346b730760c8a70c4ab8576da60147a80a7c0668ba2068783ea2e5a2637872",
+  "runtime_config_fingerprint_sha256": "6ac8994e5fc8777035c48c0b871b2d15a6662cdae6be88220f2bcdcadf0a244d",
+  "parity": {
+    "source_m10_rows": 7307,
+    "expected_rounds": 38,
+    "actual_rounds": 38,
+    "rust_test": "hybrid_intraday_runtime::tests::frozen_baseline07_replay_matches_all_38_alor_rounds",
+    "result": "PASS"
+  },
+  "verification": [
+    {
+      "command": "scripts/stage8b_p1f_alor_finam_source_correction_gate.sh",
+      "result": "PASS"
+    },
+    {
+      "command": "docker run --rm --user 0:0 rust:1.90-bookworm scripts/stage8b_p1f_multi_uid_custody_harness.sh",
+      "result": "PASS",
+      "scope": "isolated Linux root/service-group custody; no operational root"
+    },
+    {
+      "command": "cargo test -p runtime-durable-service first_boot_start_labels_survive_restart_and_admit_adjacent_canonical_m10 --lib",
+      "result": "PASS",
+      "passed": 1
+    },
+    {
+      "command": "cargo test -p runtime-durable-service stage8b_p1f_o2_systemd --lib",
+      "result": "PASS",
+      "passed": 4
+    },
+    {
+      "command": "cargo test -p strategy-runtime-core -- --test-threads=1",
+      "result": "PASS",
+      "unit_passed": 1286,
+      "integration_passed": 26,
+      "doctest_passed": 69
+    },
+    {
+      "command": "RUST_MIN_STACK=33554432 cargo test -p runtime-durable-service --all-features -- --test-threads=1",
+      "result": "PASS",
+      "library_passed": 361,
+      "library_ignored": 15,
+      "subprocess_passed": 9,
+      "subprocess_ignored": 6,
+      "doctest_passed": 61
+    },
+    {
+      "command": "RUST_MIN_STACK=33554432 cargo test -p runtime-durable-service stage8b_p1_semantic::redis::tests::p1d4_exact_registry_cells_sigkill_with_duplicate_and_conflict_variants -- --exact --test-threads=1",
+      "result": "PASS",
+      "passed": 1
+    },
+    {
+      "command": "RUST_MIN_STACK=33554432 cargo clippy -p strategy-runtime-core -p runtime-durable-service --all-targets --all-features -- -D warnings",
+      "result": "PASS"
+    },
+    {
+      "command": "cargo fmt --all -- --check",
+      "result": "PASS"
+    }
+  ],
+  "scope": {
+    "par_01_profile": "IMPLEMENTED",
+    "par_02_model_time": "IMPLEMENTED_IN_ORDINARY_AND_FIRST_BOOT",
+    "par_03_comparator": "IMPLEMENTED",
+    "o2a_01_custody": "SOURCE_CORRECTED_LINUX_MULTI_UID_VERIFIED",
+    "o2a_02_stopped_proof_deadline": "SOURCE_CORRECTED_CONTROLLED_ADAPTER_VERIFIED",
+    "accepted_paper_provider_changed": false,
+    "o2_artifact_rebuild": "PENDING_AFTER_CORRECTED_SOURCE_REVIEW",
+    "operational_paper_windows": "PENDING_AFTER_O2_REBUILD"
+  },
+  "closed_surfaces": {
+    "redis_db0_vps_activation": false,
+    "finam_post_delete": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false
+  }
+}

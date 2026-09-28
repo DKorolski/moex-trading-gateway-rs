@@ -1,0 +1,105 @@
+{
+  "acceptance_amendment_rows": 32,
+  "acceptance_amendment_sha256": "ca381b8e6891840303d9c602ca27e379a072a3cf344526f14ee1ce170e5f7f53",
+  "accepted_p1d3_closure_ref": "7dc7c802feca6e79d3a1a9902c181ad7b6afc506",
+  "accepted_r3_design_ref": "e1ce6d3baec3974d8dfd05c2f3de00110e0605bf",
+  "active_positive_cells": 105,
+  "base_matrix_rows": 92,
+  "closed_surfaces": {
+    "broker_dispatch": false,
+    "finam_delete": false,
+    "finam_post": false,
+    "generation_2_authorization": false,
+    "operational_redis_db0": false,
+    "paper_supervisor": false,
+    "partial_fills": false,
+    "protective_orders": false,
+    "real_orders": false,
+    "runtime_live": false,
+    "vps_activation": false
+  },
+  "composition_contract": {
+    "additive_projection": "Stage8bP1d4GeneratedMarketCompositionV1",
+    "command_publication_binding": "Stage8bP1d4CommandPublicationBindingV1",
+    "generated_market_journal_version": "V1",
+    "new_journal_record_authorized": false,
+    "owners": [
+      "P1d4GeneratedMarketPrepublicationPending",
+      "P1d4GeneratedMarketDispatchPending",
+      "P1d4GeneratedMarketOrderPending",
+      "P1d4GeneratedMarketPreFinalizationPending",
+      "P1d4GeneratedMarketPreAckPending",
+      "P1d4GeneratedMarketAckCommitted",
+      "P1d4GeneratedMarketTruthCommitted"
+    ],
+    "option": "A_RETAIN_SINGLE_SOURCE",
+    "outer_package_carries_p1d3_replacement": true,
+    "partial_v1_suffix_lengths": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "phases": [
+      "Prepublication",
+      "AckCommitted",
+      "TruthCommitted"
+    ],
+    "publication_binding_mandatory_from": "combined_s_ack",
+    "raw_stage5c_capability_embedded": false,
+    "source_absent_before_s_truth_allowed": false,
+    "source_m10_count": 1,
+    "source_retained_through": "combined_s_truth",
+    "xack_authority": "combined_s_truth_persisted_reread_cross_validated"
+  },
+  "correction_c1": {
+    "cells": [
+      "P1D4C-064",
+      "P1D4C-092"
+    ],
+    "restart_disposition": "P1d3PreAckPending",
+    "status": "INHERITED_ACCEPTED"
+  },
+  "design_only": true,
+  "design_parent_ref": "b377c0275f1ce5f01cfe9b223724bf1542f985e2",
+  "design_r6_sha256": "99d5696ac3346f5c12bd4c5189a5c318ac2aaeadd329d392ae440014a3e1d7e2",
+  "duplicate_variants_required": 105,
+  "generated_market_matrix_rows": 13,
+  "generated_market_matrix_sha256": "e6a284372cc99fab3bfeadd9afa0d8e1ddec0070966f79505a5cb09dbb627561",
+  "historical_general_acceptance_rows": 88,
+  "historical_general_acceptance_sha256": "e2a376fda504a691b3dffa5160542c5f184bf59ff9f224ae4159b5bbaf8c06de",
+  "implementation_authorized": false,
+  "inherited_base_matrix_sha256": "f4125113d4f7f3ceafd849c1d32f1097c313e15eccbb353c8bd89a19434edac6",
+  "publication_binding_fields": [
+    "schema_version",
+    "domain",
+    "source_stream",
+    "source_group",
+    "source_m10_redis_id",
+    "semantic_batch_id_sha256",
+    "strategy_request_id",
+    "canonical_command_sha256",
+    "canonical_envelope_sha256",
+    "command_stream",
+    "command_group",
+    "command_entry_id",
+    "prepublication_package_generation",
+    "prepublication_seal_generation",
+    "prepublication_seal_commitment_sha256",
+    "publication_binding_sha256"
+  ],
+  "sequence_contract": {
+    "allocated_after_request_finalized": true,
+    "pre_finalization": "pair_not_allocated",
+    "post_allocation_pre_ack": "exact_pair_allocated_in_memory_and_reconstructed_after_restart",
+    "post_finalization_pre_allocator": "pair_not_allocated_but_deterministically_reconstructible",
+    "truth_is_ack_plus_one": true
+  },
+  "source_discovery_r6_sha256": "22e70bb86a5e4b228ed4f731b1aea2d0f196fcb611abeed2fe7d03f0edb7f77e",
+  "source_shape_r6_sha256": "08890b48633918b52623c28222d9e02445e1820e7b4343f9b208bdffd6df1917",
+  "source_wip_included": false,
+  "stage": "Stage 8B-P1-d4 crash/replay design R6 correction",
+  "status": "DESIGN_R6_REVIEW_CANDIDATE",
+  "targeted_negative_cases": 48,
+  "total_contract_negative_cases": 176
+}

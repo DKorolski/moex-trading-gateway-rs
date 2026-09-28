@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "domain": "moex.stage8b.p1f.alor-finam-freeze-intake.v1",
+  "status": "SOURCE_CORRECTION_IMPLEMENTED_REVIEW_PENDING",
+  "migration_target": "baseline07_bo_only",
+  "candidate09_status": "REFERENCE_ONLY_NOT_MIGRATION_TARGET",
+  "freeze": {
+    "archive_name": "imoexf_live_shadow_finam_freeze_2026_09_27.zip",
+    "archive_sha256": "7ad5433b88fb7ba835b3a57603a9d773a6c4a2f5dd51fe9e37c8cbed5b5f534e",
+    "members": 37,
+    "guide_sha256": "e424f4451071ce9c1321e76276851b98d462e35ee03011f0bd84bf5b9a201c28",
+    "embedded_sha256_entries_verified": 36,
+    "alor_reference_head": "a19124b98d601d7c583b3554d4beadad7ad82cdc",
+    "alor_reference_tar_sha256": "9aa9bde789824b52aebdbde078fe197ab514b0a4e9dfa0b79dcbac8af661c681",
+    "candidate_patch_sha256": "66886964790a168d1b054f5f515b0b1ea2cee04381bc113a07134cc00b014454"
+  },
+  "fixtures": {
+    "raw_m10": {
+      "path": "fixtures/stage8b-p1f-parity/imoexf_raw_10m_msk_utc.csv",
+      "sha256": "e4a30fb81a0abf5711a3702d19b918cad681820380f24422f6ba476b74f92cec",
+      "rows_excluding_header": 7307,
+      "timestamp_convention": "candle-start-msk; available-at=start-plus-10m"
+    },
+    "baseline07": {
+      "path": "fixtures/stage8b-p1f-parity/baseline07_python_reference_trades.csv",
+      "sha256": "2accaf0eec6c81f3446832059c231471415094c6cf43dc91e6ddbba85ccfe384",
+      "rounds": 38
+    },
+    "candidate09": {
+      "path": "fixtures/stage8b-p1f-parity/candidate09_python_reference_trades.csv",
+      "sha256": "4c813979ac5609b5b7abbdb8ed3876eee1374ed2923863180cb418a22ce8d3a7",
+      "rounds": 41
+    }
+  },
+  "corrected_runtime_profile": {
+    "path": "docs/stage-8/stage8b-p1e-runtime-profile-v1.json",
+    "profile_id": "imoexf-baseline07-bo-only-paper-v1",
+    "canonical_sha256": "8f346b730760c8a70c4ab8576da60147a80a7c0668ba2068783ea2e5a2637872",
+    "runtime_config_fingerprint_sha256": "6ac8994e5fc8777035c48c0b871b2d15a6662cdae6be88220f2bcdcadf0a244d",
+    "model_session_start_msk": "07:00:00",
+    "model_session_end_msk": "23:49:59",
+    "weekend_signals": false,
+    "live_mr_entries_enabled": false,
+    "high180_shadow_accounting_retained": true,
+    "high180_accounting_parity": "NOT_PROVEN_SEPARATE_SCOPE",
+    "same_day_no_new_entry_from_msk": "23:30:00"
+  },
+  "parity": {
+    "rust_runtime_replay": "PASS",
+    "rust_test": "hybrid_intraday_runtime::tests::frozen_baseline07_replay_matches_all_38_alor_rounds",
+    "source_bars": 7307,
+    "expected_rounds": 38,
+    "actual_rounds": 38,
+    "round_fields": [
+      "side",
+      "entry_bar",
+      "exit_bar",
+      "entry_price",
+      "exit_price",
+      "exit_reason"
+    ],
+    "model_execution_policy": "diagnostic-current-close-zero-slippage",
+    "accepted_paper_provider_policy_changed": false,
+    "operational_execution_parity": "PENDING_PAPER_WINDOWS"
+  },
+  "findings": {
+    "PAR-01": "IMPLEMENTED_REVIEW_PENDING",
+    "PAR-02": "IMPLEMENTED_REVIEW_PENDING",
+    "PAR-03": "IMPLEMENTED_REVIEW_PENDING"
+  },
+  "previous_o2_artifact": {
+    "source_ref": "1090de4",
+    "status": "INFRASTRUCTURE_CHECKPOINT_ONLY_SUPERSEDED_FOR_TARGET_PROFILE",
+    "root_creation_authorized": false,
+    "reason": "profile, model-time semantics and runtime fingerprint changed"
+  },
+  "closed_surfaces": {
+    "redis_db0_vps_activation": false,
+    "finam_post_delete": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false
+  }
+}

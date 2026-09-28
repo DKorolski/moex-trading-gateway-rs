@@ -100,6 +100,7 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 use uuid::Uuid;
 
 const JSON_SHAPE_MAX_DEPTH: usize = 4;
+const FINAM_WS_SUBSCRIPTION_CONFIRMATION_TIMEOUT_SECONDS: u64 = 60;
 
 #[derive(Parser)]
 #[command(version, about = "MOEX broker gateway operator CLI")]
@@ -122,6 +123,13 @@ enum Command {
         /// Optional output path for a single JSON evidence object.
         #[arg(long)]
         output: Option<PathBuf>,
+    },
+    /// Require a read-only FINAM token before starting a persistent paper market-data service.
+    #[command(name = "finam-paper-auth-preflight")]
+    PaperAuthPreflight {
+        /// Environment variable that contains the Finam secret token.
+        #[arg(long, default_value = "FINAM_SECRET_TOKEN")]
+        secret_env: String,
     },
     /// Run a redacted read-only Finam probe. Does not place or cancel orders.
     #[command(name = "finam-readonly-check")]
@@ -735,6 +743,20 @@ async fn main() -> Result<()> {
             if let Some(output) = output {
                 write_json_payload(&output, &payload)?;
             }
+        }
+        Command::PaperAuthPreflight { secret_env } => {
+            let secret = SecretToken::new(std::env::var(&secret_env)?);
+            let client = FinamRestClient::try_new(FinamConfig::default())?;
+            let auth_manager = FinamAuthManager::new(client.clone(), secret);
+            let token = auth_manager
+                .access_token()
+                .await
+                .map_err(|error| anyhow::anyhow!(error.to_redacted_string()))?;
+            let details = client
+                .token_details_typed(&token)
+                .await
+                .map_err(|error| anyhow::anyhow!(error.to_redacted_string()))?;
+            print_json(finam_paper_auth_preflight_result(&details)?)?;
         }
         Command::ReadonlyCheck {
             secret_env,
@@ -2102,6 +2124,7 @@ struct FinamWsShadowMetrics {
     non_live_bar_passthrough_count: u64,
     published_market_data_count: u64,
     published_strategy_bar_count: u64,
+    live_readiness_published: bool,
     stale_ws_final_bar_suppressed_count: u64,
     ping_count: u64,
     pong_count: u64,
@@ -2312,9 +2335,17 @@ async fn run_finam_ws_shadow_loop(args: FinamWsShadowArgs) -> Result<()> {
                     }))?;
                     break;
                 }
+                runtime
+                    .auth_manager
+                    .clear_cache()
+                    .context("FINAM WS reconnect access-token cache reset failed")?;
             }
             Err(error) => {
                 failure_count += 1;
+                runtime
+                    .auth_manager
+                    .clear_cache()
+                    .context("FINAM WS failed iteration access-token cache reset failed")?;
                 publish_degraded_state(
                     &runtime.gateway,
                     ReadinessReason::MarketDataNotLive,
@@ -2891,7 +2922,18 @@ async fn run_finam_ws_shadow_iteration(
 ) -> Result<FinamWsShadowIterationReport> {
     let started_at = Instant::now();
     let ws_generation_id = finam_ws_generation_id(iteration);
-    let token = runtime.auth_manager.access_token().await?;
+    let token = runtime
+        .auth_manager
+        .access_token()
+        .await
+        .map_err(|error| anyhow::anyhow!(error.to_redacted_string()))?;
+    let token_details = runtime
+        .client
+        .token_details_typed(&token)
+        .await
+        .map_err(|error| anyhow::anyhow!(error.to_redacted_string()))?;
+    finam_paper_auth_preflight_result(&token_details)
+        .context("FINAM WS paper read-only preflight failed")?;
     let timeframe_sec = timeframe_seconds(&runtime.resolved.timeframe)?;
     let previous_watermark = finam_ws_final_bar_watermark(runtime);
     let mut metrics = FinamWsShadowMetrics::default();
@@ -2941,6 +2983,10 @@ async fn run_finam_ws_shadow_iteration(
         runtime.resolved.max_duration_seconds,
     ));
     tokio::pin!(timeout);
+    let subscription_confirmation_timeout = tokio::time::sleep(StdDuration::from_secs(
+        FINAM_WS_SUBSCRIPTION_CONFIRMATION_TIMEOUT_SECONDS,
+    ));
+    tokio::pin!(subscription_confirmation_timeout);
     let mut stop_reason = "max_messages".to_string();
 
     loop {
@@ -2950,6 +2996,15 @@ async fn run_finam_ws_shadow_iteration(
         tokio::select! {
             _ = &mut timeout => {
                 stop_reason = "max_duration".to_string();
+                break;
+            }
+            _ = &mut subscription_confirmation_timeout,
+                if !finam_ws_desired_subscriptions_confirmed(
+                    runtime.resolved.subscribe_bars,
+                    runtime.resolved.subscribe_quotes,
+                    &metrics,
+                ) => {
+                stop_reason = "subscription_confirmation_timeout".to_string();
                 break;
             }
             next = ws.next() => {
@@ -3370,6 +3425,10 @@ async fn handle_finam_ws_text_message(
                         metrics.published_market_data_count += 1;
                         metrics.published_strategy_bar_count += 1;
                         mark_finam_ws_final_bar_watermark(runtime, final_bar_close_ts);
+                        if let Some(readiness) = finam_ws_first_live_readiness_transition(metrics) {
+                            runtime.gateway.publish_readiness(readiness).await?;
+                            metrics.live_readiness_published = true;
+                        }
                     } else {
                         metrics.stale_ws_final_bar_suppressed_count += 1;
                     }
@@ -3393,6 +3452,19 @@ async fn handle_finam_ws_text_message(
     }
 
     Ok(())
+}
+
+fn finam_ws_first_live_readiness_transition(
+    metrics: &FinamWsShadowMetrics,
+) -> Option<BrokerReadiness> {
+    if metrics.live_readiness_published || !metrics.fresh_live_final_bar_seen {
+        return None;
+    }
+    Some(BrokerReadiness {
+        phase: ReadinessPhase::Reconciliation,
+        reasons: vec![ReadinessReason::OperatorLiveArmMissing],
+        checked_ts: Utc::now(),
+    })
 }
 
 fn record_finam_ws_generation_gate(
@@ -3614,14 +3686,15 @@ fn finam_ws_subscription_confirmation(
     stop_reason: &str,
 ) -> FinamWsSubscriptionConfirmation {
     let active = desired && (event_confirmed || data_confirmed);
-    let pending = desired && !active && stop_reason != "max_duration";
+    let timed_out = finam_ws_subscription_timed_out(stop_reason);
+    let pending = desired && !active && !timed_out;
     let status = if !desired {
         FinamWsSubscriptionStatus::Disabled
     } else if data_confirmed {
         FinamWsSubscriptionStatus::DataConfirmed
     } else if event_confirmed {
         FinamWsSubscriptionStatus::EventConfirmed
-    } else if stop_reason == "max_duration" {
+    } else if timed_out {
         FinamWsSubscriptionStatus::TimeoutDegraded
     } else {
         FinamWsSubscriptionStatus::Pending
@@ -3642,6 +3715,25 @@ fn finam_ws_subscription_confirmation(
         status,
         confirmation_source,
     }
+}
+
+fn finam_ws_subscription_timed_out(stop_reason: &str) -> bool {
+    matches!(
+        stop_reason,
+        "max_duration" | "subscription_confirmation_timeout"
+    )
+}
+
+fn finam_ws_desired_subscriptions_confirmed(
+    subscribe_bars: bool,
+    subscribe_quotes: bool,
+    metrics: &FinamWsShadowMetrics,
+) -> bool {
+    let bars_confirmed =
+        metrics.bars_subscription_event_confirmed || metrics.bars_subscription_data_confirmed;
+    let quotes_confirmed =
+        metrics.quotes_subscription_event_confirmed || metrics.quotes_subscription_data_confirmed;
+    (!subscribe_bars || bars_confirmed) && (!subscribe_quotes || quotes_confirmed)
 }
 
 fn finam_ws_generation_subscription_state_json(
@@ -4375,6 +4467,7 @@ fn finam_ws_shadow_metrics_json(metrics: &FinamWsShadowMetrics) -> serde_json::V
         "non_live_bar_passthrough_count": metrics.non_live_bar_passthrough_count,
         "published_market_data_count": metrics.published_market_data_count,
         "published_strategy_bar_count": metrics.published_strategy_bar_count,
+        "live_readiness_published": metrics.live_readiness_published,
         "stale_ws_final_bar_suppressed_count": metrics.stale_ws_final_bar_suppressed_count,
         "ping_count": metrics.ping_count,
         "pong_count": metrics.pong_count,
@@ -10523,6 +10616,33 @@ fn print_json(value: serde_json::Value) -> Result<()> {
     Ok(())
 }
 
+fn finam_paper_auth_preflight_result(
+    details: &broker_finam::TokenDetailsResponse,
+) -> Result<serde_json::Value> {
+    anyhow::ensure!(
+        details.readonly == Some(true),
+        "FINAM paper auth preflight requires token readonly=true"
+    );
+    anyhow::ensure!(
+        !details.md_permissions.is_empty(),
+        "FINAM paper auth preflight requires at least one market-data permission"
+    );
+
+    Ok(serde_json::json!({
+        "fixture_kind": "finam-paper-auth-preflight-redacted-v1",
+        "accepted": true,
+        "token_readonly": true,
+        "accounts_count": details.account_ids.len(),
+        "market_data_permissions_count": details.md_permissions.len(),
+        "raw_secret_exported": false,
+        "raw_jwt_exported": false,
+        "command_consumer_to_real_finam_enabled": false,
+        "order_placement_enabled": false,
+        "cancel_enabled": false,
+        "runtime_live_enabled": false
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -10564,6 +10684,58 @@ mod tests {
         assert!(!rendered.contains("filled"));
         assert!(!rendered.contains("123.45"));
         assert!(!rendered.contains("do-not-leak"));
+    }
+
+    #[test]
+    fn paper_auth_preflight_accepts_readonly_market_data_token() {
+        let details = broker_finam::TokenDetailsResponse {
+            account_ids: vec!["redacted-account".to_string()],
+            created_at: None,
+            expires_at: None,
+            md_permissions: vec![broker_finam::MarketDataPermission {
+                delay_minutes: Some(0),
+                mic: Some("RTSX".to_string()),
+                quote_level: Some("last".to_string()),
+            }],
+            readonly: Some(true),
+        };
+
+        let result = finam_paper_auth_preflight_result(&details).expect("readonly token accepted");
+        assert_eq!(result["accepted"], true);
+        assert_eq!(result["token_readonly"], true);
+        assert_eq!(result["order_placement_enabled"], false);
+    }
+
+    #[test]
+    fn paper_auth_preflight_rejects_trade_and_unknown_scope_tokens() {
+        for readonly in [Some(false), None] {
+            let details = broker_finam::TokenDetailsResponse {
+                account_ids: Vec::new(),
+                created_at: None,
+                expires_at: None,
+                md_permissions: vec![broker_finam::MarketDataPermission {
+                    delay_minutes: Some(0),
+                    mic: Some("RTSX".to_string()),
+                    quote_level: Some("last".to_string()),
+                }],
+                readonly,
+            };
+
+            assert!(finam_paper_auth_preflight_result(&details).is_err());
+        }
+    }
+
+    #[test]
+    fn paper_auth_preflight_rejects_missing_market_data_permission() {
+        let details = broker_finam::TokenDetailsResponse {
+            account_ids: Vec::new(),
+            created_at: None,
+            expires_at: None,
+            md_permissions: Vec::new(),
+            readonly: Some(true),
+        };
+
+        assert!(finam_paper_auth_preflight_result(&details).is_err());
     }
 
     #[test]
@@ -11347,6 +11519,33 @@ mod tests {
     }
 
     #[test]
+    fn finam_ws_first_fresh_final_publishes_one_non_live_readiness_transition() {
+        assert!(
+            finam_ws_first_live_readiness_transition(&FinamWsShadowMetrics::default()).is_none()
+        );
+
+        let readiness = finam_ws_first_live_readiness_transition(&FinamWsShadowMetrics {
+            fresh_live_final_bar_seen: true,
+            ..FinamWsShadowMetrics::default()
+        })
+        .expect("first fresh final must publish readiness");
+        assert_eq!(readiness.phase, ReadinessPhase::Reconciliation);
+        assert_eq!(
+            readiness.reasons,
+            vec![ReadinessReason::OperatorLiveArmMissing]
+        );
+
+        assert!(
+            finam_ws_first_live_readiness_transition(&FinamWsShadowMetrics {
+                fresh_live_final_bar_seen: true,
+                live_readiness_published: true,
+                ..FinamWsShadowMetrics::default()
+            })
+            .is_none()
+        );
+    }
+
+    #[test]
     fn finam_ws_shadow_readiness_blocks_unknown_or_failed_schedule() {
         let now = Utc::now();
         let close_ts = now - ChronoDuration::seconds(60);
@@ -11799,26 +11998,49 @@ mod tests {
     fn finam_ws_generation_model_marks_unconfirmed_desired_subscription_timeout_degraded() {
         let metrics = FinamWsShadowMetrics::default();
 
-        let state = finam_ws_generation_subscription_state(
-            true,
-            false,
-            &metrics,
-            "generation-2",
-            "max_duration",
-        );
+        for stop_reason in ["max_duration", "subscription_confirmation_timeout"] {
+            let state = finam_ws_generation_subscription_state(
+                true,
+                false,
+                &metrics,
+                "generation-2",
+                stop_reason,
+            );
 
-        assert_eq!(state.desired_subscriptions, vec!["BARS"]);
-        assert!(state.active_subscriptions.is_empty());
-        assert!(state.pending_subscriptions.is_empty());
-        assert_eq!(state.timeout_degraded_subscriptions, vec!["BARS"]);
-        assert_eq!(
-            state.confirmations[0].status,
-            FinamWsSubscriptionStatus::TimeoutDegraded
-        );
-        assert_eq!(
-            state.confirmations[1].status,
-            FinamWsSubscriptionStatus::Disabled
-        );
+            assert_eq!(state.desired_subscriptions, vec!["BARS"]);
+            assert!(state.active_subscriptions.is_empty());
+            assert!(state.pending_subscriptions.is_empty());
+            assert_eq!(state.timeout_degraded_subscriptions, vec!["BARS"]);
+            assert_eq!(
+                state.confirmations[0].status,
+                FinamWsSubscriptionStatus::TimeoutDegraded
+            );
+            assert_eq!(
+                state.confirmations[1].status,
+                FinamWsSubscriptionStatus::Disabled
+            );
+        }
+    }
+
+    #[test]
+    fn finam_ws_confirmation_timeout_disarms_after_all_desired_subscriptions_confirm() {
+        let mut metrics = FinamWsShadowMetrics::default();
+        assert!(!finam_ws_desired_subscriptions_confirmed(
+            true, false, &metrics
+        ));
+
+        record_finam_ws_subscription_data_confirmation(&mut metrics, Some("BARS"));
+        assert!(finam_ws_desired_subscriptions_confirmed(
+            true, false, &metrics
+        ));
+        assert!(!finam_ws_desired_subscriptions_confirmed(
+            true, true, &metrics
+        ));
+
+        record_finam_ws_subscription_event_confirmation(&mut metrics, Some("QUOTES"));
+        assert!(finam_ws_desired_subscriptions_confirmed(
+            true, true, &metrics
+        ));
     }
 
     #[test]

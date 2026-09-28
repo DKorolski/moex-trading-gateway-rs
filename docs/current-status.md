@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-08-30.
+Status date: 2026-09-28.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -10,7 +10,328 @@ The stable macro-roadmap is fixed in [roadmap.md](roadmap.md). Review may split
 an accepted macro-stage into smaller patch gates, but it does not renumber or
 replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
+## Active Stage 8B-P1-f source boundary
+
+The [narrow O2 recovery source correction](stage-8/stage8b-p1f-o2-recovery-source-correction.md)
+is independently SOURCE ACCEPTED at `5b8f878833dbf71fa7614152a4a5fb03cbf40b65`.
+Both retained account-alias replay and active-manifest selector replacement
+findings are closed. The [authority successor](stage-8/stage8b-p1f-o2-recovery-authority-closure.md)
+binds these accepted bytes without Rust/Cargo, workflow or deployment changes.
+Fresh required PR #9 checks still precede history-preserving merge; the old green
+run `36380295678` at `38c7b82` is not evidence for this successor. After merge,
+rebuild the O2 artifact from the exact synchronized commit, preserving the accepted
+baseline07 BO-only profile. Artifact review and separately authorized installation
+and execution follow; this successor performs none of those operational actions.
+
+The O1 immutable package at
+`8864a2bbba64ef930073fae4e71dfcde82ceba58` and its operational-evidence
+correction at `997e8a1d201048fcdec0e948660f32a0bee3cceb` are independently
+accepted. O1 non-activating provisioning is closed. The accepted observation
+proves `EXACT_INSTALLED`, exact managed bytes/custody, unchanged active P0 unit
+identities, empty DB15, absent operator material, uninitialized durable state
+and no P1 activation. P1-O1E01/P1-O1E02 are closed. The installer did not
+contact Redis or FINAM and did not reload, enable or start systemd. Preparation
+of one separate O2 fresh-materialization/bootstrap package is authorized; O2
+execution and all provider/live surfaces remain closed pending independent
+acceptance of that package.
+
+The O2 R0 contract at `b8d573ab940e7a9ae5162e2da63faad4f6e38dab`
+was superseded by the independently accepted O2 R1 execution contract at
+`a9f8fe30a45752c943f9e399775322d83fcd8a36`; `P1-O2C01` and `P1-O2C02` are
+closed at contract level. The accepted R1 contract defines unit-level systemd
+runner supervision with exact
+`Completed`/`Failed`/`Expired` deadline semantics and an exact-account FINAM
+GET method/route allowlist that includes the complete orders snapshot but no
+order execution. It also fixes public-key ordering, the empty control-root
+skeleton and the fifth read-only evidence facade. It performs no key
+generation, target/FINAM/Redis contact, daemon reload or service start. One
+immutable execution artifact may now be prepared. Its review and actual O2
+execution remain separate gates.
+
+The ALOR-freeze source correction at
+`aacd81c3a9181f9d0aa55d891f76cb573b453b8d` is independently `SOURCE
+ACCEPTED`; its tree is `68efe82a75c242d2d5c82f304dbe8b5d74fb0330`, reviewed archive
+SHA-256 is `8dc7fa6d4091eb1ef75a76d7d7178fa3295687204b2110f2459bff644a3f0f5c`,
+and acceptance-review SHA-256 is
+`7b0dcf7131660881f711a2ec97bfdccee399f75c9ab50e8e009b52ba73c30a75`.
+PAR02, O2A01 and O2A02 are closed in source. The accepted target is the
+`imoexf-baseline07-bo-only-paper-v1` profile: first-boot History, High180 and
+Replay use candle-start model labels while canonical bar identity, hashes,
+watermarks and Redis identity remain close-bound. The O2 custody source uses
+the service group and exact post-umask mode, and stopped-proof polling is
+monotonic-bounded. `StopNotProven` remains typed API code 72 while the current
+operator CLI maps runner failures to process exit 70; O2 artifact evidence must
+assert the latter unless typed process propagation is changed and reviewed.
+
+The old O2 artifact at `1090de4` is a superseded infrastructure checkpoint,
+not an accepted artifact for the corrected profile. Source acceptance opens
+only a fresh O2 identity/binary/template/non-activating package rebuild from
+`aacd81c`; it does not authorize use of the old binary, O2 execution,
+installation mutation, Redis activation, FINAM writes, broker dispatch,
+runtime-live or real orders.
+
+Stage 8B-P1-e I1 aggregate candidate
+`a9bcd940635b62c2a13f8d378453e6ca21511e30` is independently
+`CLOSED / ACCEPTED` in source, installation/systemd material and retained
+evidence scope. Its accepted tree is
+`2d4196abf22d95af8e794bd0ae9c360794e44802`; the reviewed handoff SHA-256 is
+`5dfb664d86f37c00441c40b0d622db1fc87f6559812ab726d2a076c1f6bac81d`.
+This closure preserves the independently accepted process (`1086b8d`),
+telemetry (`b6f6d5b`) and fixed-installation (`7f2e876`) boundaries.
+
+The independently accepted P1-f R4 design baseline is
+`5d81b8e212300858246237a227a95d115dd67c2d`. P1F-Ia guardian foundation is
+independently `CLOSED / ACCEPTED` at
+`9be356b04a38e627337ed148ccc9fbdaebae8d4a`; all FI01–FI06 findings are closed.
+P1F-Ib correction R2 is independently `CLOSED / SOURCE ACCEPTED` at
+`7c481bc60699b514b016e8dffe62eb9ca462a100`; its accepted review SHA-256 is
+`098a24fc87871968bc6e7b0a77deefffd403bc56d997d21af18e1869750acf7e`.
+P1F-Ic fixed producers and retained high-water are independently accepted at
+`5c2656fbe8691da256b5380dd16ce6f6b6aa1fa8`. P1F-Id fixed Redis composition
+is independently SOURCE ACCEPTED at
+`512db6e6e652a2b0a15be7b6dcb72b96e231950d`; its review SHA-256 is
+`3208f8472f7e9a0109f41187458f78bfdab780029b4cc6be610640e5c652b1b9`.
+P1F-Ie is independently `CLOSED / SOURCE ACCEPTED` at
+`940377ab2bd406be31547200ca0b8cc3bb0f3e22`; its acceptance review SHA-256 is
+`94b224e56c30e4ad54b5db6d0d744b1fd7fbf06897e58af9be3382a3c9d5af96`.
+P1-IE01 and P2-IE02 are closed, so P1F-Ia through P1F-Ie form the accepted
+source baseline. P1F-O0 is independently `CLOSED / READ-ONLY PREFLIGHT
+ACCEPTED` at `98148b80dacddf44c58204c1af9403bb6b47f8d3`; its acceptance review
+SHA-256 is
+`a357514bf2d36ae2a47276da268d87bbd785ee65d00fcb86dcf6f57421061498`.
+Its retained observation of `stage8b-p1f-isolated-vps-1` uses
+`INFO server` for Redis server version and covers the complete fixed-install
+P1 user/group, path, systemd unit/template and recovery-instance inventory in
+addition to target identity, resources, empty DB15 and retained P0 identities.
+Every P1 systemd query is status-checked before evidence emission; an executed
+two-case behavioral control distinguishes successful empty FragmentPath from
+empty stdout plus nonzero query status.
+O0 has observation authority only. The immutable O1 package binds the accepted
+Ie runtime source, accepted fixed installer and its five public payloads. The
+first package `f2fe5a2` was held for P2-O101; corrected package `8864a2b` was
+accepted and is the exact source of the retained installation. O1 operational
+evidence is accepted and authorizes only preparation of a separate O2 package;
+it does not authorize O2 execution.
+Source authority is not activation authority.
+Operational installation or service start, Redis DB15/DB0 activation, VPS
+deployment, paper-provider execution, FINAM POST/DELETE/send, broker dispatch,
+runtime-live and real orders remain closed until separately reviewed P1-f
+implementation and operational gates explicitly authorize them. Historical
+candidate descriptions below are retained as lineage and are not the active
+project status.
+
+The P1F-Ia correction implements only the accepted
+trusted-control-root model without performing installation or activation. It
+adds a root-only guardian, signed one-time genesis and activation, retained
+hash-chained phase claims, replay-derived head state, crash-resumable
+claim/materialization/stopping/terminal transactions, exact O2 source/config
+finalization, exact prepared-event and pending-stopping recovery,
+process-owned monotonic-bounded deadline permits, no-grace public stopping
+resume after loss of the monotonic witness, descriptor-relative restore
+exclusion and permanent administrative quarantine. Real Linux
+multi-UID evidence proves that the service UID cannot mutate authority;
+guardian tests cover concurrent ownership, rollback/tamper, same-Active
+continuation and freshness. Coherent hidden full-control rollback remains
+explicitly outside local detection and requires separately reviewed rebind.
+The accepted design binds
+the already-paid isolated VPS as a coexistence target: existing P0 services
+remain outside P1 control in DB0 while typed P1 roles are restricted to DB15
+and exact paths. It adds a policy-bound source/config/materialized-receipt
+identity chain, exact hashes for eight production Lua scripts, ten accepted
+source-operation mappings, two explicit conformance traces, six route-specific
+schedule frontiers and 45 model cases. Phase receipts and consumed-manifest
+history move to a root-owned sibling control root with a hash-chained head;
+service-owned runtime state remains unchanged and carries no phase authority.
+P1F-Ib adds only one fixed local execution owner around the accepted I1 run
+binary. Its correction synchronously registers TERM/INT before admission and
+uses a direct first-wins signal-handler witness plus an acknowledged actor
+barrier before spawn, starts only an exact
+O3/O4 child process group, keeps the original linear permit and monotonic
+deadline across bounded child restart, performs actual process-group SIGKILL
+at ForceKill, uses Linux parent-death SIGKILL, and returns nonzero after
+recovered-witness or supervision failure. Real process tests cover pre-spawn
+stop, TERM/INT, restart, restart exhaustion, process-group kill, lost guardian
+and signal-task failure. Exact pending-stopping recovery reaches the accepted
+Ia resume API, while foreign pending state stays rejected. Cooperative child
+exit `0` is the only successful operator stop; I1 exits 70/71/72, recovered
+stops and invalid phases remain nonzero. Real OS TERM/INT startup tests use the
+production pre-spawn composition, assert zero child starts and no marker, and
+retain a no-signal child-start control. It performs no operational action and grants no
+operational authority. P1F-Ic fixed producers and retained high-water are
+independently accepted at `5c2656fbe8691da256b5380dd16ce6f6b6aa1fa8`.
+P1F-Id retains eight closed roles, ten accepted operations, exact
+Prepared/publication/reread/Published ordering, a production-composed
+five-second two-group resource monitor, execution-point hash-only audit,
+audited recovery reclaim, process-level terminal audit retention and linked
+real-Redis post-effect adapter-result-loss recovery. P1F-Ie is source-only and
+does not activate DB15, VPS services or provider execution. P1F-O0 remains
+closed pending separate acceptance after Ie.
+
 ## Current accepted boundary
+
+- Stage 8B-P1-d3 is independently CLOSED / ACCEPTED at governance authority
+  `7dc7c802feca6e79d3a1a9902c181ad7b6afc506`. Its authenticated bounded
+  working book now covers deterministic LIMIT Working/Filled/Expired, later
+  fill/Day expiry, exact CANCEL resolution, eight canonical projection shapes
+  and source-XACK-last. P1-d4 design R0 at
+  `b06c78b46d2a5b7a8209d58f1c327d7cf30ae98f` was held with three P1 and one
+  P2 finding. R1 at `3a3f14f595b9672b23d421e7a857117fb2c578d2`
+  remained HOLD with three P1 and one P2. R2 at
+  `16fe6dc535fdd744be9b814ab517386d83f52eac` closed those findings but
+  remained HOLD with two P1 findings: classifier domain and S09 outcome count.
+  R3 at `e1ce6d3baec3974d8dfd05c2f3de00110e0605bf` was independently
+  accepted and authorized source implementation. The implementation attempt
+  exposed two contradictions in the accepted proof-cell registry. R4 at
+  `ebede1d804f5eff50d6b4b9455edb08735e1be2c` corrected the S09 durable
+  equivalence but was held because its S05 early-XACK design invented a second
+  command source. R5 at
+  `b377c0275f1ce5f01cfe9b223724bf1542f985e2` retained Option A correctly but
+  was held with three P1 design/source mismatches. R6 at
+  `cb6e6ddf863f314cc96b5f8ac0a75809e8c6824a` closed its V1 chain, sequence
+  timing and post-`S_ack` binding findings, then remained HOLD with two P1 and
+  one P2 finding. P1-d4 R7 at
+  `1a1ea05775f1d15b86fcc3495ad6863b851e9212` is independently accepted. The
+  active source review candidate implements its exact precommitted Redis
+  command-entry reservation, package-aware P1-d4-before-P1-d2 routing,
+  canonical binding bytes and independent package/seal generation chains. It
+  retains seven finite recovery owners, 13 generated-Market cells and 105
+  total active real subprocess/SIGKILL proof cells, including duplicate and
+  conflict variants. Source commit `250f71a5a36c796281e946eeeb557f04818daab0`
+  was held with two proof-strength P1 findings. R1 commit
+  `0a30516dc359f8c9a7ba331ee1d2b10d0d4b50fa` closed both findings but was held
+  with one remaining evidence-exactness P1. R2 commit
+  `3d2e54020f929a517bd275b775ae69c1d2974de5` strengthened typed audit facts
+  but was held because the independent checker did not interpret base-cell
+  allocation timing, effect order and package state exactly. R3 commit
+  `0e21a8e844347efbf48fe6e1b57586cc2b674ad7` closed those facts but remained
+  HOLD because its retained checker did not exact-freeze base callback,
+  command-publication, XACK and source/group-frontier semantics. R4 at
+  `b13e73b85e68ae93d3591daf230e518c24556db1` closed that operational-evidence
+  gap but remained HOLD because it replaced the accepted exact eight-field
+  CrashMarkerV1 with an unaccepted V2 and its checker did not independently
+  reconstruct marker bytes, hashes or PID binding. The active R5 correction
+  retains every normative registry field, completes every cell to final state,
+  records process/filesystem/Redis/counter/audit evidence, compares two clean
+  105-cell semantic digests, and fsyncs then exactly restores the GM08/GM09
+  pre-kill sequence pair while proving GM07 has no pair. The collector also
+  closed narrow day-expiry and target-first checkpoint recovery gaps without
+  opening any new external input. Standalone P1-d2 remains unchanged when the composite
+  discriminator is absent. R2 also retains exact authenticated V3 sequence
+  allocations, independently derives durable truth facts, observes
+  provider/schedule invocations at their call sites, and now freezes an exact
+  92-row base oracle for allocation prefixes, ordered effects, package phases,
+  absolute generations and truth replacement commits. Canonical per-cell audit
+  payloads make all three hashes independently reproducible. R4 adds a second
+  92-row operational oracle and a typed/hash-bound Redis source frontier;
+  callback/publication/immediate-XACK counts, XACK reply/disposition, source
+  disposition and exact stream/group/M10 identity are now checked per cell.
+  It restores exact CrashMarkerV1 and records the F16 pre-kill `integer:1` reply
+  in a separate create-once/fsync/rename/reread 12-field source-bound witness.
+  The checker independently reconstructs canonical marker and witness bytes and
+  hashes for both 105-cell runs. Forty-one redigested semantic-evidence
+  mutations cover all prior cases plus marker PID/schema/domain/identity/audit,
+  normalization scope and F16 witness reply/source/PID/order forgeries.
+  P1-d4 is not closed until independent source
+  acceptance and a later governance-only authority rebind. Operational Redis
+  DB0/VPS activation, P1-e, FINAM dispatch, runtime-live, real orders and
+  partial fills remain closed.
+
+- An isolated paper-shadow P0 stand is active on the retained native
+  Linux/amd64 VPS at source ref
+  `9bdc2719ae30e7e59d6db35e8a48246bb15ddd6f`. Redis is loopback-only with
+  protected mode and AOF/everysec enabled. A separate FINAM token passed the
+  in-process fail-closed preflight with `readonly=true`, 2 visible accounts and
+  68 market-data permissions; its root-owned mode-0600 secret file is not part
+  of Git or evidence. The WS and paper runtime services are enabled and active.
+  Continuous real final M1 bars produced two complete M10 runtime-state batches;
+  the consumer has `pending=0` and `lag=0`. Health is `ReadOnly`, readiness is
+  `Reconciliation / OperatorLiveArmMissing`, and every order/cancel/real-runtime
+  flag remains false. One fail-closed DLQ row records a non-contiguous source
+  bar from pre-stable-generation diagnostics; no incomplete bucket entered
+  runtime state. This is unseeded live transport/projection evidence, not ALOR
+  parity and not the Stage 7B durable paper order/ACK lifecycle. See the
+  [initial deployment evidence](stage-8/stage8b-paper-shadow-vps-deployment-evidence.json),
+  [live activation evidence](stage-8/stage8b-paper-shadow-readonly-live-activation-evidence.json)
+  and [runbook](stage-8/stage8b-paper-shadow-vps-runbook.md).
+
+- The R0-R2B verifier-workdir repair at `50a2d26774ec71342a5acf281704dff09e5c7f0d`
+  is independently accepted. A fresh controlled attempt on 2026-09-02 passed
+  archive binding, native host preflight and the pinned Generation-2 ceremony
+  verifier (`13 + 1` bindings), then failed closed before run 1 when the
+  systemd aggregate trigger reported a dependency-job failure. Uninstall and
+  both custody layers passed: no unit, binary, transaction state, private
+  material or proof container remains. Generation 2 is inactive and R2B is
+  `NOT_ISSUED`. The native installation proof is deferred until a reviewed
+  failed-unit diagnostic exists; it does not block isolated FINAM paper-shadow
+  parity work. See
+  [the evidence summary](stage-8/stage8b-p-r2b-generation2-native-r2b-deferred-systemd-attempt.json),
+  [the ADR](adr/adr-stage8b-native-proof-defer-for-paper-shadow.md) and
+  [the paper resumption plan](stage-8/stage8b-paper-shadow-resumption-plan.md).
+
+- Stage 8B-P R2B Generation-2 Backup/Restore R0-R1 is independently accepted at
+  `3029bab714f8b75daaba3946ed858426515b4165`; its immutable review archive has
+  SHA-256 `ee7deefa31dcf6b126408452f4772081ba20999c90ef58cf52df7b873869759f`.
+  Stage 8B-P R2B Generation-2 Composition Rebuild R0-R1 Exact Phase-6 Evidence Closure is
+  independently accepted at
+  `c74382a7e3a63d3673dec220ff4e9caaba6b48ee`; its immutable review archive has
+  SHA-256 `2185e1af518bbfadb7e9f426cacab00d444dcdd8ca37957c1e4f9d3901e09a62`.
+  Stage 8B-P R2B Generation-2 Composition Rebuild R0 at
+  `1a1933f90075591a88d4631c7c72599a1262115d` remains the accepted substantive
+  predecessor; production binaries rebuilt in R0-R1: false. Generation 2 remains inactive.
+  The accepted typed evidence proves exactly one failed attempt: ordinal `1`,
+  `POST /v1/sessions`, `NETWORK_CONNECT_FAILURE`, no HTTP status/body, and all
+  dispatch/effect/order flags false. Production binaries were not rebuilt.
+  The active candidate is **Stage 8B-P R2B Generation-2 Full Transaction
+  Rebind / Native Controlled Installation Proof R0-R2B verifier-workdir repair**. The prior
+  review-only R0 package at `2a3ae5cc3f7ecc32962dd69c8af781b51d647bba`
+  was not accepted and was never executed. Its static contract
+  binds the unchanged six-phase, 31-service, 18-unit graph to six inherited
+  Phase-1/2 ELF and six accepted Generation-2 Phase-3/6 ELF. The native runner
+  now starts from the actual reviewed ZIP, pins the privileged image ID,
+  installs 18/18 exact units, preserves root terminal mode `0400`, verifies
+  the temporary ceremony in memory and destroys its tmpfs source. The R0-R1
+  review accepted those substantive corrections but denied execution because
+  cleanup began after early archive/argument failures and tmpfs was not protected
+  by a no-swap precondition. R0-R2 installs the fixed-path cleanup guard before
+  the first failure-prone operation, makes cleanup failure fatal, requires zero
+  host and container-visible swap entries, and limits host-attestation age to
+  15 minutes. The R0-R2 review accepted those closures but reproduced one remaining
+  Docker cleanup issue: daemon/query errors could be mistaken for an absent container.
+  R0-R2A destroys the host source first, bounds Docker queries/removal, treats unknown
+  state as failure and requires VPS destruction when container absence is not proven.
+  R0-R2A was independently accepted and invoked once on the dedicated disposable
+  VPS. Archive, host, image, ceremony metadata and both no-swap checks passed. The
+  container was created with `network none`, but the pinned ceremony verifier failed
+  before unit installation with `Error: Input`: Docker's empty image working directory
+  started `docker exec` at `/`, while the verifier correctly rejects a ceremony below
+  its current working directory. Cleanup passed, the host ceremony and container are
+  absent, private material retained is false, and no transaction phase started. R0-R2B
+  adds only `docker exec --workdir /work` for the verifier and is independently accepted.
+  Its first controlled execution passed archive/host/ceremony verification and
+  stopped before run 1 at the systemd transaction graph; the exact failed unit
+  was not retained by the accepted cleanup flow. A repeat execution is deferred
+  until redacted failed-unit diagnostics are reviewed.
+  Failure and stale-replay properties are hash-bound to accepted Implementation R0-R1A;
+  the native runner proves the exact success-to-expected-fail-closed path and
+  clean reset. Static checks cover 79 contract mutations and 18 attestation
+  mutations plus live-swap and Docker-cleanup runtime cases. The full two-run
+  native proof has not completed. The developer Docker daemon is ARM. A separate
+  clean Ubuntu 24.04 native Linux/amd64 VPS was used for the accepted
+  verifier-workdir attempt and is now retained for isolated paper-shadow work
+  under an explicit reviewer/operator decision; it contains no Generation-2
+  private material or production broker credentials. Generation-2 private
+  material remains offline as the accepted encrypted backup; no plaintext
+  ceremony is retained in the repository or handoff. Generation 2 remains
+  inactive, production credentials are not installed, controlled installation
+  is not performed and R2B authorization remains `NOT_ISSUED`. FINAM,
+  AuthService external network, broker GET/POST/DELETE, dispatch, Redis live,
+  runtime-live and real orders remain closed.
+  The active x86_64 VPS has been used only for a native static engineering
+  rehearsal in a separate directory: the checker and 40/40 contract mutations
+  passed against the public G2 ELF evidence. Because sensitive trading
+  cotenants are active, no proof or privileged container was created, no
+  ceremony or credential was transferred and this result is explicitly not
+  formal native acceptance evidence.
 
 - Stage 8B-P R2B Implementation R0-R1A is independently accepted at
   `6672819e357a3c2a2c1e73e5408c393da01913a1`. Controlled Installation / Full
@@ -1195,6 +1516,19 @@ Green / mostly closed:
   `live_orders_enabled=false`, `runtime_live_ready_enabled=false`,
   `command_consumer_to_real_finam_enabled=false`,
   `external_order_endpoint_enabled=false`, `stop_sltp_bracket_enabled=false`.
+- The isolated Stage 8B paper VPS now runs Redis and the unseeded P0 runtime
+  projection service. A reproducible Redis DB 15 synthetic smoke consumed ten
+  contiguous final M1 bars, formed one complete M10 runtime input, committed
+  one paper runtime-state batch, XACKed all ten source entries, left no PEL or
+  DLQ entries, preserved operational DB 0 and cleaned DB 15. No FINAM request,
+  full-trade token, broker dispatch, real order or Generation-2 private
+  material was used.
+- The same P0 boundary subsequently passed live read-only FINAM activation:
+  every WebSocket generation revalidates `readonly=true` and market-data
+  permission, final IMOEXF M1 bars form only complete M10 buckets, and the
+  immutable review snapshot records 51 market-data rows and two committed
+  runtime batches with PEL/lag both zero. This proves transport and projection,
+  not ALOR strategy parity or a durable paper order lifecycle.
 
 Amber:
 
@@ -1208,6 +1542,87 @@ Amber:
   real ALOR hybrid BO/MR orchestrator.
 - Riskgate state can be seeded/projected, but true riskgate ledger integration
   is not complete.
+- Stage 8B P0 on the isolated VPS is active only for read-only FINAM
+  transport/runtime projection. A separate `readonly=true` token is installed;
+  it has no order capability and is revalidated on every WebSocket generation.
+- Stage 8B-P1 durable paper lifecycle architecture, P1-a bootstrap/identity,
+  the R1A semantic-commit addendum and P1-b R1 are accepted. Stage 8B-P1-c is formally closed
+  and independently accepted at
+  `3d08f84a4a01d08265120def697584c3e60bcd3c`: canonical final M10 is retained in
+  a real Redis stream/group/PEL and drives the real Hybrid
+  semantic facade under one owner, zero/one-intent state is covered by
+  authenticated S1, and the exact RequestAccepted journal-ahead crash frontier
+  is recoverable only from the same pending M10. A durable zero-intent S1 now
+  restarts as an opaque ACK-only pending authority, verifies exact pending or
+  already-acknowledged source state and never repeats the Hybrid callback.
+  Eight subprocess/SIGKILL boundaries plus changed/missing/ACKed/colliding-M10
+  and extra-suffix negatives are covered. Exact S1-bound Stage 7 command
+  publication is atomic and response-loss-idempotent while the source M10
+  remains pending. R1 separates fresh namespace initialization from
+  verify-only attachment, reclaims one stale Ready PEL entry before fresh
+  input, blocks ambiguous PEL and requires a continuous group frontier for
+  already-acknowledged recovery. Stage 8B-P1-d0 is independently accepted at
+  `0d59d54d42fc29ae7b31359c1ded8efbd3a348fd`. Stage 8B-P1-d1 is formally closed
+  and independently accepted at
+  `4abb2fd9807adeb47f164a4025c7ac44d33679f6`: one opaque source-produced
+  decision/predecessor authority and one nonconstructible execution-bar
+  authority gate the exact Stage6/7 dispatch binding and deterministic Market
+  outcome. Same-bar, history/warmup, missing tradable interval, cross-day,
+  stale/future schedule, multiple-candidate, identity-conflict and non-None TTL
+  cases fail closed. The P1-d2 projection-field/timestamp annex R1A was
+  independently accepted at
+  `0cf1cd810a6ff479b69afb914db3b2aa2259593a`. It freezes complete Market Filled order,
+  trade, target-position, event-scoped truth and exact matching ACK fields;
+  source timestamps are the execution-bar open and receipt timestamps are its
+  final M10 close. R1 forbids feedback before deterministic Stage6 outcome and
+  Stage7 finalization, binds the prior paper position to authenticated Stage5
+  `pre_position_qty`, assigns consecutive `seq_ack`/`seq_truth`, and freezes
+  nonflat average price at Decimal scale 8 with `MidpointNearestEven`. R1A
+  inserts the accepted `OrderPositionAwaitingCommitted` durable seal after ACK
+  and before truth: pre-seal restart replays the exact ACK, while post-seal
+  restart derives `seq_truth = seq_ack + 1` and applies truth only. Source XACK
+  remains forbidden until the final post-truth seal is persisted and reread.
+  Explicit commission is positive Decimal zero/scale zero, while gross amount
+  and unrealized PnL remain unmodeled `None`. The P1-d2 Market feedback source
+  implementation is independently accepted at
+  `b8f09b5656bedf2c5b5828047a1fbbddbf988126`. It executes the exact
+  retained canonical successor through deterministic Stage6/7 finalization,
+  ACK, replacement S_ack, event-scoped truth, replacement S_truth and source
+  XACK-last under phase-linear owners. Initial execution additionally requires
+  an opaque source-produced Stage5E schedule authority; Redis cannot mint it
+  and no synthetic trading window is used. Recovery continues only from the
+  exact durable dispatch plus retained contiguous M10 and does not reacquire
+  schedule authority. Six subprocess SIGKILL frontiers plus a separate
+  sequence-pair crash boundary recover without provider/Hybrid replay. P1-d2
+  source hardening at `93941b86b613a6d1e944dbd043362584aa2c79f7` and its
+  governance closure at `bcd8db546104968dd0e48ab041e02acf6869d224` are
+  independently accepted. The accepted P2 proof-strength closure uses an
+  fsync-backed pre-kill pair marker and an exact comparison with the
+  post-restart authenticated audit. P1-d3 design R0 at
+  `74696d1eefc0453c41440f79b087cafebd0d7ab0` was held with three P1 and one
+  P2 finding. R1 was independently accepted at
+  `df330b2424199739ceb7c261321a5e5ee381c332`. The initial source candidate at
+  `77f6887e98ab8f2be81ca195adac12ae4a7d82ed` was held with three P1 findings.
+  The active source R2 correction review candidate retains its request/order
+  split, fill-before-cancel,
+  schedule-owned expiry, `S_cancel_recovered`, exact eight-shape projections,
+  full Stage6-embedded outcome evidence and deterministic registry/hash/P1-d2
+  migration. The P1-d3 book is carried in authenticated replacement packages;
+  all eight fresh/recovery outcomes and complete ACK/order/trade/position/truth
+  projections are checked in as independent byte/SHA-256 goldens. Filled
+  position arithmetic now reuses the accepted P1-d2 reducer, including
+  reduction/flip/flat and scale-8 rules. The actual Stage 5C host's optional
+  target TCID is now resolved from the authenticated target BOID registry row;
+  omitted TCID succeeds, supplied TCID must match, and a derived cancel DCID
+  equal to the canonical target TCID fails before `DispatchAttemptRecorded`.
+  Target-first restart uses the same optional-aware binding. Isolated Redis proves
+  read-only successor observation with
+  source XACK last. Two real subprocess/SIGKILL cases bracket
+  `S_cancel_recovered`; restart also preserves the pending semantic slot and
+  binds the replacement package to the exact post-`RequestAccepted` Stage 6
+  checkpoint. Current-tree authority remains pinned to accepted P1-d2.
+  P1-d4 exhaustive crash/replay, operational Redis DB0/VPS activation, FINAM
+  send, broker dispatch, runtime-live and real orders remain closed.
 - Stage 5D final restart r2 closure is still a review candidate until accepted.
   It proves the clean-process paper/no-send restart path through a durable
   package boundary and scenario inventory, but does not authorize Stage 6+
@@ -1223,6 +1638,36 @@ Red / not yet implemented:
 - Any default or implicit `i64` surrogate adapter for FINAM broker order ids.
 
 ## Required gates before runtime-driven live
+
+### Stage 8B-P1-e R8 executable latch-seam design candidate (2026-09-09)
+
+Stage 8B-P1-d4 is independently CLOSED / ACCEPTED at
+`c2a9e1246dfdd59f3a6297268de907dedcb19903`. P1-e R0 design at
+`7a186cd2ac78a57eff1ad8f24aa52b9dab82b68b` remains superseded. P1-e R1 design at `693fab351f099b5f16ebb73d4956918b34d8ea1e` is HOLD after independent review;
+P1-e R2 design at `3aaed81da4f1a558b4d31f4d3a169ddceca61e6f` is HOLD.
+P1-e R3 at `913424b73c5a83df2131a1f9a2901b78035bfc4c` is HOLD. P1-e R4 at
+`98523fd009712883f73f9b5a15cb545c8e9f13ac` is also HOLD after independent
+review. Its direct-child P1-e R5 at
+`3232c2447fc8d6aec038ca518efa11dc4d7e959e` and P1-e R6 at
+`c0d7ee4c10e4d060fd15ea31f4593adcb793642b` are HOLD after independent
+review. P1-e R7 at
+`7ebdcef45c1c55f4783bd6b2b1502ea78d4d97d7` is HOLD after independent review;
+the active candidate is P1-e R8. R8 retains the typed linear Option A seam and
+the 15+5 logical route partition while replacing the contradictory absolute
+post-owner Redis-read ban with a no-second-delivery-acquisition rule. One
+terminal permit may perform accepted XINFO/XRANGE/XPENDING verification and an
+optional exact XACK; P1-d4 read-only publication revalidation is mandatory
+after the permit. All 30 material route variants now bind their exact next
+covering boundary, returned owner/disposition, PEL/XACK/timer state and latch
+recheck. `Stage8bP1eShutdownIntentV1` preserves the initiating cause and exit
+class through E18/E25. Active V8 has 279 rows and semantic registry V8 has 31
+keys. R8 remains design-only. Independent acceptance authorizes only the exact
+three-file I0 latch-seam implementation, whose acceptance must rerun the full
+105-cell P1-d4 SIGKILL matrix twice plus P1-d2/P1-d3 regressions; the
+deployable supervisor source implementation remains unauthorized. P1-f,
+installation, operational DB0/VPS, FINAM POST/DELETE, broker dispatch,
+runtime-live and real orders remain closed. The
+nonblocking `0 < child_pid <= u32::MAX` hardening remains deferred.
 
 1. ALOR runtime compatibility contract v1 accepted.
 2. Runtime source adaptation vs binary-compatible adapter ADR accepted.
@@ -1321,3 +1766,401 @@ Durable apply/journal,
 ACK/readiness publication,
 `ProvenNoMatch`, retry/resend, FINAM POST/DELETE, Redis live consumption, broker
 dispatch, runtime-live, real orders, Stage 8A-5 and Stage 8B remain closed.
+## Stage 8B-P1-e R9 boundary/regression correction candidate (2026-09-09)
+
+R8 `fcac93e47e6dbb2f5c96c0fa28ce1c99cd603b3e` is HOLD after independent
+review. P1-e R9 is the active narrow design/checker candidate. It distinguishes
+route-bound Redis reattachment checkpoints from new durable seals, limits E05
+to normal-loop pre-shutdown S_ack, binds 30 route cells to 46 exact branch
+fixtures, composes both pending and AlreadyAcknowledged due-timer paths, and
+defines a reusable current-source I0 regression entrypoint without weakening
+or modifying the historical P1-d4 gate. Production Rust is unchanged. I0,
+supervisor, installation, operational DB0/VPS, FINAM POST/DELETE, broker
+dispatch, runtime-live and real orders remain closed pending independent R9
+acceptance.
+
+## Stage 8B-P1-e R10 outcome/source and I0 evidence correction (2026-09-09)
+
+R9 `4051a7b4d2c810100aaf983bddede62dbd03d96f` is HOLD after independent
+review. P1-e R10 is the active narrow design/checker candidate. It keeps all
+accepted R9 route, shutdown and timer semantics, replaces the ambiguous durable
+counter with source-derived `replacement_seal_commit_total`, corrects FX10 and
+the LR12/LR15 composite fixture totals, and binds those totals to unchanged
+accepted Redis/recovery source. The future I0 gate now requires one clean
+immutable tested commit, mandatory retained PASS/FAIL evidence outside the
+repository, and six fully qualified exact tests with one-selected/one-passed
+enforcement. Production Rust is unchanged. I0, supervisor, installation,
+operational DB0/VPS, FINAM POST/DELETE, broker dispatch, runtime-live and real
+orders remain closed pending independent R10 acceptance.
+
+## Stage 8B-P1-e I1A closure and I1 first-boot checkpoint (2026-09-13)
+
+The I1A source correction at
+`8360c4701b6abbe75ced988cf8dd2d74487e1846` is independently accepted. It
+closes exact five-field M10 effect binding and V4-prefixed journal-ahead
+recovery without opening deployable I1 or operational activation.
+
+The initial I1 F00-F17 first-boot checkpoint at `21fda88` received HOLD for an
+unbound candidate semantic ID, date-count-only History completeness and missing
+F00 filesystem tests. The correction at `4d7ee64` received `SOURCE ACCEPT` on
+2026-09-13: P1-FB01, P1-FB02 and P2-FB03 are closed. Active source-plan v2 now
+binds wire schema/domain v2, while the design-pinned v1 facade and fixed-path
+names remain compatibility names and the v1 wire artifacts remain historical
+review evidence only. The separate governance closure is the current review
+candidate; complete deployable I1 is not yet accepted. The first closure at
+`3d43c89` received HOLD solely because its mutation harness could count a
+missing-Git infrastructure error as a semantic rejection. The active narrow
+correction requires a same-path positive fixture, rejects no-op mutations,
+classifies missing Git authority as infrastructure and matches every semantic
+mutation to its expected failure category. It does not change accepted
+Rust/Cargo source semantics.
+
+The corrected boundary authenticates a fixed observation-only source,
+reconstructs the fixed Hybrid IMOEXF profile, admits fresh flat Stage 4 truth,
+warms canonical History M10, independently rebuilds and validates High180
+riskgate state, proves empty pending streams, processes one zero-intent Replay
+candidate and feeds the accepted Stage 5G export/restore plus Stage 8B-P1
+durable-root transaction. Its full fixture contains 10,648 M10 bars across 121
+sessions and 120 non-zero High180 outcomes. The integration test proves one
+identity-derived durable directory and restart without a second first boot.
+
+This checkpoint is not complete I1. Transaction V5/receipt/provenance,
+deployable owner loop, signal/panic/exit handling, the complete route/restart
+process matrix, systemd/install material and aggregate I1 acceptance remain to
+be implemented separately. Operational Redis DB0/DB15, VPS activation, FINAM
+POST/DELETE, broker dispatch, runtime-live and real orders remain closed.
+
+## Stage 8B-P1-e I1 transaction V5 classifier correction (2026-09-14)
+
+The first-boot governance correction at
+`21eaf01916f2da5eaacb191b4d7339a8101070ad` is independently accepted and is
+the immutable predecessor of this source line. Transaction source `fdab06a`
+is HOLD due to P1-TX01: its quarantine classification compared the marker only
+with the absent active-root identity. The active correction chooses exactly
+one active/quarantine layout before identity validation and adds executable
+positive and negative quarantine filesystem fixtures. The source line implements
+transaction V5, authenticated receipt V2 and exact first-boot provenance in a
+Stage 6 restart package V2. Ten filesystem crash hooks have deterministic
+classifications; the four post-seal response-loss frontiers can resume to the
+same adopted authority. Stage 6 advance and Stage 5G replacement preserve the
+V2 provenance instead of silently resealing as V1.
+
+This remains a source-review candidate, not complete deployable I1. Pre-seal
+administrative recovery, the owner loop and the process signal/panic/restart
+matrix are subsequent review slices. Operational Redis DB0/DB15, VPS
+activation, operational credentials, FINAM POST/DELETE, broker dispatch,
+runtime-live and real orders remain closed.
+
+## Stage 8B-P1-e I1 pre-seal administrative recovery candidate (2026-09-14)
+
+The transaction V5 classifier correction at
+`5e2e157e032406fdbb9047c33c641f5973514504` is independently accepted and
+P1-TX01 is closed. The current child source slice implements the seven exact
+pre-seal administrative selectors. It binds each one-shot selector to the
+validated deployment, source-derived transaction ID and fixed recovery
+confirmation, then repeats a fresh authenticated V5 classification before any
+mutation.
+
+Prepared and all three pre-adoption marker-temp frontiers continue the same
+transaction to receipt V2 plus Adopted. The JournalDurable response-loss path
+opens only the already-existing empty journal under the Stage 7 writer lease;
+it cannot create a second journal. Incomplete RootPublished/JournalDurable
+roots are retained through no-replace quarantine and marker finalization with
+directory fsyncs. Authenticated quarantine history now rejects reuse of an old
+bootstrap-attempt generation. Focused filesystem tests cover selector mismatch,
+all continuable frontiers, both quarantine frontiers and response loss after
+each administrative rename family.
+
+This is still not complete deployable I1. The owner loop, installed
+`bootstrap-recover` composition and release subprocess signal/panic/restart
+matrix remain next review slices. Operational Redis DB0/DB15, VPS activation,
+operational credentials, FINAM POST/DELETE, broker dispatch, runtime-live and
+real orders remain closed.
+
+## Stage 8B-P1-e I1 pre-seal recovery freshness correction (2026-09-14)
+
+Independent review placed `be6707391dc53327fa3a29a40836d24f71eca850` on
+HOLD for `P1-PSR01`: every recovery action incorrectly depended on repeating
+the 300-second fresh broker-truth admission. The current correction candidate
+keeps that freshness rule unchanged for a new first boot and separates
+existing-transaction recovery authority.
+
+Remove-marker-temp, quarantine-root and finalize-quarantine now use only the
+exact selector, validated deployment/runtime identity, HMAC-authenticated
+durable marker with recomputed transaction identity, and fresh V5 filesystem
+classification. Continuation first authenticates the marker, then permits
+historical reconstruction only from the byte-exact original F00 bundle and
+all marker-bound provenance hashes. Missing or changed historical bytes fail
+before mutation while safe quarantine remains available.
+
+Time-advance tests cover the 300/301-second boundary, 30-day administrative
+recovery, historical continuation at 301 seconds and 30 days, and changed
+bundle rejection without filesystem mutation. This remains a correction
+candidate requiring independent acceptance before the owner loop opens.
+Operational Redis DB0/DB15, VPS activation, FINAM POST/DELETE, broker dispatch,
+runtime-live and real orders remain closed.
+
+## Stage 8B-P1-e I1 committed Initial-LIMIT restart checkpoint (2026-09-17)
+
+The local fresh signed Initial-LIMIT checkpoint at `89c243d` precedes this
+narrow accumulated source slice; neither `89c243d` nor `3290371` has separate
+independent acceptance. The candidate composes the previously deferred
+`ScheduleBindingCommitted` startup route without reopening schedule-source or
+strategy-callback authority.
+
+Initial-LIMIT V4 now retains the exact command-publication recovery-seal
+generation and commitment. Fresh commit, journal-ahead recovery and ordinary
+restart validate that binding against the durable predecessor. The Redis
+restart path then reclaims the exact predecessor M10, atomically revalidates
+the immutable publication marker and command bytes, verifies the exact first
+successor, and enters the inherited P1-d3 lifecycle at `S_ack`. It preserves
+the signed schedule high-water and reaches `S_truth`, source XACK-last and
+exact `Ready` without a second schedule read, Hybrid callback or command
+publication.
+
+A real-Redis plus disk-restart test proves one pending source before restart,
+zero schedule reads after restart, unchanged command-stream length and zero
+pending sources only after the replacement truth is durable. At that
+checkpoint, generated Market, Cancel, Day-expiry and later retained
+Initial-LIMIT startup frontiers remained subsequent slices. Operational Redis DB0/DB15, VPS activation, FINAM
+POST/DELETE, broker dispatch, runtime-live and real orders remain closed.
+
+## Stage 8B-P1-e I1 generated-Market process correction candidate (2026-09-17)
+
+Independent review placed generated-Market process checkpoint `66591fd` on
+HOLD with `P1-GMP01`, `P1-GMP02` and tooling finding `P2-GMP03`. The
+independently accepted I1 baseline therefore remains
+`a655da96ace23eb61d89642f63c49e5275ff98bd`; `89c243d`, `3290371` and
+`66591fd` are accumulated local implementation checkpoints rather than
+accepted predecessor boundaries.
+
+The active narrow correction composes the generated-Market
+`CommandPublished` route with the accepted signed-schedule C-F sequence while
+preserving the P1-d4 reservation, publication marker and package identity.
+Prepublication is now classified from authenticated durable state before the
+linear owner is consumed, so generated Market reaches only its
+reservation-bearing publisher and the generic-path prohibition remains
+intact.
+
+Fresh execution writes and rereads one V4 record that binds the exact
+predecessor M10, first canonical successor, request/command identity and
+prepublication recovery seal before the existing generated-Market paper
+provider can execute. The P1-d4 replacement-seal rules accept the additional
+generation only when the checkpoint-covered V4 proves that exact publication
+binding; the legacy no-V4 generation contract remains unchanged.
+
+Authenticated restart directly from the committed V4 reclaims the exact PEL
+entry, revalidates the immutable Redis marker, canonical envelope, command
+bytes, reservation and publication binding, verifies the same first successor
+and restores signed-schedule high-water. It performs no schedule reread or
+command republish and rejoins the existing combined
+`S_ack -> S_truth -> XACK-last` path. A real-Redis plus disk-restart test proves
+the command-stream length remains unchanged and the source stays pending until
+truth is durable.
+
+When the exact successor M10 has not arrived, plain Market, generated Market
+and Initial-LIMIT retain one typed published owner instead of returning a
+terminal missing-entry error. Every bounded retry rereads the current signed
+schedule; predecessor loss, gap, payload mismatch and identity mismatch remain
+fail closed. The I1A source harness now validates the explicit
+Initial/Working/Cancel route partition and executes positive/no-op controls
+before 102 mutations.
+
+Cancel, Day-expiry and their retained dispatch schedule routes remain later
+I1 slices after independent acceptance of this correction. Production `run`
+wiring and process signal/panic/SIGKILL evidence are also separate later
+boundaries. Operational Redis DB0/DB15, VPS activation, FINAM POST/DELETE,
+broker dispatch, runtime-live and real orders remain closed.
+
+## Stage 8B-P1-e I1 process supervision review correction (2026-09-23)
+
+Independent review placed process checkpoint `95f733d` on HOLD for two narrow
+evidence defects. The implementation path itself remains unchanged; this
+candidate repairs the OS-process witnesses without opening any operational
+surface.
+
+The Redis in-flight witness now runs the single production startup future
+through a byte-transparent RESP proxy. The proxy records only a response that
+the isolated Redis server has already processed, then withholds that exact
+`GET` or `XPENDING` reply while SIGTERM/SIGINT exercises the real production
+`tokio::select!`. Durable bytes, Redis DUMP/PTTL state, the empty PEL and
+ordinary re-admission are compared after exit 0. The exit-72 contract is proven
+separately with a genuinely noncooperative owner under the common supervisor;
+it is no longer presented as a Redis transport result.
+
+The V5 positive witness no longer injects an intent or resets Redis. Fresh
+flat paper V5 continuously executes decision/successor M10, the Hybrid
+callback, Market publication, paper outcome, replacement truth and XACK-last.
+Direct effect counters plus durable journal and Redis inventories prove no
+repeat across restart and exact already-acknowledged continuation. Cancel is
+documented and tested through its actual process ingress: an authenticated
+durable restart outcome. The synthetic LIMIT/Cancel helper remains only as an
+explicit isolated fixture.
+
+The correction gate retains command logs for the inherited process matrix,
+the two repaired witnesses, source/negative checks, strict clippy and the
+existing transaction/restart contracts. Operational Redis DB0/DB15, VPS
+activation, FINAM POST/DELETE, broker dispatch, runtime-live and real orders
+remain closed pending independent acceptance.
+
+## Stage 8B-P1-e I1 process signed-authority correction (2026-09-23)
+
+Review of `e7ae487` closed P1-PS02 and narrowed the remaining process finding
+to P1-PS05: the continuous V5 Market witness still used a fixture authority
+with no V4 proof. The active correction preserves the same V5 durable root and
+Redis namespace but routes the real callback and published Market command
+through a fixture-signed envelope, the production schedule reader and an exact
+V4 binding before any provider effect.
+
+The new pre-effect restart reconstructs only
+`P1eScheduleBindingCommitted`. Its continuation reclaims the exact source PEL,
+revalidates the immutable command marker and first successor, passes latches E
+and F, then commits paper ACK/truth and XACK-last. Fresh execution records one
+schedule read; committed recovery records zero. The post-truth restart reaches
+the exact P1-d2 truth frontier and resolves as `AlreadyAcknowledged` without a
+second callback, publication, provider effect, schedule read or XACK. Initial
+adoption marker/receipt bytes remain unchanged.
+
+The process source checker and mutation harness pin the signed read, V4
+commit/restart, marker revalidation and no-legacy-authority properties. P1-PS02
+and the accepted Cancel ingress evidence are not reopened. Operational Redis,
+VPS activation, paper-provider activation, FINAM POST/DELETE/send, broker
+dispatch, runtime-live and real orders remain closed pending independent source
+acceptance and later aggregate I1 review.
+
+The immutable packaging run also exposed a pre-existing wall-clock cliff in
+two inherited Stage 5D source-owned restart tests: their test-only persisted
+timestamp became older than the current riskgate session after 2026-09-21.
+Their fixture now uses the already accepted chronology ceiling. This changes
+no production path and keeps the full-core regression run deterministic.
+
+## Stage 8B-P1-e I1 aggregate closure readiness package (2026-09-23)
+
+Process supervision source at
+`1086b8d95e10514532d1c25c57956eca943b732c` is independently SOURCE
+ACCEPTED; P1-PS02 and P1-PS05 are closed. The continuous V5 Market witness is
+now described precisely as a controlled restart at the durable V4 pre-effect
+frontier. Its four observations are initial adoption, committed V4 before
+effect, post-truth/XACK and repeat admission after `AlreadyAcknowledged`; it is
+not an OS-SIGKILL witness for plain-Market V4 or a claim about every project
+crash frontier.
+
+The aggregate readiness package reconciles fourteen accepted I0/I1 milestones
+and their independent-review hashes. I1 remains open. Telemetry DTOs,
+readiness classification and Redis `NOMKSTREAM` write primitives exist, but
+production telemetry composition is not wired. A P1-e-specific fixed-path
+install transaction, systemd unit/material and target-Linux installation
+evidence also do not yet exist.
+
+The proposed remaining order is: telemetry composition source, fixed-path
+installation/systemd material, then one immutable aggregate I1 acceptance
+package. Operational Redis DB0/DB15, VPS installation/service start,
+paper-provider activation, FINAM POST/DELETE/send, broker dispatch,
+runtime-live, real orders and P1-f remain closed.
+
+## Stage 8B-P1-e I1 telemetry composition candidate (2026-09-24)
+
+The production process now composes the accepted health/readiness contract
+after authenticated durable admission, verify-only Redis attachment, S06
+acquisition and schedule-reader attachment. A restricted write-only publisher
+cannot read/claim/XACK source work or publish commands. The bounded telemetry
+task emits immediate, distinct-transition and periodic snapshots with exact
+`NOMKSTREAM MAXLEN = 4096`, first-wins fail-closed shutdown and exit class 71.
+
+Isolated Redis evidence covers all five phases, periodic publication,
+missing-stream no-create, backpressure, redaction and closed live flags. A real
+child production process reaches `PaperReady`, receives SIGTERM, publishes
+`Draining` and `Stopped`, exits zero, preserves durable bytes and leaves the
+M10 PEL empty. At that immutable commit this was a source review candidate, not acceptance.
+The subsequent correction was accepted at `b6f6d5b`; the
+historical candidate paragraph is retained for lineage. Operational Redis,
+VPS activation, paper-provider activation, FINAM send, broker dispatch,
+runtime-live, real orders and P1-f remain closed.
+
+## Stage 8B-P1-e I1 telemetry correction candidate (2026-09-24)
+
+The correction series above `22ad2d546ba358e8c42d28ce0c3d8bb3a275535a`
+is anchored to the accepted aggregate-readiness baseline
+`896ad1b2f85ea47a59212001eb713befaea26832`. Independent review closed
+P1-TEL01 and P1-TEL02 at the partial correction
+`a38d8c6c539a47f3f0e82965d40960d239114815`; this narrow follow-up addresses
+only the remaining P2-TEL03 without opening installation or operational
+surfaces. The common supervisor now wakes
+on a telemetry-retained shutdown intent without an OS signal, actively observes
+early telemetry-task completion, preserves one first-wins deadline through
+owner drain and final publication, and maps telemetry completion before that
+deadline to 71 versus deadline expiry to 72. Armed child telemetry tasks are
+aborted on parent exit or unwind.
+
+Every publication reconciles the current latch and a time-bounded source-poll
+freshness observation. A queued Ready transition cannot restore PaperReady
+after shutdown, and an in-flight production Redis poll has an executable
+witness showing Draining heartbeats before the response is released and no
+later PaperReady. A separate witness proves freshness expiry while the
+telemetry writer remains live.
+
+Read-only diagnostic bridges obtain semantic/ACK timestamps and exact seal
+generation/commitment from the authenticated runtime/recovery owner. Typed
+stopped/retained/committed boundaries capture the final diagnostic snapshot
+before consuming their owner. The production lifecycle drain emits ACK and
+truth observations, exact Ready emits the post-XACK observation, and terminal
+paths reread actual PEL. The bounded production publisher test compares Redis
+payloads against those real hooks without manually driving reporter
+transitions. Blocked recovery emits one contract-domain-redacted hash per
+canonical request ID rather than a semantic-batch hash.
+
+Getter/serialization evidence, retained component evidence and production
+composition evidence are tracked separately; only the last supports claims
+about published ACK/truth/XACK payloads. At `a38d8c6` this remained a source correction review candidate, not acceptance; the correction was subsequently
+accepted at `b6f6d5b`. Fixed-path installation/systemd material is therefore
+the active candidate below. Operational Redis, VPS activation, paper-provider
+activation, FINAM send, broker dispatch, runtime-live, real orders and P1-f
+remain closed.
+
+## Stage 8B-P1-e I1 fixed-path installation candidate (2026-09-24)
+
+The accepted deployment-identity V2 is now materialized under
+`deploy/stage8b-p1e/`. The ordinary unit invokes only fixed-path `run`, permits
+only Unix plus IPv4/IPv6 loopback, pins Redis egress to loopback addresses and
+retains the accepted 600-second restart window and 100-second stop boundary.
+The bootstrap and recovery units are AF_UNIX-only private-network oneshots.
+All three use the same persistent `moex-p1-paper` identity, fixed systemd
+credential and exact read-only/config plus writable-state custody.
+
+The installer accepts only an explicit root and binary, installs public package
+material transactionally, runs sysusers/tmpfiles and static systemd
+verification, and records that no activation occurred. Operator config,
+first-boot source and lifecycle credential are deliberately not installer
+inputs. Exact reinstall is idempotent. Rollback refuses both operator material
+and any durable-state evidence, removes no secret/state and leaves persistent
+identity/directories intact. The static gate and 35-case source/evidence
+mutation harness are green. The isolated Ubuntu 24.04/systemd 255 rehearsal
+installed a release supervisor built from the accepted `b6f6d5b` source and is
+also green for clean
+install, parser verification, exact reinstall, both fail-closed rollback cases
+and clean public-package rollback. It ran under a separate network namespace,
+loaded/started no unit and contacted neither Redis nor FINAM.
+
+This slice does not close aggregate I1. Operational installation, service
+start, Redis DB15/DB0, VPS activation, paper-provider activation, FINAM send,
+broker dispatch, runtime-live, real orders and P1-f remain closed.
+
+Independent review placed `37b9d06` on SOURCE/MATERIAL HOLD with P1-INS01,
+P1-INS02, P2-INS03 and P2-INS04. The active correction is limited to fixed
+manifest/deletion authority, protected path and service-account custody,
+empty-quarantine rollback semantics, a real CLI filesystem matrix and a
+self-contained evidence runner. Accepted units and Rust telemetry/process
+semantics are unchanged. Aggregate I1 and every operational/live surface stay
+closed pending a new immutable source/material acceptance.
+
+## GOV-CI detached Stage 8A-5 temporal replay repair (2026-09-27)
+
+The accepted source/governance PR at `8f771d7` exposed a historical detached
+Stage 7B fixture whose fixed persisted timestamp expired on 2026-09-21. The
+active repair is governance-only: the immutable Stage 8A-5 gate remains exact,
+and a SHA-bound cargo wrapper applies the already accepted `e7ae487` test-only
+chronology normalization solely inside the 10 exact cargo-test checkouts in the
+executed inherited Stage 6/7/8A-5 graph that share the accepted source pre-image.
+Current production Rust/Cargo bytes and all closed operational/live surfaces
+remain unchanged. This repair requires a narrow independent review before the
+PR head is advanced and merged.

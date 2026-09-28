@@ -1,0 +1,16 @@
+id,area,requirement,evidence,status
+P1CR1-001,scope,Only P1-c Redis source/restart composition changes versus a85ef84,source scope checker,IMPLEMENTED_REVIEW_CANDIDATE
+P1CR1-002,ready-pel,Ready inspects at most two pending entries before any fresh read,source checker and real Redis tests,IMPLEMENTED_REVIEW_CANDIDATE
+P1CR1-003,ready-pel,One stale pending entry is reclaimed before a newer M10,stale A before fresh B test,IMPLEMENTED_REVIEW_CANDIDATE
+P1CR1-004,ready-pel,A not-yet-claimable entry returns the same linear owner for retry,unclaimable stale PEL test,IMPLEMENTED_REVIEW_CANDIDATE
+P1CR1-005,ready-pel,More than one Ready pending entry fails closed before callback,ambiguous Ready PEL test,IMPLEMENTED_REVIEW_CANDIDATE
+P1CR1-006,initialization,Only a proven fresh namespace may create streams and groups,initialization Lua and historical-stream negative,IMPLEMENTED_REVIEW_CANDIDATE
+P1CR1-007,initialization,Repeated initialization requires two empty exact groups at 0-0 with no consumers,initializer idempotence test and source checker,IMPLEMENTED_REVIEW_CANDIDATE
+P1CR1-008,attachment,Normal and restart attach is verify-only and never issues XGROUP CREATE,attach checker and group-loss tests,IMPLEMENTED_REVIEW_CANDIDATE
+P1CR1-009,continuity,Deleted M10 group fails attach and is not recreated,zero-intent group-loss restart test,IMPLEMENTED_REVIEW_CANDIDATE
+P1CR1-010,continuity,Deleted command group fails attach and is not recreated,command-group-loss test,IMPLEMENTED_REVIEW_CANDIDATE
+P1CR1-011,continuity,AlreadyAcknowledged requires group frontier at or beyond durable M10,externally recreated frontier test,IMPLEMENTED_REVIEW_CANDIDATE
+P1CR1-012,regression,Original P1-c exact M10 S1 command and response-loss behavior remains green,15 real Redis aggregate scenarios,IMPLEMENTED_REVIEW_CANDIDATE
+P1CR1-013,negative,Four new restart and group-continuity mutations fail the checker,14-case negative harness,IMPLEMENTED_REVIEW_CANDIDATE
+P1CR1-014,separation,Provider FINAM runtime-live real orders and DB0 remain closed,source checker and closed-surface evidence,IMPLEMENTED_REVIEW_CANDIDATE
+P1CR1-015,governance,Authority rebind waits for independent semantic acceptance,separate governance-only successor,PENDING_AFTER_REVIEW

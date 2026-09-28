@@ -1,0 +1,9 @@
+id,area,case,precondition,expected_progression,expected_route,status
+I1A-R2-SI01,semantic-identity,open-to-closed-same-sessions,Exact Open high-water then fresh Closed snapshot with identical sessions,Accept revision plus one,Day route available only after exact book M10 boundary proof,REQUIRED
+I1A-R2-SI02,semantic-identity,unchanged-heartbeat,Only publication sequence time freshness report and signature change,Accept same semantic hash and revision,Original route remains subject to current evidence freshness,REQUIRED
+I1A-R2-SI03,semantic-identity,trading-day-change-same-sessions,Trading day changes while normalized session template is identical,Accept different hash and revision plus one,New-day route validation required,REQUIRED
+I1A-R2-SI04,semantic-identity,same-revision-different-hash,Semantic identity changes but candidate revision is retained,Terminal semantic conflict,No route authority,REQUIRED
+I1A-R2-SI05,semantic-identity,semantic-revision-rollback,Candidate revision is below durable high-water,Blocked rollback,No route authority,REQUIRED
+I1A-R2-SI06,semantic-identity,heartbeat-freshness-excluded,Observation expiry report signature and envelope bytes change without semantic projection change,Accept monotonic publication with stable semantic identity,No false semantic conflict,REQUIRED
+I1A-R2-SI07,semantic-identity,publisher-restart-state-missing,Publisher cannot restore exact generation sequence revision and hash,No publication,No route authority,REQUIRED
+I1A-R2-SI08,semantic-identity,closed-market-working-denial,Open to Closed transition is accepted by progression,Accept source snapshot,Closed still cannot issue Market or Working authority,REQUIRED

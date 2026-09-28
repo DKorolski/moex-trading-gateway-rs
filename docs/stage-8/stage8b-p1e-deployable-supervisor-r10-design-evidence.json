@@ -1,0 +1,63 @@
+{
+  "stage": "Stage 8B-P1-e R10 outcome/source and I0 evidence closure",
+  "status": "R10_DESIGN_REVIEW_CANDIDATE",
+  "parent": "4051a7b4d2c810100aaf983bddede62dbd03d96f",
+  "accepted_predecessor": "c2a9e1246dfdd59f3a6297268de907dedcb19903",
+  "r9_review_sha256": "6ae8cf12280e5dfcd15928fd6812c5bef991755aa6163c742a0a4e6c7706546b",
+  "design_checker_only": true,
+  "source_modified": false,
+  "i0_source_seam_authorized_now": false,
+  "i0_source_seam_authorized_after_independent_acceptance": true,
+  "supervisor_source_implementation_authorized": false,
+  "base_v9_active_rows": 298,
+  "superseded_v9_rows": 5,
+  "r10_rows": 24,
+  "active_rows": 317,
+  "semantic_authority_keys": 36,
+  "route_outcome_fixtures": 46,
+  "corrected_fixture_bindings": 10,
+  "counter_fields": 7,
+  "source_effect_paths": 7,
+  "p1d4_positive_sigkill_cells": 105,
+  "p1d4_clean_runs": 2,
+  "p1d2_p1d3_exact_tests": 6,
+  "negative_cases": 53,
+  "integrity_negative_cases": 8,
+  "semantic_negative_cases": 45,
+  "normalized_semantic_model_sha256": "7024d2500bf1dc315fb8f97d828fd1c1151fbb6f7d2083cbedb86393187a9c0d",
+  "accepted_source_sha256": {
+    "redis": "a870fbbb6ec9fc60b7df9c35a2aca7a5daf81f695b019352d7f20c9b51439d16",
+    "recovery": "603fecb619e9535431c0c09c4f9b7093371612643960c26ad854c34660e98146"
+  },
+  "contract_sha256": {
+    "design": "962dcd455d148fbe18544918caf7115fae714d3220020b82a32dd2eaa93d762a",
+    "acceptance": "280036691808932534e75fc0cd32c47688ebf9e754c134e8e192b666824ed067",
+    "active": "13c8f6af413738d79b8ee9602582f49b4ec8b904e7048a7851cdba03b6c63ff6",
+    "semantic": "1b79adf8a7d3baef5bdd5e828bea058804dea79680e04041df7b58087346cdf2",
+    "counters": "f70bc4f7c0fa732d18647b101789ad6eaa752e87cef37c761a511f61447b5d36",
+    "source_oracle": "706385dc3684815db75c70f7e293940d31e946206b7f2ed4737f8f9fbfa5c9fc",
+    "regression": "966e6e7bcab460ce8d459d610d3adfc3a1ecefcdf579b5e80e6b89ad352ebb2d"
+  },
+  "accepted_script_sha256": {
+    "regression_gate": "627451b5edb563b45f4dce82e6e3419603a3fdb20dd90005356ca54afd2c97e4",
+    "scope_check": "f2922d69438e37b9758b93ba28ac94e31a6ff732910c2735b7320cb74a2cfa96",
+    "retained_evidence": "42b9e0f77755206271e1dcdda6113715c4cda2e89033097bc3fa262eb233eedf",
+    "p1d4_regression_check": "e0eb1f70c63d1981dda1491018e267adf21cc66b70e735a82c1b80de6eb48068"
+  },
+  "closed_surfaces": {
+    "i0_source_implementation": false,
+    "p1e_supervisor_source_implementation": false,
+    "p1f_isolated_operational_acceptance": false,
+    "service_installation": false,
+    "operational_redis_db0_vps": false,
+    "non_loopback_redis": false,
+    "finam_transport_post_delete": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "partial_fills": false,
+    "protective_bracket_multi_leg_orders": false
+  },
+  "next_after_independent_acceptance": "Stage 8B-P1-e I0 latch-aware source-seam implementation in exact three-file production allowlist using accepted retained regression gate",
+  "next_after_i0_source_acceptance": "Stage 8B-P1-e I1 deployable supervisor source implementation"
+}

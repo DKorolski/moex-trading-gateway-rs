@@ -1,0 +1,199 @@
+{
+  "accepted_ie_closure": "3a46a460ea4bd5c85c5befd036510c580941a265",
+  "all_required_checks_passed": true,
+  "checks": {
+    "db15_empty": true,
+    "p0_services_unchanged_and_running": true,
+    "p1_identity_absent": true,
+    "platform_prerequisites": true,
+    "probe_declares_no_remote_mutation": true,
+    "redis_prerequisites": true,
+    "target_identity_exact": true
+  },
+  "closed_surfaces": {
+    "broker_dispatch": false,
+    "finam_post_or_delete": false,
+    "installation_or_systemd_activation": false,
+    "p1f_o1_provisioning": false,
+    "paper_provider_execution": false,
+    "real_orders": false,
+    "redis_db15_or_db0_mutation": false,
+    "runtime_live": false
+  },
+  "hold_review": {
+    "file": "FINAM_P1F_O0_REVIEW_e6b2f2d_2026-09-27.md",
+    "findings": [
+      "P1-O001",
+      "P1-O002"
+    ],
+    "sha256": "5b4e2f04c9427b67857ec564878185b08214a4d56aa2db88fe1160eb8480ce6b"
+  },
+  "next_after_acceptance": "P1F-O1 non-activating provisioning; still requires separate immutable authorization",
+  "observed_at_utc": "2026-09-27T07:39:37Z",
+  "p0_services": {
+    "moex-finam-paper-runtime.service": {
+      "active_state": "active",
+      "execstart_sha256": "cd6438997ac9442fa9305614f08897e6e89d9c017b0fdcf5081a7fa7b72d525b",
+      "fragment_sha256": "8f8f2854191887a75317869c8e6ff3c8edd4197c1ae594fa93c0b56fc35585fc",
+      "load_state": "loaded",
+      "sub_state": "running",
+      "unit_file_state": "enabled"
+    },
+    "moex-finam-paper-ws.service": {
+      "active_state": "active",
+      "execstart_sha256": "2336dae9c4e27825cd4efd80395ce07f5509aca4c1fb58fc95057ace96fba3ae",
+      "fragment_sha256": "e61591a064838725a2fc15ee089fb862bd62df97f8995549773f9f3ee65cf1b9",
+      "load_state": "loaded",
+      "sub_state": "running",
+      "unit_file_state": "enabled"
+    }
+  },
+  "p1_paths": [
+    {
+      "path": "/usr/local/libexec/moex/stage8b-p1-paper-supervisor",
+      "present": false
+    },
+    {
+      "path": "/usr/local/share/moex/stage8b-p1e/installation-v1.json",
+      "present": false
+    },
+    {
+      "path": "/etc/systemd/system/moex-finam-p1-paper.service",
+      "present": false
+    },
+    {
+      "path": "/etc/systemd/system/moex-finam-p1-paper-bootstrap.service",
+      "present": false
+    },
+    {
+      "path": "/etc/systemd/system/moex-finam-p1-paper-bootstrap-recover@.service",
+      "present": false
+    },
+    {
+      "path": "/usr/lib/sysusers.d/moex-finam-p1-paper.conf",
+      "present": false
+    },
+    {
+      "path": "/usr/lib/tmpfiles.d/moex-finam-p1-paper.conf",
+      "present": false
+    },
+    {
+      "path": "/etc/moex-finam-p1-paper",
+      "present": false
+    },
+    {
+      "path": "/etc/moex-finam-p1-paper/bootstrap",
+      "present": false
+    },
+    {
+      "path": "/etc/moex-finam-p1-paper/credentials",
+      "present": false
+    },
+    {
+      "path": "/etc/moex-finam-p1-paper/supervisor.json",
+      "present": false
+    },
+    {
+      "path": "/etc/moex-finam-p1-paper/bootstrap/stage8b-p1-first-boot-source-v1.json",
+      "present": false
+    },
+    {
+      "path": "/etc/moex-finam-p1-paper/credentials/stage8b-p1-lifecycle.key",
+      "present": false
+    },
+    {
+      "path": "/var/lib/moex-finam-p1-paper",
+      "present": false
+    },
+    {
+      "path": "/var/lib/moex-finam-p1-paper/state",
+      "present": false
+    },
+    {
+      "path": "/var/lib/moex-finam-p1-paper/state/.stage8b-p1-first-boot-quarantine",
+      "present": false
+    },
+    {
+      "path": "/var/lib/moex-finam-p1-paper-control",
+      "present": false
+    }
+  ],
+  "p1_recovery_instances": {
+    "count": 0,
+    "names": "",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "p1_service_group_present": false,
+  "p1_service_user_present": false,
+  "p1_systemd_query_ok": true,
+  "p1_units": [
+    {
+      "active_state": "inactive",
+      "fragment_path": "",
+      "kind": "regular",
+      "load_state": "not-found",
+      "name": "moex-finam-p1-paper.service",
+      "unit_file_state": "not-found"
+    },
+    {
+      "active_state": "inactive",
+      "fragment_path": "",
+      "kind": "regular",
+      "load_state": "not-found",
+      "name": "moex-finam-p1-paper-bootstrap.service",
+      "unit_file_state": "not-found"
+    },
+    {
+      "active_state": "not-applicable",
+      "fragment_path": "",
+      "kind": "template",
+      "load_state": "not-applicable",
+      "name": "moex-finam-p1-paper-bootstrap-recover@.service",
+      "unit_file_state": "not-found"
+    }
+  ],
+  "platform": {
+    "architecture": "x86_64",
+    "cpu_count": 2,
+    "memory_kib": 3903964,
+    "ntp_synchronized": "yes",
+    "os_id": "ubuntu",
+    "os_version_id": "24.04",
+    "root_free_kib": 28614228,
+    "systemd_major": 255
+  },
+  "prior_o0_target": "e6b2f2dd2a35145dda4db0b2ae09e0581f56d989",
+  "r1_hold_review": {
+    "file": "FINAM_P1F_O0_R1_REVIEW_609f999_2026-09-27.md",
+    "open_finding": "P1-O002-systemd-query-status",
+    "sha256": "10467157b969c3665ff21cf4c77a4d777c178848f2515f96476eec00d371b519"
+  },
+  "raw_probe_path": "reports/stage8b/stage8b-p1f-o0-readonly-probe.txt",
+  "raw_probe_sha256": "3d0736381dbaa0daebc9ddc5e2435f090dd6a4f14c3c180887b9410d340b13ff",
+  "redis": {
+    "appendonly": "yes",
+    "bind": "127.0.0.1 -::1",
+    "cli_version": "7.0.15",
+    "databases": 16,
+    "db0_keyspace_sha256": "d9f9405781e278508014d2ae20b177f59219fbacf6425b3347a9ecc5511e2613",
+    "db0_size": 6,
+    "db15_keyspace_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "db15_size": 0,
+    "listener_sha256": "b417199e5def64d046d05097b8e2faaed813a1e45bb2a2ea2d544a674c08d4a1",
+    "listeners": "127.0.0.1:6379,[::1]:6379",
+    "ping": "PONG",
+    "protected_mode": "yes",
+    "server_version": "7.0.15"
+  },
+  "remote_mutation_performed": false,
+  "schema_version": 1,
+  "source_baseline": "609f999ae1184c53de6320125a52b93bfdad9ace",
+  "stage": "Stage 8B-P1-f O0 immutable read-only target preflight",
+  "status": "REVIEW_CANDIDATE_R2_SYSTEMD_QUERY_FAIL_CLOSED_NO_MUTATION",
+  "target": {
+    "hostname": "nektodk1.ispvds.com",
+    "ipv4": "45.150.11.252",
+    "ssh_ed25519_fingerprint": "SHA256:8fOAPkfvZ61LYmldUBs6A5ZC+BFr6O3yCvUrBAWZsAo",
+    "target_id": "stage8b-p1f-isolated-vps-1"
+  }
+}

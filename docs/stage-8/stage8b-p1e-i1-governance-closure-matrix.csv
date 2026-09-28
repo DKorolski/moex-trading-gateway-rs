@@ -1,0 +1,15 @@
+id,area,requirement,status
+I1CLOSE-001,lineage,Closure parent is the independently accepted aggregate candidate,REQUIRED
+I1CLOSE-002,identity,Accepted commit parent tree archive and SHA-256 are exact,REQUIRED
+I1CLOSE-003,review,External verdict filename digest and verdict are exact,REQUIRED
+I1CLOSE-004,scope,Closure changes no production source Cargo deploy config or workflow,REQUIRED
+I1CLOSE-005,status,I1 is closed only by the independent aggregate verdict,REQUIRED
+I1CLOSE-006,next,P1-f design is authorized,REQUIRED
+I1CLOSE-007,next,P1-f implementation remains unauthorized,REQUIRED
+I1CLOSE-008,next,P1-f operational activation remains unauthorized,REQUIRED
+I1CLOSE-009,closed,Installation service start and VPS deployment remain closed,REQUIRED
+I1CLOSE-010,closed,Operational Redis DB15 and DB0 remain closed,REQUIRED
+I1CLOSE-011,closed,Paper-provider execution remains closed,REQUIRED
+I1CLOSE-012,closed,FINAM send broker dispatch runtime-live and real orders remain closed,REQUIRED
+I1CLOSE-013,evidence,Immutable handoff binds source tree verdict and gate log,REQUIRED
+I1CLOSE-014,safety,Handoff rejects duplicate unsafe symlink secret and runtime-state members,REQUIRED

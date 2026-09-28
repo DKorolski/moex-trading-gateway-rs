@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B isolated FINAM paper-shadow resumption P0",
+  "evidence_kind": "SYNTHETIC_M1_TO_M10_RUNTIME_PROJECTION_VPS_SMOKE",
+  "verdict": "PASS",
+  "observed_at_utc": "2026-09-02T07:52:38Z",
+  "host_label": "nektodk1-paper-vps",
+  "tested_worktree_base_ref": "3d9fab084d60ada4626686ddeafa0c5db561e264",
+  "deployed_source_ref": "a6991e78307f2b3f4f092475a2a86cb7ccee5d19",
+  "broker_cli_sha256": "8f5fc4abbf29ebc507b3f9c7fb751319512ff9d7a90bf49c993c27dfe97c6553",
+  "harness": {
+    "path": "scripts/stage8b-paper-shadow-db15-smoke.sh",
+    "sha256": "03de7ee007985a9e7539f8799e989111d7d85083f08b1177a94fcbf03934493c",
+    "exit_code": 0
+  },
+  "isolation": {
+    "redis_database": 15,
+    "database_empty_before": true,
+    "database_empty_after": true,
+    "operational_database": 0,
+    "operational_source_stream_count_before": 0,
+    "operational_source_stream_count_after": 0,
+    "operational_runtime_state_count_before": 0,
+    "operational_runtime_state_count_after": 0
+  },
+  "input": {
+    "instrument_symbol": "IMOEXF",
+    "venue_symbol": "IMOEXF@RTSX",
+    "source_kind": "LiveStream",
+    "timeframe_sec": 60,
+    "final_contiguous_bar_count": 10,
+    "first_open_ts": "2026-09-02T06:00:00Z",
+    "last_close_ts": "2026-09-02T06:10:00Z"
+  },
+  "consumer_metrics": {
+    "entries_returned": 10,
+    "bars_seen": 10,
+    "bars_buffered": 9,
+    "bars_published": 1,
+    "runtime_batches_published": 1,
+    "runtime_records_published": 1,
+    "xack_count": 10,
+    "pending_count": 0,
+    "dlq_count": 0,
+    "source_rejected": 0,
+    "dropped_incomplete_buckets": 0,
+    "stale_or_duplicate_bars_ignored": 0
+  },
+  "runtime_projection": {
+    "batch_id": "paper-batch-3526863694de2c0c0c6291ce2d2a7eabb3b2ad26a7bc4a1500b50b3ffd036f51",
+    "batch_sha256": "3526863694de2c0c0c6291ce2d2a7eabb3b2ad26a7bc4a1500b50b3ffd036f51",
+    "batch_marker_entry_count": 2,
+    "final_batch_marker_phase": "Committed",
+    "record_count": 1,
+    "payload_kind": "RuntimeState",
+    "paper_only": true,
+    "last_bar_key": "2026-09-02T06:10:00+00:00/600",
+    "entry_ready": true,
+    "last_bar_close": 2210.0,
+    "current_day_high": 2211.0,
+    "current_day_low": 2199.0,
+    "last_position_qty": 0.0,
+    "active_orders_count": 0,
+    "strategy_invocation_enabled": true,
+    "projection_source": "paper_hybrid_strategy_shadow_invocation",
+    "oracle_seed_status": "NotConfigured"
+  },
+  "canonical_m10_observation": {
+    "formed_in_process": true,
+    "consumed_by_runtime_adapter": true,
+    "separately_persisted_to_target_stream": false,
+    "note": "The current command uses the target stream name as RuntimeBarInput provenance but publishes the resulting runtime-state batch, not a separate canonical M10 Redis entry. Bar-level parity therefore needs its own accepted evidence publisher or a direct runtime-state/bar comparison."
+  },
+  "closed_boundaries": {
+    "finam_requests_performed": 0,
+    "full_trade_token_used": false,
+    "generation_2_private_material_used": false,
+    "command_consumer_to_real_finam_enabled": false,
+    "order_placement_enabled": false,
+    "http_post_delete_enabled": false,
+    "broker_dispatch_enabled": false,
+    "runtime_live_enabled": false,
+    "real_orders_enabled": false
+  },
+  "scope_conclusion": {
+    "p0_transport_projection_binary_operational_on_vps": true,
+    "live_finam_market_data_proven": false,
+    "alor_state_parity_proven": false,
+    "durable_command_lifecycle_service_deployed": false,
+    "next_review_boundary": "STAGE8B_P1_DURABLE_PAPER_LIFECYCLE_COMPOSITION_DESIGN"
+  }
+}

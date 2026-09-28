@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "domain": "moex.stage8b.p1e.shutdown-intent.v1",
+  "type": "Stage8bP1eShutdownIntentV1",
+  "fields": ["cause", "final_exit_class", "grace_deadline", "first_request_sequence"],
+  "causes": {
+    "ExternalSignal": 0,
+    "OwnerFailure": 70,
+    "TelemetryFailure": 71,
+    "SignalTaskFailure": 73
+  },
+  "rules": {
+    "first_request_sequence": "strictly-monotonic-supervisor-sequence-captured-on-first-request",
+    "first_cause": "immutable-and-never-downgraded",
+    "second_signal": "diagnostic-only-does-not-replace-cause-or-final-exit-class",
+    "bounded_completion": "returns-cause-final-exit-class",
+    "grace_expiry": "exit-72-overrides-return-code-while-preserving-initiating-cause-in-diagnostics",
+    "e18": "intermediate-retain-transition-preserves-entire-shutdown-intent",
+    "e25": "intermediate-bounded-continuation-preserves-entire-shutdown-intent"
+  },
+  "required_cross_product_tests": {
+    "causes": ["ExternalSignal", "TelemetryFailure", "SignalTaskFailure"],
+    "locations": ["acquisition-in-flight", "post-acquisition-latch-decision", "post-permit-continuation"],
+    "case_count": 9,
+    "assertions": ["same-first-request-sequence", "same-initiating-cause", "expected-final-exit-class", "same-durable-owner-behaviour"]
+  }
+}

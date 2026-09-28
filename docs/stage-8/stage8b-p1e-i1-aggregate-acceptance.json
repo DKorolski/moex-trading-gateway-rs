@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P1-e I1 aggregate acceptance",
+  "status": "REVIEW_CANDIDATE_I1_NOT_CLOSED",
+  "accepted_milestones": [
+    {"name": "I0 latch-aware source seam", "commit": "afda87a98ae3b0d0f4506292a162310f4b9068c0", "review_sha256": "de61700f1fa13124ba4b73bf1e43d25d876528b0e7f5817dde15acbbb401745d", "verdict": "ACCEPTED"},
+    {"name": "I1 supervisor foundation", "commit": "37088964e50c0ceb4d82887a30c32103110749b0", "review_sha256": "28b41968954924cf28f2dd27cdcc524a3b00285888be3baeaca89ebf1dbe3485", "verdict": "ACCEPTED"},
+    {"name": "I1A signed schedule design", "commit": "aa24e840ed8b7d18c80be6f1fdd8f50facf5b6d4", "review_sha256": "38f85a38452a0650713ced0c4569793509d4e144ed2a3bd58b3f82efd3936e29", "verdict": "ACCEPTED"},
+    {"name": "I1A signed schedule source", "commit": "8360c4701b6abbe75ced988cf8dd2d74487e1846", "review_sha256": "5ccdc3e7beafbc35090ec9e7f406cef9c330da4e15db8d928224784ae543a2e5", "verdict": "SOURCE_ACCEPT"},
+    {"name": "I1 first boot source", "commit": "4d7ee64730ffba72d21f9b51a2c65e7d1b8a2721", "review_sha256": "d1baa8fe5ca0e6acc37948deceb120bde9906e32aeb14adf75cf7981e80737b1", "verdict": "SOURCE_ACCEPT"},
+    {"name": "I1 first boot governance", "commit": "21eaf01916f2da5eaacb191b4d7339a8101070ad", "review_sha256": "cbd70851c19b7c7d502acb685566f077211c528a213f8ba70471f9f5be3580b2", "verdict": "ACCEPTED"},
+    {"name": "I1 transaction V5", "commit": "5e2e157e032406fdbb9047c33c641f5973514504", "review_sha256": "625b4a5508494d8d68d9f7259bbcf9a2c40eb40433f29f540e141c8d17668fd7", "verdict": "SOURCE_ACCEPT"},
+    {"name": "I1 pre-seal recovery", "commit": "a655da96ace23eb61d89642f63c49e5275ff98bd", "review_sha256": "777ccbb2c3ad4377c2d5d8296b53387da622492c1a105e8a120472ac48ba8ddc", "verdict": "SOURCE_ACCEPT"},
+    {"name": "I1 generated Market composition", "commit": "ff6639ef45f1504decb4be2f6d8981bb3ba172e7", "review_sha256": "668b2be4bae317adea3b8cf3741ade3384cf10414a45f45d32f44a929af21639", "verdict": "SOURCE_ACCEPT"},
+    {"name": "I1 Cancel composition", "commit": "cc1f02c19f35bb06136db2521538c6929f9dc101", "review_sha256": "5fd0b3220c3c680ac41e597d54e639cef9709879aea51cab0d5002c49c583a86", "verdict": "SOURCE_ACCEPT"},
+    {"name": "I1 Day-expiry composition", "commit": "a66793885e425465e5c4f49426748333b1cc448b", "review_sha256": "abab1053624b8f14a262045a3a7fc8b2b268cb62f6650254d6c82f93ef380e0b", "verdict": "SOURCE_ACCEPT"},
+    {"name": "I1 committed Cancel and Day-expiry recovery", "commit": "efe56a9af6272f13b2d87f4ad14a2709c605cd42", "review_sha256": "2ee294118e2e4e92d1ffc5a616a5c392fdc67c8ca8f7dd648b81b143e585d413", "verdict": "SOURCE_ACCEPT"},
+    {"name": "I1 committed owner loop", "commit": "e2ce44206e49c3927fbb42bb252c25eecd1000de", "review_sha256": "467ead8c60e605b362cca07ca4fe56c8e10ef92318f0782ea18549fbdbb0972f", "verdict": "SOURCE_ACCEPT"},
+    {"name": "I1 process supervision", "commit": "1086b8d95e10514532d1c25c57956eca943b732c", "review_sha256": "df7dc27aa0ed3981ed5c6f3271a0f30f6073b7ef3ac36cb694520b243b102f4a", "verdict": "SOURCE_ACCEPT"},
+    {"name": "I1 telemetry composition", "commit": "b6f6d5b6ea924db8c97512bc2bcecb8a5ed760ac", "review_sha256": "9157abb28e34df6afb16551a60cdf94a42f5b9c53172b99ba974ab576e037bd8", "verdict": "SOURCE_ACCEPT"},
+    {"name": "I1 fixed-path installation", "commit": "7f2e876c4cad7a3a4a0fa10a1eb5202e58202d2f", "review_sha256": "1ba875ce95187c984c36a76d9ce70973bfea47ec620028406febdca01fbe085c", "verdict": "SOURCE_MATERIAL_ACCEPT"}
+  ],
+  "accepted_components": {
+    "process": {"commit": "1086b8d95e10514532d1c25c57956eca943b732c", "tree": "ec966be4429a20acd09fe93093494c40b2dcfd38", "archive_sha256": "48e43f5d70666049c47a26a9b6742cf2002149a6f5fb60209a4cb6a743d0182a"},
+    "telemetry": {"commit": "b6f6d5b6ea924db8c97512bc2bcecb8a5ed760ac", "tree": "5e29d320d9083a877f43a3148fff86766bd0f99e", "archive_sha256": "4ee845f6a9869908a3feb735419f799a2b01e09d0b6a6c31c41c4c4ab61e0cfc"},
+    "fixed_installation": {"commit": "7f2e876c4cad7a3a4a0fa10a1eb5202e58202d2f", "tree": "056227feea871b7f5be684b931f58eb1772346bb", "archive_sha256": "6a086f06292e0accce4655caf8fdc3354cd0cdcb58cf2eafbadb62571bc09948", "target_evidence_files": 21, "behavioral_cases": 14}
+  },
+  "aggregate_result": {
+    "all_required_gates_must_pass": true,
+    "production_source_changed": false,
+    "i1_closed": false,
+    "independent_review_required": true,
+    "next_after_acceptance": "Stage 8B-P1-f isolated operational acceptance design"
+  },
+  "closed_surfaces": {
+    "operational_redis_db0": false,
+    "operational_redis_db15": false,
+    "vps_installation_or_service_start": false,
+    "paper_provider_operational_activation": false,
+    "finam_post_delete_send": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "p1f_authorized": false
+  }
+}

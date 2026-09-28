@@ -1,0 +1,45 @@
+id,area,requirement,status
+P1D2S-001,lineage,Accepted predecessor is exact R1A annex 0cf1cd810a6ff479b69afb914db3b2aa2259593a,REQUIRED
+P1D2S-002,scope,Only deterministic Market full-fill feedback is implemented,REQUIRED
+P1D2S-003,source,Eligibility requires the exact first contiguous canonical successor M10 and opaque source-produced Stage5E schedule authority,REQUIRED
+P1D2S-004,source,Redis cannot mint schedule authority; no synthetic calendar exists; missing malformed changed or noncontiguous successor fails before feedback,REQUIRED
+P1D2S-005,source,Originating decision M10 remains pending through S_truth,REQUIRED
+P1D2S-006,durability,Stage6 outcome is fsynced and rescanned before feedback authority,REQUIRED
+P1D2S-007,durability,Stage7 RequestFinalized is persisted and reread at exact T_receipt,REQUIRED
+P1D2S-008,binding,Finalized input cross-binds request client order trade account instrument command and attribution,REQUIRED
+P1D2S-009,recovery,Journal-ahead recovery accepts only the exact deterministic P1-d2 suffix plus retained contiguous successor,REQUIRED
+P1D2S-010,recovery,Restart reconstruction never invokes provider Hybrid callback or schedule reacquisition,REQUIRED
+P1D2S-011,ack,Exact Accepted ACK is applied at seq_ack,REQUIRED
+P1D2S-012,sequence,Sequence pair is allocated by one linear Stage5G owner,REQUIRED
+P1D2S-013,sequence,seq_truth is recovered from exact resolved ACK slot as checked seq_ack plus one,REQUIRED
+P1D2S-014,sequence,Top-level last_total_sequence is not truth-sequence authority,REQUIRED
+P1D2S-015,sequence,Missing overflow stale reused reversed skipped or substituted sequence fails closed,REQUIRED
+P1D2S-016,durability,S_ack is a true replacement seal with a replacement Stage5G package,REQUIRED
+P1D2S-017,durability,S_ack is persisted reread and cross-validated before truth authority,REQUIRED
+P1D2S-018,lifecycle,After S_ack ACK replay is structurally unavailable and truth is the only continuation,REQUIRED
+P1D2S-019,truth,Truth is event-scoped with one order one trade and one target position,REQUIRED
+P1D2S-020,truth,Order is Market Filled Terminal with exact IDs quantity and clocks,REQUIRED
+P1D2S-021,truth,Trade has exact IDs quantity price clocks and explicit zero commission,REQUIRED
+P1D2S-022,truth,First source slice requires authenticated flat pre-position,REQUIRED
+P1D2S-023,decimal,Nonflat average price is Decimal scale 8 MidpointNearestEven,REQUIRED
+P1D2S-024,decimal,No float or wall clock enters canonical feedback,REQUIRED
+P1D2S-025,durability,S_truth is a second true replacement seal with post-truth package,REQUIRED
+P1D2S-026,durability,S_truth is persisted reread and cross-validated before XACK authority,REQUIRED
+P1D2S-027,lifecycle,After S_truth ACK and truth replay are structurally unavailable,REQUIRED
+P1D2S-028,source,XACK targets the exact retained source binding and is last,REQUIRED
+P1D2S-029,source,Already-XACKed exact source resolves idempotently without lifecycle replay,REQUIRED
+P1D2S-030,crash,Stage6 before RequestFinalized SIGKILL recovers pre-ACK authority,REQUIRED
+P1D2S-031,crash,RequestFinalized before ACK SIGKILL recovers exact ACK authority,REQUIRED
+P1D2S-032,crash,ACK before S_ack SIGKILL replays exact ACK only,REQUIRED
+P1D2S-033,crash,S_ack before truth SIGKILL resumes truth only,REQUIRED
+P1D2S-034,crash,Truth before S_truth SIGKILL resumes truth only,REQUIRED
+P1D2S-035,crash,S_truth before XACK SIGKILL resumes source resolution only,REQUIRED
+P1D2S-036,crash,Pair allocation before ACK SIGKILL reconstructs the exact pair,REQUIRED
+P1D2S-037,audit,Redacted audit binds outcome Stage6 report projections sequence and final seal,REQUIRED
+P1D2S-038,audit,Audit is stable across S_truth restart and carries no secret or capability,REQUIRED
+P1D2S-039,api,Pre-ACK S_ack and S_truth owners expose only phase-legal continuations,REQUIRED
+P1D2S-040,api,Compile-fail tests reject early XACK ACK replay and duplicate truth,REQUIRED
+P1D2S-041,closure,Operational Redis DB0 VPS paper supervisor and paper provider execution remain closed,REQUIRED
+P1D2S-042,closure,FINAM POST DELETE broker dispatch runtime-live and real orders remain closed,REQUIRED
+P1D2S-043,closure,P1-d3 limit cancel expiry and partial fills remain closed,REQUIRED
+P1D2S-044,governance,Current-tree authority stays on accepted predecessor until source acceptance,REQUIRED

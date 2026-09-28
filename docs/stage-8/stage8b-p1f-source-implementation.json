@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P1-f Ia guardian foundation correction R3",
+  "status": "REVIEW_CANDIDATE_GUARDIAN_FOUNDATION_R3_ONLY",
+  "accepted_design_commit": "5d81b8e212300858246237a227a95d115dd67c2d",
+  "production_module": "crates/runtime-durable-service/src/stage8b_p1f_guardian.rs",
+  "authority_control_root": "/var/lib/moex-finam-p1-paper-control",
+  "config_root": "/etc/moex-finam-p1-paper",
+  "implemented_contracts": [
+    "root-and-service-uid-custody",
+    "one-time-signed-genesis-and-activation",
+    "single-use-phase-claim-hash-chain",
+    "replay-derived-head-and-pending-recovery-exclusion",
+    "crash-resumable-claim-materialization-stopping-terminal-and-prepared-event-transactions",
+    "o2-exact-source-config-materialized-receipt",
+    "process-owned-run-permit-monotonic-bounded-stop-and-no-grace-public-resume",
+    "descriptor-relative-restore-and-permanent-quarantine"
+  ],
+  "inherited_contracts": {
+    "first_boot_recovery": "V5",
+    "committed_schedule_recovery": "V4",
+    "redis_operation_inventory": "accepted P1-e I1 exact traces and capabilities",
+    "p0_isolation": "no P0 control or DB0 write capability added"
+  },
+  "executable_evidence": {
+    "guardian_test_module": "stage8b_p1f_guardian::tests",
+    "multi_uid_harness": "scripts/stage8b_p1f_multi_uid_custody_harness.sh",
+    "source_gate": "scripts/stage8b_p1f_source_gate.sh",
+    "source_checker": "scripts/stage8b_p1f_source_check.py",
+    "negative_harness": "scripts/stage8b_p1f_source_negative_harness.py"
+  },
+  "closed_surfaces": {
+    "operational_install_or_service_start": false,
+    "vps_mutation": false,
+    "redis_db15_or_db0_mutation": false,
+    "paper_provider_execution": false,
+    "finam_attachment_or_send": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "authority_rebind": false
+  },
+  "remaining_p1fi_milestones": [
+    "P1F-Ib local deadline and child supervision composition",
+    "P1F-Ic phase-gated bootstrap synthetic and GET-only observer producers with retained high-water",
+    "P1F-Id eight role adapters resource polling and command audit",
+    "P1F-Ie aggregate source closure"
+  ],
+  "next_after_independent_source_acceptance": "P1F-Ib local supervision composition; P1F-O0 remains closed"
+}

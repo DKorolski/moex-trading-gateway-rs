@@ -1,0 +1,93 @@
+id,area,requirement,status
+P1D3D-001,lineage,Accepted predecessor is exact P1-d2 governance closure bcd8db546104968dd0e48ab041e02acf6869d224,REQUIRED
+P1D3D-002,scope,Design authorizes no production source or operational activation,REQUIRED
+P1D3D-003,authority,Stage7B remains sole durable command-request lifecycle authority,REQUIRED
+P1D3D-004,authority,Stage5G/6/7 replacement package remains sole runtime and paper-book recovery authority,REQUIRED
+P1D3D-005,authority,Redis output rows cannot mint or reconstruct working-book authority,REQUIRED
+P1D3D-006,lifecycle,Request settlement is distinct from active order lifecycle,REQUIRED
+P1D3D-007,lifecycle,Initial Working request may XACK only after S_working is persisted and reread,REQUIRED
+P1D3D-008,lifecycle,Active Working order remains in authenticated book after request source XACK,REQUIRED
+P1D3D-009,book,Book binds exact operational account instrument attribution request client command and order identities,REQUIRED
+P1D3D-010,book,Book binds exact order shape status quantities limit TIF and chronology,REQUIRED
+P1D3D-011,book,Book binds last evaluated M10 schedule identity sequence frontier and transition hash chain,REQUIRED
+P1D3D-012,book,At most one active order exists for the v1 operational identity,REQUIRED
+P1D3D-013,book,Registry capacity is compile-time 1024 with no silent eviction overwrite or ID reuse,REQUIRED
+P1D3D-014,schedule,Only opaque source-produced Stage5E step and Day-expiry authorities admit transitions,REQUIRED
+P1D3D-015,schedule,Expiry proves last eligible M10 evaluated and no omitted eligible M10 before boundary,REQUIRED
+P1D3D-016,schedule,UTC date wall clock Redis idle time TTL and missing data cannot authorize expiry,REQUIRED
+P1D3D-017,ordering,Existing active order resolves before Hybrid callback on every Live final M10,REQUIRED
+P1D3D-018,ordering,Book transition is replacement sealed and reread before Hybrid callback,REQUIRED
+P1D3D-019,ordering,Book evaluator has no source M10 XACK authority,REQUIRED
+P1D3D-020,ordering,Read-only first candidate is recorded as already evaluated before later semantic delivery,REQUIRED
+P1D3D-021,limit,Only positive integral Day LIMIT with exact positive price and no TTL is supported,REQUIRED
+P1D3D-022,limit,Buy remains Working iff low is greater than limit otherwise fills at min open and limit,REQUIRED
+P1D3D-023,limit,Sell remains Working iff high is less than limit otherwise fills at max open and limit,REQUIRED
+P1D3D-024,limit,Touch fills complete remaining quantity and never worse than limit,REQUIRED
+P1D3D-025,time,Limit fill source and receipt timestamps are exact final bar close,REQUIRED
+P1D3D-026,limit,No first eligible same-day bar produces explicit LimitExpired rather than LimitPending,REQUIRED
+P1D3D-027,working,Initial Working ACK is Accepted with no reason and exact request-level client and order IDs,REQUIRED
+P1D3D-028,working,Initial Working truth contains one Active Working LIMIT and no trade position cash or instrument rows,REQUIRED
+P1D3D-029,working,Initial Working ACK and truth use consecutive sequences and S_ack then S_working,REQUIRED
+P1D3D-030,filled,Initial Filled truth contains one terminal order one deterministic trade and one target position,REQUIRED
+P1D3D-031,filled,Limit position arithmetic reuses scale-8 MidpointNearestEven P1-d2 policy,REQUIRED
+P1D3D-032,expired,Initial Expired truth contains terminal zero-fill order and no trade or position,REQUIRED
+P1D3D-033,client-id,Target order client ID never replaces request-level durable ACK client ID,REQUIRED
+P1D3D-034,later-bar,Untouched later bar allocates no Stage5G event sequence but replacement seals evaluation frontier,REQUIRED
+P1D3D-035,later-bar,Touched later bar allocates one truth sequence and seals Filled terminal state before callback,REQUIRED
+P1D3D-036,later-bar,Exact already-evaluated bar is no-op and changed bytes under same identity hard-conflict,REQUIRED
+P1D3D-037,trade,Trade ID binds original order exact fill-bar semantic identity and ordinal one,REQUIRED
+P1D3D-038,partial,Synthetic partial fill second trade and second terminal transition are forbidden,REQUIRED
+P1D3D-039,cancel,CANCEL target resolves to exactly one same-scope canonical registry row,REQUIRED
+P1D3D-040,cancel,CANCEL is later-bar only and target evaluation precedes cancellation,REQUIRED
+P1D3D-041,cancel,Working target produces CancelCanceled Accepted ACK and Canceled truth,REQUIRED
+P1D3D-042,cancel,Filled target produces CancelExecutionObserved Recovered ACK and no duplicate truth,REQUIRED
+P1D3D-043,cancel,Nonexecution terminal target produces CancelAlreadyTerminalNonExecution Recovered ACK and no duplicate truth,REQUIRED
+P1D3D-044,cancel,Recovered cancel ACK reason is exactly RecoveredByBrokerTruth,REQUIRED
+P1D3D-045,cancel,Incomplete target is Inconclusive with no finalization ACK truth or XACK,REQUIRED
+P1D3D-046,cancel,Absent foreign ambiguous or conflicting target fails before dispatch,REQUIRED
+P1D3D-047,cancel,Deterministic v1 does not emit CancelRejected for exact known target,REQUIRED
+P1D3D-048,cancel,Cancel itself never creates a trade or position mutation,REQUIRED
+P1D3D-049,expiry,Last eligible bar is evaluated before Day expiry so a touch wins,REQUIRED
+P1D3D-050,expiry,Working expiry emits one terminal order zero trades zero positions and one truth sequence,REQUIRED
+P1D3D-051,expiry,Expiry source and receipt timestamps equal opaque schedule boundary,REQUIRED
+P1D3D-052,durability,S_ack S_working S_eval and S_terminal are replacement package phases not sidecars,REQUIRED
+P1D3D-053,durability,Every replacement is persisted fsynced reread MAC-validated and Stage6/7 cross-bound before next effect,REQUIRED
+P1D3D-054,sequence,All ACK truth and autonomous transition sequence rules use one exact Stage5G domain,REQUIRED
+P1D3D-055,recovery,Restart authenticates runtime journal and working book together without provider Hybrid or wall-clock replay,REQUIRED
+P1D3D-056,idempotency,Byte-identical replay is idempotent and any bound-field conflict fails before effects,REQUIRED
+P1D3D-057,closure,P1-d4 owns exhaustive SIGKILL and response-loss matrix and remains closed,REQUIRED
+P1D3D-058,closure,Operational Redis DB0 VPS supervisor and schedule adapter remain closed,REQUIRED
+P1D3D-059,closure,FINAM POST DELETE dispatch real orders runtime-live and Generation-2 remain closed,REQUIRED
+P1D3D-060,governance,Current-tree authority remains pinned to accepted P1-d2 until P1-d3 source acceptance,REQUIRED
+P1D3D-061,recovered-cancel,S_cancel_recovered durably seals recovered cancel ACK plus unchanged terminal book,REQUIRED
+P1D3D-062,recovered-cancel,Before S_cancel_recovered exact byte-identical recovered ACK replay is the only continuation,REQUIRED
+P1D3D-063,recovered-cancel,After S_cancel_recovered exact source XACK is the only continuation,REQUIRED
+P1D3D-064,recovered-cancel,Immediate XACK after in-memory recovered ACK and duplicate target truth are forbidden,REQUIRED
+P1D3D-065,clocks,Every new P1-d3 status uses exact candidate-close or Day-boundary transition clock,REQUIRED
+P1D3D-066,clocks,Stage7 observed_at and ACK received_ts equal exact request transition clock,REQUIRED
+P1D3D-067,ack,Place and cancel ACK fields use exact request durable client identity and canonical status reason order ID,REQUIRED
+P1D3D-068,order,Working Filled Expired and Canceled order tables exact-freeze every BrokerOrderSnapshot field,REQUIRED
+P1D3D-069,metadata,broker_asset_id board expiration_date cash and instruments remain exact None or empty as specified,REQUIRED
+P1D3D-070,decimal,Every new zero is positive scale-zero Decimal serialize bytes and qty limit fill bytes are preserved,REQUIRED
+P1D3D-071,truth,All eight shape truth memberships and vector order are exact-frozen,REQUIRED
+P1D3D-072,shape,Initial Working exact ACK order truth clocks and sequences are golden-byte tested,REQUIRED
+P1D3D-073,shape,Initial Filled exact ACK order trade position truth clocks and sequences are golden-byte tested,REQUIRED
+P1D3D-074,shape,Initial Expired exact ACK order truth boundary and sequences are golden-byte tested,REQUIRED
+P1D3D-075,shape,Later Filled exact order trade position truth clock and one truth sequence are golden-byte tested,REQUIRED
+P1D3D-076,shape,Later Expired exact order truth boundary and one truth sequence are golden-byte tested,REQUIRED
+P1D3D-077,shape,CancelCanceled exact ACK canceled order truth clocks and sequences are golden-byte tested,REQUIRED
+P1D3D-078,shape,CancelExecutionObserved exact recovered ACK uses cancel candidate clock and emits no duplicate truth,REQUIRED
+P1D3D-079,shape,CancelAlreadyTerminalNonExecution exact recovered ACK uses cancel candidate clock and emits no duplicate truth,REQUIRED
+P1D3D-080,golden,Fresh and recovery canonical bytes and SHA256 match for every one of eight shapes,REQUIRED
+P1D3D-081,recovery-evidence,Full Stage8bP1d3OutcomeEvidenceV1 bytes are stored not only their digest,REQUIRED
+P1D3D-082,recovery-evidence,Outcome evidence is atomically embedded in same authenticated Stage6 journal record as outcome or autonomous transition,REQUIRED
+P1D3D-083,recovery-evidence,Evidence binds exact request command target account instrument attribution and durable client identities,REQUIRED
+P1D3D-084,recovery-evidence,Evidence binds source and candidate Redis semantic payload identities and exact clocks,REQUIRED
+P1D3D-085,recovery-evidence,Evidence binds consumed schedule witness trading day last eligible M10 fingerprint and boundary,REQUIRED
+P1D3D-086,recovery-evidence,Evidence binds pre-book generation hash and expected post-book hash,REQUIRED
+P1D3D-087,recovery-evidence,Evidence binds outcome IDs exact Decimal bytes clocks and reserved sequences,REQUIRED
+P1D3D-088,recovery-evidence,Evidence binds Stage6 dispatch outcome frontier checkpoint and Stage7 finalization records,REQUIRED
+P1D3D-089,recovery,Recovery-only constructor owns no provider callback dispatch schedule issuer Redis selection or wall clock API,REQUIRED
+P1D3D-090,canonical-book,Registry uses bytewise broker-order-ID ordering and unique order request client and fingerprint indexes,REQUIRED
+P1D3D-091,canonical-book,Genesis and transition hashes use exact domains raw hashes u64 big-endian lengths and fixed-order bytes,REQUIRED
+P1D3D-092,migration,Quiescent accepted P1-d2 package migrates once to deterministic empty ordinal-zero P1-d3 book without effects,REQUIRED

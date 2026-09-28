@@ -1,0 +1,89 @@
+id,area,requirement,status
+P1D4D-001,lineage,Accepted predecessor is exact P1-d3 governance closure 7dc7c802feca6e79d3a1a9902c181ad7b6afc506,REQUIRED
+P1D4D-002,scope,Design is documentation checker and handoff tooling only,REQUIRED
+P1D4D-003,scope,P1-d3 business outcomes and normal-path ordering remain stable; only the exact dispatch-only recovery composition authorized by R2 may be added after design acceptance,REQUIRED
+P1D4D-004,scope,Implementation is not authorized before independent R3 design acceptance,REQUIRED
+P1D4D-005,isolation,Every crash case uses a fresh temporary durable root,REQUIRED
+P1D4D-006,isolation,Every Redis case uses fresh loopback-only ephemeral Redis on a random port,REQUIRED
+P1D4D-007,isolation,Operational Redis DB0 and VPS are never test targets,REQUIRED
+P1D4D-008,process,Required crash cases spawn a real child and terminate it after a reached barrier,REQUIRED
+P1D4D-009,process,In-process panic is not accepted as SIGKILL evidence,REQUIRED
+P1D4D-010,process,Pre-kill marker uses canonical bytes write_all file sync_all atomic rename and parent-directory sync_all before parent kill,REQUIRED
+P1D4D-011,registry,Normative scenario frontier registry derives 92 exact cells with IDs P1D4C-001 through P1D4C-092 from the reviewed scenario and frontier set,REQUIRED
+P1D4D-012,registry,Normative registry contains exactly 11 scenario IDs and 21 frontier IDs F00 through F20,REQUIRED
+P1D4D-013,registry,Every registry row fixes all 19 required columns and contains no all-applicable or not_applicable value,REQUIRED
+P1D4D-014,frontier,F01 F02 F11 F12 F17 and dispatch-only F20 permit only exact equivalent authority reissue for the same authenticated source and boundary,REQUIRED
+P1D4D-015,frontier,At and after F03 F13 F18 or a covering seal provider and schedule authority reissue are forbidden,REQUIRED
+P1D4D-016,frontier,F20 and request-scoped F02 expose the dispatch-only durable suffix through P1d3DispatchPending while F03 through F10 distinguish later lifecycle boundaries,REQUIRED
+P1D4D-017,frontier,F11 through F15 distinguish later PEL evaluation seal callback and publication boundaries,REQUIRED
+P1D4D-018,frontier,F16 proves parsed Redis XACK integer reply 1 before SIGKILL and AlreadyAcknowledged recovery,REQUIRED
+P1D4D-019,frontier,F17 F18 F19 distinguish Day-expiry pre-WAL post-WAL and post-seal direct-Ready recovery,REQUIRED
+P1D4D-020,process,Every required cell uses marker then non-returning barrier then signal 9 then wait and Unix signal verification,REQUIRED
+P1D4D-021,evidence,Stage8bP1d4CrashReplayEvidenceV1 retains all semantic fields under exact volatile-pointer normalization,REQUIRED
+P1D4D-022,evidence,Semantic evidence and normalized crash-marker digests use their exact R2 domain-separated length-prefixed canonical JSON transforms,REQUIRED
+P1D4D-023,coverage,Initial Working cells P1D4C-001 through P1D4C-010 plus P1D4C-081 include F00-F08 F16 and F20,REQUIRED
+P1D4D-024,coverage,Initial Filled cells P1D4C-011 through P1D4C-020 plus P1D4C-082 include F00-F08 F16 and F20,REQUIRED
+P1D4D-025,coverage,Initial Expired cells P1D4C-021 through P1D4C-030 plus P1D4C-083 include F20 and command-source F16 XACK response loss,REQUIRED
+P1D4D-026,coverage,Later untouched zero and one-intent cells P1D4C-031 through P1D4C-040 include F11 F12 F14 F15 F16,REQUIRED
+P1D4D-027,coverage,Later Filled cells P1D4C-041 through P1D4C-046 plus P1D4C-088 include the uncovered F07 truth-before-seal boundary,REQUIRED
+P1D4D-028,coverage,Later Day Expired cells P1D4C-047 through P1D4C-049 plus P1D4C-089 include F07 F17 F18 F19 and forbid XACK,REQUIRED
+P1D4D-029,coverage,CancelCanceled cells P1D4C-050 through P1D4C-059 plus P1D4C-084 include F00-F08 F16 and F20,REQUIRED
+P1D4D-030,coverage,Recovered-cancel cells P1D4C-060 through P1D4C-080 plus P1D4C-085 through P1D4C-087 and P1D4C-090 through P1D4C-092 cover dispatch-only target truth recovered outcome finalization ACK seal and XACK boundaries,REQUIRED
+P1D4D-031,coverage,Accepted P1-d3 S_cancel_recovered tests and blob hashes remain inherited regression evidence but cannot complete any exact-protocol P1-d4 cell,REQUIRED
+P1D4D-032,coverage,Target-first fill is sealed before recovered cancel ACK and never duplicated,REQUIRED
+P1D4D-033,coverage,All eight accepted P1-d3 projection shapes are compared after restart,REQUIRED
+P1D4D-034,coverage,Same already-evaluated bar remains a no-op without sequence allocation,REQUIRED
+P1D4D-035,restart,F00 reclaims the exact command before semantic effects and preserves the committed predecessor,REQUIRED
+P1D4D-036,restart,F01 rebinds the exact source and may issue one equivalent authority before dispatch or evaluation,REQUIRED
+P1D4D-037,restart,F20 and request-scoped F02 recover only as P1d3DispatchPending; autonomous F02 recovers from its unchanged prior owner,REQUIRED
+P1D4D-038,restart,F03 recovers as P1d3PreAckPending and finalizes only the exact authenticated WAL outcome,REQUIRED
+P1D4D-039,restart,F04 and F05 permit only exact ACK replay without sequence reallocation before S_ack,REQUIRED
+P1D4D-040,restart,F06 recovers as P1d3AckCommitted and permits only truth continuation,REQUIRED
+P1D4D-041,restart,F07 resumes from the preceding WAL or seal and reconstructs identical truth before the covering seal without duplication,REQUIRED
+P1D4D-042,restart,F08 permits only exact source XACK or the exact bound cancel continuation,REQUIRED
+P1D4D-043,restart,F09 permits only exact recovered-cancel ACK replay followed by S_cancel_recovered,REQUIRED
+P1D4D-044,restart,F10 permits only exact command-source XACK and no callback provider truth or sequence replay,REQUIRED
+P1D4D-045,restart,F11 reclaims the exact later M10 and may issue one equivalent schedule authority before evaluation,REQUIRED
+P1D4D-046,restart,F12 deterministically reevaluates the same source and commits only S_eval,REQUIRED
+P1D4D-047,restart,F13 reconstructs the exact autonomous later truth from WAL and forbids authority reissue,REQUIRED
+P1D4D-048,restart,F14 invokes the exact same-bar callback once from the reread book seal,REQUIRED
+P1D4D-049,restart,F15 permits only source XACK after durable callback and publication and forbids their replay,REQUIRED
+P1D4D-050,restart,F16 resolves AlreadyAcknowledged only after parsed XACK reply 1 plus empty exact PEL and authenticated group frontier,REQUIRED
+P1D4D-051,restart,F17 may reissue one equivalent Day-boundary authority and deterministically reproduce the expiry result,REQUIRED
+P1D4D-052,restart,F18 reconstructs exact Day-expiry truth from WAL and forbids authority reissue,REQUIRED
+P1D4D-053,restart,F19 returns directly Ready from reread Day-expiry S_terminal with callback and XACK forbidden,REQUIRED
+P1D4D-054,restart,Authority reissue is phase-scoped to F01 F02 F11 F12 F17 F20 and is forbidden after their covering WAL or seal,REQUIRED
+P1D4D-055,restart,Restart never reads wall clock or chooses another source candidate schedule window or trading day,REQUIRED
+P1D4D-056,restart,Stage6 checkpoint replacement package operational identity generation commitment key and dispatch-only suffix are mutually cross-validated,REQUIRED
+P1D4D-057,idempotency,Byte-identical replay at every recovered disposition converges to one final audit,REQUIRED
+P1D4D-058,idempotency,One-field conflict at every recovered disposition fails before effects,REQUIRED
+P1D4D-059,conflict,Changed source Redis ID semantic hash or payload hash fails closed,REQUIRED
+P1D4D-060,conflict,Changed schedule candidate clock or outcome evidence fails closed,REQUIRED
+P1D4D-061,conflict,Changed Stage6 checkpoint replacement seal or book hash fails closed,REQUIRED
+P1D4D-062,conflict,Changed sequence request client order trade or target identity fails closed,REQUIRED
+P1D4D-063,reclaim,A new consumer may continue only after exact XAUTOCLAIM binding validation,REQUIRED
+P1D4D-064,reclaim,Changed consumer name alone does not alter exact semantic outcome,REQUIRED
+P1D4D-065,evidence,One deterministic JSON result contains every exact P1D4C registry cell exactly once,REQUIRED
+P1D4D-066,evidence,Skipped ignored missing duplicate and not_applicable required cells fail the gate,REQUIRED
+P1D4D-067,evidence,Each case binds marker pre-kill post-restart and final audit digests,REQUIRED
+P1D4D-068,evidence,Two clean runs yield identical semantic evidence digest after volatile-field exclusion,REQUIRED
+P1D4D-069,gate,Implementation gate inherits P1-d3 source gates workspace tests doctests strict clippy and smokes,REQUIRED
+P1D4D-070,closure,Operational Redis DB0 VPS FINAM dispatch runtime-live and real orders remain closed,REQUIRED
+P1D4D-071,closure,Partial fills fees slippage replace protective bracket and multi-leg remain closed,REQUIRED
+P1D4D-072,governance,P1-e opens only after P1-d4 source acceptance and governance-only authority rebind,REQUIRED
+P1D4D-073,dispatch,Dispatch-only classifier accepts exactly one valid DispatchAttemptRecorded suffix only after exact P1-d3 PLACE or CANCEL command and authenticated package predicates pass,REQUIRED
+P1D4D-074,dispatch,P1d3DispatchPending exposes only no-second-dispatch scenario-aware continuation with one request V3 for simple scenarios or typed target plus recovered-cancel V3 outcomes for S09,REQUIRED
+P1D4D-075,dispatch,Dispatch-only recovery preserves accepted request dispatch record source candidate sequence reservation and projection bytes across restart,REQUIRED
+P1D4D-076,marker,Stage8bP1d4CrashMarkerV1 has the exact eight-field schema and canonical encoding frozen by R2,REQUIRED
+P1D4D-077,marker,Normalized marker replaces only child_pid with integer zero and uses the exact marker digest domain and length prefix,REQUIRED
+P1D4D-078,process,P1D4C-078 and P1D4C-079 use new P1-d4 exact-protocol hooks rather than inherited P1-d3 completion,REQUIRED
+P1D4D-079,coverage,P1D4C-088 through P1D4C-092 cover S06 F07 S07 F07 and S09 target F07 cancel F03 cancel F04,REQUIRED
+P1D4D-080,scope,Accepted R3 may authorize only the named dispatch-only recovery composition plus test evidence; all operational and live surfaces remain closed,REQUIRED
+P1D4D-081,classifier,PLACE requires exact Limit Day no TTL positive integral quantity positive limit price and authenticated P1-d3 replacement book,REQUIRED
+P1D4D-082,classifier,CANCEL requires exact durable cancel unique BOID registry row canonical optional target TCID distinct cancel DCID and authenticated P1-d3 semantic package binding,REQUIRED
+P1D4D-083,classifier,Market non-Day LIMIT LIMIT with TTL nonpositive or fractional quantity missing positive limit and missing P1-d3 book are rejected before candidate or owner creation,REQUIRED
+P1D4D-084,classifier,P1-d3 dispatch-only classification is ordered after exact domain predicates and cannot intercept accepted P1-d1 or P1-d2 Market recovery,REQUIRED
+P1D4D-085,classifier,Source regression constructs P1-d2 Market dispatch-only suffix and proves no P1d3DispatchPending authority V3 second dispatch or changed predecessor disposition,REQUIRED
+P1D4D-086,outcomes,S01 S02 S03 S08 S10 S11 dispatch recovery appends exactly one typed request V3 and one RequestFinalized row,REQUIRED
+P1D4D-087,outcomes,S09 dispatch recovery appends one target LaterFilled V3 and one recovered CANCEL V3 with total V3 delta two and RequestFinalized delta one,REQUIRED
+P1D4D-088,outcomes,S09 intermediate audit after target S_terminal is P1d3CancelContinuationPending and full completion reaches S_cancel_recovered then source XACK last,REQUIRED

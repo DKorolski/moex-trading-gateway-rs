@@ -1,0 +1,72 @@
+{
+  "schema_version": 4,
+  "domain": "moex.stage8b.p1e.active-acceptance-contract.v4",
+  "accepted_predecessor": "c2a9e1246dfdd59f3a6297268de907dedcb19903",
+  "direct_parent": "913424b73c5a83df2131a1f9a2901b78035bfc4c",
+  "merge_rule": "all-source-rows-minus-exact-superseded-sets-plus-all-r4-rows",
+  "semantic_authority_registry": "docs/stage-8/stage8b-p1e-semantic-authority-registry-v4.json",
+  "duplicate_semantic_key_rule": "reject-active-authorities-with-one-semantic-key-and-unequal-values",
+  "sources": [
+    {
+      "name": "r1",
+      "path": "docs/stage-8/stage8b-p1e-deployable-supervisor-r1-acceptance-matrix.csv",
+      "file_sha256": "b937e5c2434c665914cc1e27db12aee5f0669cb96e8db9764ca3d1791a938c0c",
+      "row_count": 88,
+      "superseded_rows": ["P1ER1-002","P1ER1-003","P1ER1-004","P1ER1-043","P1ER1-074"]
+    },
+    {
+      "name": "r2",
+      "path": "docs/stage-8/stage8b-p1e-deployable-supervisor-r2-acceptance-matrix.csv",
+      "file_sha256": "6d43489edf8039ce7697f81395dd09cfde0d541eadf6ef5ae7df9e4b5774987b",
+      "row_count": 48,
+      "superseded_rows": ["P1ER2-002","P1ER2-004","P1ER2-005","P1ER2-006","P1ER2-012","P1ER2-016","P1ER2-017","P1ER2-022","P1ER2-026","P1ER2-027","P1ER2-028","P1ER2-035","P1ER2-036","P1ER2-044"]
+    },
+    {
+      "name": "r3",
+      "path": "docs/stage-8/stage8b-p1e-deployable-supervisor-r3-acceptance-matrix.csv",
+      "file_sha256": "7da8c390d6474e32b0b680892cce335eb528d0d633fcc1e6f7ddedf0d1c7b342",
+      "row_count": 43,
+      "superseded_rows": [
+        "P1ER3-001","P1ER3-002","P1ER3-003","P1ER3-004","P1ER3-005","P1ER3-006","P1ER3-007",
+        "P1ER3-008","P1ER3-009","P1ER3-010","P1ER3-011","P1ER3-012","P1ER3-013","P1ER3-014",
+        "P1ER3-015","P1ER3-016","P1ER3-017","P1ER3-018","P1ER3-019","P1ER3-020","P1ER3-021",
+        "P1ER3-022","P1ER3-027","P1ER3-028","P1ER3-029","P1ER3-030","P1ER3-031","P1ER3-032",
+        "P1ER3-033","P1ER3-036","P1ER3-037","P1ER3-041","P1ER3-042","P1ER3-043"
+      ]
+    },
+    {
+      "name": "r4",
+      "path": "docs/stage-8/stage8b-p1e-deployable-supervisor-r4-acceptance-matrix.csv",
+      "file_sha256": "af576620f7dc57b05e613b0f33f44c5da802248431e5b08b71bdf1de6b6ea70b",
+      "row_count": 56,
+      "superseded_rows": []
+    }
+  ],
+  "supersession_map": [
+    {"semantic_key":"legacy-r1-lineage-scope","superseded":["P1ER1-002","P1ER1-003","P1ER1-004"],"replacement":["P1ER4-001","P1ER4-002","P1ER4-003","P1ER4-004"]},
+    {"semantic_key":"legacy-r1-ready-continuation","superseded":["P1ER1-043"],"replacement":["P1ER4-041","P1ER4-042","P1ER4-046"]},
+    {"semantic_key":"legacy-r1-start-limit","superseded":["P1ER1-074"],"replacement":["P1ER3-040"]},
+    {"semantic_key":"legacy-r2-lineage-scope-contract","superseded":["P1ER2-002","P1ER2-004","P1ER2-005","P1ER2-006"],"replacement":["P1ER4-001","P1ER4-002","P1ER4-003","P1ER4-004","P1ER4-006"]},
+    {"semantic_key":"legacy-r2-first-boot","superseded":["P1ER2-012","P1ER2-016","P1ER2-017"],"replacement":["P1ER4-026","P1ER4-027","P1ER4-028","P1ER4-029","P1ER4-030","P1ER4-031"]},
+    {"semantic_key":"legacy-r2-provenance","superseded":["P1ER2-022"],"replacement":["P1ER3-023","P1ER3-024","P1ER3-025","P1ER3-026"]},
+    {"semantic_key":"legacy-r2-operational","superseded":["P1ER2-026","P1ER2-027","P1ER2-028","P1ER2-036"],"replacement":["P1ER4-041","P1ER4-042","P1ER4-045","P1ER4-046"]},
+    {"semantic_key":"legacy-r2-acquisition","superseded":["P1ER2-035"],"replacement":["P1ER4-033","P1ER4-034","P1ER4-035","P1ER4-036","P1ER4-037","P1ER4-038"]},
+    {"semantic_key":"legacy-r2-start-limit","superseded":["P1ER2-044"],"replacement":["P1ER3-040"]},
+    {"semantic_key":"r3-lineage-scope-contract","superseded":["P1ER3-001","P1ER3-002","P1ER3-003","P1ER3-004","P1ER3-005","P1ER3-006","P1ER3-007"],"replacement":["P1ER4-001","P1ER4-002","P1ER4-003","P1ER4-004","P1ER4-005","P1ER4-006","P1ER4-007","P1ER4-008","P1ER4-009"]},
+    {"semantic_key":"r3-first-boot-identity-marker","superseded":["P1ER3-008","P1ER3-009","P1ER3-010","P1ER3-011","P1ER3-012","P1ER3-013","P1ER3-021","P1ER3-022"],"replacement":["P1ER4-010","P1ER4-011","P1ER4-012","P1ER4-013","P1ER4-014","P1ER4-015","P1ER4-016","P1ER4-017","P1ER4-018","P1ER4-019","P1ER4-020","P1ER4-021","P1ER4-022","P1ER4-023","P1ER4-024","P1ER4-025","P1ER4-026","P1ER4-027","P1ER4-028","P1ER4-029","P1ER4-030","P1ER4-031","P1ER4-032"]},
+    {"semantic_key":"r3-receipt","superseded":["P1ER3-014","P1ER3-015","P1ER3-016","P1ER3-017","P1ER3-018","P1ER3-019"],"replacement":["P1ER4-047","P1ER4-048","P1ER4-049","P1ER4-050","P1ER4-051","P1ER4-054"]},
+    {"semantic_key":"r3-operational-classifier","superseded":["P1ER3-020","P1ER3-027","P1ER3-028","P1ER3-029","P1ER3-037"],"replacement":["P1ER4-041","P1ER4-042","P1ER4-043","P1ER4-044","P1ER4-045","P1ER4-046"]},
+    {"semantic_key":"r3-acquisition-and-latch","superseded":["P1ER3-030","P1ER3-031","P1ER3-032","P1ER3-033","P1ER3-036"],"replacement":["P1ER4-033","P1ER4-034","P1ER4-035","P1ER4-036","P1ER4-037","P1ER4-038","P1ER4-039","P1ER4-040"]},
+    {"semantic_key":"r3-checker","superseded":["P1ER3-041"],"replacement":["P1ER4-008","P1ER4-009","P1ER4-052","P1ER4-053","P1ER4-054"]},
+    {"semantic_key":"r3-closed","superseded":["P1ER3-042"],"replacement":["P1ER4-055"]},
+    {"semantic_key":"r3-deferred-child-pid","superseded":["P1ER3-043"],"replacement":["P1ER4-056"]}
+  ],
+  "active_contract_expectation": {
+    "r1_active_rows": 83,
+    "r2_active_rows": 34,
+    "r3_active_rows": 9,
+    "r4_active_rows": 56,
+    "total_active_rows": 182,
+    "all_status_required": true
+  }
+}

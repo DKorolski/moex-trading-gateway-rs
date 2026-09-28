@@ -1,0 +1,127 @@
+{
+  "schema_version": 3,
+  "domain": "moex.stage8b.p1e.active-acceptance-contract.v3",
+  "accepted_predecessor": "c2a9e1246dfdd59f3a6297268de907dedcb19903",
+  "candidate_predecessor": "3aaed81da4f1a558b4d31f4d3a169ddceca61e6f",
+  "merge_rule": "all-source-rows-minus-exact-superseded-sets-plus-all-r3-rows",
+  "duplicate_semantic_key_rule": "reject-active-rows-with-one-semantic-key-and-unequal-semantic-values",
+  "sources": [
+    {
+      "name": "r1",
+      "path": "docs/stage-8/stage8b-p1e-deployable-supervisor-r1-acceptance-matrix.csv",
+      "file_sha256": "b937e5c2434c665914cc1e27db12aee5f0669cb96e8db9764ca3d1791a938c0c",
+      "row_count": 88,
+      "superseded_rows": [
+        "P1ER1-002",
+        "P1ER1-003",
+        "P1ER1-004",
+        "P1ER1-043",
+        "P1ER1-074"
+      ]
+    },
+    {
+      "name": "r2",
+      "path": "docs/stage-8/stage8b-p1e-deployable-supervisor-r2-acceptance-matrix.csv",
+      "file_sha256": "6d43489edf8039ce7697f81395dd09cfde0d541eadf6ef5ae7df9e4b5774987b",
+      "row_count": 48,
+      "superseded_rows": [
+        "P1ER2-002",
+        "P1ER2-004",
+        "P1ER2-005",
+        "P1ER2-006",
+        "P1ER2-012",
+        "P1ER2-016",
+        "P1ER2-017",
+        "P1ER2-022",
+        "P1ER2-026",
+        "P1ER2-027",
+        "P1ER2-028",
+        "P1ER2-035",
+        "P1ER2-036",
+        "P1ER2-044"
+      ]
+    },
+    {
+      "name": "r3",
+      "path": "docs/stage-8/stage8b-p1e-deployable-supervisor-r3-acceptance-matrix.csv",
+      "file_sha256": "7da8c390d6474e32b0b680892cce335eb528d0d633fcc1e6f7ddedf0d1c7b342",
+      "row_count": 43,
+      "superseded_rows": []
+    }
+  ],
+  "supersession_map": [
+    {
+      "semantic_key": "lineage.active_design",
+      "superseded": ["P1ER1-002", "P1ER2-002"],
+      "replacement": ["P1ER3-002"]
+    },
+    {
+      "semantic_key": "scope.design_only",
+      "superseded": ["P1ER1-003", "P1ER2-004"],
+      "replacement": ["P1ER3-003"]
+    },
+    {
+      "semantic_key": "scope.source_authority",
+      "superseded": ["P1ER1-004", "P1ER2-006"],
+      "replacement": ["P1ER3-004"]
+    },
+    {
+      "semantic_key": "contract.active_merge",
+      "superseded": ["P1ER2-005"],
+      "replacement": ["P1ER3-005", "P1ER3-006", "P1ER3-007"]
+    },
+    {
+      "semantic_key": "first_boot.classification_and_adoption",
+      "superseded": ["P1ER2-012", "P1ER2-016", "P1ER2-017"],
+      "replacement": ["P1ER3-008", "P1ER3-012", "P1ER3-013", "P1ER3-018", "P1ER3-019"]
+    },
+    {
+      "semantic_key": "provenance.package_storage",
+      "superseded": ["P1ER2-022"],
+      "replacement": ["P1ER3-023", "P1ER3-024", "P1ER3-025", "P1ER3-026"]
+    },
+    {
+      "semantic_key": "restart.Ready.continuation",
+      "superseded": ["P1ER1-043", "P1ER2-027", "P1ER2-028"],
+      "replacement": ["P1ER3-020", "P1ER3-027", "P1ER3-028", "P1ER3-029"]
+    },
+    {
+      "semantic_key": "restart.operational_matrix",
+      "superseded": ["P1ER2-026", "P1ER2-036"],
+      "replacement": ["P1ER3-027", "P1ER3-034", "P1ER3-037", "P1ER3-038"]
+    },
+    {
+      "semantic_key": "acquisition.same_delivery",
+      "superseded": ["P1ER2-035"],
+      "replacement": ["P1ER3-030", "P1ER3-031", "P1ER3-032", "P1ER3-033", "P1ER3-036"]
+    },
+    {
+      "semantic_key": "systemd.StartLimitIntervalSec",
+      "superseded": ["P1ER1-074", "P1ER2-044"],
+      "replacement": ["P1ER3-040"]
+    }
+  ],
+  "semantic_key_bindings": [
+    {"row_id": "P1ER1-043", "semantic_key": "restart.Ready.continuation", "semantic_value": "no-continuation"},
+    {"row_id": "P1ER2-027", "semantic_key": "restart.Ready.continuation", "semantic_value": "composite-then-one-bounded-poll"},
+    {"row_id": "P1ER3-020", "semantic_key": "restart.Ready.continuation", "semantic_value": "observable-classification-then-one-bounded-poll-if-quiescent"},
+    {"row_id": "P1ER1-074", "semantic_key": "systemd.StartLimitIntervalSec", "semantic_value": "300"},
+    {"row_id": "P1ER2-044", "semantic_key": "systemd.StartLimitIntervalSec", "semantic_value": "600"},
+    {"row_id": "P1ER3-040", "semantic_key": "systemd.StartLimitIntervalSec", "semantic_value": "600"},
+    {"row_id": "P1ER2-005", "semantic_key": "contract.active_merge", "semantic_value": "all-r1-rows-active"},
+    {"row_id": "P1ER3-005", "semantic_key": "contract.active_merge", "semantic_value": "exact-supersession-merge"},
+    {"row_id": "P1ER2-022", "semantic_key": "provenance.package_storage", "semantic_value": "initial-package-and-first-seal-only"},
+    {"row_id": "P1ER3-023", "semantic_key": "provenance.package_storage", "semantic_value": "authenticated-package-v2-all-replacements"},
+    {"row_id": "P1ER2-026", "semantic_key": "restart.operational_matrix", "semantic_value": "54-result-discriminating-cells"},
+    {"row_id": "P1ER3-027", "semantic_key": "restart.operational_matrix", "semantic_value": "52-observable-pre-transition-cells"},
+    {"row_id": "P1ER2-035", "semantic_key": "acquisition.same_delivery", "semantic_value": "same-invocation-untyped"},
+    {"row_id": "P1ER3-033", "semantic_key": "acquisition.same_delivery", "semantic_value": "linear-owner-no-second-acquire"}
+  ],
+  "active_contract_expectation": {
+    "r1_active_rows": 83,
+    "r2_active_rows": 34,
+    "r3_active_rows": 43,
+    "total_active_rows": 160,
+    "all_status_required": true
+  }
+}

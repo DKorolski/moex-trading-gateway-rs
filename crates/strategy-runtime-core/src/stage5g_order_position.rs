@@ -12,9 +12,11 @@ use broker_core::command::CommandAckStatus;
 use broker_core::{
     instrument_identity_matches, BrokerAccountId, BrokerOrderId, BrokerOrderLifecycle,
     BrokerOrderSnapshot, BrokerPositionSnapshot, BrokerTradeId, BrokerTradeSnapshot,
-    BrokerTruthSnapshot, ClientOrderId, HybridRuntimeAttribution, HybridRuntimeOrderEvent,
-    HybridRuntimePositionEvent, InstrumentId, OrderSide, OrderStatus, OrderType, StrategyRequestId,
+    BrokerTruthSnapshot, ClientOrderId, CommandAck, HybridRuntimeAttribution,
+    HybridRuntimeOrderEvent, HybridRuntimeOrderRole, HybridRuntimePositionEvent, InstrumentId,
+    OrderSide, OrderStatus, OrderType, StrategyRequestId,
 };
+use broker_core::{RuntimeAckPendingDisposition, RuntimeAckStatusPolicy};
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
@@ -30,8 +32,8 @@ use crate::stage5c_paper_host::{
     Stage5gSourceIntentProjection,
 };
 use crate::stage5g_mock_ack::{
-    Stage5gMockAckSlotSummary, Stage5gMockIntentAction, Stage5gMockPlaceKind,
-    Stage5gResolvedMockAckPaperStrategy,
+    Stage5gMockAckSlotState, Stage5gMockAckSlotSummary, Stage5gMockIntentAction,
+    Stage5gMockPlaceKind, Stage5gResolvedMockAckPaperStrategy,
 };
 
 pub const STAGE5G_ORDER_POSITION_SCHEMA_VERSION: u16 = 4;
@@ -302,6 +304,21 @@ pub(crate) struct Stage5gOrderPositionState {
     last_broker_truth_received_ms: Option<i64>,
     duplicate_evidence_count: usize,
     last_continuation_checkpoint_ts_utc_ms: Option<i64>,
+}
+
+impl Stage5gOrderPositionState {
+    pub(crate) fn stage8b_p1e_last_canonical_ack_ts_utc(&self) -> Option<String> {
+        self.slots
+            .iter()
+            .filter_map(|slot| slot.ack.latest_received_ts_utc.as_deref())
+            .filter_map(|value| DateTime::parse_from_rfc3339(value).ok())
+            .max()
+            .map(|value| {
+                value
+                    .with_timezone(&Utc)
+                    .to_rfc3339_opts(chrono::SecondsFormat::Micros, true)
+            })
+    }
 }
 
 /// Minimal immutable view consumed by the Stage 5G-e-d-b reducer.  It is
@@ -975,6 +992,322 @@ pub(crate) enum Stage5gRestartCanonicalApplicationError {
     OrderPosition(Stage5gOrderPositionError),
 }
 
+/// Narrow Stage 8B-P1-d3 ACK material. Construction remains inside the
+/// broker-neutral composition; this owner module is the only code allowed to
+/// add a resolved slot to `Stage5gOrderPositionState`.
+pub(crate) enum Stage8bP1d3AckStateKind {
+    MarketPlace {
+        side: OrderSide,
+        qty: Decimal,
+        pre_position_qty: Decimal,
+        attribution: HybridRuntimeAttribution,
+        source_event_ts_utc: i64,
+    },
+    LimitPlace {
+        side: OrderSide,
+        qty: Decimal,
+        pre_position_qty: Decimal,
+        attribution: HybridRuntimeAttribution,
+        source_event_ts_utc: i64,
+    },
+    Cancel {
+        target_broker_order_id: BrokerOrderId,
+        attribution: HybridRuntimeAttribution,
+        source_event_ts_utc: i64,
+    },
+}
+
+fn stage8b_p1d3_broker_order_id_domain_sha256(order_id: &BrokerOrderId) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"moex.stage5g.broker-order-id.v1\0");
+    hasher.update(order_id.as_str().as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+/// Adds exactly one accepted/recovered P1-d3 ACK without advancing the
+/// broker-truth replay frontier. The matching truth continuation therefore
+/// remains recoverable only from the ACK slot's reserved sequence.
+pub(crate) fn stage8b_p1d3_append_ack_state(
+    mut state: Stage5gOrderPositionState,
+    ack: &CommandAck,
+    canonical_total_sequence: u64,
+    kind: Stage8bP1d3AckStateKind,
+) -> Result<Stage5gOrderPositionState, Stage5gRestartCanonicalApplicationError> {
+    let fail = || {
+        Stage5gRestartCanonicalApplicationError::OrderPosition(
+            Stage5gOrderPositionError::NonMonotonicSequence,
+        )
+    };
+    let expected_sequence = state
+        .last_total_sequence
+        .unwrap_or(0)
+        .checked_add(1)
+        .ok_or_else(fail)?;
+    let client_order_id = ack.client_order_id.clone().ok_or_else(fail)?;
+    let broker_order_id = ack.broker_order_id.clone().ok_or_else(fail)?;
+    if canonical_total_sequence != expected_sequence
+        || client_order_id != ClientOrderId::from_strategy_request(ack.request_id)
+        || state.slots.iter().any(|slot| {
+            slot.ack.request_id == ack.request_id
+                || slot.ack.expected_client_order_id == client_order_id
+        })
+        || state
+            .last_broker_truth_received_at
+            .is_some_and(|latest| ack.received_ts < latest)
+        || state
+            .last_continuation_checkpoint_ts_utc_ms
+            .is_some_and(|latest| ack.received_ts.timestamp_millis() < latest)
+    {
+        return Err(fail());
+    }
+
+    let (
+        intent_class,
+        action,
+        side,
+        target_qty,
+        pre_position_qty,
+        expected_attribution,
+        source_event_ts_utc,
+        order_events,
+        terminal,
+    ) = match kind {
+        Stage8bP1d3AckStateKind::MarketPlace {
+            side,
+            qty,
+            pre_position_qty,
+            attribution,
+            source_event_ts_utc,
+        } => {
+            let intent_class = match attribution.role() {
+                Some(HybridRuntimeOrderRole::Entry) => crate::BrokerNeutralHybridIntentClass::Entry,
+                Some(HybridRuntimeOrderRole::Exit) => crate::BrokerNeutralHybridIntentClass::Exit,
+                _ => return Err(fail()),
+            };
+            if ack.status != CommandAckStatus::Accepted
+                || ack.reason.is_some()
+                || qty <= Decimal::ZERO
+                || qty.fract() != Decimal::ZERO
+                || pre_position_qty.fract() != Decimal::ZERO
+                || state.slots.iter().any(|slot| {
+                    matches!(slot.ack.action, Stage5gMockIntentAction::Place { .. })
+                        && slot.broker_order_id.as_ref() == Some(&broker_order_id)
+                })
+            {
+                return Err(fail());
+            }
+            let source_side = match side {
+                OrderSide::Buy => crate::BrokerNeutralOrderSide::Buy,
+                OrderSide::Sell => crate::BrokerNeutralOrderSide::Sell,
+            };
+            (
+                intent_class,
+                Stage5gMockIntentAction::Place {
+                    place_kind: Stage5gMockPlaceKind::Market,
+                },
+                Some(source_side),
+                Some(qty.to_f64().ok_or_else(fail)?),
+                pre_position_qty.to_f64().ok_or_else(fail)?,
+                Some(attribution),
+                source_event_ts_utc,
+                Vec::new(),
+                false,
+            )
+        }
+        Stage8bP1d3AckStateKind::LimitPlace {
+            side,
+            qty,
+            pre_position_qty,
+            attribution,
+            source_event_ts_utc,
+        } => {
+            let intent_class = match attribution.role() {
+                Some(HybridRuntimeOrderRole::Entry) => crate::BrokerNeutralHybridIntentClass::Entry,
+                Some(HybridRuntimeOrderRole::Exit) => crate::BrokerNeutralHybridIntentClass::Exit,
+                _ => return Err(fail()),
+            };
+            if ack.status != CommandAckStatus::Accepted
+                || ack.reason.is_some()
+                || qty <= Decimal::ZERO
+                || qty.fract() != Decimal::ZERO
+                || pre_position_qty.fract() != Decimal::ZERO
+                || state.slots.iter().any(|slot| {
+                    matches!(slot.ack.action, Stage5gMockIntentAction::Place { .. })
+                        && slot.broker_order_id.as_ref() == Some(&broker_order_id)
+                })
+            {
+                return Err(fail());
+            }
+            let source_side = match side {
+                OrderSide::Buy => crate::BrokerNeutralOrderSide::Buy,
+                OrderSide::Sell => crate::BrokerNeutralOrderSide::Sell,
+            };
+            (
+                intent_class,
+                Stage5gMockIntentAction::Place {
+                    place_kind: Stage5gMockPlaceKind::Limit,
+                },
+                Some(source_side),
+                Some(qty.to_f64().ok_or_else(fail)?),
+                pre_position_qty.to_f64().ok_or_else(fail)?,
+                Some(attribution),
+                source_event_ts_utc,
+                Vec::new(),
+                false,
+            )
+        }
+        Stage8bP1d3AckStateKind::Cancel {
+            target_broker_order_id,
+            attribution,
+            source_event_ts_utc,
+        } => {
+            if broker_order_id != target_broker_order_id
+                || !matches!(
+                    (ack.status, ack.reason.as_ref().map(|reason| reason.code)),
+                    (CommandAckStatus::Accepted, None)
+                        | (
+                            CommandAckStatus::Recovered,
+                            Some(broker_core::CommandAckReasonCode::RecoveredByBrokerTruth)
+                        )
+                )
+            {
+                return Err(fail());
+            }
+            let mut matching_target = state.slots.iter().filter_map(|slot| {
+                if !matches!(slot.ack.action, Stage5gMockIntentAction::Place { .. })
+                    || slot.broker_order_id.as_ref() != Some(&target_broker_order_id)
+                {
+                    return None;
+                }
+                slot.order_events.last().cloned()
+            });
+            let target = matching_target.next().ok_or_else(fail)?;
+            if matching_target.next().is_some() {
+                return Err(fail());
+            }
+            (
+                crate::BrokerNeutralHybridIntentClass::CancelCleanup,
+                Stage5gMockIntentAction::Cancel {
+                    target_order_id: target_broker_order_id,
+                },
+                None,
+                None,
+                Decimal::ZERO.to_f64().ok_or_else(fail)?,
+                Some(attribution),
+                source_event_ts_utc,
+                vec![target],
+                ack.status == CommandAckStatus::Recovered,
+            )
+        }
+    };
+    let latest_order = order_events.last().map(|event| event.order.clone());
+    let latest_order_source_ts = latest_order.as_ref().and_then(|order| order.source_ts);
+    let latest_order_received_ts = latest_order.as_ref().map(|order| order.received_ts);
+    state.slots.push(Stage5gOrderPositionSlot {
+        ack: Stage5gMockAckSlotSummary {
+            request_id: ack.request_id,
+            expected_client_order_id: client_order_id,
+            intent_class: intent_class_name(intent_class).to_string(),
+            action: action.clone(),
+            side: side.map(|value| source_side_name(value).to_string()),
+            source_event_ts_utc,
+            state: Stage5gMockAckSlotState::Resolved,
+            latest_status: Some(ack.status),
+            latest_reason_code: ack.reason.as_ref().map(|reason| reason.code),
+            latest_received_ts_utc: Some(
+                ack.received_ts
+                    .to_rfc3339_opts(chrono::SecondsFormat::Nanos, true),
+            ),
+            canonical_total_sequence: Some(canonical_total_sequence),
+            pending_disposition: Some(RuntimeAckPendingDisposition::ClearPending),
+            status_policy: Some(RuntimeAckStatusPolicy::ClearPending),
+            broker_order_id_domain_sha256: Some(stage8b_p1d3_broker_order_id_domain_sha256(
+                &broker_order_id,
+            )),
+        },
+        source: Stage5gSourceIntentProjection {
+            request_id: ack.request_id,
+            intent_class,
+            base_action: match action {
+                Stage5gMockIntentAction::Place { .. } => Stage5gSourceBaseAction::Place,
+                Stage5gMockIntentAction::Cancel { .. } => Stage5gSourceBaseAction::Cancel,
+            },
+            side,
+            target_qty,
+            pre_position_qty,
+            expected_attribution,
+        },
+        broker_order_id: Some(broker_order_id),
+        order_events,
+        trades: Vec::new(),
+        position: None,
+        position_derivation: None,
+        position_matching_row_count: None,
+        market_terminal_truth: None,
+        last_order_source_ts: latest_order_source_ts,
+        last_order_received_ts: latest_order_received_ts,
+        last_trade_source_ts: None,
+        last_trade_received_ts: None,
+        last_position_source_ts: None,
+        last_position_received_ts: None,
+        terminal,
+    });
+    state.last_continuation_checkpoint_ts_utc_ms = Some(
+        state
+            .last_continuation_checkpoint_ts_utc_ms
+            .unwrap_or(i64::MIN)
+            .max(ack.received_ts.timestamp_millis()),
+    );
+    Ok(state)
+}
+
+/// Applies one exact P1-d3 truth continuation through the accepted canonical
+/// Stage 5G reducer. Initial/cancel truth is bound to its ACK slot; later
+/// autonomous truth is bound to the global broker-truth frontier.
+pub(crate) fn stage8b_p1d3_apply_truth_state(
+    state: Stage5gOrderPositionState,
+    evidence: Stage5gOrderPositionEvidence,
+) -> Result<Stage5gOrderPositionState, Stage5gRestartCanonicalApplicationError> {
+    let slot = state
+        .slots
+        .iter()
+        .find(|slot| slot.ack.request_id == evidence.request_id)
+        .ok_or(Stage5gRestartCanonicalApplicationError::OrderPosition(
+            Stage5gOrderPositionError::UnknownRequestId,
+        ))?;
+    let ack_continuation = matches!(slot.ack.action, Stage5gMockIntentAction::Cancel { .. })
+        || matches!(slot.ack.action, Stage5gMockIntentAction::Place { .. })
+            && slot.order_events.is_empty();
+    let expected_sequence = if ack_continuation {
+        slot.ack
+            .canonical_total_sequence
+            .and_then(|sequence| sequence.checked_add(1))
+    } else {
+        state
+            .last_total_sequence
+            .and_then(|sequence| sequence.checked_add(1))
+    }
+    .ok_or(Stage5gRestartCanonicalApplicationError::OrderPosition(
+        Stage5gOrderPositionError::NonMonotonicSequence,
+    ))?;
+    if evidence.total_sequence != expected_sequence {
+        return Err(Stage5gRestartCanonicalApplicationError::OrderPosition(
+            Stage5gOrderPositionError::NonMonotonicSequence,
+        ));
+    }
+    let canonical = canonicalize_stage5g_order_position_evidence(evidence).map_err(|reason| {
+        Stage5gRestartCanonicalApplicationError::OrderPosition(match reason {
+            Stage5gEvidenceCanonicalizationError::TradeIdentityConflict => {
+                Stage5gOrderPositionError::TradeIdentityConflict
+            }
+            Stage5gEvidenceCanonicalizationError::EvidenceIdentityGrammarViolation => {
+                Stage5gOrderPositionError::EvidenceIdentityGrammarViolation
+            }
+        })
+    })?;
+    apply_stage5g_restart_canonical_order_position_state(state, canonical)
+}
+
 /// Restart-only owner of the accepted canonical transition. It consumes a
 /// cloned authenticated state and canonical evidence, returns only the
 /// resulting state, and deliberately never reaches the callback wrapper.
@@ -995,6 +1328,231 @@ pub(crate) fn apply_stage5g_restart_canonical_order_position_state(
             failure.reason,
         )),
     }
+}
+
+/// P1-d2 ACK-stage sequence authority.  The top-level broker-truth sequence
+/// can still be empty immediately after ACK resolution, so this deliberately
+/// reads only the exact resolved target slot and checked-adds one.
+pub(crate) fn stage8b_p1d2_truth_sequence_from_ack_state(
+    state: &Stage5gOrderPositionState,
+    request_id: StrategyRequestId,
+) -> Option<u64> {
+    let mut matching = state
+        .slots
+        .iter()
+        .filter(|slot| slot.ack.request_id == request_id);
+    let slot = matching.next()?;
+    if matching.next().is_some()
+        || slot.ack.state != Stage5gMockAckSlotState::Resolved
+        || slot.ack.latest_status != Some(CommandAckStatus::Accepted)
+        || slot.ack.canonical_total_sequence.is_none()
+        || !slot.order_events.is_empty()
+        || !slot.trades.is_empty()
+        || slot.position.is_some()
+        || slot.terminal
+        || state.last_total_sequence.is_some()
+    {
+        return None;
+    }
+    slot.ack.canonical_total_sequence?.checked_add(1)
+}
+
+pub(crate) fn stage8b_p1d2_ack_state_matches(
+    state: &Stage5gOrderPositionState,
+    expected_ack: &CommandAck,
+    expected_sequence: u64,
+) -> bool {
+    let mut matching = state
+        .slots
+        .iter()
+        .filter(|slot| slot.ack.request_id == expected_ack.request_id);
+    let Some(slot) = matching.next() else {
+        return false;
+    };
+    matching.next().is_none()
+        && state.slots.len() == 1
+        && slot.ack.state == Stage5gMockAckSlotState::Resolved
+        && slot.ack.latest_status == Some(CommandAckStatus::Accepted)
+        && slot.ack.latest_reason_code.is_none()
+        && slot.ack.canonical_total_sequence == Some(expected_sequence)
+        && expected_ack.client_order_id.as_ref() == Some(&slot.ack.expected_client_order_id)
+        && slot.broker_order_id == expected_ack.broker_order_id
+        && slot.ack.latest_received_ts_utc.as_deref()
+            == Some(
+                expected_ack
+                    .received_ts
+                    .to_rfc3339_opts(chrono::SecondsFormat::Nanos, true)
+                    .as_str(),
+            )
+        && !slot.terminal
+        && slot.order_events.is_empty()
+        && slot.trades.is_empty()
+        && slot.position.is_none()
+        && state.last_total_sequence.is_none()
+}
+
+pub(crate) fn stage8b_p1d2_truth_state_matches(
+    state: &Stage5gOrderPositionState,
+    request_id: StrategyRequestId,
+    expected_ack_sequence: u64,
+    expected_truth_sequence: u64,
+    expected_truth: &BrokerTruthSnapshot,
+) -> bool {
+    let mut matching = state
+        .slots
+        .iter()
+        .filter(|slot| slot.ack.request_id == request_id);
+    let Some(slot) = matching.next() else {
+        return false;
+    };
+    matching.next().is_none()
+        && state.slots.len() == 1
+        && expected_truth.orders.len() == 1
+        && expected_truth.positions.len() == 1
+        && slot.ack.state == Stage5gMockAckSlotState::Resolved
+        && slot.ack.latest_status == Some(CommandAckStatus::Accepted)
+        && slot.ack.canonical_total_sequence == Some(expected_ack_sequence)
+        && expected_ack_sequence.checked_add(1) == Some(expected_truth_sequence)
+        && state.last_total_sequence == Some(expected_truth_sequence)
+        && slot.order_events.len() == 1
+        && slot.order_events.last().map(|event| &event.order) == expected_truth.orders.first()
+        && slot.trades == expected_truth.trades
+        && slot
+            .position
+            .as_ref()
+            .map(|(sequence, position)| (*sequence, position))
+            == expected_truth
+                .positions
+                .first()
+                .map(|position| (expected_truth_sequence, position))
+        && slot.market_terminal_truth.is_none()
+        && slot.terminal
+}
+
+/// P1-d4 generated-Market sequence authority. Unlike the first-boot P1-d2
+/// helper, this deliberately permits prior P1-d3 slots and derives the next
+/// truth sequence from the exact new ACK slot plus the existing global truth
+/// frontier.
+pub(crate) fn stage8b_p1d4_truth_sequence_from_ack_state(
+    state: &Stage5gOrderPositionState,
+    request_id: StrategyRequestId,
+) -> Option<u64> {
+    let mut matching = state
+        .slots
+        .iter()
+        .filter(|slot| slot.ack.request_id == request_id);
+    let slot = matching.next()?;
+    let ack_sequence = slot.ack.canonical_total_sequence?;
+    if matching.next().is_some()
+        || slot.ack.state != Stage5gMockAckSlotState::Resolved
+        || slot.ack.latest_status != Some(CommandAckStatus::Accepted)
+        || !slot.order_events.is_empty()
+        || !slot.trades.is_empty()
+        || slot.position.is_some()
+        || slot.terminal
+        || state.last_total_sequence.unwrap_or(0).checked_add(1) != Some(ack_sequence)
+    {
+        return None;
+    }
+    ack_sequence.checked_add(1)
+}
+
+pub(crate) fn stage8b_p1d4_ack_state_matches(
+    state: &Stage5gOrderPositionState,
+    expected_ack: &CommandAck,
+    expected_sequence: u64,
+) -> bool {
+    let mut matching = state
+        .slots
+        .iter()
+        .filter(|slot| slot.ack.request_id == expected_ack.request_id);
+    let Some(slot) = matching.next() else {
+        return false;
+    };
+    matching.next().is_none()
+        && slot.ack.state == Stage5gMockAckSlotState::Resolved
+        && slot.ack.latest_status == Some(CommandAckStatus::Accepted)
+        && slot.ack.latest_reason_code.is_none()
+        && slot.ack.canonical_total_sequence == Some(expected_sequence)
+        && expected_ack.client_order_id.as_ref() == Some(&slot.ack.expected_client_order_id)
+        && slot.broker_order_id == expected_ack.broker_order_id
+        && slot.ack.latest_received_ts_utc.as_deref()
+            == Some(
+                expected_ack
+                    .received_ts
+                    .to_rfc3339_opts(chrono::SecondsFormat::Nanos, true)
+                    .as_str(),
+            )
+        && !slot.terminal
+        && slot.order_events.is_empty()
+        && slot.trades.is_empty()
+        && slot.position.is_none()
+        && state.last_total_sequence.unwrap_or(0).checked_add(1) == Some(expected_sequence)
+}
+
+pub(crate) fn stage8b_p1d4_truth_state_matches(
+    state: &Stage5gOrderPositionState,
+    request_id: StrategyRequestId,
+    expected_ack_sequence: u64,
+    expected_truth_sequence: u64,
+    expected_truth: &BrokerTruthSnapshot,
+) -> bool {
+    let mut matching = state
+        .slots
+        .iter()
+        .filter(|slot| slot.ack.request_id == request_id);
+    let Some(slot) = matching.next() else {
+        return false;
+    };
+    matching.next().is_none()
+        && expected_truth.orders.len() == 1
+        && expected_truth.positions.len() == 1
+        && slot.ack.state == Stage5gMockAckSlotState::Resolved
+        && slot.ack.latest_status == Some(CommandAckStatus::Accepted)
+        && slot.ack.canonical_total_sequence == Some(expected_ack_sequence)
+        && expected_ack_sequence.checked_add(1) == Some(expected_truth_sequence)
+        && state.last_total_sequence == Some(expected_truth_sequence)
+        && slot.order_events.len() == 1
+        && slot.order_events.last().map(|event| &event.order) == expected_truth.orders.first()
+        && slot.trades == expected_truth.trades
+        && slot
+            .position
+            .as_ref()
+            .map(|(sequence, position)| (*sequence, position))
+            == expected_truth
+                .positions
+                .first()
+                .map(|position| (expected_truth_sequence, position))
+        && slot.market_terminal_truth.is_none()
+        && slot.terminal
+}
+
+/// Narrow P1-d2 truth-only restart bridge.  It reuses the accepted canonical
+/// Stage 5G state transition but cannot reconstruct or invoke the ACK reducer.
+pub(crate) fn apply_stage8b_p1d2_restart_truth(
+    state: Stage5gOrderPositionState,
+    evidence: Stage5gOrderPositionEvidence,
+) -> Result<Stage5gOrderPositionState, Stage5gRestartCanonicalApplicationError> {
+    let expected_sequence = stage8b_p1d2_truth_sequence_from_ack_state(&state, evidence.request_id)
+        .ok_or(Stage5gRestartCanonicalApplicationError::OrderPosition(
+            Stage5gOrderPositionError::NonMonotonicSequence,
+        ))?;
+    if evidence.total_sequence != expected_sequence {
+        return Err(Stage5gRestartCanonicalApplicationError::OrderPosition(
+            Stage5gOrderPositionError::NonMonotonicSequence,
+        ));
+    }
+    let canonical = canonicalize_stage5g_order_position_evidence(evidence).map_err(|reason| {
+        Stage5gRestartCanonicalApplicationError::OrderPosition(match reason {
+            Stage5gEvidenceCanonicalizationError::TradeIdentityConflict => {
+                Stage5gOrderPositionError::TradeIdentityConflict
+            }
+            Stage5gEvidenceCanonicalizationError::EvidenceIdentityGrammarViolation => {
+                Stage5gOrderPositionError::EvidenceIdentityGrammarViolation
+            }
+        })
+    })?;
+    apply_stage5g_restart_canonical_order_position_state(state, canonical)
 }
 
 #[cfg(test)]
@@ -3146,6 +3704,28 @@ fn block(
 }
 
 impl Stage5gOrderPositionSession {
+    /// Marks the ACK-only P1-d2 continuation frontier without inventing a
+    /// broker-truth replay entry. This is the empty-ledger checkpoint form
+    /// already recognized by the Stage5G checkpoint validator.
+    pub(crate) fn stage8b_p1d2_mark_ack_frontier(
+        mut self,
+        checkpoint_ts_utc_ms: i64,
+    ) -> Option<Self> {
+        if checkpoint_ts_utc_ms <= 0
+            || !self.state.evidence_identities.is_empty()
+            || self.state.current_evidence_identity.is_some()
+            || self.state.last_total_sequence.is_some()
+            || self.state.last_broker_truth_received_at.is_some()
+            || self.state.last_broker_truth_received_ms.is_some()
+            || self.state.duplicate_evidence_count != 0
+            || self.state.last_continuation_checkpoint_ts_utc_ms.is_some()
+        {
+            return None;
+        }
+        self.state.last_continuation_checkpoint_ts_utc_ms = Some(checkpoint_ts_utc_ms);
+        Some(self)
+    }
+
     pub(crate) fn stage5g_restart_state_binding(
         state: &Stage5gOrderPositionState,
     ) -> (&str, &broker_core::BrokerAccountId, &InstrumentId) {
@@ -3158,6 +3738,45 @@ impl Stage5gOrderPositionSession {
 
     pub(crate) fn stage5g_restart_state(&self) -> Stage5gOrderPositionState {
         self.state.clone()
+    }
+
+    pub(crate) fn stage8b_p1d2_truth_sequence_from_ack(
+        state: &Stage5gOrderPositionState,
+        request_id: StrategyRequestId,
+    ) -> Option<u64> {
+        stage8b_p1d2_truth_sequence_from_ack_state(state, request_id)
+    }
+
+    pub(crate) fn stage8b_p1d3_total_sequence_frontier(state: &Stage5gOrderPositionState) -> u64 {
+        state
+            .slots
+            .iter()
+            .filter_map(|slot| slot.ack.canonical_total_sequence)
+            .fold(state.last_total_sequence.unwrap_or(0), u64::max)
+    }
+
+    /// Returns the latest target-instrument position accepted by the Stage 5G
+    /// reducer.  Account-wide row counts are never used as position truth.
+    /// A non-zero historical pre-position without an accepted position row is
+    /// deliberately ambiguous and cannot seed deterministic P1-d3 arithmetic.
+    pub(crate) fn stage8b_p1d3_position_basis(
+        state: &Stage5gOrderPositionState,
+    ) -> Option<(Decimal, Option<Decimal>)> {
+        if let Some((_, position)) = state
+            .slots
+            .iter()
+            .filter_map(|slot| slot.position.as_ref())
+            .max_by_key(|(sequence, _)| *sequence)
+        {
+            return Some((position.qty, position.avg_price));
+        }
+        state
+            .slots
+            .iter()
+            .all(|slot| {
+                stage5g_integral_lot_decimal(slot.source.pre_position_qty) == Some(Decimal::ZERO)
+            })
+            .then_some((Decimal::ZERO, None))
     }
 
     pub(crate) fn stage5g_restart_binding(
@@ -3629,8 +4248,170 @@ pub(crate) mod tests {
         }
     }
 
+    fn p1d2_ack_frontier_state(seq_ack: u64) -> Stage5gOrderPositionState {
+        let mut slot = market_slot(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            crate::BrokerNeutralOrderSide::Buy,
+            1.0,
+            0.0,
+        );
+        slot.ack.canonical_total_sequence = Some(seq_ack);
+        Stage5gOrderPositionState {
+            strategy_id: "hybrid_imoexf".to_string(),
+            account_id: BrokerAccountId::new("ACC_TEST_0001"),
+            instrument: target(),
+            slots: vec![slot],
+            evidence_identities: vec![],
+            current_evidence_identity: None,
+            last_total_sequence: None,
+            last_broker_truth_received_at: None,
+            last_broker_truth_received_ms: None,
+            duplicate_evidence_count: 0,
+            last_continuation_checkpoint_ts_utc_ms: None,
+        }
+    }
+
+    fn p1d2_full_fill_evidence(sequence: u64) -> Stage5gOrderPositionEvidence {
+        evidence(
+            sequence,
+            truth(
+                vec![market_order(OrderStatus::Filled, Decimal::ONE, 2)],
+                vec![market_trade("MARKET_TRADE_1", Decimal::ONE, 2)],
+                vec![position(Decimal::ONE, 2)],
+                2,
+            ),
+        )
+    }
+
+    #[test]
+    fn p1d2_truth_sequence_is_derived_only_from_exact_resolved_ack_slot() {
+        let request_id = slot().ack.request_id;
+        let state = p1d2_ack_frontier_state(7);
+        assert_eq!(
+            stage8b_p1d2_truth_sequence_from_ack_state(&state, request_id),
+            Some(8)
+        );
+
+        let mut overflow = p1d2_ack_frontier_state(u64::MAX);
+        assert_eq!(
+            stage8b_p1d2_truth_sequence_from_ack_state(&overflow, request_id),
+            None
+        );
+        overflow.slots[0].ack.canonical_total_sequence = None;
+        assert_eq!(
+            stage8b_p1d2_truth_sequence_from_ack_state(&overflow, request_id),
+            None
+        );
+
+        let mut forged_top_level = p1d2_ack_frontier_state(7);
+        forged_top_level.last_total_sequence = Some(7);
+        assert_eq!(
+            stage8b_p1d2_truth_sequence_from_ack_state(&forged_top_level, request_id),
+            None
+        );
+    }
+
+    #[test]
+    fn p1d2_truth_restart_rejects_stale_reversed_and_new_sequences() {
+        for invalid in [6, 7, 9] {
+            assert!(matches!(
+                apply_stage8b_p1d2_restart_truth(
+                    p1d2_ack_frontier_state(7),
+                    p1d2_full_fill_evidence(invalid),
+                ),
+                Err(Stage5gRestartCanonicalApplicationError::OrderPosition(
+                    Stage5gOrderPositionError::NonMonotonicSequence
+                ))
+            ));
+        }
+        let applied = apply_stage8b_p1d2_restart_truth(
+            p1d2_ack_frontier_state(7),
+            p1d2_full_fill_evidence(8),
+        )
+        .unwrap();
+        assert_eq!(applied.last_total_sequence, Some(8));
+    }
+
     fn r2cb_public_runtime_strategy(bar_close_ts: i64) -> HybridIntradayRuntimeStrategy {
         r2cb_public_runtime_strategy_with_riskgate(bar_close_ts, RiskGateMode::Disabled)
+    }
+
+    pub(crate) fn stage8b_p1d3_restart_fixture(
+    ) -> (HybridIntradayRuntimeStrategy, Stage5gOrderPositionState) {
+        let bar_close_ts = ts(2).timestamp();
+        let mut runtime =
+            r2cb_public_runtime_strategy_with_riskgate(bar_close_ts, RiskGateMode::NormalAppend);
+        for (history_close, high, low) in [
+            (bar_close_ts - 86_400 - 600, 2_630.0, 2_570.0),
+            (bar_close_ts - 86_400, 2_620.0, 2_580.0),
+        ] {
+            let intents = Strategy::on_bar(
+                &mut runtime,
+                &StrategyCtx {
+                    strategy_id: "hybrid_imoexf".to_string(),
+                    portfolio: "ACC_TEST_0001".to_string(),
+                    exchange: "MOEX".to_string(),
+                    symbol: "IMOEXF".to_string(),
+                    tick_size: 0.5,
+                    trade_mode: TradeMode::Paper,
+                    paper_execution_mode: PaperExecutionMode::LiveOnly,
+                    allow_live_orders: false,
+                    gateway_phase: GatewayPhase::LiveReady,
+                    position_qty: Some(0.0),
+                    event_ts_utc: history_close,
+                    now_ts_utc: history_close,
+                    last_bar_ts: Some(history_close),
+                },
+                &BarEvent {
+                    symbol: "IMOEXF".to_string(),
+                    close_time_utc: history_close,
+                    o: 2_600.0,
+                    h: high,
+                    l: low,
+                    close: 2_600.0,
+                    v: 1.0,
+                    origin: DataOrigin::Replay,
+                },
+            );
+            assert!(intents.is_empty());
+        }
+        let _ = crate::stage5d_persistence::stage5f_test_seams::prepare_stage5g_clean_restart_test_authority(
+            &mut runtime,
+            "hybrid_imoexf",
+            ts(3),
+        );
+        let state = Stage5gOrderPositionState {
+            strategy_id: "hybrid_imoexf".to_string(),
+            account_id: BrokerAccountId::new("ACC_TEST_0001"),
+            instrument: target(),
+            slots: vec![slot()],
+            evidence_identities: Vec::new(),
+            current_evidence_identity: None,
+            last_total_sequence: None,
+            last_broker_truth_received_at: None,
+            last_broker_truth_received_ms: None,
+            duplicate_evidence_count: 0,
+            last_continuation_checkpoint_ts_utc_ms: Some(ts(3).timestamp_millis()),
+        };
+        (runtime, state)
+    }
+
+    pub(crate) fn stage8b_p1d3_quiescent_state_fixture(
+        total_sequence_frontier: u64,
+    ) -> Stage5gOrderPositionState {
+        assert!(total_sequence_frontier > 1);
+        let request_id = StrategyRequestId::new(uuid::Uuid::from_u128(u128::MAX - 1));
+        let client_order_id = ClientOrderId::from_strategy_request(request_id);
+        let mut state = p1d2_ack_frontier_state(total_sequence_frontier - 1);
+        state.slots[0].ack.request_id = request_id;
+        state.slots[0].ack.expected_client_order_id = client_order_id.clone();
+        state.slots[0].source.request_id = request_id;
+        let mut evidence = p1d2_full_fill_evidence(total_sequence_frontier);
+        evidence.request_id = request_id;
+        evidence.broker_truth.orders[0].client_order_id = Some(client_order_id.clone());
+        evidence.broker_truth.trades[0].client_order_id = Some(client_order_id);
+        apply_stage8b_p1d2_restart_truth(state, evidence)
+            .expect("quiescent accepted predecessor state")
     }
 
     fn r2cb_public_runtime_strategy_with_riskgate(
@@ -3652,6 +4433,7 @@ pub(crate) mod tests {
             } else {
                 MeanReversionVariant::High180
             },
+            live_mr_entries_enabled: true,
             mr_gate_policy: if risk_gate_mode == RiskGateMode::Disabled {
                 MrGatePolicy::Disabled
             } else {

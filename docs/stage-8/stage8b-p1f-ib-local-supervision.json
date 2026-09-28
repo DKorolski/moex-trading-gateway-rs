@@ -1,0 +1,60 @@
+{
+  "accepted_guardian_commit": "9be356b04a38e627337ed148ccc9fbdaebae8d4a",
+  "accepted_guardian_review_sha256": "db684cb6ba10cb951801cc917c317d2817c99c3f10874d5a1d959c053f6ebb60",
+  "reviewed_ib_commit": "b45a11cda0a564344fabcfea688bae06bd98ec17",
+  "ib_correction_review_sha256": "3d4f97816ed5b392c7e49d4f61af191ef190b69c61a4cbdb32ba1967fb4654ac",
+  "reviewed_ib_r1_commit": "9890d713783a479ee08512b21647240eb222053d",
+  "ib_r2_review_sha256": "8a7161d653dadcb5d3bfda88f628e3d0c139b927aedb6a9254e78842c8acc9df",
+  "child": {
+    "args": [
+      "run",
+      "/etc/moex-finam-p1-paper/supervisor.json"
+    ],
+    "binary": "/usr/local/libexec/moex/stage8b-p1-paper-supervisor",
+    "linux_parent_death_signal": "SIGKILL",
+    "max_starts_per_600_seconds": 5,
+    "process_group": "dedicated",
+    "restart_delay_seconds": 5,
+    "user_group": "moex-p1-paper:moex-p1-paper"
+  },
+  "closed_surfaces": {
+    "broker_dispatch": false,
+    "finam_attachment_or_write": false,
+    "operational_install_or_service_start": false,
+    "paper_provider_execution": false,
+    "real_orders": false,
+    "redis_db15_or_db0_activation": false,
+    "runtime_live": false,
+    "vps_mutation": false
+  },
+  "entry": {
+    "binary": "stage8b-p1f-local-supervisor",
+    "grammar": "run MANIFEST_SHA256",
+    "permitted_phases": [
+      "O3_SYNTHETIC_PAPER",
+      "O4_FINAM_READ_ONLY"
+    ]
+  },
+  "evidence": {
+    "correction_controls": 5,
+    "checker": "scripts/stage8b_p1f_ib_check.py",
+    "gate": "scripts/stage8b_p1f_ib_gate.sh",
+    "negative_harness": "scripts/stage8b_p1f_ib_negative_harness.py",
+    "real_os_signal_gate_cases": 3,
+    "real_process_tests": 10
+  },
+  "next_after_acceptance": "P1F-Ic fixed producers and retained high-water; P1F-O0 remains closed",
+  "production_module": "crates/runtime-durable-service/src/stage8b_p1f_local_supervision.rs",
+  "schema_version": 1,
+  "stage": "Stage 8B-P1-f Ib local supervision composition",
+  "status": "REVIEW_CANDIDATE_CORRECTION_R2_LOCAL_SUPERVISION_ONLY",
+  "stop_contract": {
+    "force_kill_scope": "entire child process group",
+    "grace_seconds": 30,
+    "monotonic_witness": "original linear Ia run permit",
+    "signals": [
+      "SIGTERM",
+      "SIGINT"
+    ]
+  }
+}

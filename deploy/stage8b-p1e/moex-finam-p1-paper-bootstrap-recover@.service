@@ -1,0 +1,37 @@
+[Unit]
+Description=MOEX FINAM Stage 8B P1 paper first-boot recovery %i
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=moex-p1-paper
+Group=moex-p1-paper
+UMask=0077
+LoadCredential=stage8b-p1-lifecycle.key:/etc/moex-finam-p1-paper/credentials/stage8b-p1-lifecycle.key
+ExecStart=/usr/local/libexec/moex/stage8b-p1-paper-supervisor bootstrap-recover /etc/moex-finam-p1-paper/supervisor.json %i RECOVER_EXISTING_STAGE8B_P1_FIRST_BOOT_V4
+RestrictAddressFamilies=AF_UNIX
+PrivateNetwork=yes
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ProtectProc=invisible
+ProcSubset=pid
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+LimitCORE=0
+ReadOnlyPaths=/etc/moex-finam-p1-paper
+ReadWritePaths=/var/lib/moex-finam-p1-paper/state
+RemainAfterExit=no

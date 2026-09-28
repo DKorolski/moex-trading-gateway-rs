@@ -38,6 +38,10 @@ pub const SOURCE_GENERATION_DOMAIN: &str = "stage8b-p-r2a5-source-generation-set
 pub const HELPER_ACCEPTANCE_DOMAIN: &str = "stage8b-p-r2a5-helper-acceptance-ed25519-v1";
 pub const TRUST_REBIND_VERIFICATION_RECEIPT_DOMAIN: &str =
     "stage8b-p-r2b-trust-rebind-verification-receipt-v1";
+pub const TRUST_REBIND_BACKUP_RESTORE_RECEIPT_DOMAIN: &str =
+    "stage8b-p-r2b-generation2-backup-restore-receipt-v1";
+pub const TRUST_REBIND_RESTORE_DESTRUCTION_RECEIPT_DOMAIN: &str =
+    "stage8b-p-r2b-generation2-restore-destruction-receipt-v1";
 pub const PRODUCTION_ROOT: &str = "/var/lib/moex-trading/stage8b/r2a5";
 pub const PRODUCTION_ETC: &str = "/etc/moex-trading/stage8b/r2a5";
 pub const PRODUCTION_RUN: &str = "/run/moex-trading/stage8b/r2a5";
@@ -61,7 +65,8 @@ pub const R2B_HELPER_EXECUTABLE_FD: RawFd = 7;
 pub const CONTROLLED_HOST: &str = "stage8b-r2a5.invalid";
 const CONTROLLED_CA_PATH: &str = "/run/moex-trading/stage8b/r2a5/controlled-ca.der";
 const CONTROLLED_ENDPOINT_PATH: &str = "/run/moex-trading/stage8b/r2a5/controlled-endpoint.txt";
-const AUTHORITY: &str = include_str!("../../../docs/stage-8/stage8b-p-r2a5-authority.json");
+const AUTHORITY: &str =
+    include_str!("../../../docs/stage-8/stage8b-p-r2b-generation2-production-authority.json");
 const CONTROLLED_AUTHORITY: &str =
     include_str!("../../../docs/stage-8/stage8b-p-r2a5-controlled-authority.json");
 const READ_CONTRACT_SNAPSHOT: &[u8] =
@@ -326,6 +331,131 @@ pub struct TrustRebindVerificationReceipt {
     pub signature_ed25519_hex: String,
 }
 
+/// Public metadata measured by the offline backup orchestrator. Paths and
+/// private values are intentionally absent. The typed keyset prevents an
+/// unreviewed tool or custody claim from being smuggled into the receipt.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TrustRebindBackupRestoreMetadata {
+    pub verifier_source_sha256: String,
+    pub verifier_binary_sha256: String,
+    pub destruction_attestor_binary_sha256: String,
+    pub cargo_lock_sha256: String,
+    pub rustc_version: String,
+    pub cargo_version: String,
+    pub python_version: String,
+    pub age_version: String,
+    pub age_binary_sha256: String,
+    pub age_keygen_binary_sha256: String,
+    pub archive_format: String,
+    pub encryption_format: String,
+    pub encrypted_backup_file_name: String,
+    pub encrypted_backup_sha256: String,
+    pub encrypted_backup_size_bytes: u64,
+    pub encryption_recipient_sha256: String,
+    pub media_class: String,
+    pub media_filesystem: String,
+    pub external_removable_media_verified: bool,
+    pub encryption_identity_separate_device_verified: bool,
+    pub plaintext_archive_written: bool,
+    pub extended_acl_absent: bool,
+    pub unexpected_file_flags_absent: bool,
+    pub unexpected_extended_attributes_absent: bool,
+}
+
+/// Signed public-only proof that the encrypted external copy was restored in
+/// an isolated disposable directory and matched all Generation-2 bindings.
+/// Its domain cannot authorize an R2B package or activate the generation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TrustRebindBackupRestoreReceipt {
+    pub schema_version: u8,
+    pub stage: String,
+    pub generation: u64,
+    pub verification_status: String,
+    pub verified_at_utc: DateTime<Utc>,
+    pub source_ref: String,
+    pub verifier_source_sha256: String,
+    pub verifier_binary_sha256: String,
+    pub destruction_attestor_binary_sha256: String,
+    pub cargo_lock_sha256: String,
+    pub rustc_version: String,
+    pub cargo_version: String,
+    pub python_version: String,
+    pub age_version: String,
+    pub age_binary_sha256: String,
+    pub age_keygen_binary_sha256: String,
+    pub archive_format: String,
+    pub encryption_format: String,
+    pub encrypted_backup_file_name: String,
+    pub encrypted_backup_sha256: String,
+    pub encrypted_backup_size_bytes: u64,
+    pub encryption_recipient_sha256: String,
+    pub media_class: String,
+    pub media_filesystem: String,
+    pub external_removable_media_verified: bool,
+    pub encryption_identity_separate_device_verified: bool,
+    pub plaintext_archive_written: bool,
+    pub extended_acl_absent: bool,
+    pub unexpected_file_flags_absent: bool,
+    pub unexpected_extended_attributes_absent: bool,
+    pub trust_manifest_sha256: String,
+    pub public_key_set_sha256: String,
+    pub authorization_public_key_sha256: String,
+    pub helper_acceptance_public_key_sha256: String,
+    pub account_key_manifest_sha256: String,
+    pub source_key_count: usize,
+    pub primary_signing_seed_count: usize,
+    pub restored_signing_seed_count: usize,
+    pub primary_account_key_count: usize,
+    pub restored_account_key_count: usize,
+    pub primary_exact_inventory_verified: bool,
+    pub restored_exact_inventory_verified: bool,
+    pub primary_private_public_bindings_verified: usize,
+    pub restored_private_public_bindings_verified: usize,
+    pub primary_account_key_binding_verified: bool,
+    pub restored_account_key_binding_verified: bool,
+    pub public_fingerprints_identical: bool,
+    pub private_path_recorded: bool,
+    pub private_values_exported: bool,
+    pub restored_copy_status: String,
+    pub backup_status: String,
+    pub generation_2_active: bool,
+    pub authorization_status: String,
+    pub signature_domain: String,
+    pub authorization_key_id: String,
+    pub authorization_key_generation: u64,
+    pub signature_ed25519_hex: String,
+}
+
+/// Final signed proof that the verified disposable restore was removed. This
+/// is a logical deletion receipt; it never claims secure media overwrite.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TrustRebindRestoreDestructionReceipt {
+    pub schema_version: u8,
+    pub stage: String,
+    pub generation: u64,
+    pub destruction_status: String,
+    pub destroyed_at_utc: DateTime<Utc>,
+    pub source_ref: String,
+    pub backup_restore_receipt_sha256: String,
+    pub encrypted_backup_sha256: String,
+    pub encryption_recipient_sha256: String,
+    pub disposable_restore_absent_verified: bool,
+    pub logical_deletion_only: bool,
+    pub restore_volume_filevault_enabled: bool,
+    pub private_path_recorded: bool,
+    pub private_values_exported: bool,
+    pub backup_status: String,
+    pub generation_2_active: bool,
+    pub authorization_status: String,
+    pub signature_domain: String,
+    pub authorization_key_id: String,
+    pub authorization_key_generation: u64,
+    pub signature_ed25519_hex: String,
+}
+
 /// Closed, source-specific records emitted by the accepted operational owners.
 /// The R2A producer reads these records directly; there is no manually
 /// manually populated R2A authoritative-store production seam.
@@ -528,7 +658,7 @@ pub struct R2a5RunPackage {
     pub signature_ed25519_hex: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct AcceptedR2a5Authority {
     schema_version: u8,
@@ -547,6 +677,7 @@ pub(crate) struct PreparedR2a5Run {
     manifest: Zeroizing<Vec<u8>>,
     receipts: Zeroizing<Vec<u8>>,
     public_keys: BTreeMap<String, VerifyingKey>,
+    key_generations: BTreeMap<String, String>,
     account_id: Zeroizing<String>,
     account_key: Zeroizing<[u8; 32]>,
     secret: Zeroizing<String>,
@@ -557,6 +688,7 @@ struct ValidatedLocalR2a5Authority {
     manifest: Zeroizing<Vec<u8>>,
     receipts: Zeroizing<Vec<u8>>,
     public_keys: BTreeMap<String, VerifyingKey>,
+    key_generations: BTreeMap<String, String>,
     validated_manifest: r2a2::ValidatedManifest,
     account_key_relative_path: String,
     account_key_sha256: String,
@@ -619,6 +751,36 @@ pub fn public_key_set_digest(manifest: &TrustSetManifest) -> Result<String, R2a3
         PUBLIC_KEY_SET_DOMAIN,
         &parts.iter().map(String::as_str).collect::<Vec<_>>(),
     ))
+}
+
+fn validate_generation2_composition(
+    trust_bytes: &[u8],
+    account_bytes: &[u8],
+) -> Result<AcceptedR2a5Authority, R2a3Error> {
+    let accepted: AcceptedR2a5Authority = serde_json::from_str(AUTHORITY)?;
+    let trust: TrustSetManifest = serde_json::from_slice(trust_bytes)?;
+    let account: AccountKeyManifest = serde_json::from_slice(account_bytes)?;
+    if accepted.schema_version != 1
+        || accepted.stage != "8B-P"
+        || accepted.revision != "R2B-G2-R0"
+        || accepted.authorization_status != "NOT_ISSUED"
+        || sha256(trust_bytes) != accepted.trust_manifest_sha256
+        || trust.public_key_set_sha256 != accepted.public_key_set_sha256
+        || public_key_set_digest(&trust)? != accepted.public_key_set_sha256
+        || trust.authorization_key.public_key_sha256 != accepted.authorization_public_key_sha256
+        || trust.authorization_key.generation != 2
+        || trust.helper_acceptance_key.generation != 2
+        || trust.source_keys.values().any(|key| key.generation != 2)
+        || sha256(account_bytes) != accepted.account_key_manifest_sha256
+        || account.schema_version != 1
+        || account.entries.len() != 1
+        || account.entries[0].generation_id != "2"
+        || account.entries[0].relative_key_path != "generation-2.hex"
+        || sha256(SOURCE_ADAPTER_AUTHORITY) != accepted.source_adapter_authority_sha256
+    {
+        return Err(R2a3Error::Authorization);
+    }
+    Ok(accepted)
 }
 
 pub fn source_generation_commitment(
@@ -694,12 +856,15 @@ pub fn accept_helper_from_fixed_authority(
     decode_hex::<32>(effect_build_identity_sha256)?;
     let etc_root = Path::new(PRODUCTION_ETC);
     let credentials_root = Path::new(PRODUCTION_CREDENTIALS);
-    let trust: TrustSetManifest = serde_json::from_slice(&read_owned_fd(
-        &etc_root.join("trust-manifest.json"),
-        128 * 1024,
+    let trust_bytes = read_owned_fd(&etc_root.join("trust-manifest.json"), 128 * 1024, 0, false)?;
+    let account_bytes = read_owned_fd(
+        &etc_root.join("account-key-manifest.json"),
+        64 * 1024,
         0,
         false,
-    )?)?;
+    )?;
+    validate_generation2_composition(&trust_bytes, &account_bytes)?;
+    let trust: TrustSetManifest = serde_json::from_slice(&trust_bytes)?;
     let now = Utc::now();
     validate_pinned_key(&trust.helper_acceptance_key, now)?;
     let seed = strict_single_line(
@@ -758,12 +923,15 @@ pub fn issue_run_package_from_fixed_draft() -> Result<(), R2a3Error> {
     let draft_root = Path::new(PRODUCTION_DRAFT_ROOT);
     let signed_package_root = Path::new(PRODUCTION_SIGNED_PACKAGE_ROOT);
     let credentials_root = package_signer_credentials_root();
-    let trust: TrustSetManifest = serde_json::from_slice(&read_owned_fd(
-        &etc_root.join("trust-manifest.json"),
-        128 * 1024,
+    let trust_bytes = read_owned_fd(&etc_root.join("trust-manifest.json"), 128 * 1024, 0, false)?;
+    let account_bytes = read_owned_fd(
+        &etc_root.join("account-key-manifest.json"),
+        64 * 1024,
         0,
         false,
-    )?)?;
+    )?;
+    validate_generation2_composition(&trust_bytes, &account_bytes)?;
+    let trust: TrustSetManifest = serde_json::from_slice(&trust_bytes)?;
     let now = Utc::now();
     let accepted_helper = load_accepted_helper_authority(etc_root, &trust, now)?;
     let draft_bytes = read_owned_fd(
@@ -904,8 +1072,14 @@ fn validate_unsigned_draft_inputs(
         return Err(R2a3Error::Authorization);
     }
     let public_keys = load_source_keys(&etc_root.join("authority-public-keys"), trust, now)?;
-    let validated: (ValidatedManifest, _) =
-        r2a3::validate_signed_authorities(&manifest, &receipts, &public_keys, &nonce, now)?;
+    let validated: (ValidatedManifest, _) = r2a3::validate_signed_authorities_for_key_generations(
+        &manifest,
+        &receipts,
+        &public_keys,
+        &source_key_generations(trust),
+        &nonce,
+        now,
+    )?;
     if validated.0.run_identity_sha256 != draft.run_identity_sha256 {
         return Err(R2a3Error::Authorization);
     }
@@ -973,6 +1147,7 @@ fn build_run_package_draft_at(
         0,
         false,
     )?;
+    validate_generation2_composition(&trust_bytes, &account_manifest_bytes)?;
     let account_manifest: AccountKeyManifest = serde_json::from_slice(&account_manifest_bytes)?;
     let account_generation = manifest_field(&fields, "account_key_generation_id")?;
     let account_entry = account_manifest
@@ -993,8 +1168,14 @@ fn build_run_package_draft_at(
     let receipts = load_receipts(run_root, &nonce)?;
     let envelope: SignedAuthorityEnvelope = serde_json::from_slice(&receipts)?;
     let public_keys = load_source_keys(&etc_root.join("authority-public-keys"), &trust, now)?;
-    let validated: (ValidatedManifest, _) =
-        r2a3::validate_signed_authorities(&manifest, &receipts, &public_keys, &nonce, now)?;
+    let validated: (ValidatedManifest, _) = r2a3::validate_signed_authorities_for_key_generations(
+        &manifest,
+        &receipts,
+        &public_keys,
+        &source_key_generations(&trust),
+        &nonce,
+        now,
+    )?;
     if validated.0.run_identity_sha256 != manifest_field(&fields, "run_identity_sha256")? {
         return Err(R2a3Error::Authorization);
     }
@@ -1794,6 +1975,74 @@ pub fn verify_trust_rebind_key_ceremony(
     verify_key_ceremony_for_profile(output, R2B_TRUST_REBIND_PROFILE, true)
 }
 
+fn create_generation2_helper_acceptance_authority_for_path(
+    output: &Path,
+    helper_executable_sha256: &str,
+    effect_build_identity_sha256: &str,
+    require_persistent_path: bool,
+) -> Result<AcceptedHelperAuthority, R2a3Error> {
+    decode_hex::<32>(helper_executable_sha256)?;
+    decode_hex::<32>(effect_build_identity_sha256)?;
+    verify_key_ceremony_for_profile(output, R2B_TRUST_REBIND_PROFILE, require_persistent_path)?;
+    let uid = unsafe { libc::geteuid() };
+    let trust_bytes = require_ceremony_file(&output.join("trust-manifest.json"), uid, 0o644)?;
+    let account_bytes =
+        require_ceremony_file(&output.join("account-key-manifest.json"), uid, 0o644)?;
+    validate_generation2_composition(&trust_bytes, &account_bytes)?;
+    let trust: TrustSetManifest = serde_json::from_slice(&trust_bytes)?;
+    let seed_bytes = Zeroizing::new(require_ceremony_file(
+        &output.join("helper-acceptance.ed25519"),
+        uid,
+        0o600,
+    )?);
+    let seed_text = Zeroizing::new(strict_single_line(&seed_bytes, 65)?);
+    let seed = Zeroizing::new(decode_hex::<32>(&seed_text)?);
+    let signing = SigningKey::from_bytes(&seed);
+    if signing.verifying_key().to_bytes()
+        != decode_hex::<32>(&trust.helper_acceptance_key.public_key_ed25519_hex)?
+    {
+        return Err(R2a3Error::Authorization);
+    }
+    validate_pinned_key(&trust.helper_acceptance_key, Utc::now())?;
+    let authority = sign_helper_acceptance(
+        AcceptedHelperAuthority {
+            schema_version: 1,
+            stage: "8B-P".to_owned(),
+            revision: "R2A5".to_owned(),
+            status: "ACCEPTED".to_owned(),
+            helper_executable_sha256: helper_executable_sha256.to_owned(),
+            effect_build_identity_sha256: effect_build_identity_sha256.to_owned(),
+            valid_from_utc: trust.helper_acceptance_key.valid_from_utc,
+            valid_until_utc: trust.helper_acceptance_key.valid_until_utc,
+            acceptance_key_id: trust.helper_acceptance_key.key_id.clone(),
+            signature_ed25519_hex: String::new(),
+        },
+        &signing,
+    )?;
+    let verifying = validate_pinned_key(&trust.helper_acceptance_key, Utc::now())?;
+    let signature = Signature::from_bytes(&decode_hex::<64>(&authority.signature_ed25519_hex)?);
+    verifying
+        .verify(&helper_acceptance_preimage(&authority)?, &signature)
+        .map_err(|_| R2a3Error::Authorization)?;
+    Ok(authority)
+}
+
+/// Reissues only the public helper-acceptance authority with the retained
+/// Generation-2 helper key. It neither installs credentials nor creates an
+/// R2B run package or execution authorization.
+pub fn create_generation2_helper_acceptance_authority(
+    output: &Path,
+    helper_executable_sha256: &str,
+    effect_build_identity_sha256: &str,
+) -> Result<AcceptedHelperAuthority, R2a3Error> {
+    create_generation2_helper_acceptance_authority_for_path(
+        output,
+        helper_executable_sha256,
+        effect_build_identity_sha256,
+        true,
+    )
+}
+
 fn trust_rebind_verification_receipt_preimage(
     receipt: &TrustRebindVerificationReceipt,
 ) -> Result<Vec<u8>, R2a3Error> {
@@ -1955,6 +2204,504 @@ pub fn create_trust_rebind_verification_receipt(
         source_ref,
         verified_at_utc,
         verifier_source_sha256,
+        true,
+    )
+}
+
+fn receipt_text_is_bounded(value: &str, maximum: usize) -> bool {
+    !value.is_empty()
+        && value.len() <= maximum
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_graphic() || byte == b' ')
+}
+
+fn backup_file_name_is_safe(value: &str) -> bool {
+    value.starts_with("stage8b-p-r2b-generation2-")
+        && value.ends_with(".tar.age")
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+}
+
+fn path_is_under_disposable_root(path: &Path) -> bool {
+    if !path.is_absolute() {
+        return false;
+    }
+    [
+        Path::new("/tmp"),
+        Path::new("/private/tmp"),
+        Path::new("/var/tmp"),
+        Path::new("/private/var/folders"),
+    ]
+    .iter()
+    .any(|root| {
+        path.starts_with(root)
+            || root
+                .canonicalize()
+                .is_ok_and(|canonical| path.starts_with(canonical))
+    })
+}
+
+fn verify_disposable_restore_path(output: &Path, parent: &Path) -> Result<(), R2a3Error> {
+    let canonical_parent = parent.canonicalize()?;
+    let canonical_output = output.canonicalize()?;
+    if canonical_parent != parent
+        || canonical_output != output
+        || output.parent() != Some(parent)
+        || output.file_name() != Some(std::ffi::OsStr::new("ceremony"))
+        || !path_is_under_disposable_root(parent)
+        || trust_rebind_path_is_persistent(output)
+    {
+        return Err(R2a3Error::Input);
+    }
+    let uid = unsafe { libc::geteuid() };
+    require_ceremony_directory(parent, uid)?;
+    require_ceremony_directory(output, uid)
+}
+
+fn backup_restore_metadata_is_valid(metadata: &TrustRebindBackupRestoreMetadata) -> bool {
+    for digest in [
+        &metadata.verifier_source_sha256,
+        &metadata.verifier_binary_sha256,
+        &metadata.destruction_attestor_binary_sha256,
+        &metadata.cargo_lock_sha256,
+        &metadata.age_binary_sha256,
+        &metadata.age_keygen_binary_sha256,
+        &metadata.encrypted_backup_sha256,
+        &metadata.encryption_recipient_sha256,
+    ] {
+        if decode_hex::<32>(digest).is_err() {
+            return false;
+        }
+    }
+    receipt_text_is_bounded(&metadata.rustc_version, 160)
+        && metadata.rustc_version.starts_with("rustc ")
+        && receipt_text_is_bounded(&metadata.cargo_version, 160)
+        && metadata.cargo_version.starts_with("cargo ")
+        && receipt_text_is_bounded(&metadata.python_version, 160)
+        && metadata.python_version.starts_with("Python 3.")
+        && receipt_text_is_bounded(&metadata.age_version, 80)
+        && metadata.age_version.starts_with('v')
+        && metadata.archive_format == "POSIX_PAX_STREAM"
+        && metadata.encryption_format == "age-encryption.org/v1/X25519"
+        && backup_file_name_is_safe(&metadata.encrypted_backup_file_name)
+        && metadata.encrypted_backup_size_bytes > 0
+        && metadata.encrypted_backup_size_bytes <= 128 * 1024 * 1024
+        && metadata.media_class == "REMOVABLE_EXTERNAL_MEDIA"
+        && metadata.media_filesystem == "FAT32"
+        && metadata.external_removable_media_verified
+        && metadata.encryption_identity_separate_device_verified
+        && !metadata.plaintext_archive_written
+        && metadata.extended_acl_absent
+        && metadata.unexpected_file_flags_absent
+        && metadata.unexpected_extended_attributes_absent
+}
+
+fn trust_rebind_backup_restore_receipt_preimage(
+    receipt: &TrustRebindBackupRestoreReceipt,
+) -> Result<Vec<u8>, R2a3Error> {
+    let mut unsigned = receipt.clone();
+    unsigned.signature_ed25519_hex.zeroize();
+    let body = serde_json::to_vec(&unsigned)?;
+    let mut preimage =
+        Vec::with_capacity(TRUST_REBIND_BACKUP_RESTORE_RECEIPT_DOMAIN.len() + 1 + body.len());
+    preimage.extend_from_slice(TRUST_REBIND_BACKUP_RESTORE_RECEIPT_DOMAIN.as_bytes());
+    preimage.push(0);
+    preimage.extend_from_slice(&body);
+    Ok(preimage)
+}
+
+pub fn verify_trust_rebind_backup_restore_receipt(
+    receipt: &TrustRebindBackupRestoreReceipt,
+    trust: &TrustSetManifest,
+    trust_bytes: &[u8],
+    account_bytes: &[u8],
+    expected_source_ref: &str,
+    expected_verifier_source_sha256: &str,
+) -> Result<(), R2a3Error> {
+    let metadata = TrustRebindBackupRestoreMetadata {
+        verifier_source_sha256: receipt.verifier_source_sha256.clone(),
+        verifier_binary_sha256: receipt.verifier_binary_sha256.clone(),
+        destruction_attestor_binary_sha256: receipt.destruction_attestor_binary_sha256.clone(),
+        cargo_lock_sha256: receipt.cargo_lock_sha256.clone(),
+        rustc_version: receipt.rustc_version.clone(),
+        cargo_version: receipt.cargo_version.clone(),
+        python_version: receipt.python_version.clone(),
+        age_version: receipt.age_version.clone(),
+        age_binary_sha256: receipt.age_binary_sha256.clone(),
+        age_keygen_binary_sha256: receipt.age_keygen_binary_sha256.clone(),
+        archive_format: receipt.archive_format.clone(),
+        encryption_format: receipt.encryption_format.clone(),
+        encrypted_backup_file_name: receipt.encrypted_backup_file_name.clone(),
+        encrypted_backup_sha256: receipt.encrypted_backup_sha256.clone(),
+        encrypted_backup_size_bytes: receipt.encrypted_backup_size_bytes,
+        encryption_recipient_sha256: receipt.encryption_recipient_sha256.clone(),
+        media_class: receipt.media_class.clone(),
+        media_filesystem: receipt.media_filesystem.clone(),
+        external_removable_media_verified: receipt.external_removable_media_verified,
+        encryption_identity_separate_device_verified: receipt
+            .encryption_identity_separate_device_verified,
+        plaintext_archive_written: receipt.plaintext_archive_written,
+        extended_acl_absent: receipt.extended_acl_absent,
+        unexpected_file_flags_absent: receipt.unexpected_file_flags_absent,
+        unexpected_extended_attributes_absent: receipt.unexpected_extended_attributes_absent,
+    };
+    if decode_hex::<20>(expected_source_ref).is_err()
+        || decode_hex::<32>(expected_verifier_source_sha256).is_err()
+        || !backup_restore_metadata_is_valid(&metadata)
+        || receipt.schema_version != 1
+        || receipt.stage != "Stage 8B-P R2B Generation 2 Encrypted Backup Restore R0"
+        || receipt.generation != 2
+        || receipt.verification_status != "PASS"
+        || receipt.source_ref != expected_source_ref
+        || receipt.verifier_source_sha256 != expected_verifier_source_sha256
+        || receipt.trust_manifest_sha256 != sha256(trust_bytes)
+        || receipt.public_key_set_sha256 != trust.public_key_set_sha256
+        || receipt.authorization_public_key_sha256 != trust.authorization_key.public_key_sha256
+        || receipt.helper_acceptance_public_key_sha256
+            != trust.helper_acceptance_key.public_key_sha256
+        || receipt.account_key_manifest_sha256 != sha256(account_bytes)
+        || receipt.source_key_count != source_names().len()
+        || receipt.primary_signing_seed_count != source_names().len() + 2
+        || receipt.restored_signing_seed_count != source_names().len() + 2
+        || receipt.primary_account_key_count != 1
+        || receipt.restored_account_key_count != 1
+        || !receipt.primary_exact_inventory_verified
+        || !receipt.restored_exact_inventory_verified
+        || receipt.primary_private_public_bindings_verified != source_names().len() + 2
+        || receipt.restored_private_public_bindings_verified != source_names().len() + 2
+        || !receipt.primary_account_key_binding_verified
+        || !receipt.restored_account_key_binding_verified
+        || !receipt.public_fingerprints_identical
+        || receipt.private_path_recorded
+        || receipt.private_values_exported
+        || receipt.restored_copy_status != "VERIFIED_PRESENT_PENDING_DELETION"
+        || receipt.backup_status != "RESTORE_VERIFIED_PENDING_DESTRUCTION"
+        || receipt.generation_2_active
+        || receipt.authorization_status != "NOT_ISSUED"
+        || receipt.signature_domain != TRUST_REBIND_BACKUP_RESTORE_RECEIPT_DOMAIN
+        || receipt.authorization_key_id != trust.authorization_key.key_id
+        || receipt.authorization_key_generation != 2
+        || trust.authorization_key.generation != 2
+    {
+        return Err(R2a3Error::Authorization);
+    }
+    let public = VerifyingKey::from_bytes(&decode_hex::<32>(
+        &trust.authorization_key.public_key_ed25519_hex,
+    )?)
+    .map_err(|_| R2a3Error::Authorization)?;
+    let signature = Signature::from_bytes(&decode_hex::<64>(&receipt.signature_ed25519_hex)?);
+    public
+        .verify(
+            &trust_rebind_backup_restore_receipt_preimage(receipt)?,
+            &signature,
+        )
+        .map_err(|_| R2a3Error::Authorization)
+}
+
+fn create_trust_rebind_backup_restore_receipt_for_paths(
+    primary: &Path,
+    restored: &Path,
+    restore_parent: &Path,
+    source_ref: &str,
+    verified_at_utc: DateTime<Utc>,
+    metadata: &TrustRebindBackupRestoreMetadata,
+    require_persistent_primary: bool,
+) -> Result<TrustRebindBackupRestoreReceipt, R2a3Error> {
+    if decode_hex::<20>(source_ref).is_err() || !backup_restore_metadata_is_valid(metadata) {
+        return Err(R2a3Error::Input);
+    }
+    let primary_values = verify_key_ceremony_for_profile(
+        primary,
+        R2B_TRUST_REBIND_PROFILE,
+        require_persistent_primary,
+    )?;
+    verify_disposable_restore_path(restored, restore_parent)?;
+    let restored_values =
+        verify_key_ceremony_for_profile(restored, R2B_TRUST_REBIND_PROFILE, false)?;
+    if primary_values != restored_values || primary == restored {
+        return Err(R2a3Error::Authorization);
+    }
+    let uid = unsafe { libc::geteuid() };
+    let trust_bytes = require_ceremony_file(&primary.join("trust-manifest.json"), uid, 0o644)?;
+    let account_bytes =
+        require_ceremony_file(&primary.join("account-key-manifest.json"), uid, 0o644)?;
+    if trust_bytes != require_ceremony_file(&restored.join("trust-manifest.json"), uid, 0o644)?
+        || account_bytes
+            != require_ceremony_file(&restored.join("account-key-manifest.json"), uid, 0o644)?
+    {
+        return Err(R2a3Error::Authorization);
+    }
+    let trust: TrustSetManifest = serde_json::from_slice(&trust_bytes)?;
+    let authorization_seed_bytes = Zeroizing::new(require_ceremony_file(
+        &primary.join("package-authorization.ed25519"),
+        uid,
+        0o600,
+    )?);
+    let authorization_seed_text =
+        Zeroizing::new(strict_single_line(&authorization_seed_bytes, 65)?);
+    let authorization_seed = Zeroizing::new(decode_hex::<32>(&authorization_seed_text)?);
+    let authorization_signing = SigningKey::from_bytes(&authorization_seed);
+    if authorization_signing.verifying_key().to_bytes()
+        != decode_hex::<32>(&trust.authorization_key.public_key_ed25519_hex)?
+    {
+        return Err(R2a3Error::Authorization);
+    }
+    let mut receipt = TrustRebindBackupRestoreReceipt {
+        schema_version: 1,
+        stage: "Stage 8B-P R2B Generation 2 Encrypted Backup Restore R0".to_owned(),
+        generation: 2,
+        verification_status: "PASS".to_owned(),
+        verified_at_utc,
+        source_ref: source_ref.to_owned(),
+        verifier_source_sha256: metadata.verifier_source_sha256.clone(),
+        verifier_binary_sha256: metadata.verifier_binary_sha256.clone(),
+        destruction_attestor_binary_sha256: metadata.destruction_attestor_binary_sha256.clone(),
+        cargo_lock_sha256: metadata.cargo_lock_sha256.clone(),
+        rustc_version: metadata.rustc_version.clone(),
+        cargo_version: metadata.cargo_version.clone(),
+        python_version: metadata.python_version.clone(),
+        age_version: metadata.age_version.clone(),
+        age_binary_sha256: metadata.age_binary_sha256.clone(),
+        age_keygen_binary_sha256: metadata.age_keygen_binary_sha256.clone(),
+        archive_format: metadata.archive_format.clone(),
+        encryption_format: metadata.encryption_format.clone(),
+        encrypted_backup_file_name: metadata.encrypted_backup_file_name.clone(),
+        encrypted_backup_sha256: metadata.encrypted_backup_sha256.clone(),
+        encrypted_backup_size_bytes: metadata.encrypted_backup_size_bytes,
+        encryption_recipient_sha256: metadata.encryption_recipient_sha256.clone(),
+        media_class: metadata.media_class.clone(),
+        media_filesystem: metadata.media_filesystem.clone(),
+        external_removable_media_verified: metadata.external_removable_media_verified,
+        encryption_identity_separate_device_verified: metadata
+            .encryption_identity_separate_device_verified,
+        plaintext_archive_written: metadata.plaintext_archive_written,
+        extended_acl_absent: metadata.extended_acl_absent,
+        unexpected_file_flags_absent: metadata.unexpected_file_flags_absent,
+        unexpected_extended_attributes_absent: metadata.unexpected_extended_attributes_absent,
+        trust_manifest_sha256: sha256(&trust_bytes),
+        public_key_set_sha256: trust.public_key_set_sha256.clone(),
+        authorization_public_key_sha256: trust.authorization_key.public_key_sha256.clone(),
+        helper_acceptance_public_key_sha256: trust.helper_acceptance_key.public_key_sha256.clone(),
+        account_key_manifest_sha256: sha256(&account_bytes),
+        source_key_count: source_names().len(),
+        primary_signing_seed_count: source_names().len() + 2,
+        restored_signing_seed_count: source_names().len() + 2,
+        primary_account_key_count: 1,
+        restored_account_key_count: 1,
+        primary_exact_inventory_verified: true,
+        restored_exact_inventory_verified: true,
+        primary_private_public_bindings_verified: source_names().len() + 2,
+        restored_private_public_bindings_verified: source_names().len() + 2,
+        primary_account_key_binding_verified: true,
+        restored_account_key_binding_verified: true,
+        public_fingerprints_identical: true,
+        private_path_recorded: false,
+        private_values_exported: false,
+        restored_copy_status: "VERIFIED_PRESENT_PENDING_DELETION".to_owned(),
+        backup_status: "RESTORE_VERIFIED_PENDING_DESTRUCTION".to_owned(),
+        generation_2_active: false,
+        authorization_status: "NOT_ISSUED".to_owned(),
+        signature_domain: TRUST_REBIND_BACKUP_RESTORE_RECEIPT_DOMAIN.to_owned(),
+        authorization_key_id: trust.authorization_key.key_id.clone(),
+        authorization_key_generation: trust.authorization_key.generation,
+        signature_ed25519_hex: String::new(),
+    };
+    let signature =
+        authorization_signing.sign(&trust_rebind_backup_restore_receipt_preimage(&receipt)?);
+    receipt.signature_ed25519_hex = lower_hex(&signature.to_bytes());
+    verify_trust_rebind_backup_restore_receipt(
+        &receipt,
+        &trust,
+        &trust_bytes,
+        &account_bytes,
+        source_ref,
+        &metadata.verifier_source_sha256,
+    )?;
+    Ok(receipt)
+}
+
+pub fn create_trust_rebind_backup_restore_receipt(
+    primary: &Path,
+    restored: &Path,
+    restore_parent: &Path,
+    source_ref: &str,
+    verified_at_utc: DateTime<Utc>,
+    metadata: &TrustRebindBackupRestoreMetadata,
+) -> Result<TrustRebindBackupRestoreReceipt, R2a3Error> {
+    create_trust_rebind_backup_restore_receipt_for_paths(
+        primary,
+        restored,
+        restore_parent,
+        source_ref,
+        verified_at_utc,
+        metadata,
+        true,
+    )
+}
+
+fn trust_rebind_restore_destruction_receipt_preimage(
+    receipt: &TrustRebindRestoreDestructionReceipt,
+) -> Result<Vec<u8>, R2a3Error> {
+    let mut unsigned = receipt.clone();
+    unsigned.signature_ed25519_hex.zeroize();
+    let body = serde_json::to_vec(&unsigned)?;
+    let mut preimage =
+        Vec::with_capacity(TRUST_REBIND_RESTORE_DESTRUCTION_RECEIPT_DOMAIN.len() + 1 + body.len());
+    preimage.extend_from_slice(TRUST_REBIND_RESTORE_DESTRUCTION_RECEIPT_DOMAIN.as_bytes());
+    preimage.push(0);
+    preimage.extend_from_slice(&body);
+    Ok(preimage)
+}
+
+pub fn verify_trust_rebind_restore_destruction_receipt(
+    receipt: &TrustRebindRestoreDestructionReceipt,
+    backup_restore_receipt_bytes: &[u8],
+    trust: &TrustSetManifest,
+    trust_bytes: &[u8],
+    account_bytes: &[u8],
+) -> Result<(), R2a3Error> {
+    let backup_restore: TrustRebindBackupRestoreReceipt =
+        serde_json::from_slice(backup_restore_receipt_bytes)?;
+    verify_trust_rebind_backup_restore_receipt(
+        &backup_restore,
+        trust,
+        trust_bytes,
+        account_bytes,
+        &backup_restore.source_ref,
+        &backup_restore.verifier_source_sha256,
+    )?;
+    if receipt.schema_version != 1
+        || receipt.stage != "Stage 8B-P R2B Generation 2 Restore Destruction R0"
+        || receipt.generation != 2
+        || receipt.destruction_status != "PASS"
+        || receipt.source_ref != backup_restore.source_ref
+        || receipt.backup_restore_receipt_sha256 != sha256(backup_restore_receipt_bytes)
+        || receipt.encrypted_backup_sha256 != backup_restore.encrypted_backup_sha256
+        || receipt.encryption_recipient_sha256 != backup_restore.encryption_recipient_sha256
+        || !receipt.disposable_restore_absent_verified
+        || !receipt.logical_deletion_only
+        || !receipt.restore_volume_filevault_enabled
+        || receipt.private_path_recorded
+        || receipt.private_values_exported
+        || receipt.backup_status != "VERIFIED"
+        || receipt.generation_2_active
+        || receipt.authorization_status != "NOT_ISSUED"
+        || receipt.signature_domain != TRUST_REBIND_RESTORE_DESTRUCTION_RECEIPT_DOMAIN
+        || receipt.authorization_key_id != trust.authorization_key.key_id
+        || receipt.authorization_key_generation != 2
+    {
+        return Err(R2a3Error::Authorization);
+    }
+    let public = VerifyingKey::from_bytes(&decode_hex::<32>(
+        &trust.authorization_key.public_key_ed25519_hex,
+    )?)
+    .map_err(|_| R2a3Error::Authorization)?;
+    let signature = Signature::from_bytes(&decode_hex::<64>(&receipt.signature_ed25519_hex)?);
+    public
+        .verify(
+            &trust_rebind_restore_destruction_receipt_preimage(receipt)?,
+            &signature,
+        )
+        .map_err(|_| R2a3Error::Authorization)
+}
+
+fn create_trust_rebind_restore_destruction_receipt_for_path(
+    primary: &Path,
+    disposable_restore: &Path,
+    backup_restore_receipt_bytes: &[u8],
+    destroyed_at_utc: DateTime<Utc>,
+    restore_volume_filevault_enabled: bool,
+    require_persistent_primary: bool,
+) -> Result<TrustRebindRestoreDestructionReceipt, R2a3Error> {
+    if !disposable_restore.is_absolute()
+        || !path_is_under_disposable_root(disposable_restore)
+        || std::fs::symlink_metadata(disposable_restore).is_ok()
+        || !restore_volume_filevault_enabled
+    {
+        return Err(R2a3Error::Input);
+    }
+    verify_key_ceremony_for_profile(
+        primary,
+        R2B_TRUST_REBIND_PROFILE,
+        require_persistent_primary,
+    )?;
+    let uid = unsafe { libc::geteuid() };
+    let trust_bytes = require_ceremony_file(&primary.join("trust-manifest.json"), uid, 0o644)?;
+    let account_bytes =
+        require_ceremony_file(&primary.join("account-key-manifest.json"), uid, 0o644)?;
+    let trust: TrustSetManifest = serde_json::from_slice(&trust_bytes)?;
+    let backup_restore: TrustRebindBackupRestoreReceipt =
+        serde_json::from_slice(backup_restore_receipt_bytes)?;
+    verify_trust_rebind_backup_restore_receipt(
+        &backup_restore,
+        &trust,
+        &trust_bytes,
+        &account_bytes,
+        &backup_restore.source_ref,
+        &backup_restore.verifier_source_sha256,
+    )?;
+    let authorization_seed_bytes = Zeroizing::new(require_ceremony_file(
+        &primary.join("package-authorization.ed25519"),
+        uid,
+        0o600,
+    )?);
+    let authorization_seed_text =
+        Zeroizing::new(strict_single_line(&authorization_seed_bytes, 65)?);
+    let authorization_seed = Zeroizing::new(decode_hex::<32>(&authorization_seed_text)?);
+    let authorization_signing = SigningKey::from_bytes(&authorization_seed);
+    let mut receipt = TrustRebindRestoreDestructionReceipt {
+        schema_version: 1,
+        stage: "Stage 8B-P R2B Generation 2 Restore Destruction R0".to_owned(),
+        generation: 2,
+        destruction_status: "PASS".to_owned(),
+        destroyed_at_utc,
+        source_ref: backup_restore.source_ref.clone(),
+        backup_restore_receipt_sha256: sha256(backup_restore_receipt_bytes),
+        encrypted_backup_sha256: backup_restore.encrypted_backup_sha256.clone(),
+        encryption_recipient_sha256: backup_restore.encryption_recipient_sha256.clone(),
+        disposable_restore_absent_verified: true,
+        logical_deletion_only: true,
+        restore_volume_filevault_enabled: true,
+        private_path_recorded: false,
+        private_values_exported: false,
+        backup_status: "VERIFIED".to_owned(),
+        generation_2_active: false,
+        authorization_status: "NOT_ISSUED".to_owned(),
+        signature_domain: TRUST_REBIND_RESTORE_DESTRUCTION_RECEIPT_DOMAIN.to_owned(),
+        authorization_key_id: trust.authorization_key.key_id.clone(),
+        authorization_key_generation: trust.authorization_key.generation,
+        signature_ed25519_hex: String::new(),
+    };
+    let signature = authorization_signing.sign(&trust_rebind_restore_destruction_receipt_preimage(
+        &receipt,
+    )?);
+    receipt.signature_ed25519_hex = lower_hex(&signature.to_bytes());
+    verify_trust_rebind_restore_destruction_receipt(
+        &receipt,
+        backup_restore_receipt_bytes,
+        &trust,
+        &trust_bytes,
+        &account_bytes,
+    )?;
+    Ok(receipt)
+}
+
+pub fn create_trust_rebind_restore_destruction_receipt(
+    primary: &Path,
+    disposable_restore: &Path,
+    backup_restore_receipt_bytes: &[u8],
+    destroyed_at_utc: DateTime<Utc>,
+    restore_volume_filevault_enabled: bool,
+) -> Result<TrustRebindRestoreDestructionReceipt, R2a3Error> {
+    create_trust_rebind_restore_destruction_receipt_for_path(
+        primary,
+        disposable_restore,
+        backup_restore_receipt_bytes,
+        destroyed_at_utc,
+        restore_volume_filevault_enabled,
         true,
     )
 }
@@ -2408,6 +3155,14 @@ fn load_source_keys(
         keys.insert(source.clone(), validate_pinned_key(pinned, now)?);
     }
     Ok(keys)
+}
+
+fn source_key_generations(trust: &TrustSetManifest) -> BTreeMap<String, String> {
+    trust
+        .source_keys
+        .iter()
+        .map(|(source, pinned)| (source.clone(), pinned.generation.to_string()))
+        .collect()
 }
 
 fn exact_operation(operation: Operation) -> &'static str {
@@ -3081,6 +3836,13 @@ fn issue_from_source_at(
         return Err(R2a3Error::Provenance);
     }
     let trust_bytes = read_owned_fd(&etc_root.join("trust-manifest.json"), 128 * 1024, 0, false)?;
+    let account_bytes = read_owned_fd(
+        &etc_root.join("account-key-manifest.json"),
+        64 * 1024,
+        0,
+        false,
+    )?;
+    validate_generation2_composition(&trust_bytes, &account_bytes)?;
     let trust: TrustSetManifest = serde_json::from_slice(&trust_bytes)?;
     let pinned = trust
         .source_keys
@@ -4155,9 +4917,10 @@ fn validate_local_authority_at(
     executable_sha256: &str,
     accepted: &AcceptedR2a5Authority,
 ) -> Result<ValidatedLocalR2a5Authority, R2a3Error> {
+    let generation2_composition = accepted.revision == "R2B-G2-R0";
     if accepted.schema_version != 1
         || accepted.stage != "8B-P"
-        || accepted.revision != "R2A5"
+        || (!generation2_composition && accepted.revision != "R2A5")
         || accepted.authorization_status != "NOT_ISSUED"
     {
         return Err(R2a3Error::Authorization);
@@ -4249,10 +5012,11 @@ fn validate_local_authority_at(
         }
     }
     let public_keys = load_source_keys(&etc_root.join("authority-public-keys"), &trust, now)?;
-    let validated: (ValidatedManifest, _) = r2a3::validate_signed_authorities(
+    let validated: (ValidatedManifest, _) = r2a3::validate_signed_authorities_for_key_generations(
         &manifest,
         &receipts,
         &public_keys,
+        &source_key_generations(&trust),
         &package.run_nonce_sha256,
         now,
     )?;
@@ -4266,6 +5030,13 @@ fn validate_local_authority_at(
         0,
         false,
     )?;
+    if generation2_composition {
+        let exact_generation2 =
+            validate_generation2_composition(&trust_bytes, &account_manifest_bytes)?;
+        if &exact_generation2 != accepted {
+            return Err(R2a3Error::Authorization);
+        }
+    }
     let account_manifest: AccountKeyManifest = serde_json::from_slice(&account_manifest_bytes)?;
     if account_manifest.schema_version != 1
         || sha256(&account_manifest_bytes) != package.account_key_manifest_sha256
@@ -4299,6 +5070,7 @@ fn validate_local_authority_at(
         manifest,
         receipts,
         public_keys,
+        key_generations: source_key_generations(&trust),
         validated_manifest: validated.0,
         account_key_relative_path: key_entry.relative_key_path.clone(),
         account_key_sha256: key_entry.key_sha256.clone(),
@@ -4354,6 +5126,7 @@ fn load_r2a5_credentials_at(
         manifest: validated.manifest,
         receipts: validated.receipts,
         public_keys: validated.public_keys,
+        key_generations: validated.key_generations,
         account_id,
         account_key: Zeroizing::new(account_key),
         secret,
@@ -4429,6 +5202,7 @@ pub async fn run_r2b_one_shot() -> Result<R2a3ReadonlyEvidence, R2a3Error> {
                     manifest: &prepared.manifest,
                     signed_authorities: &prepared.receipts,
                     public_keys: &prepared.public_keys,
+                    key_generations: &prepared.key_generations,
                     run_nonce_sha256: &prepared.package.run_nonce_sha256,
                     account_id: &prepared.account_id,
                     account_key: &prepared.account_key[..],
@@ -4496,6 +5270,7 @@ pub async fn run_r2b_controlled_custody_one_shot() -> Result<R2a3ReadonlyEvidenc
                     manifest: &prepared.manifest,
                     signed_authorities: &prepared.receipts,
                     public_keys: &prepared.public_keys,
+                    key_generations: &prepared.key_generations,
                     run_nonce_sha256: &prepared.package.run_nonce_sha256,
                     account_id: &prepared.account_id,
                     account_key: &prepared.account_key[..],
@@ -4580,6 +5355,7 @@ pub async fn run_controlled_fixed_layout() -> Result<R2a3ReadonlyEvidence, R2a3E
             manifest: &prepared.manifest,
             signed_authorities: &prepared.receipts,
             public_keys: &prepared.public_keys,
+            key_generations: &prepared.key_generations,
             run_nonce_sha256: &prepared.package.run_nonce_sha256,
             account_id: &prepared.account_id,
             account_key: &prepared.account_key[..],
@@ -4691,6 +5467,57 @@ pub async fn serve_controlled_tls_once(operation: Operation) -> Result<(), R2a3E
 mod tests {
     use super::*;
 
+    fn copy_ceremony_tree(source: &Path, destination: &Path) {
+        std::fs::create_dir(destination).unwrap();
+        std::fs::set_permissions(destination, std::fs::Permissions::from_mode(0o700)).unwrap();
+        for entry in std::fs::read_dir(source).unwrap() {
+            let entry = entry.unwrap();
+            let source_path = entry.path();
+            let destination_path = destination.join(entry.file_name());
+            let metadata = std::fs::symlink_metadata(&source_path).unwrap();
+            if metadata.is_dir() {
+                copy_ceremony_tree(&source_path, &destination_path);
+            } else {
+                assert!(metadata.is_file());
+                std::fs::copy(&source_path, &destination_path).unwrap();
+                std::fs::set_permissions(
+                    &destination_path,
+                    std::fs::Permissions::from_mode(metadata.mode() & 0o777),
+                )
+                .unwrap();
+            }
+        }
+    }
+
+    fn backup_restore_metadata() -> TrustRebindBackupRestoreMetadata {
+        TrustRebindBackupRestoreMetadata {
+            verifier_source_sha256: "2".repeat(64),
+            verifier_binary_sha256: "3".repeat(64),
+            destruction_attestor_binary_sha256: "a".repeat(64),
+            cargo_lock_sha256: "4".repeat(64),
+            rustc_version: "rustc 1.95.0 (test)".to_owned(),
+            cargo_version: "cargo 1.95.0 (test)".to_owned(),
+            python_version: "Python 3.14.0".to_owned(),
+            age_version: "v1.3.2".to_owned(),
+            age_binary_sha256: "5".repeat(64),
+            age_keygen_binary_sha256: "6".repeat(64),
+            archive_format: "POSIX_PAX_STREAM".to_owned(),
+            encryption_format: "age-encryption.org/v1/X25519".to_owned(),
+            encrypted_backup_file_name: "stage8b-p-r2b-generation2-1111111.tar.age".to_owned(),
+            encrypted_backup_sha256: "7".repeat(64),
+            encrypted_backup_size_bytes: 4096,
+            encryption_recipient_sha256: "8".repeat(64),
+            media_class: "REMOVABLE_EXTERNAL_MEDIA".to_owned(),
+            media_filesystem: "FAT32".to_owned(),
+            external_removable_media_verified: true,
+            encryption_identity_separate_device_verified: true,
+            plaintext_archive_written: false,
+            extended_acl_absent: true,
+            unexpected_file_flags_absent: true,
+            unexpected_extended_attributes_absent: true,
+        }
+    }
+
     #[test]
     fn key_ceremony_profiles_preserve_v1_domains_and_advance_generation() {
         for (profile, expected_generation, expected_account_file) in [
@@ -4782,6 +5609,109 @@ mod tests {
             &account_bytes,
             &source_ref,
             &verifier_hash,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn trust_rebind_backup_restore_receipts_are_signed_and_domain_separated() {
+        let primary_parent = tempfile::tempdir().unwrap();
+        let primary = primary_parent.path().join("primary");
+        generate_key_ceremony_for_profile(&primary, R2B_TRUST_REBIND_PROFILE, false).unwrap();
+        let restore_parent = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(
+            restore_parent.path(),
+            std::fs::Permissions::from_mode(0o700),
+        )
+        .unwrap();
+        let restore_parent_path = restore_parent.path().canonicalize().unwrap();
+        let restored = restore_parent_path.join("ceremony");
+        copy_ceremony_tree(&primary, &restored);
+        let source_ref = "1".repeat(40);
+        let metadata = backup_restore_metadata();
+        assert!(backup_restore_metadata_is_valid(&metadata));
+        verify_disposable_restore_path(&restored, &restore_parent_path).unwrap();
+        verify_key_ceremony_for_profile(&primary, R2B_TRUST_REBIND_PROFILE, false).unwrap();
+        verify_key_ceremony_for_profile(&restored, R2B_TRUST_REBIND_PROFILE, false).unwrap();
+        let receipt = create_trust_rebind_backup_restore_receipt_for_paths(
+            &primary,
+            &restored,
+            &restore_parent_path,
+            &source_ref,
+            Utc::now(),
+            &metadata,
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            receipt.signature_domain,
+            TRUST_REBIND_BACKUP_RESTORE_RECEIPT_DOMAIN
+        );
+        assert_ne!(
+            receipt.signature_domain,
+            TRUST_REBIND_VERIFICATION_RECEIPT_DOMAIN
+        );
+        assert_ne!(receipt.signature_domain, PACKAGE_SIGNATURE_DOMAIN);
+        let trust_bytes = std::fs::read(primary.join("trust-manifest.json")).unwrap();
+        let account_bytes = std::fs::read(primary.join("account-key-manifest.json")).unwrap();
+        let trust: TrustSetManifest = serde_json::from_slice(&trust_bytes).unwrap();
+        verify_trust_rebind_backup_restore_receipt(
+            &receipt,
+            &trust,
+            &trust_bytes,
+            &account_bytes,
+            &source_ref,
+            &metadata.verifier_source_sha256,
+        )
+        .unwrap();
+        let mut tampered = receipt.clone();
+        tampered.encrypted_backup_sha256 = "9".repeat(64);
+        assert!(verify_trust_rebind_backup_restore_receipt(
+            &tampered,
+            &trust,
+            &trust_bytes,
+            &account_bytes,
+            &source_ref,
+            &metadata.verifier_source_sha256,
+        )
+        .is_err());
+
+        let mut receipt_bytes = serde_json::to_vec_pretty(&receipt).unwrap();
+        receipt_bytes.push(b'\n');
+        let restored_path = restored.clone();
+        drop(restore_parent);
+        assert!(!restored_path.exists());
+        let destruction = create_trust_rebind_restore_destruction_receipt_for_path(
+            &primary,
+            &restored_path,
+            &receipt_bytes,
+            Utc::now(),
+            true,
+            false,
+        )
+        .unwrap();
+        assert_eq!(destruction.backup_status, "VERIFIED");
+        assert_eq!(
+            destruction.signature_domain,
+            TRUST_REBIND_RESTORE_DESTRUCTION_RECEIPT_DOMAIN
+        );
+        assert_ne!(destruction.signature_domain, PACKAGE_SIGNATURE_DOMAIN);
+        verify_trust_rebind_restore_destruction_receipt(
+            &destruction,
+            &receipt_bytes,
+            &trust,
+            &trust_bytes,
+            &account_bytes,
+        )
+        .unwrap();
+        let mut tampered_destruction = destruction;
+        tampered_destruction.logical_deletion_only = false;
+        assert!(verify_trust_rebind_restore_destruction_receipt(
+            &tampered_destruction,
+            &receipt_bytes,
+            &trust,
+            &trust_bytes,
+            &account_bytes,
         )
         .is_err());
     }

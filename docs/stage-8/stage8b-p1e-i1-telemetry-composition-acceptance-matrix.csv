@@ -1,0 +1,30 @@
+id,area,requirement,status
+I1TEL-001,lineage,Accepted baseline is 896ad1b and the correction series has direct reviewed parent 22ad2d5 with later HOLD corrections recorded separately,REQUIRED
+I1TEL-002,startup,Telemetry starts only after durable Redis S06 and reader attachment,REQUIRED
+I1TEL-003,identity,Initial snapshot binds real boot operational deployment runtime and durable-seal identity,REQUIRED
+I1TEL-004,capability,Telemetry receives a write-only capability without lifecycle or XACK authority,REQUIRED
+I1TEL-005,owner,Exactly one lifecycle owner remains,REQUIRED
+I1TEL-006,transition,Starting PaperReady Degraded Draining and Stopped transitions are exact,REQUIRED
+I1TEL-007,readiness,PaperReady requires a fresh empty poll zero PEL and durable readiness validation,REQUIRED
+I1TEL-008,recovery,Unresolved lifecycle is Degraded and returns to ready only through exact recovery,REQUIRED
+I1TEL-009,periodic,Immediate transition and bounded periodic publication use skip-on-missed-tick semantics,REQUIRED
+I1TEL-010,backpressure,Bounded FIFO overflow requests first-wins telemetry shutdown,REQUIRED
+I1TEL-011,redis,Health and readiness use XADD NOMKSTREAM MAXLEN equals 4096,REQUIRED
+I1TEL-012,redis,Missing telemetry stream fails without implicit creation or repair,REQUIRED
+I1TEL-013,redaction,Raw secrets URLs paths account IDs payloads and error text are absent,REQUIRED
+I1TEL-014,safety,Paper-only is true and all live FINAM broker and real-order flags are false,REQUIRED
+I1TEL-015,exit,Primary telemetry failure exits 71 and grace expiry remains 72,REQUIRED
+I1TEL-016,precedence,External-signal and independent owner failures are not masked by final telemetry failure,REQUIRED
+I1TEL-017,process,Real child process publishes PaperReady Draining Stopped and exits zero on SIGTERM,REQUIRED
+I1TEL-018,durability,Telemetry process witness leaves durable root unchanged and source PEL empty,REQUIRED
+I1TEL-019,regression,Inherited process restart cancel day-expiry and XACK-last tests remain green,REQUIRED
+I1TEL-020,scope,Install systemd operational Redis VPS FINAM dispatch runtime-live real orders and P1-f remain closed,REQUIRED
+I1TEL-021,supervision,The common process supervisor actively observes the first retained shutdown intent without an OS signal,REQUIRED
+I1TEL-022,supervision,Unexpected telemetry task completion panic and FIFO overflow initiate bounded shutdown and child-task cleanup,REQUIRED
+I1TEL-023,deadline,One first-wins grace deadline governs owner drain telemetry settlement and terminal exit without extension,REQUIRED
+I1TEL-024,exit,Telemetry failure before the retained deadline exits 71 while reaching or exceeding that deadline exits 72,REQUIRED
+I1TEL-025,readiness,Every publication reconciles the current shutdown latch and queued Ready cannot restore PaperReady after shutdown,REQUIRED
+I1TEL-026,freshness,Source-poll freshness has an observed time and expiry and can degrade while telemetry Redis remains healthy,REQUIRED
+I1TEL-027,process,A real in-flight owner poll publishes Draining before release and never publishes a later PaperReady,REQUIRED
+I1TEL-028,durability,Production lifecycle hooks and bounded publisher expose actual semantic and ACK timestamps seal generation commitment and PEL at authenticated ACK truth and XACK boundaries,REQUIRED
+I1TEL-029,recovery,Retained and terminal boundaries preserve exact durable snapshot and PEL while blocked inventory contains one domain-redacted hash per canonical request ID without lifecycle or XACK authority,REQUIRED

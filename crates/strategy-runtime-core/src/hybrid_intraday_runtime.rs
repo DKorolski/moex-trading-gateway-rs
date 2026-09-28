@@ -242,6 +242,12 @@ pub(crate) enum Stage5dProcessedBarPolicy {
 }
 
 impl HybridIntradayRuntimeStrategy {
+    pub(crate) fn stage8b_p1e_last_semantic_bar_ts_utc(&self) -> Option<String> {
+        self.last_processed_bar_ts
+            .and_then(|ts| Utc.timestamp_opt(ts, 0).single())
+            .map(|ts| ts.to_rfc3339_opts(chrono::SecondsFormat::Micros, true))
+    }
+
     pub(crate) fn stage5d_timezone_offset_hours(&self) -> i32 {
         self.config.timezone_offset_hours
     }
@@ -283,7 +289,7 @@ impl HybridIntradayRuntimeStrategy {
         let mr = self.config.mr_config;
         let breakout = self.config.breakout_config;
         let orchestrator = self.config.orchestrator_config;
-        let descriptor = serde_json::json!({
+        let mut descriptor = serde_json::json!({
             "schema": "stage5d_canonical_hybrid_config_v1",
             "runtime_semantic_compatibility_id": crate::stage5d_persistence::STAGE5D_RUNTIME_SEMANTIC_COMPATIBILITY_ID,
             "symbol": &self.config.symbol,
@@ -341,6 +347,19 @@ impl HybridIntradayRuntimeStrategy {
                 "breakout_overnight_exit_time": orchestrator.breakout_overnight_exit_time.format("%H:%M:%S").to_string(),
             }
         });
+        // Preserve every accepted pre-P1F descriptor byte-for-byte. The
+        // historical/default `true` policy is implicit; only the new BO-only
+        // override changes the fingerprint and therefore cannot be confused
+        // with an accepted MR-enabled runtime.
+        if !self.config.live_mr_entries_enabled {
+            descriptor
+                .as_object_mut()
+                .expect("fixed canonical descriptor is an object")
+                .insert(
+                    "live_mr_entries_enabled".to_string(),
+                    serde_json::Value::Bool(false),
+                );
+        }
         format!(
             "stage5d_cfg_sha256:{:x}",
             Sha256::digest(descriptor.to_string().as_bytes())
@@ -746,6 +765,10 @@ pub struct HybridIntradayRuntimeConfig {
     pub symbol: String,
     pub profile: HybridIntradayProfile,
     pub mr_variant: MeanReversionVariant,
+    /// Controls only broker-facing MR entry generation. Shadow High180
+    /// accounting remains independent so a BO-only profile cannot acquire MR
+    /// ownership or pending state while still observing its risk ledger.
+    pub live_mr_entries_enabled: bool,
     pub mr_gate_policy: MrGatePolicy,
     pub risk_gate_mode: RiskGateMode,
     pub risk_gate_seed_file: Option<String>,
@@ -927,7 +950,13 @@ pub struct HybridIntradayRuntimeStrategy {
 
 impl HybridIntradayRuntimeStrategy {
     pub fn stage5c_config_fingerprint(&self) -> String {
-        let canonical = format!("{:?}", self.config);
+        let mut canonical = format!("{:?}", self.config);
+        if self.config.live_mr_entries_enabled {
+            // The accepted Stage 5C fingerprint predates this field and its
+            // implicit policy was `true`. Preserve those exact legacy bytes;
+            // the explicit BO-only `false` value remains fingerprint-bound.
+            canonical = canonical.replacen("live_mr_entries_enabled: true, ", "", 1);
+        }
         format!("{:x}", Sha256::digest(canonical.as_bytes()))
     }
 
@@ -942,6 +971,75 @@ impl HybridIntradayRuntimeStrategy {
 
     pub(crate) fn stage5c_current_position_qty(&self) -> f64 {
         self.last_position_qty
+    }
+
+    pub(crate) fn stage8b_p1f_uses_start_model_bar_label(&self) -> bool {
+        !self.config.live_mr_entries_enabled
+    }
+
+    /// Rebuilds the P1 first-boot riskgate observations from canonical History
+    /// M10 without mutating the warmed strategy.  The replay intentionally
+    /// calls the same High180 shadow kernel as the ordinary bar callback; no
+    /// ledger or materialized fields are accepted from the caller.
+    pub(crate) fn stage8b_p1_rebuild_riskgate_history(
+        &self,
+        bars: &[BarEvent],
+    ) -> Result<Vec<RiskGateSessionFinalization>, ()> {
+        let mut oracle = Self::new(self.config.clone());
+        let mut processed = 0_usize;
+        for bar in bars {
+            if bar.symbol != oracle.config.symbol
+                || ![bar.o, bar.h, bar.l, bar.close, bar.v]
+                    .iter()
+                    .all(|value| value.is_finite())
+                || bar.v < 0.0
+                || bar.l > bar.h
+                || bar.h < bar.o.max(bar.close)
+                || bar.l > bar.o.min(bar.close)
+                || bar.close_time_utc.rem_euclid(600) != 0
+                || oracle
+                    .last_processed_bar_ts
+                    .is_some_and(|last| bar.close_time_utc <= last)
+            {
+                return Err(());
+            }
+            let dt_local = oracle.utc_to_local_naive(bar.close_time_utc).ok_or(())?;
+            if oracle.suppress_weekend_signal_generation(dt_local)
+                || oracle.suppress_non_model_session_bar(dt_local).is_some()
+            {
+                oracle.last_processed_bar_ts = Some(bar.close_time_utc);
+                continue;
+            }
+            oracle.update_day_aggregates(dt_local, bar.h, bar.l);
+            if oracle.uses_high180_mr() {
+                oracle.high180_mr.on_bar(dt_local, bar.h, bar.l);
+            }
+            let close_prev = oracle.prev_day_close().unwrap_or(bar.close);
+            let day_range_prev = oracle.prev_day_range.unwrap_or(0.0);
+            oracle.update_risk_gate_shadow(
+                dt_local,
+                bar.close_time_utc,
+                bar.h,
+                bar.l,
+                bar.close,
+                close_prev,
+                day_range_prev,
+            );
+            oracle.last_bar_close = Some(bar.close);
+            oracle.last_processed_bar_ts = Some(bar.close_time_utc);
+            processed = processed.saturating_add(1);
+        }
+        if processed == 0 {
+            return Err(());
+        }
+        // The authenticated first-boot source proves that the candidate belongs
+        // to a strictly later Moscow session.  That external chronology proof
+        // makes the final History session complete, so close it through the
+        // same source finalizer before comparing the observation list.
+        if let Some(last_session) = oracle.risk_gate_shadow_session_date {
+            oracle.finalize_risk_gate_shadow_session(last_session);
+        }
+        Ok(oracle.pending_risk_gate_finalizations)
     }
 
     pub(crate) fn stage5g_protective_completion_post_callback_summary(
@@ -1077,6 +1175,7 @@ impl HybridIntradayRuntimeStrategy {
             symbol: "IMOEXF".to_string(),
             profile: HybridIntradayProfile::ImoexfPrimaryRiskgateHigh180Lb120,
             mr_variant: MeanReversionVariant::High180,
+            live_mr_entries_enabled: true,
             mr_gate_policy: MrGatePolicy::ShadowPnlLb120Positive,
             risk_gate_mode: RiskGateMode::NormalAppend,
             risk_gate_seed_file: None,
@@ -3592,6 +3691,7 @@ mod tests {
             symbol: "IMOEXF".to_string(),
             profile: HybridIntradayProfile::BaselineRuntimeHybrid,
             mr_variant: MeanReversionVariant::ClassicPrevDayRange,
+            live_mr_entries_enabled: true,
             mr_gate_policy: MrGatePolicy::Disabled,
             risk_gate_mode: RiskGateMode::Disabled,
             risk_gate_seed_file: None,
@@ -3835,6 +3935,322 @@ mod tests {
         assert_eq!(pending.entry_style, EntryStyle::Bracket);
         assert_eq!(pending.take_price, Some(100.85));
         assert!((pending.stop_price.unwrap_or_default() - 91.65).abs() <= 1e-9);
+    }
+
+    #[test]
+    fn disabled_live_mr_never_claims_owner_and_later_breakout_remains_eligible() {
+        let mut cfg = risk_gate_test_config();
+        cfg.live_mr_entries_enabled = false;
+        let mut strategy = HybridIntradayRuntimeStrategy::new(cfg);
+        let day = chrono::NaiveDate::from_ymd_opt(2026, 1, 6).expect("date");
+        strategy.prev_day_close = Some(100.0);
+        strategy.prev_day_range = Some(4.0);
+        strategy.entry_ready = true;
+        strategy.last_day_local = Some(day);
+        strategy.orchestrator.intraday_breakout.restore_snapshot(
+            crate::strategies::hybrid_intraday::intraday_breakout::IntradayBreakoutSnapshot {
+                cur_day_date: Some(day),
+                cur_day_high: Some(100.0),
+                cur_day_low: Some(99.0),
+                cur_day_close: Some(100.0),
+                yesterday_close: Some(100.0),
+                yesterday_range: Some(4.0),
+                yesterday_return: Some(0.0),
+                day_before_close: Some(100.0),
+                was_long_today: false,
+                was_short_today: false,
+                today_start: day.and_hms_opt(7, 0, 0),
+            },
+        );
+        let ctx = test_ctx(Some(0.0));
+
+        let mr_bar = test_bar_ohlc(
+            ts_local(2026, 1, 6, 9, 10, 0),
+            99.7,
+            102.0,
+            99.7,
+            99.7,
+            DataOrigin::Live,
+        );
+        assert!(strategy.on_bar(&ctx, &mr_bar).is_empty());
+        assert!(strategy.pending_entry.is_none());
+        assert!(strategy.current_owner.is_none());
+        assert!(strategy.orchestrator.snapshot().current_owner.is_none());
+
+        let breakout_bar = test_bar_ohlc(
+            ts_local(2026, 1, 6, 10, 0, 0),
+            103.0,
+            103.5,
+            102.5,
+            103.0,
+            DataOrigin::Live,
+        );
+        let intents = strategy.on_bar(&ctx, &breakout_bar);
+        assert!(matches!(
+            intents.as_slice(),
+            [Intent::Classified {
+                intent,
+                intent_class: IntentClass::Entry
+            }] if matches!(intent.as_ref(), Intent::Market { side: OrderSide::Buy, .. })
+        ));
+        assert_eq!(
+            strategy.orchestrator.snapshot().current_owner,
+            Some(Owner::IntradayBreakout)
+        );
+        assert_eq!(
+            strategy.pending_entry.map(|pending| pending.owner),
+            Some(Owner::IntradayBreakout)
+        );
+    }
+
+    #[derive(Debug, serde::Deserialize)]
+    struct FrozenParityBar {
+        bar_start_msk: String,
+        bar_start_utc: String,
+        available_at_utc: String,
+        open: f64,
+        high: f64,
+        low: f64,
+        close: f64,
+        volume: f64,
+    }
+
+    #[derive(Debug, serde::Deserialize)]
+    struct FrozenParityRound {
+        profile: String,
+        component: String,
+        side: String,
+        entry_bar: String,
+        exit_bar: String,
+        entry_price: f64,
+        exit_price: f64,
+        exit_reason: String,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct RuntimeParityRound {
+        side: &'static str,
+        entry_bar: String,
+        exit_bar: String,
+        entry_price: f64,
+        exit_price: f64,
+        exit_reason: &'static str,
+    }
+
+    fn frozen_baseline07_config() -> HybridIntradayRuntimeConfig {
+        let mut cfg = risk_gate_test_config();
+        cfg.live_mr_entries_enabled = false;
+        cfg.model_session_start_time = NaiveTime::from_hms_opt(7, 0, 0);
+        cfg.model_session_end_time = NaiveTime::from_hms_opt(23, 49, 59);
+        cfg.qty = 1.0;
+        cfg.mr_config.session_end_time =
+            NaiveTime::from_hms_opt(9, 59, 0).unwrap_or(NaiveTime::MIN);
+        cfg.mr_config.exit_offset = ChronoDuration::minutes(10);
+        cfg.breakout_config = IntradayBreakoutConfig {
+            k: 0.53,
+            stop1_range: 0.51,
+            stop2_range: 0.35,
+            big_move_threshold: 0.025,
+            min_range: 1.01,
+            min_range_mode: crate::strategies::hybrid_intraday::MinRangeMode::Absolute,
+            exclude_weekends: true,
+            wait_hours: 3.0,
+        };
+        cfg.orchestrator_config = HybridOrchestratorConfig {
+            breakout_eod_mode: BreakoutEodMode::SameDay,
+            breakout_overnight_exit_time: NaiveTime::from_hms_opt(9, 30, 0)
+                .unwrap_or(NaiveTime::MIN),
+        };
+        cfg
+    }
+
+    fn parse_frozen_parity_bars() -> Vec<(FrozenParityBar, NaiveDateTime, i64, i64)> {
+        let mut reader = csv::Reader::from_reader(
+            include_bytes!("../../../fixtures/stage8b-p1f-parity/imoexf_raw_10m_msk_utc.csv")
+                .as_slice(),
+        );
+        reader
+            .deserialize::<FrozenParityBar>()
+            .map(|row| {
+                let row = row.expect("valid frozen M10 row");
+                assert!(row.volume.is_finite() && row.volume >= 0.0);
+                assert!(row.low <= row.open && row.low <= row.close);
+                assert!(row.high >= row.open && row.high >= row.close);
+                let model_label =
+                    NaiveDateTime::parse_from_str(&row.bar_start_msk, "%Y-%m-%d %H:%M:%S")
+                        .expect("valid MSK model label");
+                let start_utc =
+                    chrono::DateTime::parse_from_str(&row.bar_start_utc, "%Y-%m-%d %H:%M:%S%:z")
+                        .expect("valid UTC start")
+                        .timestamp();
+                let available_at_utc =
+                    chrono::DateTime::parse_from_str(&row.available_at_utc, "%Y-%m-%d %H:%M:%S%:z")
+                        .expect("valid UTC availability")
+                        .timestamp();
+                assert_eq!(available_at_utc - start_utc, 10 * 60);
+                (row, model_label, start_utc, available_at_utc)
+            })
+            .collect()
+    }
+
+    fn parity_reason(reason: ReasonCode) -> &'static str {
+        match reason {
+            ReasonCode::BreakoutEodExit => "eod_2330",
+            ReasonCode::BreakoutStop1Long | ReasonCode::BreakoutStop1Short => "bo_stop1",
+            ReasonCode::BreakoutStop2Long | ReasonCode::BreakoutStop2Short => "bo_stop2",
+            _ => panic!("non-BO exit in BO-only parity replay: {reason:?}"),
+        }
+    }
+
+    #[test]
+    fn frozen_baseline07_replay_matches_all_38_alor_rounds() {
+        let transition = NaiveDate::from_ymd_opt(2026, 7, 14).expect("transition date");
+        let bars = parse_frozen_parity_bars();
+        assert_eq!(bars.len(), 7_307);
+
+        let eligible = |label: NaiveDateTime| {
+            !matches!(label.weekday(), Weekday::Sat | Weekday::Sun)
+                && label.time()
+                    >= if label.date() < transition {
+                        NaiveTime::from_hms_opt(9, 0, 0).unwrap_or(NaiveTime::MIN)
+                    } else {
+                        NaiveTime::from_hms_opt(7, 0, 0).unwrap_or(NaiveTime::MIN)
+                    }
+                && label.time() <= NaiveTime::from_hms_opt(23, 49, 59).expect("valid model end")
+        };
+
+        let warmup = bars
+            .iter()
+            .filter(|(_, label, _, _)| label.date() < transition && eligible(*label))
+            .map(|(row, _, start_utc, _)| BarEvent {
+                symbol: "IMOEXF".to_string(),
+                close_time_utc: *start_utc,
+                close: row.close,
+                o: row.open,
+                h: row.high,
+                l: row.low,
+                v: row.volume,
+                origin: DataOrigin::HistoryGap,
+            })
+            .collect::<Vec<_>>();
+        let mut strategy = HybridIntradayRuntimeStrategy::new(frozen_baseline07_config());
+        let mut ctx = test_ctx(Some(0.0));
+        ctx.trade_mode = TradeMode::Paper;
+        ctx.paper_execution_mode = crate::PaperExecutionMode::HistorySim;
+        ctx.allow_live_orders = false;
+        assert_eq!(strategy.warmup_from_history(&ctx, &warmup), warmup.len());
+        assert!(strategy.entry_ready);
+
+        let mut actual = Vec::<RuntimeParityRound>::new();
+        let mut open_round: Option<(&'static str, String, f64)> = None;
+        let mut position_qty: f64 = 0.0;
+        for (row, label, start_utc, available_at_utc) in bars
+            .iter()
+            .filter(|(_, label, _, _)| label.date() >= transition && eligible(*label))
+        {
+            ctx.position_qty = Some(position_qty);
+            ctx.event_ts_utc = *available_at_utc;
+            ctx.now_ts_utc = *available_at_utc;
+            ctx.last_bar_ts = Some(*start_utc);
+            let bar = BarEvent {
+                symbol: "IMOEXF".to_string(),
+                close_time_utc: *start_utc,
+                close: row.close,
+                o: row.open,
+                h: row.high,
+                l: row.low,
+                v: row.volume,
+                origin: DataOrigin::HistoryGap,
+            };
+            let intents = strategy.on_bar(&ctx, &bar);
+
+            if position_qty.abs() <= f64::EPSILON {
+                if let Some(entry) = strategy.pending_entry {
+                    assert_eq!(entry.owner, Owner::IntradayBreakout);
+                    assert!(!intents.is_empty(), "entry intent missing at {label}");
+                    let (side, qty) = match entry.side {
+                        Side::Long => ("long", 1.0),
+                        Side::Short => ("short", -1.0),
+                    };
+                    assert!(open_round.is_none());
+                    open_round = Some((side, row.bar_start_msk.clone(), row.close));
+                    position_qty = qty;
+                    ctx.position_qty = Some(position_qty);
+                    strategy.on_position(
+                        &ctx,
+                        &PositionEvent {
+                            symbol: "IMOEXF".to_string(),
+                            qty: position_qty,
+                            existing: false,
+                            avg_price: row.close,
+                            ts_utc: *available_at_utc,
+                        },
+                    );
+                }
+            } else if let Some(exit) = strategy.pending_exit {
+                assert_eq!(exit.owner, Owner::IntradayBreakout);
+                assert!(!intents.is_empty(), "exit intent missing at {label}");
+                let (side, entry_bar, entry_price) = open_round
+                    .take()
+                    .expect("exit must close an open parity round");
+                actual.push(RuntimeParityRound {
+                    side,
+                    entry_bar,
+                    exit_bar: row.bar_start_msk.clone(),
+                    entry_price,
+                    exit_price: row.close,
+                    exit_reason: parity_reason(exit.reason),
+                });
+                position_qty = 0.0;
+                ctx.position_qty = Some(0.0);
+                strategy.on_position(
+                    &ctx,
+                    &PositionEvent {
+                        symbol: "IMOEXF".to_string(),
+                        qty: 0.0,
+                        existing: false,
+                        avg_price: 0.0,
+                        ts_utc: *available_at_utc,
+                    },
+                );
+            }
+        }
+        assert!(
+            open_round.is_none(),
+            "frozen replay ended with an open round"
+        );
+
+        let mut expected_reader = csv::Reader::from_reader(
+            include_bytes!(
+                "../../../fixtures/stage8b-p1f-parity/baseline07_python_reference_trades.csv"
+            )
+            .as_slice(),
+        );
+        let expected = expected_reader
+            .deserialize::<FrozenParityRound>()
+            .map(|row| row.expect("valid frozen parity round"))
+            .collect::<Vec<_>>();
+        assert_eq!(expected.len(), 38);
+        assert_eq!(actual.len(), expected.len());
+        for (index, (actual, expected)) in actual.iter().zip(expected.iter()).enumerate() {
+            assert_eq!(expected.profile, "bo_only_weekday07_control");
+            assert_eq!(expected.component, "BO");
+            assert_eq!(actual.side, expected.side, "side drift at round {index}");
+            assert_eq!(
+                actual.entry_bar, expected.entry_bar,
+                "entry drift at round {index}"
+            );
+            assert_eq!(
+                actual.exit_bar, expected.exit_bar,
+                "exit drift at round {index}"
+            );
+            assert_eq!(
+                actual.exit_reason, expected.exit_reason,
+                "reason drift at round {index}"
+            );
+            assert!((actual.entry_price - expected.entry_price).abs() <= f64::EPSILON);
+            assert!((actual.exit_price - expected.exit_price).abs() <= f64::EPSILON);
+        }
     }
 
     #[test]
@@ -6770,7 +7186,9 @@ impl Strategy for HybridIntradayRuntimeStrategy {
             }
         }
         let mut actions = if self.uses_mr_override() {
-            let mr_entry_signal = if self.uses_high180_mr() {
+            let mr_entry_signal = if !self.config.live_mr_entries_enabled {
+                None
+            } else if self.uses_high180_mr() {
                 if self.mr_gate_allows_current_session() {
                     self.high180_entry_signal(dt_local, bar.close, close_prev, day_range_prev)
                 } else {

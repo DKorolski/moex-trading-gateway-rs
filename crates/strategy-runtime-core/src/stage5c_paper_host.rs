@@ -681,6 +681,7 @@ mod stage5d_pair_binding_restore_tests {
                     crate::hybrid_intraday_runtime::HybridIntradayProfile::BaselineRuntimeHybrid,
                 mr_variant:
                     crate::hybrid_intraday_runtime::MeanReversionVariant::ClassicPrevDayRange,
+                live_mr_entries_enabled: true,
                 mr_gate_policy: crate::hybrid_intraday_runtime::MrGatePolicy::Disabled,
                 risk_gate_mode: crate::hybrid_intraday_runtime::RiskGateMode::Disabled,
                 risk_gate_seed_file: None,
@@ -1525,6 +1526,7 @@ mod stage5e_retryable_bridge_tests {
                     crate::hybrid_intraday_runtime::HybridIntradayProfile::BaselineRuntimeHybrid,
                 mr_variant:
                     crate::hybrid_intraday_runtime::MeanReversionVariant::ClassicPrevDayRange,
+                live_mr_entries_enabled: true,
                 mr_gate_policy: crate::hybrid_intraday_runtime::MrGatePolicy::Disabled,
                 risk_gate_mode: crate::hybrid_intraday_runtime::RiskGateMode::Disabled,
                 risk_gate_seed_file: None,
@@ -1614,6 +1616,7 @@ mod stage5e_retryable_bridge_tests {
         let semantic_bar_identity =
             stage5e_b3c_semantic_bar_identity(&bar, stage3_provenance_identity);
         Stage5cAcceptedSemanticBar {
+            strategy_model_bar_label_utc: bar.close_time_utc,
             bar,
             tick_size: 0.5,
             origin,
@@ -1785,6 +1788,7 @@ pub(crate) mod stage5f_test_seams {
                 receipt: recovery_receipt,
             },
             Stage5cAcceptedSemanticBar {
+                strategy_model_bar_label_utc: bar.close_time_utc,
                 bar,
                 tick_size,
                 origin: broker_core::HybridRuntimeBarOrigin::Live,
@@ -2515,6 +2519,24 @@ pub struct Stage5cAcceptedHistoryBatch {
     instrument: InstrumentId,
     start_ts: i64,
     end_ts: i64,
+    strategy_model_bar_label_offset_sec: i64,
+}
+
+impl Stage5cAcceptedHistoryBatch {
+    /// Selects candle-start labels for strategy model evaluation while the
+    /// accepted bars, receipt range, provenance and canonical identity remain
+    /// close-bound.
+    pub(crate) fn with_strategy_model_bar_start_labels(
+        mut self,
+    ) -> Result<Self, Stage5cHistoryWarmupError> {
+        for bar in &self.bars {
+            bar.close_time_utc
+                .checked_sub(i64::from(bar.timeframe_sec))
+                .ok_or(Stage5cHistoryWarmupError::InvalidHistoryTimestamp)?;
+        }
+        self.strategy_model_bar_label_offset_sec = -600;
+        Ok(self)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -2614,9 +2636,60 @@ impl Stage5cWarmedPaperStrategy {
         &self.strategy
     }
 
+    pub(crate) fn stage8b_p1_strategy(&self) -> &HybridIntradayRuntimeStrategy {
+        &self.strategy
+    }
+
     pub(crate) fn into_parts(self) -> (HybridIntradayRuntimeStrategy, Stage5cHistoryWarmupReceipt) {
         (self.strategy, self.receipt)
     }
+
+    pub(crate) fn stage8b_p1_rebuild_riskgate_history(
+        &self,
+        bars: &[crate::runtime_compat::BarEvent],
+    ) -> Result<Vec<crate::runtime_compat::RiskGateSessionFinalization>, ()> {
+        self.strategy.stage8b_p1_rebuild_riskgate_history(bars)
+    }
+}
+
+/// Applies only the source-derived riskgate materialization to a warmed P1
+/// runtime.  No serialized strategy state or pending lifecycle state crosses
+/// this bridge.
+pub(crate) fn stage8b_p1_apply_riskgate_to_warmed(
+    warmed: Stage5cWarmedPaperStrategy,
+    riskgate: &crate::runtime_compat::RiskGateRuntimeState,
+) -> Result<Stage5cWarmedPaperStrategy, ()> {
+    if riskgate.profile_id != "imoexf_primary_high180_lb120"
+        || riskgate.ledger_rows_count < 120
+        || riskgate.last_finalized_session_date.is_none()
+    {
+        return Err(());
+    }
+    let (mut strategy, receipt) = warmed.into_parts();
+    Strategy::on_risk_gate_state(&mut strategy, riskgate);
+    let state = Strategy::state(&strategy);
+    let StrategyState::HybridIntradayRuntime {
+        risk_gate_mr_enabled_current_session,
+        risk_gate_rolling_sum_lb120,
+        risk_gate_last_finalized_session_date,
+        risk_gate_ledger_rows_count,
+        ..
+    } = state
+    else {
+        return Err(());
+    };
+    let expected_last_finalized = riskgate
+        .last_finalized_session_date
+        .map(|date| date.format("%Y-%m-%d").to_string());
+    if *risk_gate_mr_enabled_current_session != riskgate.mr_enabled_current_session
+        || risk_gate_rolling_sum_lb120.map(f64::to_bits)
+            != riskgate.rolling_sum_lb120.map(f64::to_bits)
+        || *risk_gate_last_finalized_session_date != expected_last_finalized
+        || *risk_gate_ledger_rows_count != riskgate.ledger_rows_count
+    {
+        return Err(());
+    }
+    Ok(Stage5cWarmedPaperStrategy { strategy, receipt })
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2754,6 +2827,10 @@ pub struct Stage5cSemanticBarInput {
 
 pub struct Stage5cAcceptedSemanticBar {
     bar: broker_core::HybridRuntimeBarEvent,
+    // Durable ordering and semantic identity remain bound to `bar.close_time_utc`.
+    // This separate label is exposed only to the strategy callback because the
+    // accepted ALOR Hybrid model names candles by their opening instant.
+    strategy_model_bar_label_utc: i64,
     tick_size: f64,
     origin: broker_core::HybridRuntimeBarOrigin,
     // STAGE5D-ADDITIVE-BRIDGE-BEGIN: stage5e-b3c-semantic-identity-fields
@@ -2762,6 +2839,45 @@ pub struct Stage5cAcceptedSemanticBar {
     #[allow(dead_code)] // Consumed by the closed Stage 5E sequence issuer.
     semantic_bar_identity: [u8; 32],
     // STAGE5D-ADDITIVE-BRIDGE-END: stage5e-b3c-semantic-identity-fields
+}
+impl Stage5cAcceptedSemanticBar {
+    /// Binds the strategy-only candle label without changing the accepted
+    /// close-bound bar, its semantic identity, or its persistence ordering.
+    pub fn with_strategy_model_bar_label_utc(
+        mut self,
+        strategy_model_bar_label_utc: i64,
+    ) -> Result<Self, Stage5cSemanticBarError> {
+        let timeframe_sec = i64::from(self.bar.timeframe_sec);
+        if strategy_model_bar_label_utc <= 0
+            || timeframe_sec <= 0
+            || strategy_model_bar_label_utc.rem_euclid(timeframe_sec) != 0
+            || strategy_model_bar_label_utc.checked_add(timeframe_sec)
+                != Some(self.bar.close_time_utc)
+        {
+            return Err(Stage5cSemanticBarError::InvalidStrategyModelBarLabel);
+        }
+        self.strategy_model_bar_label_utc = strategy_model_bar_label_utc;
+        Ok(self)
+    }
+
+    pub fn canonical_close_time_utc(&self) -> i64 {
+        self.bar.close_time_utc
+    }
+
+    pub fn strategy_model_bar_label_utc(&self) -> i64 {
+        self.strategy_model_bar_label_utc
+    }
+
+    fn strategy_callback_bar(
+        &self,
+        strategy: &HybridIntradayRuntimeStrategy,
+    ) -> broker_core::HybridRuntimeBarEvent {
+        let mut callback_bar = self.bar.clone();
+        if strategy.stage8b_p1f_uses_start_model_bar_label() {
+            callback_bar.close_time_utc = self.strategy_model_bar_label_utc;
+        }
+        callback_bar
+    }
 }
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: stage5e-b3e-test-corruption-seams
 #[cfg(test)]
@@ -2786,6 +2902,7 @@ pub enum Stage5cSemanticBarError {
     StaleOrDuplicateBar,
     FutureBar,
     InvalidTimestamp,
+    InvalidStrategyModelBarLabel,
     CallbackValidationFailed,
     UnalignedTimestamp,
     InvalidOhlc,
@@ -2964,6 +3081,13 @@ pub(crate) struct Stage5gSourceIntentProjection {
     pub target_qty: Option<f64>,
     pub pre_position_qty: f64,
     pub expected_attribution: Option<broker_core::HybridRuntimeAttribution>,
+}
+
+pub(crate) struct Stage8bP1CommandMaterial {
+    pub(crate) command: broker_core::BrokerCommand,
+    pub(crate) instrument: broker_core::InstrumentId,
+    pub(crate) expected_attribution: broker_core::HybridRuntimeAttribution,
+    pub(crate) source: Stage5gSourceIntentProjection,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -3642,6 +3766,165 @@ fn stage5g_source_intent_projections(
         })
         .collect()
 }
+
+pub(crate) fn stage8b_p1_single_intent_command_material(
+    settled: &Stage5cSettledPaperStrategy,
+) -> Result<Stage8bP1CommandMaterial, ()> {
+    stage8b_p1_single_intent_command_material_from_parts(&settled.strategy, &settled.batch)
+}
+
+fn stage8b_p1_single_intent_command_material_from_parts(
+    strategy: &HybridIntradayRuntimeStrategy,
+    batch: &Stage5cPaperIntentBatch,
+) -> Result<Stage8bP1CommandMaterial, ()> {
+    if batch.records.len() != 1 || batch.request_ids.len() != 1 {
+        return Err(());
+    }
+    let record = &batch.records[0];
+    if record.request_id != batch.request_ids[0] {
+        return Err(());
+    }
+    let attribution = record.expected_attribution.clone().ok_or(())?;
+    attribution.validate_source_equivalence().map_err(|_| ())?;
+    if !attribution.belongs_to(&batch.strategy_id) {
+        return Err(());
+    }
+    let created_ts = Utc
+        .timestamp_opt(record.source_event_ts, 0)
+        .single()
+        .ok_or(())?;
+    let decimal = |value: f64| {
+        if !value.is_finite() {
+            return Err(());
+        }
+        value
+            .to_string()
+            .parse::<rust_decimal::Decimal>()
+            .map_err(|_| ())
+    };
+    let order_side = |side: crate::BrokerNeutralOrderSide| match side {
+        crate::BrokerNeutralOrderSide::Buy => broker_core::OrderSide::Buy,
+        crate::BrokerNeutralOrderSide::Sell => broker_core::OrderSide::Sell,
+    };
+    let command = match record.intent.base_intent() {
+        crate::BrokerNeutralHybridIntent::Market {
+            side, qty, comment, ..
+        } => {
+            if decimal(*qty)? <= rust_decimal::Decimal::ZERO
+                || comment.as_deref() != Some(attribution.internal_comment())
+            {
+                return Err(());
+            }
+            broker_core::BrokerCommand::PlaceOrder(broker_core::PlaceOrder {
+                request_id: record.request_id,
+                created_ts,
+                ttl_ms: None,
+                account_id: batch.account_id.clone(),
+                client_order_id: broker_core::ClientOrderId::from_strategy_request(
+                    record.request_id,
+                ),
+                instrument: batch.instrument.clone(),
+                side: order_side(*side),
+                order_type: broker_core::OrderType::Market,
+                qty: decimal(*qty)?,
+                limit_price: None,
+                time_in_force: broker_core::TimeInForce::Day,
+                comment: comment.clone(),
+            })
+        }
+        crate::BrokerNeutralHybridIntent::Place {
+            side,
+            qty,
+            price,
+            comment,
+        } => {
+            if decimal(*qty)? <= rust_decimal::Decimal::ZERO
+                || decimal(*price)? <= rust_decimal::Decimal::ZERO
+                || comment.as_deref() != Some(attribution.internal_comment())
+            {
+                return Err(());
+            }
+            broker_core::BrokerCommand::PlaceOrder(broker_core::PlaceOrder {
+                request_id: record.request_id,
+                created_ts,
+                ttl_ms: None,
+                account_id: batch.account_id.clone(),
+                client_order_id: broker_core::ClientOrderId::from_strategy_request(
+                    record.request_id,
+                ),
+                instrument: batch.instrument.clone(),
+                side: order_side(*side),
+                order_type: broker_core::OrderType::Limit,
+                qty: decimal(*qty)?,
+                limit_price: Some(decimal(*price)?),
+                time_in_force: broker_core::TimeInForce::Day,
+                comment: comment.clone(),
+            })
+        }
+        crate::BrokerNeutralHybridIntent::Cancel { order_id } => {
+            broker_core::BrokerCommand::CancelOrder(broker_core::CancelOrder {
+                request_id: record.request_id,
+                created_ts,
+                ttl_ms: None,
+                account_id: batch.account_id.clone(),
+                order_id: order_id.clone(),
+                client_order_id: None,
+            })
+        }
+        crate::BrokerNeutralHybridIntent::Replace { .. }
+        | crate::BrokerNeutralHybridIntent::CreateStopLimit { .. }
+        | crate::BrokerNeutralHybridIntent::DeleteStopLimit { .. }
+        | crate::BrokerNeutralHybridIntent::Classified { .. }
+        | crate::BrokerNeutralHybridIntent::Routed { .. } => return Err(()),
+    };
+    let source = stage5g_source_intent_projections(strategy, batch)
+        .into_iter()
+        .next()
+        .ok_or(())?;
+    Ok(Stage8bP1CommandMaterial {
+        command,
+        instrument: batch.instrument.clone(),
+        expected_attribution: attribution,
+        source,
+    })
+}
+
+/// Test-only bridge through the real Stage 5C command materializer.  P1-d3
+/// integration tests use this instead of constructing a synthetic CANCEL DTO,
+/// so the accepted host contract (`client_order_id = None`) remains covered.
+#[cfg(feature = "stage5g-artifact-fixtures")]
+#[doc(hidden)]
+pub fn stage8b_p1d3_test_materialize_host_cancel_command(
+    strategy: &HybridIntradayRuntimeStrategy,
+    request_id: StrategyRequestId,
+    source_event_ts: i64,
+    account_id: BrokerAccountId,
+    instrument: InstrumentId,
+    target_order_id: BrokerOrderId,
+    expected_attribution: broker_core::HybridRuntimeAttribution,
+) -> Option<broker_core::BrokerCommand> {
+    let batch = Stage5cPaperIntentBatch {
+        strategy_id: expected_attribution.strategy_id().to_string(),
+        account_id,
+        instrument,
+        bar_close_ts: source_event_ts,
+        state_fingerprint: stage5c_state_fingerprint(Strategy::state(strategy)),
+        request_ids: vec![request_id],
+        records: vec![Stage5cPaperIntentRecord {
+            request_id,
+            source_event_ts,
+            intent_class: crate::BrokerNeutralHybridIntentClass::CancelCleanup,
+            intent: crate::BrokerNeutralHybridIntent::Cancel {
+                order_id: target_order_id,
+            },
+            expected_attribution: Some(expected_attribution),
+        }],
+        observation_only: false,
+    };
+    stage8b_p1_single_intent_command_material_from_parts(strategy, &batch)
+        .ok()
+        .map(|material| material.command)
+}
 // STAGE5G-C-SOURCE-PROJECTION-END: source-projection-function
 
 pub struct Stage5cBrokerLifecycleResolvedPaperStrategy {
@@ -3849,11 +4132,33 @@ pub(crate) struct Stage5cRecoveryReceiptProjectionV1 {
     pub(crate) duplicate_events: u64,
 }
 
+pub(crate) const STAGE5C_TIMER_CONTINUATION_CONTEXT_SCHEMA_VERSION: u16 = 1;
+
+/// Serialized only inside the authenticated Stage 5G package.  It carries
+/// the exact private Stage 5C admission/receipt facts needed to reconstruct a
+/// continuation capability; it is never exposed as a public constructor.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Stage5cTimerContinuationContextV1 {
+    pub(crate) schema_version: u16,
+    pub(crate) checked_ts_utc_ms: i64,
+    pub(crate) issued_ts_utc_ms: i64,
+    pub(crate) expires_at_ts_utc_ms: i64,
+    pub(crate) strategy_id: String,
+    pub(crate) account_id: BrokerAccountId,
+    pub(crate) target_instrument: InstrumentId,
+    pub(crate) tick_size_bits: u64,
+    pub(crate) bootstrap_snapshot: RuntimeHostBootstrapSnapshot,
+    pub(crate) notified_ts_utc_ms: i64,
+    pub(crate) known_order_ids: Vec<BrokerOrderId>,
+    pub(crate) pending_requests: Vec<StrategyRequestId>,
+}
+
 /// Versioned, transport-free projection of the exact Stage 5C authority owned
 /// by a `ReadyForContinuation` timer settlement.  It is deliberately
 /// crate-private: Stage 5G persistence may retain and validate it, while no
 /// downstream caller can construct a raw Stage 5C continuation capability.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Stage5cTimerReadyRestartAuthorityV1 {
     pub(crate) schema_version: u16,
@@ -3863,6 +4168,8 @@ pub(crate) struct Stage5cTimerReadyRestartAuthorityV1 {
     pub(crate) settled_batch_history: Vec<Stage5cPaperIntentBatchSummary>,
     pub(crate) recovery_receipt: Stage5cRecoveryReceiptProjectionV1,
     pub(crate) recovery_receipt_identity_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) continuation_context: Option<Stage5cTimerContinuationContextV1>,
 }
 
 enum Stage5cTimerSettlementKind {
@@ -3906,6 +4213,19 @@ impl Stage5cTimerSettlement {
     pub(crate) fn stage5g_restart_ready_authority(
         &self,
     ) -> Option<Stage5cTimerReadyRestartAuthorityV1> {
+        self.stage5g_restart_ready_authority_inner(false)
+    }
+
+    pub(crate) fn stage8b_p1_restart_ready_authority(
+        &self,
+    ) -> Option<Stage5cTimerReadyRestartAuthorityV1> {
+        self.stage5g_restart_ready_authority_inner(true)
+    }
+
+    fn stage5g_restart_ready_authority_inner(
+        &self,
+        include_continuation_context: bool,
+    ) -> Option<Stage5cTimerReadyRestartAuthorityV1> {
         let Stage5cTimerSettlementKind::ReadyForContinuation {
             settled,
             checkpoint_ts_utc_ms,
@@ -3913,18 +4233,12 @@ impl Stage5cTimerSettlement {
         else {
             return None;
         };
-        let recovery_receipt = stage5c_recovery_receipt_projection(settled.recovery_receipt());
-        let recovery_receipt_identity_sha256 =
-            stage5c_recovery_receipt_projection_sha256(&recovery_receipt);
-        Some(Stage5cTimerReadyRestartAuthorityV1 {
-            schema_version: STAGE5C_TIMER_READY_RESTART_AUTHORITY_SCHEMA_VERSION,
-            settlement_kind: "ready_for_continuation".to_string(),
-            checkpoint_ts_utc_ms: *checkpoint_ts_utc_ms,
-            settled_batch: stage5ch_batch_summary(settled.intent_batch()),
-            settled_batch_history: settled.settled_batch_history().to_vec(),
-            recovery_receipt,
-            recovery_receipt_identity_sha256,
-        })
+        stage5c_restart_authority_from_settled(
+            settled,
+            *checkpoint_ts_utc_ms,
+            "ready_for_continuation",
+            include_continuation_context,
+        )
     }
 
     fn ready_for_continuation(
@@ -3993,6 +4307,288 @@ impl Stage5cTimerSettlement {
     pub fn redis_command_stream_attached(&self) -> bool {
         false
     }
+}
+
+fn stage5c_restart_authority_from_settled(
+    settled: &Stage5cSettledPaperStrategy,
+    checkpoint_ts_utc_ms: i64,
+    settlement_kind: &str,
+    include_continuation_context: bool,
+) -> Option<Stage5cTimerReadyRestartAuthorityV1> {
+    let recovery_receipt = stage5c_recovery_receipt_projection(settled.recovery_receipt());
+    let recovery_receipt_identity_sha256 =
+        stage5c_recovery_receipt_projection_sha256(&recovery_receipt);
+    let continuation_context = include_continuation_context.then(|| {
+        let pending = settled.recovery_receipt();
+        let warmup = pending.warmup_receipt();
+        let restore = warmup.restore_receipt();
+        let bootstrap = restore.bootstrap_receipt();
+        let admission = &bootstrap.admission;
+        Stage5cTimerContinuationContextV1 {
+            schema_version: STAGE5C_TIMER_CONTINUATION_CONTEXT_SCHEMA_VERSION,
+            checked_ts_utc_ms: admission.checked_ts.timestamp_millis(),
+            issued_ts_utc_ms: admission.issued_ts.timestamp_millis(),
+            expires_at_ts_utc_ms: admission.expires_at.timestamp_millis(),
+            strategy_id: admission.strategy_id.clone(),
+            account_id: admission.account_id.clone(),
+            target_instrument: admission.target_instrument.clone(),
+            tick_size_bits: admission.tick_size.to_bits(),
+            bootstrap_snapshot: admission.bootstrap_snapshot.clone(),
+            notified_ts_utc_ms: bootstrap.notified_ts.timestamp_millis(),
+            known_order_ids: restore.known_order_ids.clone(),
+            pending_requests: restore.pending_requests.clone(),
+        }
+    });
+    Some(Stage5cTimerReadyRestartAuthorityV1 {
+        schema_version: STAGE5C_TIMER_READY_RESTART_AUTHORITY_SCHEMA_VERSION,
+        settlement_kind: settlement_kind.to_string(),
+        checkpoint_ts_utc_ms,
+        settled_batch: stage5ch_batch_summary(settled.intent_batch()),
+        settled_batch_history: settled.settled_batch_history().to_vec(),
+        recovery_receipt,
+        recovery_receipt_identity_sha256,
+        continuation_context,
+    })
+}
+
+pub(crate) fn stage8b_p1_generated_intent_restart_authority(
+    settled: &Stage5cSettledPaperStrategy,
+    checkpoint_ts_utc_ms: i64,
+) -> Option<Stage5cTimerReadyRestartAuthorityV1> {
+    if settled.intent_batch().intent_count() != 1
+        || settled.intent_batch().observation_only()
+        || settled.intent_batch().request_ids().len() != 1
+    {
+        return None;
+    }
+    stage5c_restart_authority_from_settled(
+        settled,
+        checkpoint_ts_utc_ms,
+        "generated_intent_batch",
+        true,
+    )
+}
+
+pub(crate) fn stage8b_p1_restore_timer_ready_settlement(
+    strategy: HybridIntradayRuntimeStrategy,
+    authority: &Stage5cTimerReadyRestartAuthorityV1,
+) -> Result<Stage5cTimerSettlement, ()> {
+    if authority.schema_version != STAGE5C_TIMER_READY_RESTART_AUTHORITY_SCHEMA_VERSION
+        || authority.settlement_kind != "ready_for_continuation"
+        || authority.settled_batch.intent_count != 0
+        || !authority.settled_batch.request_ids.is_empty()
+    {
+        return Err(());
+    }
+    let recovery_receipt =
+        stage8b_p1_restore_recovery_receipt(authority, authority.settled_batch.observation_only)?;
+    let summary = &authority.settled_batch;
+    let batch = Stage5cPaperIntentBatch {
+        strategy_id: summary.strategy_id.clone(),
+        account_id: summary.account_id.clone(),
+        instrument: summary.instrument.clone(),
+        bar_close_ts: summary.bar_close_ts,
+        state_fingerprint: summary.state_fingerprint.clone(),
+        request_ids: Vec::new(),
+        records: Vec::new(),
+        observation_only: summary.observation_only,
+    };
+    let settled = Stage5cSettledPaperStrategy {
+        strategy,
+        recovery_receipt,
+        batch,
+        settled_batch_history: authority.settled_batch_history.clone(),
+    };
+    Ok(Stage5cTimerSettlement::ready_for_continuation(
+        settled,
+        authority.checkpoint_ts_utc_ms,
+    ))
+}
+
+fn stage8b_p1_restore_recovery_receipt(
+    authority: &Stage5cTimerReadyRestartAuthorityV1,
+    allow_observation_only: bool,
+) -> Result<Stage5cPendingRecoveryReceipt, ()> {
+    let context = authority.continuation_context.as_ref().ok_or(())?;
+    if (authority.settled_batch.observation_only && !allow_observation_only)
+        || authority.settled_batch_history.is_empty()
+        || authority.settled_batch_history.last() != Some(&authority.settled_batch)
+        || context.schema_version != STAGE5C_TIMER_CONTINUATION_CONTEXT_SCHEMA_VERSION
+        || context.strategy_id != authority.settled_batch.strategy_id
+        || context.account_id != authority.settled_batch.account_id
+        || context.target_instrument != authority.settled_batch.instrument
+        || context.bootstrap_snapshot.account_id != context.account_id
+        || context.bootstrap_snapshot.instrument != context.target_instrument
+        || context.checked_ts_utc_ms > context.issued_ts_utc_ms
+        || context.issued_ts_utc_ms > context.notified_ts_utc_ms
+        || context.notified_ts_utc_ms > authority.recovery_receipt.restored_ts_utc_ms
+        || authority.recovery_receipt.restored_ts_utc_ms
+            > authority.recovery_receipt.warmup_started_ts_utc_ms
+        || authority.recovery_receipt.warmup_started_ts_utc_ms
+            > authority.recovery_receipt.recovered_ts_utc_ms
+        || context.expires_at_ts_utc_ms < authority.recovery_receipt.recovered_ts_utc_ms
+        || !f64::from_bits(context.tick_size_bits).is_finite()
+        || f64::from_bits(context.tick_size_bits) <= 0.0
+        || !context.pending_requests.is_empty()
+        || stage5c_recovery_receipt_projection_sha256(&authority.recovery_receipt)
+            != authority.recovery_receipt_identity_sha256
+    {
+        return Err(());
+    }
+    let timestamp = |millis| Utc.timestamp_millis_opt(millis).single().ok_or(());
+    let checked_ts = timestamp(context.checked_ts_utc_ms)?;
+    let issued_ts = timestamp(context.issued_ts_utc_ms)?;
+    let expires_at = timestamp(context.expires_at_ts_utc_ms)?;
+    let notified_ts = timestamp(context.notified_ts_utc_ms)?;
+    let restored_ts = timestamp(authority.recovery_receipt.restored_ts_utc_ms)?;
+    let warmup_started_ts = timestamp(authority.recovery_receipt.warmup_started_ts_utc_ms)?;
+    let recovered_ts = timestamp(authority.recovery_receipt.recovered_ts_utc_ms)?;
+    let source_mode = match authority.recovery_receipt.source_mode_code {
+        1 => broker_core::Stage3StrategyBarSourceMode::AlorNativeBarsGetAndSubscribeTf600,
+        2 => broker_core::Stage3StrategyBarSourceMode::AlorStandDerivedM1ToM10,
+        3 => broker_core::Stage3StrategyBarSourceMode::FinamDerivedM1ToM10,
+        4 => broker_core::Stage3StrategyBarSourceMode::FinamNativeM10,
+        5 => broker_core::Stage3StrategyBarSourceMode::RawFinamM1,
+        _ => return Err(()),
+    };
+    let processed_bars =
+        usize::try_from(authority.recovery_receipt.processed_bars).map_err(|_| ())?;
+    let input_bars = usize::try_from(authority.recovery_receipt.input_bars).map_err(|_| ())?;
+    let replayed_events =
+        usize::try_from(authority.recovery_receipt.replayed_events).map_err(|_| ())?;
+    let duplicate_events =
+        usize::try_from(authority.recovery_receipt.duplicate_events).map_err(|_| ())?;
+    if processed_bars > input_bars {
+        return Err(());
+    }
+    let admission = Stage5cPaperHostAdmission {
+        schema_version: STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION,
+        checked_ts,
+        issued_ts,
+        expires_at,
+        strategy_id: context.strategy_id.clone(),
+        account_id: context.account_id.clone(),
+        target_instrument: context.target_instrument.clone(),
+        tick_size: f64::from_bits(context.tick_size_bits),
+        bootstrap_snapshot: context.bootstrap_snapshot.clone(),
+        paper_only: true,
+        runtime_host_attached: false,
+        intent_sink_attached: false,
+    };
+    let bootstrap_receipt = Stage5cBootstrapNotificationReceipt {
+        admission,
+        notified_ts,
+    };
+    let restore_receipt = Stage5cRuntimeStateRestoreReceipt {
+        bootstrap_receipt,
+        restored_ts,
+        known_order_ids: context.known_order_ids.clone(),
+        pending_requests: context.pending_requests.clone(),
+    };
+    let warmup_receipt = Stage5cHistoryWarmupReceipt {
+        restore_receipt,
+        started_ts: warmup_started_ts,
+        processed_bars,
+        input_bars,
+        source_mode,
+        last_history_ts: authority.recovery_receipt.last_history_ts,
+    };
+    Ok(Stage5cPendingRecoveryReceipt {
+        warmup_receipt,
+        recovered_ts,
+        replayed_events,
+        duplicate_events,
+    })
+}
+
+pub(crate) fn stage8b_p1_restore_generated_intent_settled(
+    strategy: HybridIntradayRuntimeStrategy,
+    authority: &Stage5cTimerReadyRestartAuthorityV1,
+    command: &broker_core::BrokerCommand,
+    source: &Stage5gSourceIntentProjection,
+) -> Result<Stage5cSettledPaperStrategy, ()> {
+    let summary = &authority.settled_batch;
+    let request_id = source.request_id;
+    if authority.schema_version != STAGE5C_TIMER_READY_RESTART_AUTHORITY_SCHEMA_VERSION
+        || authority.settlement_kind != "generated_intent_batch"
+        || summary.intent_count != 1
+        || summary.request_ids.as_slice() != [request_id]
+        || summary.min_source_event_ts != summary.max_source_event_ts
+        || summary.max_source_event_ts != summary.bar_close_ts
+        || source.base_action != Stage5gSourceBaseAction::Market
+        || source.expected_attribution.is_none()
+        || stage5c_state_fingerprint(Strategy::state(&strategy)) != summary.state_fingerprint
+        || stage5cj_position_qty(Strategy::state(&strategy)).to_bits()
+            != source.pre_position_qty.to_bits()
+    {
+        return Err(());
+    }
+    let place = match command {
+        broker_core::BrokerCommand::PlaceOrder(place)
+            if place.request_id == request_id
+                && place.account_id == summary.account_id
+                && place.instrument == summary.instrument
+                && place.order_type == broker_core::OrderType::Market
+                && place.time_in_force == broker_core::TimeInForce::Day
+                && place.limit_price.is_none()
+                && place.ttl_ms.is_none()
+                && place.created_ts.timestamp() == summary.bar_close_ts =>
+        {
+            place
+        }
+        _ => return Err(()),
+    };
+    let qty = place.qty.to_string().parse::<f64>().map_err(|_| ())?;
+    let attribution = source.expected_attribution.as_ref().ok_or(())?;
+    attribution.validate_source_equivalence().map_err(|_| ())?;
+    if !qty.is_finite()
+        || qty <= 0.0
+        || source.target_qty.map(f64::to_bits) != Some(qty.to_bits())
+        || !attribution.belongs_to(&summary.strategy_id)
+        || place.comment.as_deref() != Some(attribution.internal_comment())
+    {
+        return Err(());
+    }
+    let side = match place.side {
+        broker_core::OrderSide::Buy => crate::BrokerNeutralOrderSide::Buy,
+        broker_core::OrderSide::Sell => crate::BrokerNeutralOrderSide::Sell,
+    };
+    if source.side != Some(side) {
+        return Err(());
+    }
+    let intent = crate::BrokerNeutralHybridIntent::Market {
+        qty,
+        side,
+        fill_price: None,
+        comment: place.comment.clone(),
+    }
+    .with_class(source.intent_class);
+    let record = Stage5cPaperIntentRecord {
+        request_id,
+        source_event_ts: summary.bar_close_ts,
+        intent_class: source.intent_class,
+        intent,
+        expected_attribution: source.expected_attribution.clone(),
+    };
+    let batch = Stage5cPaperIntentBatch {
+        strategy_id: summary.strategy_id.clone(),
+        account_id: summary.account_id.clone(),
+        instrument: summary.instrument.clone(),
+        bar_close_ts: summary.bar_close_ts,
+        state_fingerprint: summary.state_fingerprint.clone(),
+        request_ids: vec![request_id],
+        records: vec![record],
+        observation_only: false,
+    };
+    if stage5ch_batch_summary(&batch) != *summary {
+        return Err(());
+    }
+    Ok(Stage5cSettledPaperStrategy {
+        strategy,
+        recovery_receipt: stage8b_p1_restore_recovery_receipt(authority, false)?,
+        batch,
+        settled_batch_history: authority.settled_batch_history.clone(),
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -4228,6 +4824,344 @@ impl Stage5cBrokerLifecycleResolvedPaperStrategy {
         &self.strategy
     }
 }
+
+// STAGE8B-P1D3-CALLBACK-BRIDGE-BEGIN: authenticated-paper-lifecycle-v1
+pub(crate) struct Stage8bP1d3BrokerTruthBridgeInput {
+    pub(crate) strategy_id: String,
+    pub(crate) account_id: BrokerAccountId,
+    pub(crate) instrument: InstrumentId,
+    pub(crate) request_id: StrategyRequestId,
+    pub(crate) attribution: broker_core::HybridRuntimeAttribution,
+    pub(crate) pre_position_qty: f64,
+    pub(crate) truth: broker_core::BrokerTruthSnapshot,
+}
+
+pub(crate) struct Stage8bP1d3CallbackBridgeOutput {
+    pub(crate) strategy: HybridIntradayRuntimeStrategy,
+    pub(crate) callback_count: usize,
+    pub(crate) post_state_fingerprint_sha256: String,
+}
+
+pub(crate) struct Stage8bP1d3SemanticBarBridgeInput {
+    pub(crate) strategy_id: String,
+    pub(crate) account_id: BrokerAccountId,
+    pub(crate) instrument: InstrumentId,
+    pub(crate) tick_size: f64,
+}
+
+/// Owned result of the sole P1-d3 same-bar Hybrid callback.  The private
+/// batch is retained so the accepted Stage 5G command materializer remains
+/// the only command-construction path.
+pub(crate) struct Stage8bP1d3SemanticBarBridgeOutput {
+    pub(crate) strategy: HybridIntradayRuntimeStrategy,
+    batch: Stage5cPaperIntentBatch,
+}
+
+impl Stage8bP1d3SemanticBarBridgeOutput {
+    pub(crate) fn intent_count(&self) -> usize {
+        self.batch.intent_count()
+    }
+
+    pub(crate) fn request_ids(&self) -> &[StrategyRequestId] {
+        self.batch.request_ids()
+    }
+
+    pub(crate) fn into_single_intent_material(
+        self,
+    ) -> Result<
+        (HybridIntradayRuntimeStrategy, Stage8bP1CommandMaterial),
+        Stage8bP1d3CallbackBridgeError,
+    > {
+        let material =
+            stage8b_p1_single_intent_command_material_from_parts(&self.strategy, &self.batch)
+                .map_err(|_| Stage8bP1d3CallbackBridgeError::IntentSettlementFailed)?;
+        Ok((self.strategy, material))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage8bP1d3CallbackBridgeError {
+    InvalidAck,
+    ScopeMismatch,
+    NumericConversion,
+    CallbackValidationFailed,
+    GeneratedIntentForbidden,
+    IntentSettlementFailed,
+}
+
+/// Invokes the Hybrid bar callback exactly once after the caller has already
+/// committed and reread the P1-d3 book/truth replacement for this M10.  The
+/// exact bar close is also the strategy clock; wall time is intentionally not
+/// an input.  This bridge owns no Redis, persistence, provider, dispatch or
+/// source-XACK capability.
+pub(crate) fn resolve_stage8b_p1d3_semantic_bar_bridge(
+    mut strategy: HybridIntradayRuntimeStrategy,
+    accepted: Stage5cAcceptedSemanticBar,
+    input: Stage8bP1d3SemanticBarBridgeInput,
+) -> Result<Stage8bP1d3SemanticBarBridgeOutput, Stage8bP1d3CallbackBridgeError> {
+    if input.strategy_id.trim().is_empty()
+        || input.account_id.as_str().trim().is_empty()
+        || accepted.bar.instrument != input.instrument
+        || accepted.origin != broker_core::HybridRuntimeBarOrigin::Live
+        || accepted.bar.origin != broker_core::HybridRuntimeBarOrigin::Live
+        || !accepted.bar.is_final
+        || accepted.bar.timeframe_sec != 600
+        || accepted.bar.close_time_utc <= 0
+        || !same_tick_size(accepted.tick_size, input.tick_size)
+        || strategy.stage5c_binding_matches(&input.instrument, input.tick_size) != (true, true)
+    {
+        return Err(Stage8bP1d3CallbackBridgeError::ScopeMismatch);
+    }
+    let bar_close_ts = accepted.bar.close_time_utc;
+    let callback_bar = accepted.strategy_callback_bar(&strategy);
+    let pre_callback_cleanup_ledger =
+        stage5cj_cleanup_attribution_ledger(Strategy::state(&strategy), &input.strategy_id);
+    let context = stage5cf_semantic_context_from_binding(
+        &strategy,
+        &input.strategy_id,
+        &input.account_id,
+        &input.instrument,
+        input.tick_size,
+        bar_close_ts,
+        bar_close_ts,
+    );
+    let intents = crate::BrokerNeutralHybridStrategy::on_broker_bar(
+        &mut strategy,
+        broker_core::HybridRuntimeCallbackInput {
+            context,
+            payload: callback_bar,
+        },
+    )
+    .map_err(|_| Stage8bP1d3CallbackBridgeError::CallbackValidationFailed)?;
+    let expected_attribution_by_request =
+        stage5cj_expected_generated_attribution_by_request_from_binding(
+            &input.strategy_id,
+            &input.account_id,
+            &input.instrument,
+            bar_close_ts,
+            &intents,
+            &pre_callback_cleanup_ledger,
+        )
+        .map_err(|_| Stage8bP1d3CallbackBridgeError::IntentSettlementFailed)?;
+    let batch = stage5c_build_paper_intent_batch_from_binding(
+        &strategy,
+        &input.strategy_id,
+        &input.account_id,
+        &input.instrument,
+        input.tick_size,
+        bar_close_ts,
+        broker_core::HybridRuntimeBarOrigin::Live,
+        intents,
+        &expected_attribution_by_request,
+    )
+    .map_err(|_| Stage8bP1d3CallbackBridgeError::IntentSettlementFailed)?;
+    Ok(Stage8bP1d3SemanticBarBridgeOutput { strategy, batch })
+}
+
+/// Applies the exact request ACK to the owned Hybrid runtime before the
+/// replacement `S_ack`/`S_cancel_recovered` package is exported.  The bridge
+/// deliberately owns no persistence, Redis, provider or source-XACK handle.
+pub(crate) fn resolve_stage8b_p1d3_ack_bridge(
+    mut strategy: HybridIntradayRuntimeStrategy,
+    ack: &broker_core::CommandAck,
+) -> Result<Stage8bP1d3CallbackBridgeOutput, Stage8bP1d3CallbackBridgeError> {
+    let status = broker_core::map_hybrid_runtime_ack_status(ack.status)
+        .ok_or(Stage8bP1d3CallbackBridgeError::InvalidAck)?;
+    let intents = crate::BrokerNeutralHybridStrategy::on_broker_ack(
+        &mut strategy,
+        broker_core::HybridRuntimeCommandAck {
+            request_id: ack.request_id,
+            status,
+            broker_order_id: ack.broker_order_id.clone(),
+            error_code: broker_core::map_hybrid_runtime_ack_error_code(
+                ack.reason.as_ref().map(|reason| reason.code),
+            ),
+            error_message: None,
+            processed_ts_utc: ack.received_ts.timestamp(),
+        },
+    )
+    .map_err(|_| Stage8bP1d3CallbackBridgeError::CallbackValidationFailed)?;
+    if !intents.is_empty() {
+        return Err(Stage8bP1d3CallbackBridgeError::GeneratedIntentForbidden);
+    }
+    Ok(Stage8bP1d3CallbackBridgeOutput {
+        post_state_fingerprint_sha256: stage5c_state_fingerprint(Strategy::state(&strategy)),
+        strategy,
+        callback_count: 1,
+    })
+}
+
+/// Applies one already canonicalized P1-d3 truth vector to the same runtime
+/// that will later receive the corresponding semantic M10.  Order precedes
+/// position exactly as in the accepted Stage 5C broker lifecycle.  Trades
+/// remain evidence-only because Hybrid has no trade callback.
+pub(crate) fn resolve_stage8b_p1d3_broker_truth_bridge(
+    mut strategy: HybridIntradayRuntimeStrategy,
+    input: Stage8bP1d3BrokerTruthBridgeInput,
+) -> Result<Stage8bP1d3CallbackBridgeOutput, Stage8bP1d3CallbackBridgeError> {
+    if input.truth.account_id != input.account_id
+        || input.truth.orders.len() != 1
+        || input.truth.positions.len() > 1
+        || input.truth.orders.iter().any(|order| {
+            order.account_id != input.account_id || order.instrument != input.instrument
+        })
+        || input.truth.positions.iter().any(|position| {
+            position.account_id != input.account_id || position.instrument != input.instrument
+        })
+        || input.truth.trades.iter().any(|trade| {
+            trade.account_id != input.account_id || trade.instrument != input.instrument
+        })
+        || !input.truth.instruments.is_empty()
+        || !input.pre_position_qty.is_finite()
+    {
+        return Err(Stage8bP1d3CallbackBridgeError::ScopeMismatch);
+    }
+    input
+        .attribution
+        .validate_source_equivalence()
+        .map_err(|_| Stage8bP1d3CallbackBridgeError::ScopeMismatch)?;
+    if !input.attribution.belongs_to(&input.strategy_id) {
+        return Err(Stage8bP1d3CallbackBridgeError::ScopeMismatch);
+    }
+
+    let mut callback_count = 0usize;
+    let order = &input.truth.orders[0];
+    let order_id = order
+        .broker_order_id
+        .clone()
+        .ok_or(Stage8bP1d3CallbackBridgeError::ScopeMismatch)?;
+    let order_qty = order
+        .qty
+        .to_f64()
+        .filter(|value| value.is_finite())
+        .ok_or(Stage8bP1d3CallbackBridgeError::NumericConversion)?;
+    let filled_qty = order
+        .filled_qty
+        .to_f64()
+        .filter(|value| value.is_finite())
+        .ok_or(Stage8bP1d3CallbackBridgeError::NumericConversion)?;
+    let price = order
+        .limit_price
+        .unwrap_or_default()
+        .to_f64()
+        .filter(|value| value.is_finite())
+        .ok_or(Stage8bP1d3CallbackBridgeError::NumericConversion)?;
+    let order_ts = order.source_ts.unwrap_or(order.received_ts).timestamp();
+    let order_context = strategy.stage5g_protective_completion_callback_context(
+        input.strategy_id.clone(),
+        input.account_id.clone(),
+        input.instrument.clone(),
+        order_ts,
+        Some(input.pre_position_qty),
+    );
+    let order_intents = crate::BrokerNeutralHybridStrategy::on_broker_order(
+        &mut strategy,
+        broker_core::HybridRuntimeCallbackInput {
+            context: order_context,
+            payload: broker_core::HybridRuntimeOrderEvent {
+                order_id,
+                request_id: Some(input.request_id),
+                instrument: input.instrument.clone(),
+                status: stage8b_p1d3_order_status_name(&order.status),
+                side: stage8b_p1d3_order_side_name(order.side).to_string(),
+                order_type: stage8b_p1d3_order_type_name(order.order_type).to_string(),
+                qty: order_qty,
+                filled_qty,
+                price,
+                existing: true,
+                attribution: Some(input.attribution.clone()),
+                source_ts_utc: order_ts,
+            },
+        },
+    )
+    .map_err(|_| Stage8bP1d3CallbackBridgeError::CallbackValidationFailed)?;
+    callback_count += 1;
+    if !order_intents.is_empty() {
+        return Err(Stage8bP1d3CallbackBridgeError::GeneratedIntentForbidden);
+    }
+
+    if let Some(position) = input.truth.positions.first() {
+        let qty = position
+            .qty
+            .to_f64()
+            .filter(|value| value.is_finite())
+            .ok_or(Stage8bP1d3CallbackBridgeError::NumericConversion)?;
+        let avg_price = position
+            .avg_price
+            .unwrap_or_default()
+            .to_f64()
+            .filter(|value| value.is_finite())
+            .ok_or(Stage8bP1d3CallbackBridgeError::NumericConversion)?;
+        let position_ts = position
+            .source_ts
+            .unwrap_or(position.received_ts)
+            .timestamp();
+        let position_context = strategy.stage5g_protective_completion_callback_context(
+            input.strategy_id,
+            input.account_id,
+            input.instrument.clone(),
+            position_ts,
+            Some(qty),
+        );
+        let position_intents = crate::BrokerNeutralHybridStrategy::on_broker_position(
+            &mut strategy,
+            broker_core::HybridRuntimeCallbackInput {
+                context: position_context,
+                payload: broker_core::HybridRuntimePositionEvent {
+                    instrument: input.instrument,
+                    qty,
+                    existing: true,
+                    avg_price,
+                    source_ts_utc: position_ts,
+                },
+            },
+        )
+        .map_err(|_| Stage8bP1d3CallbackBridgeError::CallbackValidationFailed)?;
+        callback_count += 1;
+        if !position_intents.is_empty() {
+            return Err(Stage8bP1d3CallbackBridgeError::GeneratedIntentForbidden);
+        }
+    }
+
+    Ok(Stage8bP1d3CallbackBridgeOutput {
+        post_state_fingerprint_sha256: stage5c_state_fingerprint(Strategy::state(&strategy)),
+        strategy,
+        callback_count,
+    })
+}
+
+fn stage8b_p1d3_order_side_name(side: broker_core::OrderSide) -> &'static str {
+    match side {
+        broker_core::OrderSide::Buy => "buy",
+        broker_core::OrderSide::Sell => "sell",
+    }
+}
+
+fn stage8b_p1d3_order_type_name(order_type: broker_core::OrderType) -> &'static str {
+    match order_type {
+        broker_core::OrderType::Market => "market",
+        broker_core::OrderType::Limit => "limit",
+        broker_core::OrderType::Stop => "stop",
+        broker_core::OrderType::StopLimit => "stop_limit",
+        broker_core::OrderType::TakeProfit => "take_profit",
+        broker_core::OrderType::TakeProfitLimit => "take_profit_limit",
+    }
+}
+
+fn stage8b_p1d3_order_status_name(status: &broker_core::OrderStatus) -> String {
+    match status {
+        broker_core::OrderStatus::New => "new",
+        broker_core::OrderStatus::Working => "working",
+        broker_core::OrderStatus::PartiallyFilled => "partially_filled",
+        broker_core::OrderStatus::Filled => "filled",
+        broker_core::OrderStatus::Canceled => "canceled",
+        broker_core::OrderStatus::Rejected => "rejected",
+        broker_core::OrderStatus::Expired => "expired",
+        broker_core::OrderStatus::Unknown(value) => value,
+    }
+    .to_string()
+}
+// STAGE8B-P1D3-CALLBACK-BRIDGE-END: authenticated-paper-lifecycle-v1
 
 // STAGE5G-F-R2-BEGIN: protective-lifecycle-stage5c-bridge
 pub(crate) enum Stage5gProtectiveBrokerLifecycleExecution {
@@ -5692,7 +6626,7 @@ pub fn notify_stage5c_runtime_state_restored(
     notify_stage5c_runtime_state_restored_at(bootstrapped, Utc::now())
 }
 
-fn notify_stage5c_runtime_state_restored_at(
+pub(crate) fn notify_stage5c_runtime_state_restored_at(
     bootstrapped: Stage5cBootstrappedPaperStrategy,
     restored_ts: DateTime<Utc>,
 ) -> Result<Stage5cRuntimeStateRestoredPaperStrategy, Stage5cRuntimeStateRestoreError> {
@@ -5892,6 +6826,7 @@ pub fn accept_stage5c_history_batch(
         bars: input.bars,
         provenance: input.provenance,
         instrument,
+        strategy_model_bar_label_offset_sec: 0,
     })
 }
 
@@ -5902,7 +6837,7 @@ pub fn warmup_stage5c_history(
     warmup_stage5c_history_at(restored, history, Utc::now())
 }
 
-fn warmup_stage5c_history_at(
+pub(crate) fn warmup_stage5c_history_at(
     restored: Stage5cRuntimeStateRestoredPaperStrategy,
     history: Stage5cAcceptedHistoryBatch,
     warmup_now: DateTime<Utc>,
@@ -5925,11 +6860,15 @@ fn warmup_stage5c_history_at(
     let input_bars = history.bars.len();
     let source_mode = history.provenance.source_mode;
     let last_history_ts = history.end_ts;
+    let strategy_model_bar_label_offset_sec = history.strategy_model_bar_label_offset_sec;
     let mut bars = Vec::with_capacity(input_bars);
     for bar in history.bars {
         bars.push(crate::runtime_compat::BarEvent {
             symbol: bar.instrument.symbol,
-            close_time_utc: bar.close_time_utc,
+            close_time_utc: bar
+                .close_time_utc
+                .checked_add(strategy_model_bar_label_offset_sec)
+                .ok_or(Stage5cHistoryWarmupError::InvalidHistoryTimestamp)?,
             close: bar.close,
             o: bar.open,
             h: bar.high,
@@ -6129,7 +7068,7 @@ pub fn recover_stage5c_pending_streams(
     recover_stage5c_pending_streams_at(warmed, evidence, Utc::now())
 }
 
-fn recover_stage5c_pending_streams_at(
+pub(crate) fn recover_stage5c_pending_streams_at(
     warmed: Stage5cWarmedPaperStrategy,
     evidence: Stage5cAcceptedPendingRecoveryEvidence,
     recovered_ts: DateTime<Utc>,
@@ -6327,6 +7266,7 @@ pub fn accept_stage5c_semantic_bar(
         stage5e_b3c_semantic_bar_identity(&input.bar, stage3_provenance_identity);
     // STAGE5D-ADDITIVE-BRIDGE-END: stage5e-b3c-semantic-identity-admission
     Ok(Stage5cAcceptedSemanticBar {
+        strategy_model_bar_label_utc: input.bar.close_time_utc,
         origin: input.bar.origin,
         bar: input.bar,
         tick_size: input.tick_size,
@@ -6519,6 +7459,7 @@ pub(crate) fn stage5e_test_nonempty_intent_sequence_inputs(
             symbol: "IMOEXF".to_string(),
             profile: crate::hybrid_intraday_runtime::HybridIntradayProfile::BaselineRuntimeHybrid,
             mr_variant: crate::hybrid_intraday_runtime::MeanReversionVariant::Author41BoundaryShort,
+            live_mr_entries_enabled: true,
             mr_gate_policy: crate::hybrid_intraday_runtime::MrGatePolicy::Disabled,
             risk_gate_mode: crate::hybrid_intraday_runtime::RiskGateMode::Disabled,
             risk_gate_seed_file: None,
@@ -6634,6 +7575,7 @@ pub(crate) fn stage5e_test_nonempty_intent_sequence_inputs(
             receipt: recovery_receipt,
         },
         Stage5cAcceptedSemanticBar {
+            strategy_model_bar_label_utc: bar.close_time_utc,
             bar,
             tick_size: 0.5,
             origin: broker_core::HybridRuntimeBarOrigin::Live,
@@ -6684,12 +7626,13 @@ pub(crate) fn consume_stage5c_for_authorized_callback(
         accepted.bar.close_time_utc,
         callback_now,
     );
+    let callback_bar = accepted.strategy_callback_bar(&strategy);
     Ok(Stage5eStage5cAuthorizedCallbackMaterial {
         strategy,
         recovery_receipt,
         callback_input: broker_core::HybridRuntimeCallbackInput {
             context,
-            payload: accepted.bar,
+            payload: callback_bar,
         },
         attribution_snapshot,
         retained_bar_metadata,
@@ -7156,6 +8099,31 @@ fn apply_stage5c_semantic_bar_at(
     accepted: Stage5cAcceptedSemanticBar,
     now: DateTime<Utc>,
 ) -> Result<Stage5cSemanticBarResult, Stage5cSemanticBarError> {
+    apply_stage5c_semantic_bar_at_with_replay_boundary(recovered, accepted, now, false)
+}
+
+/// P1 first boot uses an authenticated Replay M10 captured no later than the
+/// lifecycle timestamp.  Unlike the ordinary live/reconnect path it may be
+/// older than the empty-recovery wall-clock receipt, but it must still be
+/// strictly after the History tail.  This narrow bridge preserves the normal
+/// Stage 5C stale-bar rule for every other caller.
+pub(crate) fn stage8b_p1_apply_first_replay_bar_at(
+    recovered: Stage5cPendingRecoveredPaperStrategy,
+    accepted: Stage5cAcceptedSemanticBar,
+    now: DateTime<Utc>,
+) -> Result<Stage5cSemanticBarResult, Stage5cSemanticBarError> {
+    if accepted.origin != broker_core::HybridRuntimeBarOrigin::Replay {
+        return Err(Stage5cSemanticBarError::Stage3Rejected);
+    }
+    apply_stage5c_semantic_bar_at_with_replay_boundary(recovered, accepted, now, true)
+}
+
+fn apply_stage5c_semantic_bar_at_with_replay_boundary(
+    recovered: Stage5cPendingRecoveredPaperStrategy,
+    accepted: Stage5cAcceptedSemanticBar,
+    now: DateTime<Utc>,
+    allow_authenticated_first_boot_replay: bool,
+) -> Result<Stage5cSemanticBarResult, Stage5cSemanticBarError> {
     let (mut strategy, recovery_receipt) = recovered.into_parts();
     let admission = &recovery_receipt
         .warmup_receipt()
@@ -7177,7 +8145,8 @@ fn apply_stage5c_semantic_bar_at(
     if !same_tick_size(accepted.tick_size, admission.tick_size()) {
         return Err(Stage5cSemanticBarError::TickSizeMismatch);
     }
-    if accepted.bar.close_time_utc <= recovery_receipt.recovered_ts().timestamp()
+    if (!allow_authenticated_first_boot_replay
+        && accepted.bar.close_time_utc <= recovery_receipt.recovered_ts().timestamp())
         || accepted.bar.close_time_utc <= recovery_receipt.warmup_receipt().last_history_ts()
     {
         return Err(Stage5cSemanticBarError::StaleOrDuplicateBar);
@@ -7189,13 +8158,14 @@ fn apply_stage5c_semantic_bar_at(
         stage5cj_cleanup_attribution_ledger(Strategy::state(&strategy), admission.strategy_id());
     let context = stage5cf_semantic_context(&strategy, admission, accepted.bar.close_time_utc, now);
     let bar_close_ts = accepted.bar.close_time_utc;
+    let callback_bar = accepted.strategy_callback_bar(&strategy);
     let origin = accepted.origin;
     let execution_eligible = origin == broker_core::HybridRuntimeBarOrigin::Live;
     let intents = crate::BrokerNeutralHybridStrategy::on_broker_bar(
         &mut strategy,
         broker_core::HybridRuntimeCallbackInput {
             context,
-            payload: accepted.bar,
+            payload: callback_bar,
         },
     )
     .map_err(|_| Stage5cSemanticBarError::CallbackValidationFailed)?;
@@ -7233,18 +8203,38 @@ fn stage5cf_semantic_context(
     bar_close_ts: i64,
     now: DateTime<Utc>,
 ) -> broker_core::HybridRuntimeStrategyContext {
+    stage5cf_semantic_context_from_binding(
+        strategy,
+        admission.strategy_id(),
+        admission.account_id(),
+        admission.target_instrument(),
+        admission.tick_size(),
+        bar_close_ts,
+        now.timestamp(),
+    )
+}
+
+fn stage5cf_semantic_context_from_binding(
+    strategy: &HybridIntradayRuntimeStrategy,
+    strategy_id: &str,
+    account_id: &BrokerAccountId,
+    instrument: &InstrumentId,
+    tick_size: f64,
+    bar_close_ts: i64,
+    now_ts: i64,
+) -> broker_core::HybridRuntimeStrategyContext {
     broker_core::HybridRuntimeStrategyContext {
-        strategy_id: admission.strategy_id().to_string(),
-        request_namespace_account: admission.account_id().clone(),
-        instrument: admission.target_instrument().clone(),
-        tick_size: admission.tick_size(),
+        strategy_id: strategy_id.to_string(),
+        request_namespace_account: account_id.clone(),
+        instrument: instrument.clone(),
+        tick_size,
         trade_mode: broker_core::HybridRuntimeTradeMode::Paper,
         paper_execution_mode: broker_core::HybridRuntimePaperExecutionMode::LiveOnly,
         allow_live_orders: false,
         gateway_phase: broker_core::HybridRuntimeGatewayPhase::LiveReady,
         position_qty: Some(strategy.stage5c_current_position_qty()),
         event_ts_utc: bar_close_ts,
-        strategy_now_ts_utc: now.timestamp(),
+        strategy_now_ts_utc: now_ts,
         last_bar_ts_utc: Some(bar_close_ts),
     }
 }
@@ -7541,6 +8531,34 @@ fn stage5c_build_paper_intent_batch(
         broker_core::HybridRuntimeAttribution,
     >,
 ) -> Result<Stage5cPaperIntentBatch, Stage5cIntentSettlementError> {
+    stage5c_build_paper_intent_batch_from_binding(
+        strategy,
+        admission.strategy_id(),
+        admission.account_id(),
+        admission.target_instrument(),
+        admission.tick_size(),
+        bar_close_ts,
+        origin,
+        intents,
+        expected_attribution_by_request,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stage5c_build_paper_intent_batch_from_binding(
+    strategy: &HybridIntradayRuntimeStrategy,
+    strategy_id: &str,
+    account_id: &BrokerAccountId,
+    instrument: &InstrumentId,
+    tick_size: f64,
+    bar_close_ts: i64,
+    origin: broker_core::HybridRuntimeBarOrigin,
+    intents: Vec<crate::BrokerNeutralHybridIntent>,
+    expected_attribution_by_request: &HashMap<
+        StrategyRequestId,
+        broker_core::HybridRuntimeAttribution,
+    >,
+) -> Result<Stage5cPaperIntentBatch, Stage5cIntentSettlementError> {
     if intents.len() > u8::MAX as usize {
         return Err(Stage5cIntentSettlementError::TooManyIntents);
     }
@@ -7549,19 +8567,14 @@ fn stage5c_build_paper_intent_batch(
     let mut seen_request_ids = HashSet::new();
     let state = Strategy::state(strategy);
     for intent in intents {
-        validate_stage5cg_intent(
-            &intent,
-            &admission.target_instrument().symbol,
-            admission.tick_size(),
-            bar_close_ts,
-        )?;
+        validate_stage5cg_intent(&intent, &instrument.symbol, tick_size, bar_close_ts)?;
         let class = intent
             .explicit_class()
             .ok_or(Stage5cIntentSettlementError::MissingIntentClass)?;
         let request_id = stage5cg_source_request_id(
-            admission.strategy_id(),
-            admission.account_id().as_str(),
-            &admission.target_instrument().symbol,
+            strategy_id,
+            account_id.as_str(),
+            &instrument.symbol,
             bar_close_ts,
             &intent,
         )?;
@@ -7574,12 +8587,7 @@ fn stage5c_build_paper_intent_batch(
             .get(&request_id)
             .cloned()
             .or_else(|| {
-                stage5cj_expected_attribution_for_intent(
-                    state,
-                    admission.strategy_id(),
-                    class,
-                    &intent,
-                )
+                stage5cj_expected_attribution_for_intent(state, strategy_id, class, &intent)
             });
         records.push(Stage5cPaperIntentRecord {
             request_id,
@@ -7590,9 +8598,9 @@ fn stage5c_build_paper_intent_batch(
         });
     }
     Ok(Stage5cPaperIntentBatch {
-        strategy_id: admission.strategy_id().to_string(),
-        account_id: admission.account_id().clone(),
-        instrument: admission.target_instrument().clone(),
+        strategy_id: strategy_id.to_string(),
+        account_id: account_id.clone(),
+        instrument: instrument.clone(),
         bar_close_ts,
         state_fingerprint: stage5c_state_fingerprint(state),
         request_ids,
@@ -9392,13 +10400,34 @@ fn stage5cj_expected_generated_attribution_by_request_from_ledger(
     HashMap<StrategyRequestId, broker_core::HybridRuntimeAttribution>,
     Stage5cIntentSettlementError,
 > {
+    stage5cj_expected_generated_attribution_by_request_from_binding(
+        admission.strategy_id(),
+        admission.account_id(),
+        admission.target_instrument(),
+        source_ts,
+        intents,
+        ledger,
+    )
+}
+
+fn stage5cj_expected_generated_attribution_by_request_from_binding(
+    strategy_id: &str,
+    account_id: &BrokerAccountId,
+    instrument: &InstrumentId,
+    source_ts: i64,
+    intents: &[crate::BrokerNeutralHybridIntent],
+    ledger: &Stage5cCleanupAttributionLedger,
+) -> Result<
+    HashMap<StrategyRequestId, broker_core::HybridRuntimeAttribution>,
+    Stage5cIntentSettlementError,
+> {
     let mut expected = HashMap::new();
     let mut seen_request_ids = HashSet::new();
     for intent in intents {
         let request_id = stage5cg_source_request_id(
-            admission.strategy_id(),
-            admission.account_id().as_str(),
-            &admission.target_instrument().symbol,
+            strategy_id,
+            account_id.as_str(),
+            &instrument.symbol,
             source_ts,
             intent,
         )?;
@@ -11061,6 +12090,7 @@ mod bootstrap_notification_tests {
             symbol: symbol.to_string(),
             profile: HybridIntradayProfile::BaselineRuntimeHybrid,
             mr_variant: MeanReversionVariant::ClassicPrevDayRange,
+            live_mr_entries_enabled: true,
             mr_gate_policy: MrGatePolicy::Disabled,
             risk_gate_mode: RiskGateMode::Disabled,
             risk_gate_seed_file: None,
@@ -12677,6 +13707,20 @@ mod bootstrap_notification_tests {
         assert!(!settled.intent_sink_attached());
         assert!(!settled.broker_transport_attached());
         let _ = Strategy::state(settled.strategy());
+        let checkpoint_ts_utc_ms = settled.intent_batch().bar_close_ts() * 1_000;
+        let ready =
+            crate::attach_stage5g_initial_zero_intent_timer_ready(settled, checkpoint_ts_utc_ms)
+                .expect(
+                    "source-produced zero-intent settlement enters initial Stage 5G TimerReady",
+                );
+        assert_eq!(ready.strategy_id(), "hybrid_imoexf");
+        assert_eq!(ready.account_id().as_str(), "ACC_TEST_0001");
+        assert_eq!(ready.instrument(), &target());
+        assert_eq!(ready.checkpoint_ts_utc_ms(), checkpoint_ts_utc_ms);
+        assert_eq!(ready.summary().stage5c_callback_count, 1);
+        assert_eq!(ready.summary().request_count, 0);
+        crate::validate_stage5g_timer_checkpoint(&ready.checkpoint())
+            .expect("exact initial pre-broker-truth checkpoint is valid");
     }
 
     #[test]
@@ -18114,6 +19158,7 @@ mod stage5g_r2ca_r2_tests {
             symbol: "IMOEXF".to_string(),
             profile: HybridIntradayProfile::ImoexfPrimaryRiskgateHigh180Lb120,
             mr_variant: MeanReversionVariant::High180,
+            live_mr_entries_enabled: true,
             mr_gate_policy: MrGatePolicy::ShadowPnlLb120Positive,
             risk_gate_mode: RiskGateMode::NormalAppend,
             risk_gate_seed_file: None,
@@ -18238,6 +19283,7 @@ mod stage5g_r2ca_r2_tests {
             symbol: "IMOEXF".to_string(),
             profile: HybridIntradayProfile::BaselineRuntimeHybrid,
             mr_variant: MeanReversionVariant::Author41BoundaryShort,
+            live_mr_entries_enabled: true,
             mr_gate_policy: MrGatePolicy::Disabled,
             risk_gate_mode: RiskGateMode::Disabled,
             risk_gate_seed_file: None,
@@ -19163,6 +20209,7 @@ mod stage5g_r2ca_r3_tests {
             symbol: "IMOEXF".to_string(),
             profile: HybridIntradayProfile::BaselineRuntimeHybrid,
             mr_variant: MeanReversionVariant::Author41BoundaryShort,
+            live_mr_entries_enabled: true,
             mr_gate_policy: MrGatePolicy::Disabled,
             risk_gate_mode: RiskGateMode::Disabled,
             risk_gate_seed_file: None,

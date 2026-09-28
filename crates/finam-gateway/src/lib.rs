@@ -16,6 +16,9 @@ pub mod stage8a1_execution_capability;
 mod stage8a3_endpoint_classifier;
 mod stage8a4_reconciliation;
 mod stage8b_no_send;
+mod stage8b_p1e_schedule_publisher;
+mod stage8b_p1f_fixed_producers;
+mod stage8b_p1f_o2_materializer;
 #[cfg(feature = "stage8b-r2a7-source-adapter")]
 mod stage8b_r2a7_source_adapter;
 
@@ -56,6 +59,33 @@ pub use stage8a4_reconciliation::{
 pub use stage8b_no_send::{
     invoke_stage8b_operator_once, Stage8bOperatorDiagnostic, Stage8bOperatorFacadeError,
     Stage8bOperatorInvocationRequest,
+};
+pub use stage8b_p1e_schedule_publisher::{
+    adapt_stage8b_p1e_readonly_schedule, authorize_stage8b_p1e_first_publication,
+    load_stage8b_p1e_schedule_publisher_state, persist_stage8b_p1e_schedule_publisher_state,
+    prepare_stage8b_p1e_schedule_publication, publish_stage8b_p1e_prepared_schedule,
+    Stage8bP1eFirstPublicationAuthorization, Stage8bP1eReadonlyScheduleAdapterInputV1,
+    Stage8bP1eRedisScheduleStreamWriter, Stage8bP1eSchedulePublisherError,
+    Stage8bP1eSchedulePublisherInputV1, Stage8bP1eSchedulePublisherLineage,
+    Stage8bP1eSchedulePublisherPhaseV1, Stage8bP1eSchedulePublisherStateV1,
+    Stage8bP1eScheduleSigner, Stage8bP1eScheduleStreamWriter, Stage8bP1fSchedulePublisherRedisV1,
+};
+pub use stage8b_p1f_fixed_producers::{
+    authorize_stage8b_p1f_first_m10, load_stage8b_p1f_m10_producer_state,
+    mark_stage8b_p1f_m10_published, persist_stage8b_p1f_m10_producer_state,
+    prepare_stage8b_p1f_m10, prepare_stage8b_p1f_o3_synthetic_schedule,
+    prepare_stage8b_p1f_o4_readonly_schedule, publish_stage8b_p1f_prepared_m10,
+    stage8b_p1f_synthetic_m10_fixture_sha256, stage8b_p1f_synthetic_schedule_fixture_sha256,
+    Stage8bP1fExactM1ObservationV1, Stage8bP1fFirstM10AuthorizationV1, Stage8bP1fM10BatchV1,
+    Stage8bP1fM10PrepareOutcomeV1, Stage8bP1fM10ProducerLineageV1, Stage8bP1fM10ProducerPhaseV1,
+    Stage8bP1fM10ProducerStateV1, Stage8bP1fM10PublicationPortV1, Stage8bP1fO3ScheduleInputV1,
+    Stage8bP1fProducerErrorV1, Stage8bP1fProducerPhaseV1,
+};
+pub use stage8b_p1f_o2_materializer::{
+    collect_stage8b_p1f_o2_source_v1, materialize_stage8b_p1f_o2_source_v1,
+    Stage8bP1fO2MaterializationEvidenceV1, Stage8bP1fO2MaterializedSourceV1,
+    Stage8bP1fO2MaterializerErrorV1, Stage8bP1fO2RouteEvidenceV1, STAGE8B_P1F_O2_ACCOUNT_ALIAS,
+    STAGE8B_P1F_O2_ACCOUNT_TEMPLATE_SENTINEL,
 };
 #[cfg(feature = "stage8b-r2a7-source-adapter")]
 pub use stage8b_r2a7_source_adapter::{

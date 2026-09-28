@@ -1,0 +1,31 @@
+id,area,requirement,status
+P1FI-001,lineage,Source implementation descends from accepted R4 design commit,REQUIRED
+P1FI-002,scope,Source slice performs no installation service start VPS or remote mutation,REQUIRED
+P1FI-003,custody,Production store opens only the exact trusted control root as UID zero,REQUIRED
+P1FI-004,custody,Every transition rechecks root inode ownership mode and exclusive guardian lock,REQUIRED
+P1FI-005,custody,Created authority directories and files receive explicit root and service-group ownership,REQUIRED
+P1FI-006,custody,Real Linux service UID cannot unlink rename chmod create substitute parent or read guardian lock,REQUIRED
+P1FI-007,custody,Concurrent guardian acquisition fails closed,REQUIRED
+P1FI-008,genesis,Signed canonical genesis commits Prepared local receipt event and head before activation,REQUIRED
+P1FI-009,genesis,No phase claim is possible before exact signed activation certificate,REQUIRED
+P1FI-010,genesis,Activation crash continuation accepts only the exact transaction,REQUIRED
+P1FI-011,genesis,Repeated genesis after activation is rejected,REQUIRED
+P1FI-012,history,Events are generation sequence predecessor and receipt-hash chained,REQUIRED
+P1FI-013,history,Retained phase manifest bytes must equal the hash bound by claim event,REQUIRED
+P1FI-014,history,Head rollback claim-directory loss and retained-manifest tamper fail closed,REQUIRED
+P1FI-015,history,Head state active identity deadlines and stopping state equal the event-replayed projection,REQUIRED
+P1FI-016,transactions,Pending claim materialization stopping and terminal markers plus exact prepared event temps block admission and resume only the same transaction,REQUIRED
+P1FI-017,o2,O2 policy template installation source config and claim identities are exact,REQUIRED
+P1FI-018,o2,Only first_boot_source_bundle_sha256 is finalized from the signed template,REQUIRED
+P1FI-019,o2,Source and config exact temp crash cuts recover and committed receipt event head binding precedes admission,REQUIRED
+P1FI-020,o2,Broker truth age above 300 seconds commits Failed and rejects admission,REQUIRED
+P1FI-021,recovery,Accepted V5 first-boot recovery remains separate from V4 committed schedule continuation,REQUIRED
+P1FI-022,deadline,Run permit owns an exclusive process-lifetime execution lock and existing owner state cannot mint a fresh monotonic witness,REQUIRED
+P1FI-023,deadline,Clock rollback frozen wall deadline or reboot commits durable Stopping and closes ordinary admission,REQUIRED
+P1FI-024,deadline,Live permit enforces monotonic stopping while every public restart without its witness completes exact recovery and yields immediate ForceKill,REQUIRED
+P1FI-025,restore,Descriptor-relative restore permits nonoverlapping siblings and prevents symlink leaf or parent substitution from reaching control state,REQUIRED
+P1FI-026,restore,Declared coherent restore permanently quarantines ordinary use,REQUIRED
+P1FI-027,restore,No authority clear or rebind API exists,REQUIRED
+P1FI-028,inheritance,Exact accepted Redis trace capability and P0 isolation sources are unchanged,REQUIRED
+P1FI-029,evidence,Positive control categorized mutations nonsemantic control Rust tests Clippy and source-backed multi-UID log are immutable evidence,REQUIRED
+P1FI-030,closed,P1F-Ib through Ie O0 through O4 P1F-A Redis FINAM runtime-live and real orders remain closed,REQUIRED

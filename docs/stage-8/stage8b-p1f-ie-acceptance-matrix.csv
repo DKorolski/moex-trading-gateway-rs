@@ -1,0 +1,25 @@
+id,area,requirement,status
+P1FIE-001,authority,P1F-Ia accepted commit tree and independent review digest are exact,REQUIRED
+P1FIE-002,authority,P1F-Ib accepted commit tree and independent review digest are exact,REQUIRED
+P1FIE-003,authority,P1F-Ic accepted commit tree and independent review digest are exact,REQUIRED
+P1FIE-004,authority,P1F-Id accepted commit tree and independent review digest are exact,REQUIRED
+P1FIE-005,authority,Ie HOLD review target and digest are exact correction authority,REQUIRED
+P1FIE-006,lineage,Ia Ib Ic Id Ie and the correction form one ordered Git ancestry,REQUIRED
+P1FIE-007,scope,Only listed feature-gated fixture Rust docs and evidence files change and Cargo remains exact,REQUIRED
+P1FIE-008,composition,Actual O2 materialized supervisor and source bytes feed first boot and ordinary admission,REQUIRED
+P1FIE-009,composition,One operational identity and runtime fingerprint bind O2 schedule M10 and runtime evidence,REQUIRED
+P1FIE-010,composition,Fixed schedule producer bytes enter the same isolated Redis read by the runtime child,REQUIRED
+P1FIE-011,composition,Fixed M10 producer retains Prepared Published sequence two and exact high-water,REQUIRED
+P1FIE-012,composition,Existing local supervisor starts and gracefully stops the participating runtime child,REQUIRED
+P1FIE-013,composition,Resource poll and bounded hash-only audit observe the same linked Redis execution,REQUIRED
+P1FIE-014,lifecycle,Linked Market lifecycle reaches durable ACK truth and source XACK last,REQUIRED
+P1FIE-015,restart,Controlled restart and readmission retain truth and return AlreadyAcknowledged,REQUIRED
+P1FIE-016,restart,Command stream remains length one and no duplicate command or callback effect appears,REQUIRED
+P1FIE-017,negative,Corrupted materialized O2 source bytes fail the exact source binding,REQUIRED
+P1FIE-018,evidence,Linked evidence carries source config identity schedule Redis IDs sequence audit and lifecycle results,REQUIRED
+P1FIE-019,regression,Nine inherited fixtures remain a separately named aggregate regression suite,REQUIRED
+P1FIE-020,runner,Every qualified exact selector proves selected one passed one failed zero ignored zero,REQUIRED
+P1FIE-021,runner,Zero-selection and qualified-selector drift fail closed under negative coverage,REQUIRED
+P1FIE-022,evidence,Aggregate gate reruns complete runtime FINAM doctest clippy formatting and diff checks,REQUIRED
+P1FIE-023,boundary,O0 install VPS operational Redis paper provider FINAM writes runtime-live and real orders remain closed,REQUIRED
+P1FIE-024,roadmap,Only independently accepted Ie may unlock separate O0 read-only target preflight,REQUIRED

@@ -1,0 +1,16 @@
+id,area,requirement,status
+I1AGG-001,lineage,Exact accepted process source is 1086b8d95e10514532d1c25c57956eca943b732c,REQUIRED
+I1AGG-002,lineage,All accepted milestones bind exact commit and independent review SHA-256,REQUIRED
+I1AGG-003,scope,Aggregate readiness package changes no production Rust Cargo workflow config or deploy material,REQUIRED
+I1AGG-004,scope,Held intermediate commits are not promoted to accepted milestones,REQUIRED
+I1AGG-005,wording,V4 pre-effect witness is described as controlled restart rather than OS crash,REQUIRED
+I1AGG-006,wording,Continuous witness is limited to four exact restart and readmission observations,REQUIRED
+I1AGG-007,inventory,Process source and fixed binary CLI are recorded accepted,REQUIRED
+I1AGG-008,inventory,Telemetry contract DTO and Redis writer primitives are foundation only,REQUIRED
+I1AGG-009,open,Production telemetry composition remains explicitly open,REQUIRED
+I1AGG-010,open,P1-e fixed-path installation transaction remains explicitly open,REQUIRED
+I1AGG-011,open,P1-e systemd material and target-Linux evidence remain explicitly open,REQUIRED
+I1AGG-012,open,Aggregate I1 acceptance remains explicitly open,REQUIRED
+I1AGG-013,roadmap,Telemetry precedes installation and systemd freeze which precedes aggregate acceptance,REQUIRED
+I1AGG-014,safety,Operational Redis VPS FINAM dispatch runtime-live real orders and P1-f remain closed,REQUIRED
+I1AGG-015,activation,Package performs no install service start Redis operational contact or FINAM contact,REQUIRED

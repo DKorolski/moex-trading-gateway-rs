@@ -1,0 +1,41 @@
+id,category,requirement,status
+P1D4R7-001,lineage,R7 parent is exact R6 design commit cb6e6ddf863f314cc96b5f8ac0a75809e8c6824a,REQUIRED
+P1D4R7-002,inheritance,R7 preserves Option A one retained source XACK-last V1 chain sequence timing and S09 C1,REQUIRED
+P1D4R7-003,reservation,Exact command entry ID is HMAC-precommitted before any XADD,REQUIRED
+P1D4R7-004,reservation,Reservation binds source semantic request command envelope streams groups predecessor ID reserved ID and package generation,REQUIRED
+P1D4R7-005,reservation,Predecessor is exact command-stream last-generated-id rather than last visible entry,REQUIRED
+P1D4R7-006,reservation,Reserved ID is the canonical checked immediate successor and cannot be repicked,REQUIRED
+P1D4R7-007,publication,Lua uses explicit reserved ID and never XADD star for generated Market,REQUIRED
+P1D4R7-008,publication,Lua validates predecessor before first XADD and atomically writes exact entry and marker,REQUIRED
+P1D4R7-009,publication,Existing marker path validates every field and exact reserved entry bytes,REQUIRED
+P1D4R7-010,publication,Marker missing with entry present or marker present with entry absent is hard conflict,REQUIRED
+P1D4R7-011,publication,Byte-identical replacement E2 cannot substitute precommitted E1,REQUIRED
+P1D4R7-012,publication,Concurrent stream advancement is hard conflict and grants no ID reselection,REQUIRED
+P1D4R7-013,binding,Full publication binding extends exact reservation and original prepublication seal,REQUIRED
+P1D4R7-014,binding,S_ack and S_truth retain identical HMAC-covered reservation and binding,REQUIRED
+P1D4R7-015,canonical,Reservation and binding use fixed-order map-free canonical bytes,REQUIRED
+P1D4R7-016,canonical,Integer lengths and values use unsigned big-endian encoding,REQUIRED
+P1D4R7-017,canonical,UUID is RFC4122 network bytes and digests are lowercase-hex validated then raw bytes,REQUIRED
+P1D4R7-018,canonical,Redis IDs are canonical decimal pairs encoded as two u64 big-endian values,REQUIRED
+P1D4R7-019,canonical,Checked-in fixture freezes reservation and binding bytes and SHA256 values,REQUIRED
+P1D4R7-020,generation,Reservation binds W0 and binding binds W0 G0 and exact original G0 commitment,REQUIRED
+P1D4R7-021,generation,S_ack uses checked W0 plus one and G0 plus one,REQUIRED
+P1D4R7-022,generation,S_truth uses checked W0 plus two and G0 plus two,REQUIRED
+P1D4R7-023,generation,Generation skip reuse overflow downgrade or successor-seal substitution fails closed,REQUIRED
+P1D4R7-024,routing,Authenticated package inspection is exactly Absent PresentValid or PresentInvalid,REQUIRED
+P1D4R7-025,routing,Accepted P1-d3 V3 routing remains first,REQUIRED
+P1D4R7-026,routing,PresentValid runs P1-d4 V1 classifier before ordinary P1-d2,REQUIRED
+P1D4R7-027,routing,Lengths one and two return dispatch and order pending P1-d4 owners,REQUIRED
+P1D4R7-028,routing,Lengths three and four may reuse structural P1-d2 facts but return composite P1-d4 owners,REQUIRED
+P1D4R7-029,routing,PresentInvalid hard blocks and can never fall through to P1-d2 or generic P1,REQUIRED
+P1D4R7-030,routing,Absent preserves standalone P1-d2 then generic P1 order unchanged,REQUIRED
+P1D4R7-031,routing,P1-d4 never broadly intercepts standalone P1-d2,REQUIRED
+P1D4R7-032,journal,Generated Market continues to use only exact V1 dispatch order trade and finalization records,REQUIRED
+P1D4R7-033,sequence,No pair exists before finalization and exact post-allocation marker equality remains mandatory,REQUIRED
+P1D4R7-034,source,One exact M10 remains pending through S_truth and XACK is last,REQUIRED
+P1D4R7-035,coverage,The 13 generated cells are derived without adding a reservation-only durable phase,REQUIRED
+P1D4R7-036,coverage,Active inventory is 92 plus 13 equals 105 with duplicate and conflict variants,REQUIRED
+P1D4R7-037,checker,Negative harness covers precommit publication routing canonical bytes generations and inherited R6 findings,REQUIRED
+P1D4R7-038,scope,R7 is docs evidence checker handoff only and excludes saved source WIP,REQUIRED
+P1D4R7-039,scope,Operational Redis DB0 VPS FINAM POST DELETE broker dispatch runtime-live real orders and partial fills remain closed,REQUIRED
+P1D4R7-040,governance,P1-d4 source implementation resumes only after independent acceptance of exact R7 artifact,REQUIRED

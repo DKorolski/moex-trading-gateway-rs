@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "domain": "moex.stage8b.p1e.i1a.r1.model-fixtures.v1",
+  "progression_cases": [
+    {"id": "PR-bootstrap", "high_water": null, "candidate": {"valid": true, "generation": 1, "sequence": 10, "published_at_ms": 10000, "semantic_revision": 1, "semantic_hash": "aa", "envelope_hash": "11"}, "expected": "accept-bootstrap"},
+    {"id": "PR-ordinary-600", "high_water": {"generation": 1, "sequence": 10, "published_at_ms": 10000, "semantic_revision": 1, "semantic_hash": "aa", "envelope_hash": "11"}, "candidate": {"valid": true, "generation": 1, "sequence": 610, "published_at_ms": 610000, "semantic_revision": 1, "semantic_hash": "aa", "envelope_hash": "22"}, "expected": "accept-monotonic-jump"},
+    {"id": "PR-idle-weekend", "high_water": {"generation": 1, "sequence": 610, "published_at_ms": 610000, "semantic_revision": 1, "semantic_hash": "aa", "envelope_hash": "22"}, "candidate": {"valid": true, "generation": 1, "sequence": 200000, "published_at_ms": 200000000, "semantic_revision": 2, "semantic_hash": "bb", "envelope_hash": "33"}, "expected": "accept-monotonic-jump"},
+    {"id": "PR-retention-loss", "high_water": {"generation": 1, "sequence": 1, "published_at_ms": 1000, "semantic_revision": 1, "semantic_hash": "aa", "envelope_hash": "11"}, "candidate": {"valid": true, "generation": 1, "sequence": 5000, "published_at_ms": 5000000, "semantic_revision": 1, "semantic_hash": "aa", "envelope_hash": "44"}, "expected": "accept-monotonic-jump"},
+    {"id": "PR-idempotent", "high_water": {"generation": 1, "sequence": 10, "published_at_ms": 10000, "semantic_revision": 1, "semantic_hash": "aa", "envelope_hash": "11"}, "candidate": {"valid": true, "generation": 1, "sequence": 10, "published_at_ms": 10000, "semantic_revision": 1, "semantic_hash": "aa", "envelope_hash": "11"}, "expected": "idempotent"},
+    {"id": "PR-sequence-conflict", "high_water": {"generation": 1, "sequence": 10, "published_at_ms": 10000, "semantic_revision": 1, "semantic_hash": "aa", "envelope_hash": "11"}, "candidate": {"valid": true, "generation": 1, "sequence": 10, "published_at_ms": 10000, "semantic_revision": 1, "semantic_hash": "aa", "envelope_hash": "99"}, "expected": "terminal-conflict"},
+    {"id": "PR-sequence-rollback", "high_water": {"generation": 1, "sequence": 10, "published_at_ms": 10000, "semantic_revision": 1, "semantic_hash": "aa", "envelope_hash": "11"}, "candidate": {"valid": true, "generation": 1, "sequence": 9, "published_at_ms": 11000, "semantic_revision": 1, "semantic_hash": "aa", "envelope_hash": "22"}, "expected": "blocked-rollback"},
+    {"id": "PR-time-rollback", "high_water": {"generation": 1, "sequence": 10, "published_at_ms": 10000, "semantic_revision": 1, "semantic_hash": "aa", "envelope_hash": "11"}, "candidate": {"valid": true, "generation": 1, "sequence": 11, "published_at_ms": 9999, "semantic_revision": 1, "semantic_hash": "aa", "envelope_hash": "22"}, "expected": "blocked-time-rollback"},
+    {"id": "PR-semantic-rollback", "high_water": {"generation": 1, "sequence": 10, "published_at_ms": 10000, "semantic_revision": 2, "semantic_hash": "bb", "envelope_hash": "11"}, "candidate": {"valid": true, "generation": 1, "sequence": 11, "published_at_ms": 11000, "semantic_revision": 1, "semantic_hash": "aa", "envelope_hash": "22"}, "expected": "blocked-semantic-rollback"},
+    {"id": "PR-semantic-conflict", "high_water": {"generation": 1, "sequence": 10, "published_at_ms": 10000, "semantic_revision": 2, "semantic_hash": "bb", "envelope_hash": "11"}, "candidate": {"valid": true, "generation": 1, "sequence": 11, "published_at_ms": 11000, "semantic_revision": 2, "semantic_hash": "cc", "envelope_hash": "22"}, "expected": "terminal-semantic-conflict"},
+    {"id": "PR-generation-change", "high_water": {"generation": 1, "sequence": 10, "published_at_ms": 10000, "semantic_revision": 1, "semantic_hash": "aa", "envelope_hash": "11"}, "candidate": {"valid": true, "generation": 2, "sequence": 11, "published_at_ms": 11000, "semantic_revision": 1, "semantic_hash": "aa", "envelope_hash": "22"}, "expected": "blocked-unreviewed-generation"},
+    {"id": "PR-invalid-newest", "high_water": {"generation": 1, "sequence": 10, "published_at_ms": 10000, "semantic_revision": 1, "semantic_hash": "aa", "envelope_hash": "11"}, "candidate": {"valid": false, "generation": 1, "sequence": 11, "published_at_ms": 11000, "semantic_revision": 1, "semantic_hash": "aa", "envelope_hash": "22"}, "older_valid_available": true, "expected": "blocked-invalid-newest-no-fallback"}
+  ],
+  "route_cases": [
+    {"id": "RT-market-open", "route": "market_execution", "kind": "tradability", "state": "open", "fresh": true, "exact_book": true, "exact_last_m10": true, "no_later_eligible_m10": true, "boundary_reached": true, "expected": "issue-market"},
+    {"id": "RT-market-closed", "route": "market_execution", "kind": "day_boundary", "state": "closed", "fresh": true, "exact_book": true, "exact_last_m10": true, "no_later_eligible_m10": true, "boundary_reached": true, "expected": "blocked-route-evidence"},
+    {"id": "RT-working-open", "route": "working_limit_evaluation", "kind": "tradability", "state": "open", "fresh": true, "exact_book": true, "exact_last_m10": true, "no_later_eligible_m10": true, "boundary_reached": true, "expected": "issue-working"},
+    {"id": "RT-working-closed", "route": "working_limit_evaluation", "kind": "day_boundary", "state": "closed", "fresh": true, "exact_book": true, "exact_last_m10": true, "no_later_eligible_m10": true, "boundary_reached": true, "expected": "blocked-route-evidence"},
+    {"id": "RT-cancel-open", "route": "cancel_step", "kind": "tradability", "state": "open", "fresh": true, "exact_book": true, "exact_last_m10": true, "no_later_eligible_m10": true, "boundary_reached": true, "expected": "issue-cancel-no-trading-grant"},
+    {"id": "RT-cancel-closed", "route": "cancel_step", "kind": "day_boundary", "state": "closed", "fresh": true, "exact_book": true, "exact_last_m10": true, "no_later_eligible_m10": true, "boundary_reached": true, "expected": "issue-cancel-no-trading-grant"},
+    {"id": "RT-day-on-time", "route": "day_expiry", "kind": "day_boundary", "state": "closed", "fresh": true, "exact_book": true, "exact_last_m10": true, "no_later_eligible_m10": true, "boundary_reached": true, "expected": "issue-day-expiry"},
+    {"id": "RT-day-delayed-fresh", "route": "day_expiry", "kind": "day_boundary", "state": "closed", "fresh": true, "exact_book": true, "exact_last_m10": true, "no_later_eligible_m10": true, "boundary_reached": true, "delayed": true, "expected": "issue-day-expiry"},
+    {"id": "RT-day-restart-before-bind-stale", "route": "day_expiry", "kind": "day_boundary", "state": "closed", "fresh": false, "exact_book": true, "exact_last_m10": true, "no_later_eligible_m10": true, "boundary_reached": true, "restart": "before_binding", "expected": "blocked-fresh-source-required"},
+    {"id": "RT-day-restart-after-bind", "route": "day_expiry", "kind": "day_boundary", "state": "closed", "fresh": false, "exact_book": true, "exact_last_m10": true, "no_later_eligible_m10": true, "boundary_reached": true, "restart": "after_binding", "durable_binding": true, "identical_transition": true, "expected": "reissue-historical-day-expiry"},
+    {"id": "RT-day-last-m10-mismatch", "route": "day_expiry", "kind": "day_boundary", "state": "closed", "fresh": true, "exact_book": true, "exact_last_m10": false, "no_later_eligible_m10": true, "boundary_reached": true, "expected": "blocked-day-proof"},
+    {"id": "RT-day-later-m10-possible", "route": "day_expiry", "kind": "day_boundary", "state": "closed", "fresh": true, "exact_book": true, "exact_last_m10": true, "no_later_eligible_m10": false, "boundary_reached": true, "expected": "blocked-day-proof"}
+  ],
+  "binding_phase_cases": [
+    {"id": "BP-source-volatile", "phase": "B00_SOURCE_VERIFIED_VOLATILE", "expected": "reacquire-fresh-source"},
+    {"id": "BP-journal-ahead", "phase": "B01_JOURNAL_FSYNCED_SEAL_MISSING", "expected": "complete-one-exact-covering-seal"},
+    {"id": "BP-reread-pending", "phase": "B02_SEAL_DURABLE_REREAD_PENDING", "expected": "reread-cross-validate-no-second-seal"},
+    {"id": "BP-binding-committed", "phase": "B03_BINDING_COMMITTED", "expected": "issue-exact-authority-no-business-effect"},
+    {"id": "BP-authority-volatile", "phase": "B04_AUTHORITY_ISSUED_VOLATILE", "expected": "reissue-exact-authority-no-duplicate-effect"},
+    {"id": "BP-business-durable", "phase": "B05_BUSINESS_TRANSITION_DURABLE", "expected": "existing-lifecycle-continuation-no-rebind"},
+    {"id": "BP-xacked", "phase": "B06_SOURCE_XACKED_LAST", "expected": "terminal-no-effect"}
+  ],
+  "timer_cases": [
+    {"id": "TM-signal-after-source", "frontier": "after_source_before_reclassification", "expected": "stop-original-timer-no-seal-no-effect"},
+    {"id": "TM-signal-after-reclassify", "frontier": "after_reclassification_before_schedule_work", "expected": "stop-reclassified-owner-no-seal-no-effect"},
+    {"id": "TM-signal-after-schedule-read", "frontier": "after_schedule_read_before_binding", "expected": "stop-reclassified-owner-no-seal-no-effect"},
+    {"id": "TM-signal-during-binding", "frontier": "during_noncancellable_binding", "expected": "finish-exact-binding-then-stop-no-effect"},
+    {"id": "TM-signal-after-binding", "frontier": "after_binding_before_execution", "expected": "stop-bound-owner-no-second-seal-no-effect"},
+    {"id": "TM-clear", "frontier": "all_latches_clear", "expected": "three-steps-one-binding-one-effect"},
+    {"id": "TM-missing-schedule", "frontier": "schedule_missing", "expected": "degraded-reclassified-owner-no-seal-no-effect"}
+  ],
+  "publisher_cases": [
+    {"id": "PUB-missing-stream", "stream_exists": false, "command_has_nomkstream": true, "expected": "fail-no-create"},
+    {"id": "PUB-existing-stream", "stream_exists": true, "command_has_nomkstream": true, "expected": "append-exact-maxlen-4096"},
+    {"id": "PUB-command-without-nomkstream", "stream_exists": false, "command_has_nomkstream": false, "expected": "contract-rejected-before-command"}
+  ]
+}

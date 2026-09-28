@@ -1868,6 +1868,7 @@ fn fixed_runtime_profile(
             symbol: "IMOEXF".to_owned(),
             profile: HybridIntradayProfile::ImoexfPrimaryRiskgateHigh180Lb120,
             mr_variant: MeanReversionVariant::High180,
+            live_mr_entries_enabled: true,
             mr_gate_policy: MrGatePolicy::ShadowPnlLb120Positive,
             risk_gate_mode: RiskGateMode::NormalAppend,
             risk_gate_seed_file: None,

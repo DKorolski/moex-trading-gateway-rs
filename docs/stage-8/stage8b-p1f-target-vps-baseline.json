@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "observed_date": "2026-09-25",
+  "target_id": "stage8b-p1f-isolated-vps-1",
+  "hostname": "nektodk1.ispvds.com",
+  "ipv4": "45.150.11.252",
+  "ssh_ed25519_fingerprint": "SHA256:8fOAPkfvZ61LYmldUBs6A5ZC+BFr6O3yCvUrBAWZsAo",
+  "platform": {
+    "os": "Ubuntu 24.04.4 LTS",
+    "architecture": "x86_64",
+    "systemd_major": 255,
+    "cpu_count": 2,
+    "memory_gib_minimum": 3.5,
+    "root_free_gib_minimum": 20
+  },
+  "redis": {
+    "version": "7.0.15",
+    "listen_addresses": ["127.0.0.1", "::1"],
+    "port": 6379,
+    "protected_mode": true,
+    "database_count": 16,
+    "appendonly": true,
+    "p1_database": 15,
+    "p1_database_observed_empty": true,
+    "p0_database": 0,
+    "p0_database_must_not_be_mutated_by_p1": true
+  },
+  "coexisting_services": [
+    {
+      "unit": "moex-finam-paper-runtime.service",
+      "role": "accepted-existing-readonly-paper-runtime",
+      "required_state_during_p1f": "unchanged"
+    },
+    {
+      "unit": "moex-finam-paper-ws.service",
+      "role": "accepted-existing-readonly-finam-market-data",
+      "required_state_during_p1f": "unchanged"
+    }
+  ],
+  "p1_paths_observed_absent": [
+    "/usr/local/libexec/moex/stage8b-p1-paper-supervisor",
+    "/etc/moex-finam-p1-paper",
+    "/var/lib/moex-finam-p1-paper",
+    "/etc/systemd/system/moex-finam-p1-paper.service",
+    "/etc/systemd/system/moex-finam-p1-paper-bootstrap.service"
+  ],
+  "observation_is_authority": false,
+  "fresh_preflight_required_before_mutation": true
+}

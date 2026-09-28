@@ -1,0 +1,42 @@
+[Unit]
+Description=MOEX FINAM Stage 8B P1F O2 read-only source materializer
+After=network-online.target local-fs.target
+Wants=network-online.target
+ConditionPathExists=/etc/moex-finam-p1-paper/o2/materialization-policy.json
+ConditionPathExists=/etc/moex-finam-p1-paper/o2/source-template.json
+ConditionPathExists=/etc/moex-finam-p1-paper/o2/active-manifest.sha256
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+LoadCredential=finam-readonly.token:/run/moex-finam-p1f-o2-input/finam-readonly.token
+LoadCredential=finam-account.id:/run/moex-finam-p1f-o2-input/finam-account.id
+ExecStart=/usr/local/libexec/moex/stage8b-p1f-o2-materializer
+TimeoutStartSec=180s
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+PrivateNetwork=no
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+LimitCORE=0
+ReadOnlyPaths=/etc/moex-finam-p1-paper
+ReadWritePaths=/var/lib/moex-finam-p1-paper-o2-staging

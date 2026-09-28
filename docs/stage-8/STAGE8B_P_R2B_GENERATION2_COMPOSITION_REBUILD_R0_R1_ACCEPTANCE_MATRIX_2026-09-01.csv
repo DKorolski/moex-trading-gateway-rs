@@ -1,0 +1,25 @@
+id,area,requirement,evidence,expected
+G2CRR1-001,lineage,accepted substantive R0 commit and archive are exact,R0-R1 authority,PASS
+G2CRR1-002,immutability,production build source remains c766765,R0 build evidence plus checker,PASS
+G2CRR1-003,immutability,all eight build A and build B ELF hashes remain unchanged,R0 build evidence plus packaged artifacts,PASS
+G2CRR1-004,immutability,Generation-2 public authority and helper acceptance remain unchanged,exact SHA-256 pins,PASS
+G2CRR1-005,governance,helper effect identity equals exact accepted predecessor value,R0-R1 checker,PASS
+G2CRR1-006,oracle,category-only terminal matching is absent,materialized Phase-6 scan,PASS
+G2CRR1-007,oracle,root terminal envelope is parsed as an exact typed object,terminal oracle,PASS
+G2CRR1-008,oracle,root admission and child protocol are valid,terminal oracle,PASS
+G2CRR1-009,oracle,root terminal evidence is regular root-owned 0400 and single-link,terminal oracle,PASS
+G2CRR1-010,oracle,helper identity receipt and authority validations are observed,typed log markers,PASS
+G2CRR1-011,oracle,failed request attempt exists and has ordinal one,terminal oracle,PASS
+G2CRR1-012,oracle,first attempt is POST /v1/sessions,terminal oracle,PASS
+G2CRR1-013,oracle,only network-connect failure or request-level timeout is accepted,terminal oracle,PASS
+G2CRR1-014,oracle,HTTP status and response body are absent,terminal oracle,PASS
+G2CRR1-015,oracle,root lifecycle timeout is not counted as request evidence,terminal oracle,PASS
+G2CRR1-016,oracle,effect dispatch and order flags remain false,terminal oracle,PASS
+G2CRR1-017,evidence,actual_read_attempts is derived from validated attempts,materialized Phase-6 plus checker,PASS
+G2CRR1-018,negative,all eleven mandatory targeted mutations fail closed,R0-R1 negative harness,PASS
+G2CRR1-019,rehearsal,Phase-6 executes under network none,R0-R1 rehearsal evidence,PASS
+G2CRR1-020,rehearsal,FINAM endpoint is not called,R0-R1 rehearsal evidence,PASS
+G2CRR1-021,activation,Generation 2 remains inactive,R0-R1 aggregate authority,PASS
+G2CRR1-022,activation,production credentials and controlled installation remain absent,R0-R1 aggregate authority,PASS
+G2CRR1-023,authorization,package authorization remains NOT_ISSUED,R0-R1 aggregate authority,PASS
+G2CRR1-024,review,independent acceptance is required before later installation work,R0-R1 aggregate authority,PASS

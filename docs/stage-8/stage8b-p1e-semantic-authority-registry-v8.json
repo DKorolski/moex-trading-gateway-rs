@@ -1,0 +1,45 @@
+{
+  "schema_version": 8,
+  "domain": "moex.stage8b.p1e.semantic-authority-registry.v8",
+  "base_registry": {
+    "path": "docs/stage-8/stage8b-p1e-semantic-authority-registry-v7.json",
+    "sha256": "19ae0e29e1989decb3f622bfb39da6ca0bf82d79d6887bf44a7caea47b67fd3b",
+    "active_key_count": 28
+  },
+  "conflict_rule": "compose-V7-minus-two-exact-authorities-plus-R8-replacements-and-three-new-authorities",
+  "superseded_active_authorities": {
+    "redis.TerminalSourceResolution": "five-logical-exact-lookup-routes-return-linear-pre-resolution-owner-before-permit-only-XACK-or-AlreadyAcknowledged",
+    "shutdown.ContinuationLinearization": "no-select-cancellation-before-or-after-permit-and-next-covering-boundary-recheck-after-post-decision-signal"
+  },
+  "replacement_active_authorities": {
+    "redis.TerminalSourceResolution": "five-logical-eleven-variant-exact-lookup-routes-use-one-post-permit-read-only-resolution-verification-and-optional-exact-XACK-with-no-second-delivery-acquisition",
+    "shutdown.ContinuationLinearization": "no-select-cancellation-and-thirty-row-exact-next-covering-boundary-before-cause-preserving-latch-recheck"
+  },
+  "required_new_keys": [
+    "redis.TerminalResolutionObservation",
+    "shutdown.CauseCarryingIntent",
+    "test.RouteVariantBoundaryCoverage"
+  ],
+  "new_active_authorities": {
+    "redis.TerminalResolutionObservation": "post-permit-XINFO-XRANGE-XPENDING-optional-XACK-and-p1d4-revalidation-are-resolution-not-acquisition",
+    "shutdown.CauseCarryingIntent": "first-cause-final-exit-class-grace-deadline-and-first-request-sequence-are-monotonic-through-E18-E25",
+    "test.RouteVariantBoundaryCoverage": "thirty-exact-route-variant-rows-each-bind-next-boundary-returned-owner-PEL-XACK-timer-and-latch-recheck"
+  },
+  "composed_expectation": {
+    "retained_base_keys": 26,
+    "replacement_keys": 2,
+    "new_keys": 3,
+    "total_active_keys": 31,
+    "active_conflicts": 0
+  },
+  "contract_bindings": {
+    "latch_aware_source_seam_v2_sha256": "b96e0cb3674cfa358255c60ef4ab1c8f5d7e6cc9a14a52a80f4fb4109999f94e",
+    "supervisor_event_matrix_v3_sha256": "c2514a9a1ea31ae7f50db108366f816dc37a1219ba7b0251344ef62dc61ab3a9",
+    "latch_route_transition_matrix_v1_sha256": "2c467f2ec214b6e636448d210c6bc98b587527f2a8b6ca686ed237860b59c636",
+    "shutdown_intent_v1_sha256": "5648347fada16ec2a4ea47fd7e5dd48cbf8967ee7354de6c963bdb10cd11ace9",
+    "i0_regression_gate_v1_sha256": "ef3780bc52695d3c2e9bfb3ecbb854faf6717c071aa449ab0f637220fd467062",
+    "acquisition_model_v3_sha256": "0ec7af4bc587cba4afd473fffe20387bc5e75b78abb28d3d1b9479b750285315",
+    "operational_overlay_v6_sha256": "4005983efc51f5e9db079ccd560e882b59f9088e7ec840ee33a6765721b8a9a6",
+    "first_boot_transaction_v5_sha256": "3e275cdb21e3a3a9d41e5ffdfe360c76853a702de37dfdeb7fb08b9a587088be"
+  }
+}

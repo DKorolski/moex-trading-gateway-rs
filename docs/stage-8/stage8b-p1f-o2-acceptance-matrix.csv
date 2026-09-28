@@ -1,0 +1,31 @@
+id,area,requirement,status
+O2R0-01,lineage,O1 operational and governance closure identities are exact,REQUIRED
+O2R0-02,scope,Contract commit changes no production Rust Cargo deploy config workflow or remote state,REQUIRED
+O2R0-03,target,Target host and SSH fingerprint are exact,REQUIRED
+O2R0-04,package,Private key FINAM token and fresh source bytes are excluded and public key is selected before artifact finalization,REQUIRED
+O2R0-05,facade,Offline signer only creates canonical accepted guardian documents and private bytes stay offline,REQUIRED
+O2R0-06,facade,Target guardian CLI delegates only to accepted authority APIs after exact empty control-root skeleton validation,REQUIRED
+O2R0-07,facade,Materializer enforces the exact-account GET route/query allowlist including complete orders snapshot before transport and cannot reach Redis or write routes,REQUIRED
+O2R0-08,facade,Systemd-supervised O2-B runner polls permit and unit every 250 ms and controls the unit rather than treating systemctl client exit as stopped proof,REQUIRED
+O2R0-09,authority,Genesis uses one offline Prepared generation and exact Activated certificate,REQUIRED
+O2R0-10,authority,O2 claim is durable before FINAM source collection,REQUIRED
+O2R0-11,authority,Manifest binds source tree host sequence predecessor policy template installation and deadline,REQUIRED
+O2R0-12,materialization,Only first_boot_source_bundle_sha256 is finalized in signed template,REQUIRED
+O2R0-13,materialization,Source config and ReadyForBootstrap receipt use accepted fixed paths and custody,REQUIRED
+O2R0-14,materialization,Partial materialization resumes exact same claim only,REQUIRED
+O2R0-15,source,Broker truth is flat exact-account IMOEXF@RTSX with complete observed positions and GET orders snapshot and price-step 0.5,REQUIRED
+O2R0-16,source,History has at least 121 explicit Moscow sessions via accepted M1-to-M10 path,REQUIRED
+O2R0-17,source,Riskgate has at least 120 source-compatible cross-validated observations,REQUIRED
+O2R0-18,source,Candidate is one later canonical final M10 with ten-M1 provenance and zero intents,REQUIRED
+O2R0-19,freshness,Broker truth age at O2-B is at most 300 seconds,REQUIRED
+O2R0-20,freshness,Age 301 fails with zero bootstrap mutation and requires new manifest,REQUIRED
+O2R0-21,credential,Lifecycle key is generated once installed root 0400 and never logged or archived,REQUIRED
+O2R0-22,bootstrap,Bootstrap and runner unit bytes hashes commands cleanup mode and unit-state proof are exact in the later artifact,REQUIRED
+O2R0-23,bootstrap,O2-B has PrivateNetwork yes AF_UNIX only and no Redis or FINAM contact,REQUIRED
+O2R0-24,bootstrap,One daemon reload is bounded after exact reread no unit is enabled and runner cleanup is independent of SSH,REQUIRED
+O2R0-25,bootstrap,Ordinary P1 service remains inactive and not enabled after O2,REQUIRED
+O2R0-26,evidence,Receipts source config credential metadata durable root and unit result are retained redacted,REQUIRED
+O2R0-27,isolation,DB15 remains empty and P0 identities remain unchanged,REQUIRED
+O2R0-28,recovery,Lost response or runner uses stopped-unit proof then accepted V5 classification and exact Completed Failed Expired deadline rules with no blind retry,REQUIRED
+O2R0-29,closed,Current contract authorizes no key generation remote mutation FINAM call Redis call reload or start,REQUIRED
+O2R0-30,next,O2 execution artifact and execution each require independent acceptance,REQUIRED

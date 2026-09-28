@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P R2B Generation 2 Restore Destruction R0",
+  "generation": 2,
+  "destruction_status": "PASS",
+  "destroyed_at_utc": "2026-08-31T14:43:35Z",
+  "source_ref": "b86cc6be0ff9c7748162d00137ef85ae4f97f168",
+  "backup_restore_receipt_sha256": "7a8d8746cfecb9ff1f35537404380bb4035ce07ed05a383ad50e66a188a7775f",
+  "encrypted_backup_sha256": "11970a7b173b20ceff2cee9c4347ce38df4e6d6b973271ba65c8e95b7ef7d8a2",
+  "encryption_recipient_sha256": "16ba10005c92b9b952c616571ec6058a18ecd012c4c5e96b03b99c8df0170145",
+  "disposable_restore_absent_verified": true,
+  "logical_deletion_only": true,
+  "restore_volume_filevault_enabled": true,
+  "private_path_recorded": false,
+  "private_values_exported": false,
+  "backup_status": "VERIFIED",
+  "generation_2_active": false,
+  "authorization_status": "NOT_ISSUED",
+  "signature_domain": "stage8b-p-r2b-generation2-restore-destruction-receipt-v1",
+  "authorization_key_id": "stage8b-r2a5-production-package-authorization-v1",
+  "authorization_key_generation": 2,
+  "signature_ed25519_hex": "3a19e0c97a0e2b79bb73b3d2675404da06ab932af2258304866d9db4380386e75d1e8d52359bc1dac94ed6e302124f452bae5074df082a9a3a18a43f89dd4b0f"
+}

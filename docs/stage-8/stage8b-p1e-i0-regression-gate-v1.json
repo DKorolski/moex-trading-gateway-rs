@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "domain": "moex.stage8b.p1e.i0-regression-gate.v1",
+  "mandatory_before_i0_source_acceptance": true,
+  "p1d4_full_gate": {
+    "command": "bash scripts/stage8b_p1d4_source_gate.sh",
+    "positive_sigkill_cells": 105,
+    "clean_runs": 2,
+    "retained_evidence_checker": "scripts/stage8b_p1d4_crash_evidence_check.py",
+    "source_negative_harness": "scripts/stage8b_p1d4_source_negative_harness.py",
+    "evidence_negative_harness": "scripts/stage8b_p1d4_crash_evidence_negative_harness.py"
+  },
+  "cross_slice_regressions": [
+    "standalone-P1d2-absent-discriminator-restart-cells",
+    "standalone-P1d3-limit-cancel-expiry-restart-cells",
+    "strategy-runtime-core-lib-all-features",
+    "runtime-durable-service-lib-all-features",
+    "strategy-runtime-core-doctests",
+    "runtime-durable-service-doctests",
+    "strict-clippy-both-crates-all-targets-all-features"
+  ],
+  "closed_surfaces": ["operational-DB0", "VPS-activation", "FINAM-POST-DELETE", "broker-dispatch", "runtime-live", "real-orders"]
+}

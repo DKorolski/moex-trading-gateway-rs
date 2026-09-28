@@ -1,0 +1,43 @@
+id,area,requirement,status
+P1D1-001,lineage,Accepted predecessor is exact P1-d0 policy commit 0d59d54d42fc29ae7b31359c1ded8efbd3a348fd,REQUIRED
+P1D1-002,scope,P1-d1 implements Market provider core only,REQUIRED
+P1D1-003,authority,Stage5E schedule projection remains opaque and nonserializable,REQUIRED
+P1D1-004,authority,Exactly one crate-private Stage5E to P1-d1 eligibility bridge exists,REQUIRED
+P1D1-005,authority,Redis and provider code cannot parse schedule rows or mint eligibility,REQUIRED
+P1D1-006,chronology,Decision bar cannot execute its own PLACE command,REQUIRED
+P1D1-007,chronology,Contiguous later final live M10 may become eligible,REQUIRED
+P1D1-008,chronology,Approved clearing or maintenance boundary may become eligible,REQUIRED
+P1D1-009,chronology,Skipped tradable interval is ExecutionBarGap,REQUIRED
+P1D1-010,chronology,Cross-day candidate fails closed,REQUIRED
+P1D1-011,chronology,History warmup nonfinal and wrong timeframe candidates fail closed,REQUIRED
+P1D1-012,freshness,Not-yet-observed expired and future schedule observations fail closed,REQUIRED
+P1D1-013,binding,Request command predecessor operational identity and instrument bind exactly,REQUIRED
+P1D1-014,binding,Canonical candidate semantic and payload hashes bind exactly,REQUIRED
+P1D1-015,binding,Zero or multiple candidate observations mint no eligibility,REQUIRED
+P1D1-016,predispatch,AwaitingExecutionBar exposes no provider operation,REQUIRED
+P1D1-017,predispatch,ExecutionEligible exposes no provider operation,REQUIRED
+P1D1-018,predispatch,MarketDispatchReady requires linear Stage6dPaperDispatchReceipt,REQUIRED
+P1D1-019,recovery,Post-dispatch crash does not re-enter the P1 journal-ahead exception,REQUIRED
+P1D1-020,market,Market accepts only PLACE Day no-limit positive-quantity shape,REQUIRED
+P1D1-021,market,Any non-None TTL fails closed before wait authority,REQUIRED
+P1D1-022,market,Fill price equals exact Decimal execution-bar open,REQUIRED
+P1D1-023,market,Fill quantity equals complete command quantity,REQUIRED
+P1D1-024,market,Fill source timestamp equals execution-bar open timestamp,REQUIRED
+P1D1-025,identity,Order ID uses the accepted full domain-separated SHA-256 formula,REQUIRED
+P1D1-026,identity,Trade ID binds order execution-bar semantic ID and ordinal one,REQUIRED
+P1D1-027,determinism,Redis ID consumer process epoch and wall clock do not affect IDs,REQUIRED
+P1D1-028,adapter,P1-c canonical decoder copies exact M10 Decimal and identity facts read-only,REQUIRED
+P1D1-029,closure,Feedback ACK source-M10 XACK LIMIT cancel and expiry remain closed,REQUIRED
+P1D1-030,safety,Operational DB0 FINAM dispatch runtime-live and real orders remain closed,REQUIRED
+P1D1-031,r1-authority,Command decision binding is opaque non-Clone and source-produced from authenticated P1 projection plus exact RequestAccepted,REQUIRED
+P1D1-032,r1-authority,Predecessor close is derived only from the exact retained M10 Redis ID and cannot be supplied separately,REQUIRED
+P1D1-033,r1-authority,Canonical execution authority is opaque non-Clone and has no public field constructor,REQUIRED
+P1D1-034,r1-authority,Execution eligibility minting remains crate-private until a separately reviewed canonical source bridge exists,REQUIRED
+P1D1-035,r1-authority,Public P1-c owner exposes no constructible execution observation DTO,REQUIRED
+P1D1-036,r1-dispatch,Stage6 dispatch receipt retains the complete durable request identity,REQUIRED
+P1D1-037,r1-dispatch,Stage6 dispatch receipt retains the exact accepted durable command snapshot,REQUIRED
+P1D1-038,r1-dispatch,Stage6 dispatch receipt retains the accepted-record canonical payload digest,REQUIRED
+P1D1-039,r1-dispatch,The P1-specific Stage7 transition consumes eligibility before appending DispatchAttemptRecorded,REQUIRED
+P1D1-040,r1-dispatch,Awaiting NoInput Blocked and eligible-before-transition states append no dispatch record,REQUIRED
+P1D1-041,r1-recovery,Successful combined transition appends exactly one dispatch and restart requires reconciliation without blind provider authority,REQUIRED
+P1D1-042,r1-closure,R1 opens no ACK XACK provider deployment operational DB0 FINAM or runtime-live surface,REQUIRED

@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "stage": "8B-P",
+  "revision": "R2B-G2-R0",
+  "authorization_status": "NOT_ISSUED",
+  "authorization_public_key_sha256": "c3160a41e54fbeb9de4afe2163260f383fefa3fb531613d9754fc6b911a37c88",
+  "trust_manifest_sha256": "dfe61ddb944df042cdf9514f56c14131e4a45bc732435ff89658ceaceb92d4ee",
+  "public_key_set_sha256": "a1094751e25613d1a9f10b54436f3229fc73774d9135812577978c22a7bb7465",
+  "account_key_manifest_sha256": "206bb41415f5edd9c59aa0d256dea63219fa6e28def2e436b676a4de3d1b52ec",
+  "source_adapter_authority_sha256": "711b7d01552ef3ca48bde1daba13fcb844380e758df097e2757534ccf2952129"
+}

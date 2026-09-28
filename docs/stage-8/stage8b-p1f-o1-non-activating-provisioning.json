@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P1-f O1 non-activating provisioning package",
+  "status": "R1_COMMAND_CORRECTION_REVIEW_CANDIDATE_EXECUTION_NOT_AUTHORIZED",
+  "held_predecessor": {
+    "commit": "f2fe5a25c084024dfd83dbf7d28a65d3b3d1dde6",
+    "archive_sha256": "d00d7caa2f2266c12084524188e0e90478d3544c617f6b1e64ae735d251b66d6",
+    "bundle_sha256": "486d293912920a35f0cb391a4fa6c0c5403fd9911054aa89be4904799cbd7f8b",
+    "binary_sha256": "cee324a4e4f251227a25d4a7b23dda332a94522b45407671982f4fc896614406",
+    "review_sha256": "d206b4503174f1bae69120f4b4b2f841cd0cdc43dd64fa3d5537bebab4c8e6a7",
+    "finding": "P2-O101"
+  },
+  "accepted_o0": {
+    "source_and_evidence_commit": "98148b80dacddf44c58204c1af9403bb6b47f8d3",
+    "governance_closure_commit": "9c0560b46dc54132fd65e80a6e3ce89ba13d7832",
+    "review_sha256": "a357514bf2d36ae2a47276da268d87bbd785ee65d00fcb86dcf6f57421061498"
+  },
+  "runtime_binary": {
+    "source_ref": "940377ab2bd406be31547200ca0b8cc3bb0f3e22",
+    "source_tree": "cb7af50342bf9a96b896cda4ca5ad51b067edca3",
+    "package": "runtime-durable-service",
+    "binary": "stage8b-p1-paper-supervisor",
+    "target": "x86_64-unknown-linux-gnu",
+    "profile": "release",
+    "locked": true,
+    "rust_image": "rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922"
+  },
+  "accepted_fixed_install": {
+    "source_ref": "7f2e876c4cad7a3a4a0fa10a1eb5202e58202d2f",
+    "source_tree": "056227feea871b7f5be684b931f58eb1772346bb",
+    "installer": {
+      "path": "scripts/stage8b_p1e_i1_fixed_install.py",
+      "sha256": "df35bd602435441f874fd3aa586e23c698933b59ccc297cef177640f50e32e5e"
+    },
+    "public_payloads": [
+      {"path":"deploy/stage8b-p1e/moex-finam-p1-paper.service","destination":"/etc/systemd/system/moex-finam-p1-paper.service","sha256":"7e260e3d46f94dbea93d48aa39d1c16bf8fd6f14aa76cc9be2b197e7ab4f536f","owner":"root","group":"root","mode":"0644"},
+      {"path":"deploy/stage8b-p1e/moex-finam-p1-paper-bootstrap.service","destination":"/etc/systemd/system/moex-finam-p1-paper-bootstrap.service","sha256":"f5f6db6e08d45f39fa3976701f78526a55e1485f3398f4140d13eaba1b2bc62b","owner":"root","group":"root","mode":"0644"},
+      {"path":"deploy/stage8b-p1e/moex-finam-p1-paper-bootstrap-recover@.service","destination":"/etc/systemd/system/moex-finam-p1-paper-bootstrap-recover@.service","sha256":"022e71072b86487f34b63015cf70bb4a1d0fb1e31006dd783f2fa385668e2987","owner":"root","group":"root","mode":"0644"},
+      {"path":"deploy/stage8b-p1e/moex-finam-p1-paper.sysusers","destination":"/usr/lib/sysusers.d/moex-finam-p1-paper.conf","sha256":"efaa190119271332ed3aedc14b5fd45cdfc216c529e8eff8a7f0a956e6ee9d90","owner":"root","group":"root","mode":"0644"},
+      {"path":"deploy/stage8b-p1e/moex-finam-p1-paper.tmpfiles","destination":"/usr/lib/tmpfiles.d/moex-finam-p1-paper.conf","sha256":"aa187d73dab4b526cf3bb100c43a6a971de6d1cafb8ecb7c326064623dd1f519","owner":"root","group":"root","mode":"0644"}
+    ],
+    "deployment_identity": {
+      "path": "docs/stage-8/stage8b-p1e-deployment-identity-v2.json",
+      "sha256": "428415fdedd3fd24ac128ee2ca703a6572e57644cad0cb40b30a9c96ea62a038"
+    }
+  },
+  "target": {
+    "target_id": "stage8b-p1f-isolated-vps-1",
+    "hostname": "nektodk1.ispvds.com",
+    "ipv4": "45.150.11.252",
+    "ssh_ed25519_fingerprint": "SHA256:8fOAPkfvZ61LYmldUBs6A5ZC+BFr6O3yCvUrBAWZsAo"
+  },
+  "bundle_contract": {
+    "binary_destination": "/usr/local/libexec/moex/stage8b-p1-paper-supervisor",
+    "binary_owner": "root",
+    "binary_group": "root",
+    "binary_mode": "0755",
+    "installation_manifest": "/usr/local/share/moex/stage8b-p1e/installation-v1.json",
+    "service_user": "moex-p1-paper",
+    "service_group": "moex-p1-paper",
+    "operator_material_included": false,
+    "first_boot_material_included": false,
+    "credential_included": false
+  },
+  "execution": {
+    "authorized": false,
+    "requires_fresh_o0_preflight": true,
+    "bundle_directory_command": "bundle_dir=\"$(pwd -P)\"",
+    "install_command": "python3 \"$bundle_dir/scripts/stage8b_p1e_i1_fixed_install.py\" install --root / --binary \"$bundle_dir/payload/stage8b-p1-paper-supervisor\"",
+    "status_command": "python3 \"$bundle_dir/scripts/stage8b_p1e_i1_fixed_install.py\" status --root /",
+    "rollback_command": "python3 \"$bundle_dir/scripts/stage8b_p1e_i1_fixed_install.py\" rollback --root /",
+    "daemon_reload_allowed": false,
+    "enable_allowed": false,
+    "start_allowed": false
+  },
+  "post_install_evidence": {
+    "status_result_required": "EXACT_INSTALLED",
+    "p0_unit_identity_and_configuration": "byte-exact unchanged",
+    "db0_policy": "no writes attributable to O1; full before/after digest equality is not required because P0 remains active",
+    "db15_policy": "remains empty"
+  },
+  "closed_surfaces": {
+    "remote_mutation_performed": false,
+    "provisioning_execution": false,
+    "systemd_reload_enable_or_start": false,
+    "redis_db15_or_db0_mutation": false,
+    "paper_provider_execution": false,
+    "o2_bootstrap": false,
+    "o3_synthetic_session": false,
+    "o4_finam_bars_session": false,
+    "finam_post_or_delete": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false
+  }
+}

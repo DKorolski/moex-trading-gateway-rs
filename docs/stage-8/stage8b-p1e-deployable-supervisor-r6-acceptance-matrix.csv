@@ -1,0 +1,37 @@
+id,area,semantic_key,requirement,status
+P1ER6-001,lineage,lineage.accepted_predecessor,Accepted immutable predecessor remains exact P1-d4 closure c2a9e1246dfdd59f3a6297268de907dedcb19903,REQUIRED
+P1ER6-002,lineage,lineage.active_design,R5 3232c2447fc8d6aec038ca518efa11dc4d7e959e is HOLD and superseded only by this direct-child R6 candidate,REQUIRED
+P1ER6-003,scope,scope.design_only,R6 changes design contracts checker evidence status and handoff only with zero production Rust Cargo workflow active unit deployed config Redis or FINAM change,REQUIRED
+P1ER6-004,scope,scope.source_authority,P1-e source implementation remains unauthorized until independent acceptance of this exact R6 package,REQUIRED
+P1ER6-005,contract,contract.active_merge,Stage8bP1eAcceptanceContractV6 composes accepted V5 minus eleven exact superseded rows plus all 36 R6 rows,REQUIRED
+P1ER6-006,contract,contract.semantic_registry,SemanticAuthorityRegistryV6 composes 26 conflict-free execution-level keys from exact V5 plus R6 replacements and additions,REQUIRED
+P1ER6-007,redis,redis.AcquisitionClassSplit,Every non-Ready source owner belongs to exactly one of reclaim-required semantic continuation or terminal no-claim source resolution,REQUIRED
+P1ER6-008,redis,redis.ReclaimRequiredOwners,The exact fifteen non-terminal owner variants remain bound to their accepted reclaim-based resume wrappers,REQUIRED
+P1ER6-009,redis,redis.TerminalResolutionOwners,Zero-intent P1d2 truth P1d4 truth and both authenticated P1d3 truth phases are terminal no-claim owners,REQUIRED
+P1ER6-010,redis,redis.TerminalFunctionBinding,The four accepted terminal functions and their exact-delivery helper families are source-hash pinned and cannot be replaced by reclaim helpers,REQUIRED
+P1ER6-011,redis,redis.TerminalNoAutoClaim,Terminal source resolution performs zero XAUTOCLAIM and zero consumer ownership transfer,REQUIRED
+P1ER6-012,redis,redis.TerminalNoClaimIdleDependency,Terminal outcome is invariant for idle age zero below equal to and above claim_idle_ms,REQUIRED
+P1ER6-013,redis,redis.TerminalPendingResolution,An exact pending source is byte and identity validated then produces exactly one XACK,REQUIRED
+P1ER6-014,redis,redis.TerminalAlreadyAcknowledged,An absent PEL source with a continuous group frontier produces AlreadyAcknowledged and zero additional XACK,REQUIRED
+P1ER6-015,redis,redis.TerminalConflict,Changed stream payload source ID semantic identity operational identity or discontinuous group frontier fails closed without XACK,REQUIRED
+P1ER6-016,redis,redis.ReclaimRequiredSoleReclaim,Each reclaim-required owner uses its accepted resume wrapper for at most one successful reclaim and no second source acquisition,REQUIRED
+P1ER6-017,redis,redis.S06ObservationBoundary,S06 observes exact PEL and group state only and grants neither payload nor processing authority for either non-Ready class,REQUIRED
+P1ER6-018,shutdown,shutdown.PostDeliveryLatch,Shutdown is checked after reclaim or exact terminal lookup and before parse continuation callback provider schedule or XACK,REQUIRED
+P1ER6-019,redis,redis.AcquisitionInstrumentation,Per-path counters distinguish exact lookup reclaim XAUTOCLAIM XACK and AlreadyAcknowledged with one-source upper bounds,REQUIRED
+P1ER6-020,redis,redis.TerminalIdleBoundaryTests,All five terminal logical owners resolve identically at idle ages zero claim_idle_ms minus one equal and plus one,REQUIRED
+P1ER6-021,first_boot,firstboot.PostReceiptTempAbsence,ReceiptCommittedMarkerUpdatePending and SealCommittedToAdoptedMarkerTempPending both require receipt-temp absence,REQUIRED
+P1ER6-022,first_boot,firstboot.StaleReceiptTempConflict,A valid final receipt plus stale receipt temp at seal_committed is CorruptOrIdentityMismatch before marker mutation,REQUIRED
+P1ER6-023,first_boot,firstboot.R5PartitionRetained,The accepted R5 mandatory adopted-marker model eleven base classes four marker-temp classes and exact-one classifier remain unchanged otherwise,REQUIRED
+P1ER6-024,restart,restart.OperationalOverlay,Operational V6 excludes exactly sixteen claimability-shaped terminal V5 rows and adds eleven no-claim terminal rows,REQUIRED
+P1ER6-025,restart,restart.ComposedOperationalInventory,The exact composed operational contract has 51 unique cells and retains every non-terminal V5 cell byte-for-byte,REQUIRED
+P1ER6-026,restart,restart.TerminalCellInventory,Four ordinary terminal owners have pending and AlreadyAcknowledged cells while cancel-recovered has pending AlreadyAcknowledged and pending-plus-due-timer cells,REQUIRED
+P1ER6-027,restart,restart.CancelRecoveredNoNotClaimable,Cancel-recovered has no claimable or not-yet-claimable state because claim_idle_ms is irrelevant to its terminal continuation,REQUIRED
+P1ER6-028,restart,restart.CancelRecoveredDueTimer,Cancel-recovered plus due Day timer resolves the exact source first and reclassifies the timer against the returned owner,REQUIRED
+P1ER6-029,restart,restart.TerminalPaperReady,PaperReady is forbidden until exact XACK or continuous-frontier proof and any due timer reclassification completes,REQUIRED
+P1ER6-030,checker,checker.SourceFunctionOracle,Checker pins the accepted Redis source file and exact terminal function helper calls without modifying production source,REQUIRED
+P1ER6-031,checker,checker.AcquisitionMutations,Redigested negatives reject terminal XAUTOCLAIM claim-idle gating reclaim-owner no-claim routing and owner partition overlap or omission,REQUIRED
+P1ER6-032,checker,checker.FirstBootMutations,Redigested negatives reject missing receipt-temp absence or stale receipt-temp marker completion,REQUIRED
+P1ER6-033,checker,checker.CrossContractCompatibility,Checker composes active rows semantic authorities operational overlay source function oracle first-boot amendment and timer precedence as one exact contract,REQUIRED
+P1ER6-034,preserved,preserved.R5Corrections,R5 network split mandatory adopted-marker authority exact cancel-recovered phase recognition no replay linear payload and source-first timer remain unchanged,REQUIRED
+P1ER6-035,closed,closed.operational,P1-f DB0 VPS non-loopback Redis FINAM dispatch runtime-live real orders partial fills and protective orders remain closed,REQUIRED
+P1ER6-036,deferred,deferred.child_pid,The nonblocking bound zero less-than child_pid less-than-or-equal u32 MAX remains deferred to separately authorized source hardening,REQUIRED

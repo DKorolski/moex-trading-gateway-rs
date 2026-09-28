@@ -1,0 +1,69 @@
+{
+  "acceptance_rows": 48,
+  "accepted_p1d4_closure_ref": "c2a9e1246dfdd59f3a6297268de907dedcb19903",
+  "accepted_p1d4_review_sha256": "93180e3f633c256ab9bb2cdfa43dd63c3fe7a1b7380eac435feae45cf8969142",
+  "binary_contract": {
+    "binary_name": "stage8b-p1-paper-supervisor",
+    "broker_cli_subcommand": false,
+    "package": "runtime-durable-service",
+    "prohibited_dependencies": [
+      "broker-finam",
+      "finam-gateway"
+    ]
+  },
+  "closed_surfaces": {
+    "broker_dispatch": false,
+    "finam_delete": false,
+    "finam_post": false,
+    "finam_transport": false,
+    "generation2_activation": false,
+    "non_loopback_redis": false,
+    "operational_redis_db0": false,
+    "partial_fills": false,
+    "protective_orders": false,
+    "real_orders": false,
+    "runtime_live": false,
+    "vps_activation": false
+  },
+  "credential_contract": {
+    "argument_secret_allowed": false,
+    "credential_file": "stage8b-p1-lifecycle.key",
+    "environment_secret_allowed": false,
+    "expected_bytes": 32,
+    "systemd_credentials_directory_only": true
+  },
+  "deferred_p2": {
+    "blocks_p1e": false,
+    "required_bound": "0 < child_pid <= u32::MAX",
+    "source": "P1-d4 governance closure R1"
+  },
+  "design_only": true,
+  "implementation_authorized": false,
+  "negative_cases": 36,
+  "operational_activation_authorized": false,
+  "readiness_phases": [
+    "Starting",
+    "PaperReady",
+    "Degraded",
+    "Draining",
+    "Stopped"
+  ],
+  "stage": "Stage 8B-P1-e deployable paper supervisor design",
+  "startup_phases": [
+    "S00",
+    "S01",
+    "S02",
+    "S03",
+    "S04",
+    "S05",
+    "S06",
+    "S07",
+    "S08",
+    "S09"
+  ],
+  "status": "R0_DESIGN_REVIEW_CANDIDATE",
+  "transition": {
+    "next_after_design_acceptance": "Stage 8B-P1-e source implementation",
+    "next_after_source_acceptance": "Stage 8B-P1-f isolated operational acceptance"
+  }
+}

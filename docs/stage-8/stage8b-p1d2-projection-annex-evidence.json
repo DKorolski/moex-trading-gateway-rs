@@ -1,0 +1,53 @@
+{
+  "acceptance_rows": 65,
+  "accepted_p1d1_closure_ref": "4abb2fd9807adeb47f164a4025c7ac44d33679f6",
+  "canonical_contract": "moex.stage8b.p1d2.market-feedback.v1",
+  "closed_surfaces": {
+    "ack_feedback_effects": false,
+    "broker_network_dispatch": false,
+    "finam_post_delete": false,
+    "operational_redis_db0": false,
+    "p1_paper_vps_activation": false,
+    "p1d2_source_implementation": false,
+    "p1d3_limit_cancel_expiry": false,
+    "real_orders": false,
+    "runtime_live": false,
+    "source_m10_xack": false
+  },
+  "current_tree_authority_remains_p1d1": true,
+  "design_only": true,
+  "implementation_authorized": false,
+  "negative_cases": 47,
+  "r1_closure": {
+    "average_price_rounding": "MidpointNearestEven",
+    "average_price_scale": 8,
+    "crash_scenarios": 5,
+    "durable_finalized_input_required": true,
+    "feedback_audit_digest_required": true,
+    "prior_absence_only_initial_flat": true,
+    "stage5_pre_position_cross_binding": true,
+    "stage7_finalize_observed_at": "T_receipt",
+    "stage5g_ack_sequence": "seq_ack",
+    "stage5g_truth_sequence": "seq_ack+1"
+  },
+  "r1a_closure": {
+    "ack_stage_lifecycle_kind": "OrderPositionAwaitingCommitted",
+    "ack_stage_recovery_source": "Stage5gCleanRestartSource::OrderPositionAwaiting",
+    "crash_scenarios": 6,
+    "intermediate_ack_stage_seal_required": true,
+    "restart_truth_sequence": "checked_add(recovered_seq_ack,1)",
+    "source_xack_authority": "S_truth_persisted_and_reread",
+    "truth_only_after_ack_stage_seal": true
+  },
+  "reviewed_r1_ref": "e398cbed771e5617f07fcab6734bc1d7b172a371",
+  "schema_version": 1,
+  "source_ref": "",
+  "stage": "Stage 8B-P1-d2 projection annex R1A",
+  "status": "R1A_INTERMEDIATE_ACK_STAGE_RECOVERY_SEAL_REVIEW_CANDIDATE",
+  "verification": {
+    "aggregate_gate": "PENDING",
+    "format": "PENDING",
+    "negative_harness": "PENDING",
+    "scope_checker": "PENDING"
+  }
+}

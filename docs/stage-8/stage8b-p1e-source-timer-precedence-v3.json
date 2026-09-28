@@ -1,0 +1,56 @@
+{
+  "schema_version": 3,
+  "domain": "moex.stage8b.p1e.source-timer-precedence.v3",
+  "base_contract": {
+    "path": "docs/stage-8/stage8b-p1e-source-timer-precedence-v2.json",
+    "sha256": "fc6292b844a0e2fa8f207d5ef3a41767cd5a17b8da564dbbd0d75a96e40c5133"
+  },
+  "rule": "SOURCE_FIRST_TIMER_DEFERRED",
+  "terminal_resolution_amendment": {
+    "claimability_terms_superseded": true,
+    "claim_idle_ms_dependency": false,
+    "terminal_source_states": [
+      "one_exact_pending_source_any_idle_age",
+      "source_already_acknowledged_with_continuous_frontier"
+    ],
+    "terminal_pending_transition": "exact-terminal-wrapper-then-one-XACK",
+    "terminal_already_acknowledged_transition": "exact-terminal-wrapper-returns-AlreadyAcknowledged-with-zero-XACK",
+    "mismatch_or_discontinuous_frontier": "exit-67-before-transition-with-zero-XACK"
+  },
+  "cancel_recovered_exact_contract": {
+    "rust_restart_variant": "P1d3TruthCommitted",
+    "authenticated_book_phase": "Stage8bP1d3BookPhase::CancelRecovered",
+    "authenticated_matrix_phase": "p1d3_s_cancel_recovered",
+    "starting_boundary": "s_cancel_recovered_committed",
+    "operational_rows": ["R6OC09-exact-pending", "R6OC10-already-acknowledged", "R6OC11-exact-pending-plus-due-Day-timer"],
+    "sole_wrapper": "resume_stage8b_p1d3_truth_with_redis",
+    "XAUTOCLAIM_total": 0,
+    "truth_replay_allowed": false,
+    "ack_replay_allowed": false,
+    "new_callback_allowed": false,
+    "paper_ready": "only-after-exact-source-resolution-and-any-returned-owner-timer-reclassification"
+  },
+  "simultaneous_due_timer": {
+    "first_transition": "resolve-terminal-source-without-reclaim",
+    "source_disposition": "one-XACK-or-AlreadyAcknowledged-proof",
+    "second_transition": "reclassify-original-timer-against-returned-authenticated-owner",
+    "stale_timer": "discard-if-order-filled-canceled-expired-replaced-absent-or-wrong-day",
+    "timer_before_source": "forbidden"
+  },
+  "required_tests": [
+    "cancel-recovered-exact-pending-any-idle-age",
+    "cancel-recovered-already-acknowledged-continuous-frontier",
+    "cancel-recovered-exact-pending-plus-due-Day-timer-source-first",
+    "cancel-recovered-not-yet-claimable-row-is-absent",
+    "terminal-XAUTOCLAIM-total-zero",
+    "source-completion-removes-working-order-and-discards-stale-timer",
+    "source-completion-retains-same-working-order-and-then-executes-timer"
+  ],
+  "unlisted_tuple": {
+    "disposition": "exit-67-before-transition",
+    "fresh_poll_allowed": false,
+    "filesystem_mutation_allowed": false,
+    "redis_mutation_allowed": false,
+    "callback_allowed": false
+  }
+}

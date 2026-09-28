@@ -1,0 +1,45 @@
+id,area,requirement,evidence,status
+P1D0-001,scope,P1-d0 is design-only and changes no Rust or Cargo source,source diff checker,REQUIRED
+P1D0-002,lineage,Accepted predecessor is exact P1-c closure 3d08f84a4a01d08265120def697584c3e60bcd3c,document and checker,REQUIRED
+P1D0-003,authority,Stage7B remains sole durable command-lifecycle authority,policy marker,REQUIRED
+P1D0-004,authority,No second writable journal or independently mutable Hybrid runtime is introduced,policy and negative mutation,REQUIRED
+P1D0-005,authority,Legacy P0 ledger is comparator-only and cannot settle P1,policy and negative mutation,REQUIRED
+P1D0-006,surface,Only Market Limit and Cancel command shapes are selected,policy inventory,REQUIRED
+P1D0-007,surface,Place commands are Day-only in policy v1,policy inventory,REQUIRED
+P1D0-008,surface,Stop replace bracket and multi-leg remain unsupported,closed-surface evidence,REQUIRED
+P1D0-009,chronology,Decision bar can never execute its own command,next-bar policy,REQUIRED
+P1D0-010,chronology,First execution candidate is the next canonical final M10 approved by the accepted opaque Stage5E schedule-sequence authority,policy marker,REQUIRED
+P1D0-011,chronology,Unproven eligible-bar gaps fail closed,ExecutionBarGap rule,REQUIRED
+P1D0-012,chronology,History and warmup bars cannot execute operational paper commands,origin rule,REQUIRED
+P1D0-013,chronology,Existing working orders resolve before callback-generated cancels on the same completed bar,fill-before-cancel rule,REQUIRED
+P1D0-014,predispatch,Execution eligibility is checked before DispatchAttemptRecorded,pre-dispatch escrow rule,REQUIRED
+P1D0-015,predispatch,Execution bar observation is exact read-only and has no semantic-group PEL callback provider ACK DLQ or XACK effect,no-effect rule,REQUIRED
+P1D0-016,predispatch,Conflicting execution-bar authority fails closed and Redis/provider cannot recreate schedule eligibility,conflict rule,REQUIRED
+P1D0-017,provider,Provider runs only after Stage7B records DispatchAttemptRecorded,ordering rule,REQUIRED
+P1D0-018,recovery,Crash after dispatch before outcome remains reconciliation-required,no blind reinvocation rule,REQUIRED
+P1D0-019,market,Market fills fully at exact next eligible final M10 open,formula,REQUIRED
+P1D0-020,market,Market source timestamp is execution bar open timestamp,timestamp rule,REQUIRED
+P1D0-021,limit,Untouched limit remains Working with zero fill,formula,REQUIRED
+P1D0-022,limit,Buy limit fill is min bar open and limit after low touch,formula,REQUIRED
+P1D0-023,limit,Sell limit fill is max bar open and limit after high touch,formula,REQUIRED
+P1D0-024,limit,Limit never fills worse than its price,formula property,REQUIRED
+P1D0-025,limit,Limit touch source timestamp is final bar close timestamp,timestamp rule,REQUIRED
+P1D0-026,limit,Working Day limit is evaluated on later eligible bars and expires at accepted session boundary,lifecycle rule,REQUIRED
+P1D0-027,partial,Synthetic partial fills are disabled,policy marker,REQUIRED
+P1D0-028,partial,Each v1 place has zero or one complete synthetic trade,cardinality rule,REQUIRED
+P1D0-029,economics,Market and limit slippage adjustments are exactly zero,policy marker,REQUIRED
+P1D0-030,economics,Commission and fees are explicit zero canonical evidence,policy marker,REQUIRED
+P1D0-031,economics,Nonzero economics require a new reviewed policy version,no config widening rule,REQUIRED
+P1D0-032,identity,Paper order ID uses full domain-separated SHA-256 durable identity,ID formula,REQUIRED
+P1D0-033,identity,Paper trade ID binds order execution bar and fill ordinal,ID formula,REQUIRED
+P1D0-034,identity,Redis IDs wall clock consumer and process epoch cannot affect paper IDs,negative mutation,REQUIRED
+P1D0-035,cancel,Working target cancel becomes Canceled with no trade or position change,outcome table,REQUIRED
+P1D0-036,cancel,Filled target cancel reports CancelExecutionObserved,outcome table,REQUIRED
+P1D0-037,cancel,Nonexecution terminal target reports CancelAlreadyTerminalNonExecution,outcome table,REQUIRED
+P1D0-038,cancel,Absent foreign ambiguous or conflicting target fails closed,outcome table,REQUIRED
+P1D0-039,feedback,One linear outcome bundle owns Stage6 outcome and order trade position projections,bundle contract,REQUIRED
+P1D0-040,feedback,ACK clears only exact matching StrategyRequestId,feedback rule,REQUIRED
+P1D0-041,feedback,Duplicate projection is idempotent and conflicting duplicate fails before mutation,feedback rule,REQUIRED
+P1D0-042,position,Flat and lifecycle truth are exact target-instrument nonzero-quantity scoped,position rule,REQUIRED
+P1D0-043,restart,Recovery seal binds paper book active orders and execution-bar identity,restart rule,REQUIRED
+P1D0-044,safety,DB0 FINAM dispatch real orders runtime-live and Generation-2 remain closed,evidence flags,REQUIRED

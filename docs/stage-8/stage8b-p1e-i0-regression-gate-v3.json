@@ -1,0 +1,96 @@
+{
+  "schema_version": 3,
+  "domain": "moex.stage8b.p1e.i0-regression-gate.v3",
+  "base_contract": {
+    "path": "docs/stage-8/stage8b-p1e-i0-regression-gate-v2.json",
+    "sha256": "4d01fe160dac5fcd58a1239193e98913265f92aa56f1f6538f7b47a31dd88189"
+  },
+  "entrypoint": "bash scripts/stage8b_p1e_i0_regression_gate.sh ACCEPTED_R10_COMMIT NEW_ABSOLUTE_RETAINED_OUTPUT",
+  "accepted_r10_ref_contract": {
+    "argument_required": true,
+    "must_be_full_commit": true,
+    "must_resolve_to_commit": true,
+    "must_be_ancestor_of_i0_head": true,
+    "i0_head_must_differ": true
+  },
+  "tested_source_contract": {
+    "clean_before": true,
+    "clean_after": true,
+    "untracked_files_in_cleanliness_check": true,
+    "same_head_before_after": true,
+    "same_tree_before_after": true,
+    "evidence_ref_tree_must_equal_tested_source": true,
+    "dirty_developer_run_cannot_produce_acceptance_pass": true
+  },
+  "current_i0_scope": {
+    "production_allowlist": [
+      "crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs",
+      "crates/runtime-durable-service/src/stage8b_p1_semantic.rs",
+      "crates/runtime-durable-service/src/lib.rs"
+    ],
+    "helper_prefix_allowlist": ["docs/stage-8/stage8b-p1e-i0-"],
+    "explicit_shared_files": ["docs/current-status.md", "docs/roadmap.md"],
+    "cargo_allowed": false,
+    "workflow_allowed": false,
+    "config_or_unit_allowed": false,
+    "deployment_allowed": false,
+    "accepted_gate_scripts_are_not_i0_mutable_helpers": true
+  },
+  "retained_evidence": {
+    "new_absolute_output_argument_required": true,
+    "output_must_be_outside_repository": true,
+    "output_must_not_preexist": true,
+    "temporary_and_output_share_parent": true,
+    "atomic_publish_by_rename": true,
+    "pass_and_fail_runs_retained": true,
+    "required_files": [
+      "gate.log",
+      "run-result.json",
+      "source-tree-manifest.json",
+      "artifact-manifest.json",
+      "artifact-manifest.sha256",
+      "crash-evidence/"
+    ],
+    "handoff_must_bundle_or_exact-digest-link_output": true
+  },
+  "accepted_script_bindings": {
+    "scripts/stage8b_p1e_i0_regression_gate.sh": "627451b5edb563b45f4dce82e6e3419603a3fdb20dd90005356ca54afd2c97e4",
+    "scripts/stage8b_p1e_i0_scope_check.py": "f2922d69438e37b9758b93ba28ac94e31a6ff732910c2735b7320cb74a2cfa96",
+    "scripts/stage8b_p1e_i0_retained_evidence.py": "42b9e0f77755206271e1dcdda6113715c4cda2e89033097bc3fa262eb233eedf",
+    "scripts/stage8b_p1e_i0_p1d4_regression_check.py": "e0eb1f70c63d1981dda1491018e267adf21cc66b70e735a82c1b80de6eb48068"
+  },
+  "cross_slice_exact_tests": [
+    "stage8b_p1_semantic::redis::tests::p1d2_market_feedback_commits_ack_then_truth_then_xacks_source",
+    "stage8b_p1_semantic::redis::tests::p1d2_subprocess_kill_matrix_recovers_all_six_durable_frontiers",
+    "stage8b_p1_semantic::redis::tests::p1d3_read_only_successor_observation_retains_original_source_until_xack",
+    "stage8b_p1_semantic::redis::tests::p1d3_actual_host_optional_tcid_completes_recovered_cancel_and_xacks_last",
+    "stage8b_p1_semantic::redis::tests::p1d3_optional_tcid_target_first_restart_continues_without_duplicate_effects",
+    "stage8b_p1_semantic::redis::tests::p1d3_subprocess_sigkill_brackets_s_cancel_recovered"
+  ],
+  "exact_test_protocol": {
+    "list_with_exact_first": true,
+    "selected_count_required": 1,
+    "selected_full_name_must_match": true,
+    "execute_with_exact_after_list": true,
+    "passed_count_required": 1,
+    "zero_test_success_forbidden": true,
+    "renamed_or_missing_test_must_fail": true
+  },
+  "historical_p1d4": {
+    "historical_gate_invoked_directly_by_i0": false,
+    "reusable_content_validator_required": true,
+    "source_negative_harness_required": true,
+    "positive_sigkill_cells": 105,
+    "clean_runs": 2,
+    "retained_evidence_checker_required": true,
+    "evidence_negative_harness_required": true
+  },
+  "closed_surfaces": [
+    "operational-DB0",
+    "VPS-activation",
+    "FINAM-POST-DELETE",
+    "broker-dispatch",
+    "runtime-live",
+    "real-orders"
+  ]
+}

@@ -16,6 +16,9 @@ jobs:
       # Historical acceptance parsers bind exact Cargo terminal markers.
       # Disable ANSI decoration so immutable replay evidence stays parseable.
       CARGO_TERM_COLOR: never
+      # P1-d4 runs the non-ignored SIGKILL matrix in workspace tests. Keep the
+      # accepted source-gate stack contract in the canonical CI runner too.
+      RUST_MIN_STACK: "33554432"
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 immutable pin

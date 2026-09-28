@@ -1,0 +1,44 @@
+id,area,semantic_key,requirement,status
+P1ER3-001,lineage,lineage.accepted_predecessor,Accepted immutable predecessor is exact P1-d4 closure c2a9e1246dfdd59f3a6297268de907dedcb19903,REQUIRED
+P1ER3-002,lineage,lineage.active_design,R2 3aaed81da4f1a558b4d31f4d3a169ddceca61e6f is HOLD and superseded only by this R3 candidate,REQUIRED
+P1ER3-003,scope,scope.design_only,R3 changes design checker evidence status and handoff only with zero Rust Cargo workflow unit or deployed config change,REQUIRED
+P1ER3-004,scope,scope.source_authority,P1-e source implementation remains unauthorized until independent acceptance of this exact R3 package,REQUIRED
+P1ER3-005,contract,contract.active_merge,Stage8bP1eAcceptanceContractV3 activates only the exact inherited row sets plus all R3 rows and excludes every mapped superseded row,REQUIRED
+P1ER3-006,contract,contract.semantic_conflict,The checker rejects an active inherited and replacement row that prescribe unequal values for one semantic key,REQUIRED
+P1ER3-007,contract,contract.inherited_integrity,Every non-superseded R1 and R2 row remains byte-bound and REQUIRED,REQUIRED
+P1ER3-008,first_boot,first_boot.transaction_v2,Stage8bP1FirstBootTransactionV2 is canonical-hash bound and has ten exhaustive classifications with one legal action each,REQUIRED
+P1ER3-009,first_boot,first_boot.recovery_cli,bootstrap-recover accepts exact CONFIG transaction-dot-action instance and confirmation arguments only,REQUIRED
+P1ER3-010,first_boot,first_boot.recovery_unit,Recovery is reachable only through the fixed hardened stage8b-p1-paper-bootstrap-recover template unit,REQUIRED
+P1ER3-011,credential,credential.recovery_boundary,Recovery obtains only stage8b-p1-lifecycle.key from CREDENTIALS_DIRECTORY and fails before mutation when unavailable,REQUIRED
+P1ER3-012,first_boot,first_boot.action_match,Requested recovery transaction and action must exactly match the fresh authenticated filesystem classification before mutation,REQUIRED
+P1ER3-013,first_boot,first_boot.idempotence,Every recovery action has an exact idempotent response-loss classification and cannot create a second authority,REQUIRED
+P1ER3-014,receipt,receipt.schema,Stage8bP1FirstBootReceiptV1 exact canonical fields domain and HMAC contract are hash-bound,REQUIRED
+P1ER3-015,receipt,receipt.bindings,Receipt binds transaction attempt root package seal provenance operational identity and adoption predicate,REQUIRED
+P1ER3-016,receipt,receipt.persistence,Receipt uses exclusive fixed temp write sync rename parent fsync nofollow reread and byte verification,REQUIRED
+P1ER3-017,receipt,receipt.replay_rejection,Cross-transaction cross-attempt cross-root and altered receipt evidence fails before run and Redis,REQUIRED
+P1ER3-018,receipt,receipt.temp_recovery,A crash before receipt rename is classified as CommittedRootReceiptTemp and recovers only through exact temp removal plus fresh adoption,REQUIRED
+P1ER3-019,receipt,receipt.response_loss,A valid receipt after rename and parent fsync is the adoption commit point and is adopted idempotently without first boot replay,REQUIRED
+P1ER3-020,restart,restart.Ready.continuation,Ready first classifies authenticated PEL source and due timer and only quiescent Ready may issue one bounded S08 poll,REQUIRED
+P1ER3-021,adoption,adoption.ready_predicate,Adoption requires Stage7bRestartOutcome Ready with exact identity package provenance checkpoint terminal phase and zero pending lifecycle ownership,REQUIRED
+P1ER3-022,adoption,adoption.no_direct_fallback,No direct non-systemd bootstrap-recover invocation or caller-selected credential path is an accepted production boundary,REQUIRED
+P1ER3-023,provenance,provenance.package_storage,Stage6dAuthenticatedRestartPackageV2 stores canonical first-boot provenance bytes and digest inside its HMAC-covered commitment,REQUIRED
+P1ER3-024,provenance,provenance.propagation,Every seal advance and replacement-package constructor copies byte-identical provenance and cannot substitute omit or regenerate it,REQUIRED
+P1ER3-025,provenance,provenance.pre_redis_validation,Missing duplicate unknown-version changed cross-identity or downgraded provenance fails before Redis contact,REQUIRED
+P1ER3-026,provenance,provenance.replacement_test,Bootstrap then S_eval S_ack S_truth replacement then restart preserves and validates exact first-boot provenance,REQUIRED
+P1ER3-027,restart,restart.operational_matrix,The active operational pre-transition matrix has 52 unique observable cells and no callback-result discriminator,REQUIRED
+P1ER3-028,restart,restart.observable_classifier,Composite classification reads only authenticated local owner package phase PEL source facts timer facts and shutdown latch,REQUIRED
+P1ER3-029,restart,restart.no_preview_callback,No strategy callback preview clone speculation or semantic result may select a pre-transition cell,REQUIRED
+P1ER3-030,acquisition,acquisition.linear_owner,Bounded S06 and S08 acquisition creates one linear Stage8bP1eClaimedM10DeliveryV1 consumed exactly once,REQUIRED
+P1ER3-031,acquisition,acquisition.claimed_facade,process_claimed_working_limit and process_claimed_ready_source accept the linear delivery and cannot call XPENDING XAUTOCLAIM or XREADGROUP,REQUIRED
+P1ER3-032,acquisition,acquisition.exactly_once,Redis instrumentation proves exactly one source acquisition across classification acquisition and continuation,REQUIRED
+P1ER3-033,acquisition,acquisition.s08_same_delivery,S08 passes the same returned delivery to continuation with no second read claim or reacquisition,REQUIRED
+P1ER3-034,callback,callback.post_transition_branch,ZeroIntent OneIntentPrepublication LaterFilled and blocked outcomes branch only after the one real callback,REQUIRED
+P1ER3-035,callback,callback.exactly_once,Observable-identical sources with different semantic outcomes select one pre-transition cell and execute exactly one callback each,REQUIRED
+P1ER3-036,shutdown,shutdown.post_delivery_latch,Post-delivery shutdown consumes the linear owner only into retained-pending state with no parse callback provider schedule XACK or second read,REQUIRED
+P1ER3-037,restart,restart.source_timer_order,An exact pending source completes and XACKs last before a simultaneous due timer is reclassified against the new authenticated owner,REQUIRED
+P1ER3-038,restart,restart.exact_terminal_boundaries,AckCommitted reaches exact S_truth and cancel continuation reaches exact S_cancel_recovered before source XACK,REQUIRED
+P1ER3-039,redis,redis.runtime_policy,The accepted hash-bound Redis runtime policy V1 remains unchanged and caller overrides remain forbidden,REQUIRED
+P1ER3-040,systemd,systemd.StartLimitIntervalSec,The active ordinary-unit restart window is exactly StartLimitIntervalSec 600 and StartLimitBurst 5,REQUIRED
+P1ER3-041,checker,checker.targeted_mutations,Targeted redigested negatives cover semantic conflict unmanaged recovery forged receipt lost provenance preview callback and double acquisition,REQUIRED
+P1ER3-042,closed,closed.operational,P1-f DB0 VPS non-loopback Redis FINAM dispatch runtime-live real orders partial fills and protective orders remain closed,REQUIRED
+P1ER3-043,deferred,deferred.child_pid,The nonblocking bound 0 less-than child_pid less-than-or-equal u32 MAX remains deferred to separately authorized source hardening,REQUIRED

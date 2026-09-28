@@ -1,0 +1,52 @@
+{
+  "schema_version": 10,
+  "domain": "moex.stage8b.p1e.active-acceptance-contract.v10",
+  "accepted_predecessor": "c2a9e1246dfdd59f3a6297268de907dedcb19903",
+  "direct_parent": "4051a7b4d2c810100aaf983bddede62dbd03d96f",
+  "base_active_contract": {
+    "path": "docs/stage-8/stage8b-p1e-active-acceptance-contract-v9.json",
+    "sha256": "2879a44d13b4c5bcab17175969bab2e3c929ac56fe91d25990a6d6f0de5a2092",
+    "active_rows": 298
+  },
+  "r10_source": {
+    "path": "docs/stage-8/stage8b-p1e-deployable-supervisor-r10-acceptance-matrix.csv",
+    "sha256": "280036691808932534e75fc0cd32c47688ebf9e754c134e8e192b666824ed067",
+    "row_count": 24,
+    "superseded_rows": []
+  },
+  "superseded_base_rows": [
+    "P1ER9-019",
+    "P1ER9-020",
+    "P1ER9-021",
+    "P1ER9-022",
+    "P1ER9-023"
+  ],
+  "supersession_map": [
+    {
+      "semantic_key": "route-outcome-counter-and-source-proof",
+      "superseded": ["P1ER9-019", "P1ER9-020"],
+      "replacement": [
+        "P1ER10-008", "P1ER10-009", "P1ER10-010", "P1ER10-011",
+        "P1ER10-012", "P1ER10-013", "P1ER10-014", "P1ER10-015",
+        "P1ER10-016", "P1ER10-017"
+      ]
+    },
+    {
+      "semantic_key": "immutable-retained-executable-regression-proof",
+      "superseded": ["P1ER9-021", "P1ER9-022", "P1ER9-023"],
+      "replacement": [
+        "P1ER10-018", "P1ER10-019", "P1ER10-020", "P1ER10-021",
+        "P1ER10-022", "P1ER10-023"
+      ]
+    }
+  ],
+  "semantic_authority_registry": "docs/stage-8/stage8b-p1e-semantic-authority-registry-v10.json",
+  "active_contract_expectation": {
+    "base_v9_active_rows": 298,
+    "base_rows_superseded_by_r10": 5,
+    "r10_active_rows": 24,
+    "total_active_rows": 317,
+    "all_status_required": true
+  },
+  "merge_rule": "exact-active-V9-minus-five-listed-rows-plus-all-R10-rows"
+}

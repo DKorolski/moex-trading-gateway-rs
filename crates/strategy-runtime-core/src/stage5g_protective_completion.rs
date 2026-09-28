@@ -2507,6 +2507,10 @@ pub fn prepare_stage5g_protective_completion(
         crate::Stage5gCleanRestartLifecycleKind::TimerReady
         | crate::Stage5gCleanRestartLifecycleKind::OrderPositionAwaitingCommitted
         | crate::Stage5gCleanRestartLifecycleKind::ProtectiveLifecycleCommitted => {}
+        crate::Stage5gCleanRestartLifecycleKind::P1SemanticReady
+        | crate::Stage5gCleanRestartLifecycleKind::P1SemanticPrepublication => {
+            return Err(Stage5gProtectiveBlockReason::MissingCleanRestartProtectiveState)
+        }
     }
     let mut authority = admit_stage5g_protective_completion_authority_from_source(
         parts.input,

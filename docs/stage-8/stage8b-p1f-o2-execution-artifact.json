@@ -1,0 +1,204 @@
+{
+  "schema_version": 1,
+  "domain": "moex.stage8b.p1f.o2.execution-artifact.v1",
+  "status": "REVIEW_CANDIDATE_EXECUTION_NOT_AUTHORIZED",
+  "accepted_contract_ref": "a9f8fe30a45752c943f9e399775322d83fcd8a36",
+  "implementation_ref": "9e7f44d119cac63e33d5d5437ff972e49922c797",
+  "execution_authorized": false,
+  "target_mutation_performed": false,
+  "authority": {
+    "key_id": "stage8b-p1f-o2-authority-generation-1",
+    "public_key_ed25519_hex": "8ed71461f37c51d6239db25aeac1e709f250bd16d6d7bb6ba117b716cebf4802",
+    "public_key_sha256": "f491b728133c5c7b7a717fd5d944a22eae71ccabf369e661271f4af70799135e",
+    "private_key_in_artifact": false
+  },
+  "account_boundary": {
+    "broker_account_id_in_artifact": false,
+    "broker_account_id_sha256": "e14dde9c8231a28b065789a2deba6f65804c1cad7dd3aa98776f2515e1ad671f",
+    "broker_neutral_account_alias": "finam-paper-primary",
+    "credential_path": "/run/credentials/moex-finam-p1f-o2-materializer.service/finam-account.id",
+    "token_path": "/run/credentials/moex-finam-p1f-o2-materializer.service/finam-readonly.token"
+  },
+  "roles": [
+    {
+      "id": "offline-signer",
+      "binary": "stage8b-p1f-o2-operator",
+      "location": "offline-workstation",
+      "purpose": "sign-time-bounded-installation-or-execution-authority"
+    },
+    {
+      "id": "root-guardian",
+      "binary": "stage8b-p1f-o2-operator",
+      "location": "target-fixed-libexec",
+      "purpose": "verify-authority-install-and-supervise"
+    },
+    {
+      "id": "get-materializer",
+      "binary": "stage8b-p1f-o2-materializer",
+      "location": "target-fixed-libexec",
+      "purpose": "materialize-accepted-source-from-get-only-finam"
+    },
+    {
+      "id": "systemd-runner",
+      "binary": "stage8b-p1f-o2-operator",
+      "location": "target-fixed-libexec",
+      "purpose": "bounded-bootstrap-unit-supervision"
+    },
+    {
+      "id": "evidence-collector",
+      "binary": "stage8b-p1f-o2-operator",
+      "location": "target-fixed-libexec",
+      "purpose": "read-only-linked-evidence-collection"
+    }
+  ],
+  "build": {
+    "platform": "linux/amd64",
+    "rust_image": "rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922",
+    "cargo_args": [
+      "build",
+      "--locked",
+      "--release",
+      "-p",
+      "finam-gateway",
+      "--bin",
+      "stage8b-p1f-o2-materializer",
+      "-p",
+      "runtime-durable-service",
+      "--bin",
+      "stage8b-p1f-o2-operator"
+    ],
+    "binaries": [
+      {
+        "name": "stage8b-p1f-o2-materializer",
+        "sha256": "9716b77de5918e4be3882c6babce1b76ce9b19ba57e4d4b63d3e4ab347b1b45a",
+        "size": 8304208,
+        "elf_machine": "x86-64",
+        "build_id_sha1": "435fd7f634a5812ee801371e205dfb94c98618be"
+      },
+      {
+        "name": "stage8b-p1f-o2-operator",
+        "sha256": "782f8dcfb135e70f2217de9b66a3be9d27c252063c5f6024019c9bd28713431e",
+        "size": 3334152,
+        "elf_machine": "x86-64",
+        "build_id_sha1": "0513d1f9c4875ad790b40c27e896e5fb912f2e1d"
+      }
+    ]
+  },
+  "public_inputs": {
+    "authority_public_key": {
+      "path": "docs/stage-8/stage8b-p1f-o2-authority-public-key.hex",
+      "sha256": "b92f0006e6f8571cf4ce13f7cb32d460a4e633228a5015b1d1d2ebfb0261886b"
+    },
+    "materialization_policy": {
+      "path": "docs/stage-8/stage8b-p1f-o2-materialization-policy.json",
+      "sha256": "e9ea92697ef76bd3a3c48392438cca6c1afb65806be8a07ddddf838e04477993"
+    },
+    "source_template": {
+      "path": "docs/stage-8/stage8b-p1f-o2-source-template.json",
+      "sha256": "670dac4798805df5f21c0f9b6dd6f058a8c0e86290ae6f3d478bbba925ab4d56"
+    },
+    "supervisor_template": {
+      "path": "docs/stage-8/stage8b-p1f-o2-supervisor-template.json",
+      "sha256": "21bf696ca6ffc054e21fbcaf4e6fb7d88dcdcc12b6225d7aa5b533eb60be5573"
+    }
+  },
+  "source_files": [
+    {
+      "path": "crates/broker-finam/src/o2_readonly.rs",
+      "sha256": "afef4cab0aa8b38a96a74d7aeb81dfa058270f1ea73ed5f82c1015968e9ee310"
+    },
+    {
+      "path": "crates/finam-gateway/src/bin/stage8b-p1f-o2-materializer.rs",
+      "sha256": "4142f74a0790c6abf2168f7887a6f12751401bf30afb18ef1c5a0539ca3f6a96"
+    },
+    {
+      "path": "crates/finam-gateway/src/stage8b_p1f_o2_materializer.rs",
+      "sha256": "8fac575730e6daec83790e3ebd5f091621ac5de4a9122b7f21931fcbad9eb2a9"
+    },
+    {
+      "path": "crates/runtime-durable-service/src/bin/stage8b-p1f-o2-operator.rs",
+      "sha256": "7b890107dda35c6064ed8bd66ca471487752b45f2935c7c899557b4135c8fd50"
+    },
+    {
+      "path": "crates/runtime-durable-service/src/stage8b_p1f_o2_systemd.rs",
+      "sha256": "000edab71f0aee3146116703285e2f4082acd167a13319e80a71a69649adaf29"
+    }
+  ],
+  "units": [
+    {
+      "unit": "moex-finam-p1f-o2-materializer.service",
+      "path": "deploy/stage8b-p1e/moex-finam-p1f-o2-materializer.service",
+      "install_path": "/etc/systemd/system/moex-finam-p1f-o2-materializer.service",
+      "sha256": "e06c35538b477cb82e3ca202fe52c0c00db4acdd895eb395657b6ed0fda93dff"
+    },
+    {
+      "unit": "moex-finam-p1-paper-o2-bootstrap-runner.service",
+      "path": "deploy/stage8b-p1e/moex-finam-p1-paper-o2-bootstrap-runner.service",
+      "install_path": "/etc/systemd/system/moex-finam-p1-paper-o2-bootstrap-runner.service",
+      "sha256": "6268fe56d6ed5dda28297cb497aba3a0b0dea882dc1b79447629c196a1ca0134"
+    }
+  ],
+  "get_guard": {
+    "base_url": "https://api.finam.ru",
+    "methods": [
+      "GET"
+    ],
+    "route_kinds": [
+      "account",
+      "account-orders",
+      "asset-params",
+      "asset-schedule",
+      "m1-bars"
+    ],
+    "redirects": false,
+    "system_proxy": false,
+    "write_methods": false,
+    "orders_snapshot_is_read_only_truth": true
+  },
+  "supervision": {
+    "poll_interval_ms": 250,
+    "command_timeout_seconds": 5,
+    "stop_grace_seconds": 30,
+    "systemctl_exit_is_stopped_proof": false,
+    "stopped_proof": [
+      "no-job",
+      "main-pid-zero",
+      "control-pid-zero",
+      "inactive-or-failed",
+      "empty-cgroup"
+    ],
+    "pending_terminal_replay": "byte-exact-state-reason-timestamp",
+    "restart_grants_new_grace": false
+  },
+  "commands": {
+    "installation_and_execution_require_separate_acceptance": true,
+    "runner_start": [
+      "/usr/bin/systemctl",
+      "start",
+      "moex-finam-p1-paper-o2-bootstrap-runner.service"
+    ],
+    "evidence": [
+      "/usr/local/libexec/moex/stage8b-p1f-o2-operator",
+      "collect-evidence"
+    ]
+  },
+  "excluded": [
+    "private-o2-authority-key",
+    "finam-readonly-token",
+    "raw-finam-account-id",
+    "lifecycle-credential",
+    "fresh-finam-response-bytes",
+    "signed-time-bounded-authority-documents"
+  ],
+  "closed_surfaces": {
+    "operational_target_execution": false,
+    "operational_redis_mutation": false,
+    "finam_write_or_order_execution": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "stage8b_p1f_o3": false,
+    "stage8b_p1f_o4": false,
+    "ordinary_p1_run": false
+  }
+}

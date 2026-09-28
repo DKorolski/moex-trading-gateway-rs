@@ -1,0 +1,21 @@
+id,requirement,evidence,expected
+O1O-01,Accepted O1 package authority is exact,operational evidence,commit and review digest exact
+O1O-02,Fresh complete O0 precedes mutation,pre-O0 raw and normalized evidence,all checks pass and mutation false
+O1O-03,Target identity is exact,post-install probe,hostname IP and SSH fingerprint exact
+O1O-04,Staging is new root-only and bundle exact,post-install probe,root root 0700 and accepted nested SHA-256
+O1O-05,Installer executed exactly once with absolute paths,operational document and evidence,exit zero and accepted result
+O1O-06,Post-install status is exact,accepted installer status,EXACT_INSTALLED
+O1O-07,Managed public payloads are exact,post-install probe,all SHA-256 owner group mode nlink exact
+O1O-08,Installation manifest custody is exact,post-install probe,root root 0644 regular single-link
+O1O-09,Installation manifest keeps every false boundary,manifest reread,activation reload Redis FINAM and operator flags false
+O1O-10,Service identity is exact,post-install probe,non-root paired UID GID and nologin
+O1O-11,Persistent directory custody is exact,post-install probe,all six paths owner group mode exact
+O1O-12,Operator material is absent,post-install probe,config source and credential absent
+O1O-13,Durable state remains uninitialized,post-install probe,no state beyond empty quarantine
+O1O-14,P1 remains inactive,post-install probe,no process active unit enabled unit or recovery instance
+O1O-15,P0 identity configuration and activity are retained,pre and post evidence,unit and ExecStart hashes exact and active
+O1O-16,DB15 remains empty,pre and post evidence,size zero and empty digest
+O1O-17,DB0 equality is not required while P0 is active,operational evidence,no O1 Redis contact rather than digest equality
+O1O-18,No daemon reload enable or start occurred,manifest and process evidence,all false or absent
+O1O-19,O2 and execution surfaces remain closed,document and evidence,all closed flags false
+O1O-20,Independent review precedes O2,current status,O1 operational evidence remains review candidate
