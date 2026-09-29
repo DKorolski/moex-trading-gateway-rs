@@ -15,7 +15,7 @@
   ],
   "daemon_reload_authorized": false,
   "execution_authorized": false,
-  "installation_identity_sha256": "7252b88c2c2ff36e857e26bc7513c1be3d7974709f22957ab721b123331da8d6",
+  "installation_identity_sha256": "316c2376cf4d02a7f0ee3837e96d93bbf2cb1b2b8e3aabe10205f783f088aad8",
   "inventory": {
     "activation_performed": false,
     "artifact_ref": "7196aaac7c0bf45a03d90742d8ef483078649de6",
@@ -42,7 +42,7 @@
     "domain": "moex.stage8b.p1f.o2.installation.v1",
     "finam_contact_performed": false,
     "installation_id": "stage8b-p1f-o2-baseline07-7196aaa-v1",
-    "installer_sha256": "e7da14e9a29613f959c4549088f023a4d4642bede6de7cdca8822a7205cd62e0",
+    "installer_sha256": "7cd86ea01aa3214aa0baec599ffc4606337a40f8146e48da7f43afe58670747c",
     "payload": {
       "/etc/moex-finam-p1-paper/o2/authority-public-key.hex": {
         "group": "service",

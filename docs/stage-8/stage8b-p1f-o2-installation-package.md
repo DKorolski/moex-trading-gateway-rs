@@ -1,6 +1,14 @@
 # O2 non-activating installation / replacement candidate
 
-Date: 2026-09-29. Status: REVIEW_CANDIDATE_EXECUTION_NOT_AUTHORIZED.
+Date: 2026-09-29. Status: R1_NATIVE_OBSERVER_CORRECTION_REVIEW_CANDIDATE.
+
+Package `304cd56` was independently INSTALLATION PACKAGE ACCEPTED. Its separately
+user-authorized operational attempt stopped at native preflight, before calling
+install: systemd 255 omitted `ExecStart` for the two not-found O2 units. Only
+root-only package staging changed on the target. Exact O1 remains installed;
+no replacement transaction or new manifest exists. This local R1 correction is
+not deployed and requires review before a resumed installation. See the
+[native correction and evidence](stage8b-p1f-o2-installation-native-correction.md).
 
 ## Accepted predecessor and present scope
 
@@ -9,8 +17,9 @@ ZIP SHA-256 `1069cbeb597e902126ebdb0b2c01ef52dca45420dfe2a69a6963b939de33ac4a`.
 The acceptance review SHA-256 is
 `84971a4cee1e0e38168c9fc1fe9005481131ae3d82f652fa703c9d0fe5c97187`.
 This package prepares the installation boundary requested by that review. It
-does NOT exercise the permission to install. No SSH, target discovery, target
-mutation, FINAM, Redis, signing ceremony or service operation is performed.
+does NOT exercise permission to deploy the corrected installer. The earlier
+304cd56 attempt used SSH, root-only staging and read-only Redis observations;
+it performed no managed-file replacement, FINAM, signing or service operation.
 
 No new Rust build or strategy changes: the installer reads the exact accepted
 ZIP and copies its payloads/public templates/units without transformation.
@@ -133,6 +142,12 @@ nested artifact, so it also runs from an extracted ZIP without `.git`. The
 pinned local Docker image must already be available; the gate does not install
 or silently replace that prerequisite. The handoff contains both exact accepted
 ZIP inputs, raw Git commit/tree evidence, this review and fresh test logs.
+
+The Linux suite now has 17 test methods, including native not-found response
+regressions and narrowly scoped rejection controls. The 45/45 negative cases in
+the gate are the inherited current-tree authority harness, not 45 new behavioral
+installation tests. Real VPS read-only responses are retained as a fixture;
+the corrected installer itself has not been run on the target.
 
 The installer has no `systemctl start/stop/reload/enable`, daemon-reload,
 systemd-sysusers/tmpfiles execution, FINAM, Redis, signing or broker-send call.

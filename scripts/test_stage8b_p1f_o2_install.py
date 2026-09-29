@@ -209,6 +209,68 @@ class InstallerTests(unittest.TestCase):
         with patch.object(m, "command", side_effect=m.Error("query failed")):
             with self.assertRaises(m.Error): m.properties("unit")
 
+    def test_native_not_found_property_contract(self):
+        records = json.loads((Path(__file__).parent / "fixtures/stage8b-o2-systemd255-not-found.json").read_text())["observations"]
+        self.assertEqual({item["unit"] for item in records}, set(m.NEW_UNITS))
+        for record in records:
+            self.assertEqual(record["returncode"], 0)
+            self.assertEqual(record["stderr"], "")
+            unit, raw = record["unit"], record["stdout"]
+            expected = dict(row.split("=", 1) for row in raw.splitlines())
+            with patch.object(m, "command", return_value=raw):
+                self.assertEqual(m.properties(unit), expected)
+                self.assertNotIn("ExecStart", m.properties(unit))
+                for other in (*m.old.UNITS, *m.P0_UNITS, "unrelated.service"):
+                    with self.subTest(unit=other), self.assertRaises(m.Error): m.properties(other)
+            mutations = {
+                "loaded": raw.replace("LoadState=not-found", "LoadState=loaded"),
+                "load-error": raw.replace("LoadState=not-found", "LoadState=error"),
+                "active": raw.replace("ActiveState=inactive", "ActiveState=active"),
+                "failed": raw.replace("ActiveState=inactive", "ActiveState=failed"),
+                "running": raw.replace("SubState=dead", "SubState=running"),
+                "main-pid": raw.replace("MainPID=0", "MainPID=10"),
+                "control-pid": raw.replace("ControlPID=0", "ControlPID=10"),
+                "job": raw.replace("Job=\n", "Job=12\n"),
+                "fragment": raw.replace("FragmentPath=\n", "FragmentPath=/unit\n"),
+                "drop-in": raw.replace("DropInPaths=\n", "DropInPaths=/override\n"),
+                "cgroup": raw.replace("ControlGroup=\n", "ControlGroup=/system.slice/test\n"),
+                "duplicate": raw + "LoadState=not-found\n",
+                "extra": raw + "Unexpected=value\n",
+                "malformed": raw + "invalid\n",
+            }
+            for line in raw.splitlines(keepends=True):
+                mutations["missing-" + line.split("=", 1)[0]] = raw.replace(line, "")
+            for label, mutated in mutations.items():
+                with self.subTest(unit=unit, case=label), patch.object(m, "command", return_value=mutated):
+                    with self.assertRaises(m.Error): m.properties(unit)
+            failed = m.subprocess.CompletedProcess(record["argv"], 1, stdout=raw, stderr="query error")
+            with patch.object(m.subprocess, "run", return_value=failed):
+                with self.assertRaises(m.Error): m.properties(unit)
+
+    def test_native_observer_with_not_found_response(self):
+        import contextlib
+        records = json.loads((Path(__file__).parent / "fixtures/stage8b-o2-systemd255-not-found.json").read_text())["observations"]
+        responses = {item["unit"]: item["stdout"] for item in records}
+        # Pre-copy absence and post-copy not-found manager cache are both inert.
+        # Disk inventory is checked independently; no daemon-reload is required.
+        for copied in (False, True):
+            units = set(m.old.UNITS) | (set(m.NEW_UNITS) if copied else set())
+            def response(args):
+                if args[0] == "ssh-keygen": return "256 " + m.HOST_KEY + " host (ED25519)\n"
+                if args[1] == "list-units": return ""
+                if args[1] == "list-unit-files": return "".join(name + " static -\n" for name in sorted(units))
+                if args[2] in responses: return responses[args[2]]
+                value = {"LoadState": "loaded", "ActiveState": "inactive", "SubState": "dead", "MainPID": "0", "ControlPID": "0", "Job": "", "FragmentPath": "/etc/systemd/system/" + args[2], "DropInPaths": "", "ExecStart": "pinned executable", "ControlGroup": ""}
+                if args[2] in m.P0_UNITS: value.update(ActiveState="active", SubState="running", MainPID="999")
+                return "".join(key + "=" + value + "\n" for key, value in value.items())
+            with self.subTest(copied=copied), contextlib.ExitStack() as stack:
+                stack.enter_context(patch.object(m.old, "account_ids", return_value=(65000, 65000)))
+                stack.enter_context(patch.object(m, "assert_no_p1_processes"))
+                stack.enter_context(patch.object(m, "file_bytes", return_value=b"unit"))
+                stack.enter_context(patch.object(Path, "exists", lambda path: path.name in units))
+                stack.enter_context(patch.object(m, "command", side_effect=response))
+                self.assertTrue(NATIVE_OBSERVER(Path("/"))["p1_stopped"])
+
     def test_native_observer_command_responses(self):
         import contextlib
         units = set(m.old.UNITS) | set(m.NEW_UNITS)

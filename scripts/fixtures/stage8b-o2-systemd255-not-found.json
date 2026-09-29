@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "observed_at_utc": "2026-09-29T06:28:04.245097+00:00",
+  "target": "45.150.11.252",
+  "accepted_installer_ref": "304cd56bd33e2145f327c5f1ea02f56837cc3e62",
+  "managed_state": "EXACT_O1_UNCHANGED",
+  "transaction_present": false,
+  "new_installation_manifest_present": false,
+  "observations": [
+    {
+      "unit": "moex-finam-p1f-o2-materializer.service",
+      "argv": [
+        "systemctl",
+        "show",
+        "moex-finam-p1f-o2-materializer.service",
+        "--no-pager",
+        "--property=LoadState",
+        "--property=ActiveState",
+        "--property=SubState",
+        "--property=MainPID",
+        "--property=ControlPID",
+        "--property=Job",
+        "--property=FragmentPath",
+        "--property=DropInPaths",
+        "--property=ExecStart",
+        "--property=ControlGroup"
+      ],
+      "returncode": 0,
+      "stdout": "MainPID=0\nControlPID=0\nControlGroup=\nLoadState=not-found\nActiveState=inactive\nSubState=dead\nFragmentPath=\nDropInPaths=\nJob=\n",
+      "stderr": ""
+    },
+    {
+      "unit": "moex-finam-p1-paper-o2-bootstrap-runner.service",
+      "argv": [
+        "systemctl",
+        "show",
+        "moex-finam-p1-paper-o2-bootstrap-runner.service",
+        "--no-pager",
+        "--property=LoadState",
+        "--property=ActiveState",
+        "--property=SubState",
+        "--property=MainPID",
+        "--property=ControlPID",
+        "--property=Job",
+        "--property=FragmentPath",
+        "--property=DropInPaths",
+        "--property=ExecStart",
+        "--property=ControlGroup"
+      ],
+      "returncode": 0,
+      "stdout": "MainPID=0\nControlPID=0\nControlGroup=\nLoadState=not-found\nActiveState=inactive\nSubState=dead\nFragmentPath=\nDropInPaths=\nJob=\n",
+      "stderr": ""
+    }
+  ]
+}

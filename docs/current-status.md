@@ -22,14 +22,16 @@ History-preserving merge `9d9bd1192467532d0ee48350d3c531d9e156dee3` is now on
 `main`; its tree equals the accepted PR head. The corrected O2 artifact
 `7196aaac7c0bf45a03d90742d8ef483078649de6` is independently ARTIFACT ACCEPTED,
 including baseline07 and the required replacement of the O1 bootstrap supervisor.
-Next candidate: [non-activating installation/replacement package](stage-8/stage8b-p1f-o2-installation-package.md).
-It reuses the three accepted ELF payloads and adds exact before/after inventories,
-preconditions, durable receipt and limited pre-activation rollback. No Rust,
-profile, Cargo, accepted unit or workflow bytes change. Local Linux filesystem
-tests are not target systemd evidence. Package acceptance and explicit permission
-still precede installation; installation evidence and separate bounded O2
-authorization precede O3/O4. No VPS, Redis, FINAM, signing or activation action
-has been performed by this package preparation.
+Installation package `304cd56` is independently ACCEPTED. The user-authorized
+attempt staged and verified it on the VPS, but its native preflight stopped
+before replacement: systemd 255 omits ExecStart for not-found O2 units.
+Exact O1 remains installed, with no replacement journal/new manifest; P0 is
+unchanged and DB15 empty. Next candidate is the
+[narrow native-observer correction](stage-8/stage8b-p1f-o2-installation-native-correction.md).
+It is local only: no hotfix, force, installation retry or activation on the VPS.
+Rust/Cargo, profile, binary, unit, template and workflow bytes remain unchanged.
+Corrected package acceptance and permission precede a fresh installation attempt;
+actual installation evidence and separate bounded O2 authorization precede O3/O4.
 
 The O1 immutable package at
 `8864a2bbba64ef930073fae4e71dfcde82ceba58` and its operational-evidence

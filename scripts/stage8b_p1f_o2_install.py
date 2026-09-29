@@ -176,9 +176,21 @@ def properties(unit):
     keys = ("LoadState", "ActiveState", "SubState", "MainPID", "ControlPID", "Job", "FragmentPath", "DropInPaths", "ExecStart", "ControlGroup")
     text = command(["systemctl", "show", unit, "--no-pager", *["--property=" + key for key in keys]])
     rows = [row.split("=", 1) for row in text.splitlines()]
-    require(all(len(row) == 2 for row in rows) and len(rows) == len(keys), "incomplete systemd response")
+    require(all(len(row) == 2 for row in rows), "malformed systemd response")
     result = dict(rows)
-    require(set(result) == set(keys), "systemd property inventory drift")
+    require(len(result) == len(rows), "duplicate systemd property")
+    if set(result) == set(keys) - {"ExecStart"}:
+        # Native systemd 255 omits this service-specific property for not-found
+        # units, even with --all. Only the two new O2 units may use this shape.
+        # Do not synthesize an ExecStart value or infer absence from a query error.
+        require(unit in NEW_UNITS and result["LoadState"] == "not-found"
+                and result["ActiveState"] == "inactive" and result["SubState"] == "dead"
+                and result["MainPID"] == result["ControlPID"] == "0"
+                and result["Job"] in {"", "0"}
+                and result["FragmentPath"] == result["DropInPaths"] == result["ControlGroup"] == "",
+                "incomplete systemd response is not an exact absent O2 unit")
+    else:
+        require(set(result) == set(keys), "systemd property inventory drift")
     return result
 
 

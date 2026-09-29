@@ -520,3 +520,10 @@ review/user permission: fresh target preflight, non-activating installation,
 actual installation evidence, then separate permission for one bounded O2.
 Limited O3/O4 paper windows against ALOR-live and separately admitted live micro
 remain the next functional steps; they are not authorized by artifact acceptance.
+
+The accepted installation package `304cd56` then reached a real native preflight
+and stopped before replacement: not-found O2 units omit ExecStart in systemd 255.
+Root-only staging remains, exact O1/P0 are unchanged and DB15 is empty. The next
+review is a narrow local native-observer correction with captured response tests,
+not a new stage or infrastructure redesign. Fresh accepted installation evidence
+is still required before separately authorized O2; no activation was attempted.

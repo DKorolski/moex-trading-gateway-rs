@@ -89,8 +89,9 @@ def verify(path):
         install.require(evidence[field] == install.sha(files[name]), "evidence digest mismatch")
     for value in (spec, evidence):
         install.require(value["execution_authorized"] is False and value["target_mutation_performed"] is False and value["systemd_manager_tested"] is False, "operational claim opened")
-    install.require(b"PASS stage8b-p1f-o2-install-gate linux_filesystem_tests=15 durable_file_frontiers=12 network=none systemd_manager_tested=false target_mutation=false" in files[GATE], "gate marker absent")
-    install.require(b"Ran 15 tests" in files[TESTS] and b"\nOK\n" in files[TESTS] and b"PASS replacement durable-file-frontier 12/12" in files[TESTS], "test inventory incomplete")
+    install.require(b"PASS stage8b-p1f-o2-install-gate linux_filesystem_tests=17 durable_file_frontiers=12 network=none systemd_manager_tested=false target_mutation=false" in files[GATE], "gate marker absent")
+    install.require(b"PASS o2-installation-r1-evidence stopped_before_install=true staging_retained=true p0_unchanged=true db15_empty=true" in files[GATE], "native stop evidence gate absent")
+    install.require(b"Ran 17 tests" in files[TESTS] and b"\nOK\n" in files[TESTS] and b"PASS replacement durable-file-frontier 12/12" in files[TESTS], "test inventory incomplete")
     return {"result": "PASS", "source_ref": marker["source_ref"], "source_tree": marker["source_tree"], "members": len(files), "tracked": len(entries), "duplicates": 0, "unsafe_paths": 0, "symlinks": 0, "accepted_artifact_sha256": install.ARTIFACT_SHA, "installation_identity_sha256": spec["installation_identity_sha256"], "execution_authorized": False, "systemd_manager_tested": False}
 
 

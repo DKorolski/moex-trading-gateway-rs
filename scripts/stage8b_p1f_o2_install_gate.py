@@ -48,6 +48,7 @@ def run(artifact, old_o1, output):
     check_accepted_bytes(artifact)
     for command in (
         [sys.executable, "-m", "py_compile", "scripts/stage8b_p1f_o2_install.py", "scripts/test_stage8b_p1f_o2_install.py", "scripts/stage8b_p1f_o2_install_gate.py", "scripts/make_stage8b_p1f_o2_install_handoff.py"],
+        [sys.executable, "scripts/stage8b_p1f_o2_install_r1_evidence_check.py"],
         [sys.executable, "scripts/current_tree_authority_check.py"],
         [sys.executable, "scripts/current_tree_authority_negative_harness.py"],
     ):
@@ -62,9 +63,9 @@ def run(artifact, old_o1, output):
     process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
     (output / "linux-filesystem-tests.log").write_bytes(process.stdout)
     print(process.stdout.decode(), flush=True)
-    installer.require(process.returncode == 0 and b"Ran 15 tests" in process.stdout and b"\nOK\n" in process.stdout, "Linux suite failed or inventory changed")
+    installer.require(process.returncode == 0 and b"Ran 17 tests" in process.stdout and b"\nOK\n" in process.stdout, "Linux suite failed or inventory changed")
     installer.require(b"PASS replacement durable-file-frontier 12/12" in process.stdout, "frontier inventory incomplete")
-    print("PASS stage8b-p1f-o2-install-gate linux_filesystem_tests=15 durable_file_frontiers=12 network=none systemd_manager_tested=false target_mutation=false", flush=True)
+    print("PASS stage8b-p1f-o2-install-gate linux_filesystem_tests=17 durable_file_frontiers=12 network=none systemd_manager_tested=false target_mutation=false", flush=True)
 
 
 if __name__ == "__main__":
