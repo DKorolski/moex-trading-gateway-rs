@@ -116,6 +116,10 @@ def gate(output: Path, review: Path, accepted_zip: Path, prior_failure: Path | N
         ("diff.txt", ["git", "diff", "--check", ACCEPTED]),
     ):
         run_logged(output, name, command)
+    # runc cannot create the child mountpoint inside a read-only bind mount.
+    # This empty generated directory is not a source blob; its contents remain
+    # empty on the host because fixture writes go to the container tmpfs only.
+    (source / "crates/runtime-durable-service/target").mkdir(exist_ok=True)
     docker = ["docker", "run", "--rm", "--network", "none", "--platform", "linux/amd64",
               "--mount", f"type=bind,src={source},dst=/src,readonly",
               # Cargo runs unit tests with the crate directory as cwd. Accepted
