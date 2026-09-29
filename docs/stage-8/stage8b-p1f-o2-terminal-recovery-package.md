@@ -44,6 +44,13 @@ Native manager/stopped-proof evidence is collected at the separately authorized
 operation. Materializer read-only-directory/lock-inode mount qualification belongs
 to the **next full O2 artifact**, not this operator-only delivery.
 
+The first Linux witness at preparation commit `1d15360` reported 4 passed /
+12 failed: the accepted fixture creates `./target/p1f-tests` from the crate cwd,
+which was read-only despite writable CARGO_TARGET_DIR. The harness correction
+adds only a tmpfs at that crate-local `target`; source stays read-only and no
+Rust fixture/production code changes. The initial failed log is retained via
+`--prior-harness-failure` alongside the corrected successful run, not hidden.
+
 Build and preparation evidence stay outside Git, included in the immutable ZIP
 with source acceptance and full source-gate package. Build hashes are generated
 only after the real build; `handoff-evidence/build.json` is the exact artifact

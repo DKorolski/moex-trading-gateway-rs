@@ -88,7 +88,7 @@ def run_logged(output: Path, name: str, command: list[str], expected: int = 0) -
     return (output / name).read_bytes()
 
 
-def gate(output: Path, review: Path, accepted_zip: Path) -> None:
+def gate(output: Path, review: Path, accepted_zip: Path, prior_failure: Path | None = None) -> None:
     ref = clean_preparation_ref()
     tree = handoff.git("rev-parse", ref + "^{tree}").decode().strip()
     require(sha(review.read_bytes()) == REVIEW_SHA, "source acceptance review mismatch")
@@ -118,6 +118,10 @@ def gate(output: Path, review: Path, accepted_zip: Path) -> None:
         run_logged(output, name, command)
     docker = ["docker", "run", "--rm", "--network", "none", "--platform", "linux/amd64",
               "--mount", f"type=bind,src={source},dst=/src,readonly",
+              # Cargo runs unit tests with the crate directory as cwd. Accepted
+              # Setup::new uses ./target/p1f-tests, independently of CARGO_TARGET_DIR.
+              # Preserve read-only source and grant only an ephemeral test scratch.
+              "--tmpfs", "/src/crates/runtime-durable-service/target:rw,nosuid,nodev,mode=0755",
               "--mount", f"type=bind,src={output / 'target'},dst=/target",
               "--mount", f"type=bind,src={output / 'cargo-home'},dst=/cargo-home",
               "-w", "/src", "-e", "CARGO_HOME=/cargo-home", "-e", "CARGO_TARGET_DIR=/target",
@@ -139,6 +143,13 @@ def gate(output: Path, review: Path, accepted_zip: Path) -> None:
             stream.write(data)
     names = ["build.json", "build.log", "source-commit.raw", OPERATOR, "source-acceptance.md", "accepted-source.zip",
              "authority.txt", "authority-negative.txt", "package-tests.txt", "diff.txt", "linux-release-o2.txt", "linux-elf-cli.txt"]
+    if prior_failure is not None:
+        failed_log = prior_failure.read_bytes()
+        require(b"ReadOnlyFilesystem" in failed_log and b"4 passed; 12 failed" in failed_log,
+                "not the documented read-only test scratch failure")
+        with (output / "prior-harness-failure.txt").open("xb") as stream:
+            stream.write(failed_log)
+        names.append("prior-harness-failure.txt")
     summary = {
         "stage": "Stage 8B-P1-f O2 old-phase recovery preparation",
         "status": "AUTHORITY_AND_ARTIFACT_REVIEW_PENDING",
@@ -152,6 +163,7 @@ def gate(output: Path, review: Path, accepted_zip: Path) -> None:
         "merge_ready": False, "execution_authorized": False, "vps_contacted": False,
         "finam_contacted": False, "operational_redis_activated": False,
         "installed_manifest_changed": False, "systemd_manager_tested": False,
+        "prior_harness_failure_retained": prior_failure is not None,
         "limitations": ["native Linux real-store tests substitute systemd observations and clock",
                         "ELF CLI test is not target installation or cleanup execution",
                         "CI and independent artifact acceptance precede operational permission",
@@ -214,13 +226,14 @@ if __name__ == "__main__":
     parser.add_argument("--registry-cache", type=Path)
     parser.add_argument("--review", type=Path)
     parser.add_argument("--accepted-source-zip", type=Path)
+    parser.add_argument("--prior-harness-failure", type=Path)
     args = parser.parse_args()
     if args.action == "build":
         require(args.registry_cache is not None, "--registry-cache required")
         build(args.path.resolve(), args.registry_cache.resolve())
     elif args.action == "gate":
         require(args.review is not None and args.accepted_source_zip is not None, "review and accepted source ZIP required")
-        gate(args.path.resolve(), args.review.resolve(), args.accepted_source_zip.resolve())
+        gate(args.path.resolve(), args.review.resolve(), args.accepted_source_zip.resolve(), args.prior_harness_failure)
     elif args.action == "package":
         package(args.path.resolve())
     else:
