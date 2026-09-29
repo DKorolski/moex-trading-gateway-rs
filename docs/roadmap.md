@@ -27,6 +27,18 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
+Current as of 2026-09-29: O2 installation `60bc482` and the subsequent bounded
+failure evidence are accepted; **O2 HOLD**, old claim still ACTIVE at the retained
+post-deadline observation. The immediate slice is the
+[bounded-failure source correction](stage-8/stage8b-p1f-o2-bounded-failure-correction.md).
+Order: source review → authority/artifact provenance and narrow recovery delivery
+review → explicitly authorized terminal recovery of old claim → exact receipt
+reread → separately authorized new bounded O2 → O3/O4 paper sessions and ALOR
+comparison. No history deletion, deadline extension, new claim over ACTIVE,
+FINAM execution or runtime-live is permitted by the source correction.
+
+### Historical entry and accepted dependencies
+
 The accepted P1F-O1 package `8864a2b` has been installed once on the isolated
 target under its authorized non-activating boundary. Its corrected operational
 evidence at `997e8a1` is independently accepted: exact installed bytes/custody,

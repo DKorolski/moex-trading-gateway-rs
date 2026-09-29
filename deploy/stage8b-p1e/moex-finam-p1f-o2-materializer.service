@@ -40,3 +40,5 @@ SystemCallArchitectures=native
 LimitCORE=0
 ReadOnlyPaths=/etc/moex-finam-p1-paper
 ReadWritePaths=/var/lib/moex-finam-p1-paper-o2-staging
+# Pre-created by the claim selector publisher; authority/history remain read-only.
+ReadWritePaths=/var/lib/moex-finam-p1-paper-control/.execution.lock /var/lib/moex-finam-p1-paper-control/.guardian.lock

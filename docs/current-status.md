@@ -22,16 +22,24 @@ History-preserving merge `9d9bd1192467532d0ee48350d3c531d9e156dee3` is now on
 `main`; its tree equals the accepted PR head. The corrected O2 artifact
 `7196aaac7c0bf45a03d90742d8ef483078649de6` is independently ARTIFACT ACCEPTED,
 including baseline07 and the required replacement of the O1 bootstrap supervisor.
-Installation package `304cd56` is independently ACCEPTED. The user-authorized
-attempt staged and verified it on the VPS, but its native preflight stopped
-before replacement: systemd 255 omits ExecStart for not-found O2 units.
-Exact O1 remains installed, with no replacement journal/new manifest; P0 is
-unchanged and DB15 empty. Next candidate is the
-[narrow native-observer correction](stage-8/stage8b-p1f-o2-installation-native-correction.md).
-It is local only: no hotfix, force, installation retry or activation on the VPS.
-Rust/Cargo, profile, binary, unit, template and workflow bytes remain unchanged.
-Corrected package acceptance and permission precede a fresh installation attempt;
-actual installation evidence and separate bounded O2 authorization precede O3/O4.
+The corrected installation at `60bc482` and its operational evidence are
+independently accepted. One separately authorized bounded O2 attempt then failed
+in the materializer (exit 70); bootstrap/ordinary P1 did not run. Failure evidence
+is independently accepted, **O2 remains HOLD**. At the retained observation after
+deadline, authority generation 1 was still ACTIVE at sequence 1, not Expired.
+P0 was unchanged and DB15 empty. These are retained observations, not a fresh
+VPS inspection.
+
+The active local slice is [O2 bounded-failure source correction](stage-8/stage8b-p1f-o2-bounded-failure-correction.md):
+pre-materialization terminal cleanup and bounded redacted bars diagnostics.
+SOURCE REVIEW PENDING; no VPS/FINAM contact or authority mutation is authorized
+by this correction. Current-tree authority rebinding is separate from source
+acceptance. After acceptance, prepare a separately authorized, provenance-bound
+recovery delivery for the **old** phase. Preserve control-root/history; do not
+reuse the pre-activation installer against a nonempty root. Only after exact
+terminal receipt/reread and explicit authorization may a new bounded O2 run occur.
+
+### Earlier accepted milestones (historical boundaries)
 
 The O1 immutable package at
 `8864a2bbba64ef930073fae4e71dfcde82ceba58` and its operational-evidence

@@ -718,6 +718,205 @@ impl Stage8bP1fAuthorityStoreV1 {
         &self.root
     }
 
+    // The same lock excludes collection/publication, bootstrap admission and
+    // administrative cleanup. It is not an execution/admission capability.
+    pub(crate) fn lock_o2_effects(&self) -> Result<File, Stage8bP1fAuthorityErrorV1> {
+        self.acquire_execution_lock()
+    }
+
+    pub(crate) fn pending_terminal_present(&self) -> Result<bool, Stage8bP1fAuthorityErrorV1> {
+        let _lease = self.acquire_lease()?;
+        match fs::symlink_metadata(
+            self.root
+                .join(AUTHORITY_DIRECTORY)
+                .join(PENDING_TERMINAL_FILE),
+        ) {
+            Ok(_) => Ok(true),
+            Err(e) if e.kind() == ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    pub(crate) fn validate_o2_cleanup_binding(
+        &self,
+        manifest_sha256: &str,
+        installation: &[u8],
+    ) -> Result<Stage8bP1fPhaseManifestV1, Stage8bP1fAuthorityErrorV1> {
+        let _lease = self.acquire_lease()?;
+        self.reject_quarantine()?;
+        if !valid_sha256(manifest_sha256) {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        let authority = self.root.join(AUTHORITY_DIRECTORY);
+        let bytes = self.read_authority_bytes(
+            &authority
+                .join(MANIFESTS_DIRECTORY)
+                .join(manifest_sha256)
+                .join("phase-manifest.json"),
+            0o440,
+        )?;
+        let manifest: Stage8bP1fPhaseManifestV1 = parse_canonical(&bytes)?;
+        let genesis: Stage8bP1fGenesisManifestV1 =
+            self.read_authority_file(&authority.join(GENESIS_MANIFEST_FILE), 0o440)?;
+        let installed: Value = serde_json::from_slice(installation)
+            .map_err(|_| Stage8bP1fAuthorityErrorV1::InvalidDocument)?;
+        let claim = self.read_claim_receipt(manifest_sha256)?;
+        if sha256_hex(&bytes) != manifest_sha256
+            || manifest.phase != Stage8bP1fPhaseV1::O2MaterializeBootstrap
+            || claim.phase != manifest.phase
+            || claim.manifest_sha256 != manifest_sha256
+            || claim.authority_generation != manifest.authority_generation
+            || manifest.authority_generation != genesis.authority_generation
+            || manifest.installation_id != genesis.installation_id
+            || manifest.target_host_id != genesis.target_host_id
+            || manifest.target_host_id != STAGE8B_P1F_TARGET_HOST_ID
+            || manifest.target_host_ssh_ed25519_sha256 != STAGE8B_P1F_TARGET_HOST_SSH_ED25519_SHA256
+            || genesis.control_root != self.root.to_string_lossy()
+            || manifest.installation_sha256 != sha256_hex(installation)
+            || installed.get("installation_id").and_then(Value::as_str)
+                != Some(manifest.installation_id.as_str())
+            || installed.get("target_id").and_then(Value::as_str)
+                != Some(manifest.target_host_id.as_str())
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+        }
+        // Full history validation is performed by pending-terminal recovery
+        // first, then inspect/terminal_receipt. Do not reject a valid interrupted
+        // terminal transaction merely because its event is ahead of the head.
+        Ok(manifest)
+    }
+
+    pub(crate) fn validate_o2_cleanup_materialization(
+        &self,
+        manifest_sha256: &str,
+        config_root: &Path,
+    ) -> Result<String, Stage8bP1fAuthorityErrorV1> {
+        let _lease = self.acquire_lease()?;
+        let head = self.validate_history(true)?;
+        if !matches!(
+            head.state,
+            Stage8bP1fPhaseStateV1::Active | Stage8bP1fPhaseStateV1::Stopping
+        ) || head.active_manifest_sha256.as_deref() != Some(manifest_sha256)
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::ActiveConflict);
+        }
+        let directory = self
+            .root
+            .join(AUTHORITY_DIRECTORY)
+            .join(MANIFESTS_DIRECTORY)
+            .join(manifest_sha256);
+        let receipt_path = directory.join(MATERIALIZED_SET_RECEIPT_FILE);
+        match fs::symlink_metadata(&receipt_path) {
+            Ok(_) => {
+                let receipt: Stage8bP1fMaterializedSetReceiptV1 =
+                    self.read_authority_file(&receipt_path, 0o440)?;
+                let event: AuthorityEventV1 = self.read_authority_file(
+                    &event_path(
+                        &self.root.join(AUTHORITY_DIRECTORY),
+                        receipt.authority_sequence,
+                    ),
+                    0o440,
+                )?;
+                if receipt.manifest_sha256 != manifest_sha256
+                    || receipt.state != "ReadyForBootstrap"
+                    || event.event_kind != "O2_MATERIALIZED"
+                    || event.manifest_sha256 != manifest_sha256
+                    || event.receipt_sha256 != sha256_hex(&canonical_json(&receipt)?)
+                    || sha256_hex(&self.read_external_bytes(
+                        &config_root.join("supervisor.json"),
+                        STAGE8B_P1F_MAX_AUTHORITY_BYTES,
+                    )?) != receipt.final_config_sha256
+                    || sha256_hex(&self.read_external_bytes(
+                        &config_root.join("bootstrap/stage8b-p1-first-boot-source-v1.json"),
+                        crate::STAGE8B_P1E_FIRST_BOOT_SOURCE_MAX_BYTES,
+                    )?) != receipt.source_sha256
+                {
+                    return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
+                }
+                if head.state == Stage8bP1fPhaseStateV1::Stopping {
+                    let stopping: Stage8bP1fStoppingReceiptV1 = self.read_authority_file(
+                        &directory.join(format!(
+                            "stopping-receipt-{:020}.json",
+                            head.latest_sequence
+                        )),
+                        0o440,
+                    )?;
+                    Ok(stopping.reason_code)
+                } else {
+                    Ok("o2-runner-recovered".into())
+                }
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                // Only genuine absence on this exact frontier is allowed.
+                // Never delete or reinterpret a partially published source.
+                for parent in [config_root.to_path_buf(), config_root.join("bootstrap")] {
+                    self.validate_directory(&parent)?;
+                    for entry in fs::read_dir(parent)? {
+                        let name = entry?.file_name();
+                        let name = name
+                            .to_str()
+                            .ok_or(Stage8bP1fAuthorityErrorV1::InvalidPath)?;
+                        if name.contains("supervisor.json")
+                            || name.contains("stage8b-p1-first-boot-source-v1.json")
+                        {
+                            return Err(Stage8bP1fAuthorityErrorV1::PendingRecoveryRequired);
+                        }
+                    }
+                }
+                for entry in fs::read_dir(&directory)? {
+                    let name = entry?.file_name();
+                    let name = name
+                        .to_str()
+                        .ok_or(Stage8bP1fAuthorityErrorV1::InvalidPath)?;
+                    if [
+                        PENDING_MATERIALIZATION_FILE,
+                        EXECUTION_OWNER_FILE,
+                        MATERIALIZED_SET_RECEIPT_FILE,
+                    ]
+                    .iter()
+                    .any(|part| name.contains(part))
+                    {
+                        return Err(Stage8bP1fAuthorityErrorV1::PendingRecoveryRequired);
+                    }
+                }
+                Ok("o2-materialization-incomplete".into())
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    // Caller holds the execution lock and has proved both O2 units stopped.
+    // Reuse the existing stopping transaction, never mint another run permit.
+    pub(crate) fn resume_o2_cleanup_stopping(
+        &self,
+        manifest: &str,
+    ) -> Result<(), Stage8bP1fAuthorityErrorV1> {
+        let _lease = self.acquire_lease()?;
+        let path = self
+            .root
+            .join(AUTHORITY_DIRECTORY)
+            .join(PENDING_STOPPING_FILE);
+        match fs::symlink_metadata(&path) {
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(e.into()),
+            Ok(_) => {}
+        }
+        let pending: PendingStoppingV1 = self.read_authority_file(&path, 0o440)?;
+        if pending.schema_version != 1
+            || pending.domain != "stage8b-p1f-pending-stopping-v1"
+            || pending.manifest_sha256 != manifest
+            || !canonical_token(&pending.reason_code)
+            || !canonical_token(&pending.boot_id)
+            || parse_timestamp(&pending.force_kill_at_utc)?
+                - parse_timestamp(&pending.stopping_started_at_utc)?
+                != chrono::Duration::seconds(30)
+        {
+            return Err(Stage8bP1fAuthorityErrorV1::PendingRecoveryRequired);
+        }
+        self.continue_stopping_transaction(&pending)?;
+        Ok(())
+    }
+
     pub fn initialize_authority(
         &self,
         manifest_bytes: &[u8],
@@ -1095,6 +1294,9 @@ impl Stage8bP1fAuthorityStoreV1 {
             return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
         }
         validate_not_expired(&claim.deadline_utc, trusted_now)?;
+        // Pre-create the existing serialization inode before the materializer's
+        // mount namespace grants write access to just these two lock files.
+        let _effects = self.acquire_execution_lock()?;
         let parent = path
             .parent()
             .ok_or(Stage8bP1fAuthorityErrorV1::InvalidPath)?;
@@ -1505,6 +1707,7 @@ impl Stage8bP1fAuthorityStoreV1 {
         broker_truth_checked_at_utc: &str,
         trusted_now: DateTime<Utc>,
     ) -> Result<Stage8bP1fMaterializedSetReceiptV1, Stage8bP1fAuthorityErrorV1> {
+        let _effects = self.acquire_execution_lock()?;
         let _lease = self.acquire_lease()?;
         self.reject_quarantine()?;
         if !config_root.is_absolute()
@@ -4365,6 +4568,334 @@ mod tests {
         }
     }
 
+    mod o2_cleanup_regression {
+        use super::*;
+        use crate::stage8b_p1f_o2_systemd::{
+            cleanup_with_store, Stage8bP1fO2RunnerErrorV1, Stage8bP1fO2UnitEvidenceV1,
+        };
+
+        struct Fixture {
+            s: Setup,
+            hash: String,
+            installation: Vec<u8>,
+            config: PathBuf,
+        }
+
+        impl Fixture {
+            fn new() -> Self {
+                let s = Setup::new();
+                let head = s.initialize_and_activate();
+                let installation = canonical_json(&serde_json::json!({
+                    "installation_id": "install-1", "target_id": STAGE8B_P1F_TARGET_HOST_ID
+                }))
+                .unwrap();
+                let mut phase: Stage8bP1fPhaseManifestV1 =
+                    parse_canonical(&s.phase(&head, Stage8bP1fPhaseV1::O2MaterializeBootstrap))
+                        .unwrap();
+                phase.installation_sha256 = sha256_hex(&installation);
+                phase.signature_ed25519_hex.clear();
+                let bytes = sign(SIGNED_PHASE_DOMAIN, &mut phase, &s.signing, |v, sig| {
+                    v.signature_ed25519_hex = sig
+                });
+                let hash = sha256_hex(&bytes);
+                s.store
+                    .claim_phase(&bytes, &s.public_key_hex(), "p1f-offline-1", s.now)
+                    .unwrap();
+                let config = s.root.join("config");
+                for path in [&config, &config.join("bootstrap")] {
+                    fs::DirBuilder::new().mode(0o750).create(path).unwrap();
+                }
+                Self {
+                    s,
+                    hash,
+                    installation,
+                    config,
+                }
+            }
+            fn directory(&self) -> PathBuf {
+                self.s
+                    .root
+                    .join(AUTHORITY_DIRECTORY)
+                    .join(MANIFESTS_DIRECTORY)
+                    .join(&self.hash)
+            }
+            async fn cleanup(
+                &self,
+                seconds: i64,
+            ) -> Result<crate::Stage8bP1fO2RunnerResultV1, Stage8bP1fO2RunnerErrorV1> {
+                cleanup_with_store(
+                    &self.s.store,
+                    &self.hash,
+                    &self.config,
+                    &self.installation,
+                    || async {
+                        let (b, m) = proofs();
+                        Ok((b, m, false))
+                    },
+                    || self.s.now + Duration::seconds(seconds),
+                )
+                .await
+            }
+            fn assert_active(&self) {
+                let state = self.s.store.inspect().unwrap();
+                assert_eq!(state.state, Stage8bP1fPhaseStateV1::Active);
+                assert_eq!(state.latest_sequence, 1);
+                assert!(self.s.store.terminal_receipt(&self.hash).unwrap().is_none());
+            }
+        }
+
+        pub(super) fn proofs() -> (Stage8bP1fO2UnitEvidenceV1, Stage8bP1fO2UnitEvidenceV1) {
+            let bootstrap = Stage8bP1fO2UnitEvidenceV1 {
+                schema_version: 1,
+                domain: "stage8b-p1f-o2-unit-evidence-v1".into(),
+                unit: "moex-finam-p1-paper-bootstrap.service".into(),
+                active_state: "inactive".into(),
+                sub_state: "dead".into(),
+                result: "success".into(),
+                exec_main_status: 0,
+                main_pid: 0,
+                control_pid: 0,
+                job: String::new(),
+                control_group: String::new(),
+                cgroup_procs_empty: true,
+                stopped_proven: true,
+            };
+            let mut materializer = bootstrap.clone();
+            materializer.unit = "moex-finam-p1f-o2-materializer.service".into();
+            materializer.active_state = "failed".into();
+            materializer.result = "exit-code".into();
+            materializer.exec_main_status = 70;
+            (bootstrap, materializer)
+        }
+
+        #[tokio::test]
+        async fn pre_materialization_cleanup_deadline_and_lost_response_exact_replay() {
+            for (seconds, expected) in [
+                (1, Stage8bP1fPhaseStateV1::Failed),
+                (1800, Stage8bP1fPhaseStateV1::Expired),
+                (1801, Stage8bP1fPhaseStateV1::Expired),
+            ] {
+                let f = Fixture::new();
+                assert!(f
+                    .s
+                    .store
+                    .admit_active_phase_at(&f.hash, f.s.now, None)
+                    .is_err());
+                let result = f.cleanup(seconds).await.unwrap();
+                assert_eq!(result.terminal_receipt.terminal_state, expected);
+                assert_eq!(
+                    result.terminal_receipt.reason_code,
+                    "o2-materialization-incomplete"
+                );
+                assert_eq!(result.terminal_receipt.authority_sequence, 2);
+                assert_eq!(
+                    result.materializer_unit_evidence.unwrap().exec_main_status,
+                    70
+                );
+                // Simulate loss of the response, then restart after the deadline.
+                assert_eq!(
+                    f.cleanup(3600).await.unwrap().terminal_receipt,
+                    result.terminal_receipt
+                );
+                assert_eq!(f.s.store.inspect().unwrap().latest_sequence, 2);
+                assert!(!f.directory().join(MATERIALIZED_SET_RECEIPT_FILE).exists());
+                assert!(!f.directory().join(EXECUTION_OWNER_FILE).exists());
+            }
+        }
+
+        #[tokio::test]
+        async fn pending_terminal_durable_frontiers_keep_original_before_deadline_receipt() {
+            for frontier in 0..4 {
+                let f = Fixture::new();
+                let authority = f.s.root.join(AUTHORITY_DIRECTORY);
+                let prior = f.s.store.inspect().unwrap();
+                let old_head =
+                    f.s.store
+                        .read_authority_bytes(&authority.join(HISTORY_HEAD_FILE), 0o440)
+                        .unwrap();
+                let receipt =
+                    f.s.store
+                        .finish_phase(
+                            &f.hash,
+                            Stage8bP1fPhaseStateV1::Failed,
+                            "materializer-exit-70",
+                            f.s.now + Duration::seconds(20),
+                        )
+                        .unwrap();
+                let pending = PendingTerminalV1 {
+                    schema_version: 1,
+                    domain: "stage8b-p1f-pending-terminal-v1".into(),
+                    manifest_sha256: f.hash.clone(),
+                    authority_generation: prior.authority_generation,
+                    authority_sequence: 2,
+                    predecessor_event_sha256: prior.latest_event_sha256,
+                    terminal_state: receipt.terminal_state,
+                    reason_code: receipt.reason_code.clone(),
+                    recorded_at_utc: receipt.recorded_at_utc.clone(),
+                };
+                // Existing durable transaction frontiers: intent, receipt,
+                // event-before-head, head-before-pending-unlink. No new protocol.
+                if frontier < 3 {
+                    f.s.store
+                        .replace_exact(&authority.join(HISTORY_HEAD_FILE), &old_head, 0o440)
+                        .unwrap();
+                }
+                if frontier < 2 {
+                    fs::remove_file(event_path(&authority, 2)).unwrap();
+                }
+                if frontier < 1 {
+                    fs::remove_file(
+                        f.directory()
+                            .join("terminal-receipt-00000000000000000002.json"),
+                    )
+                    .unwrap();
+                }
+                f.s.store
+                    .write_create_new(
+                        &authority.join(PENDING_TERMINAL_FILE),
+                        &canonical_json(&pending).unwrap(),
+                        0o440,
+                    )
+                    .unwrap();
+                let result = f.cleanup(3600).await.unwrap();
+                assert_eq!(result.disposition, "EXACT_PENDING_TERMINAL_REPLAY");
+                assert_eq!(result.terminal_receipt, receipt);
+                assert_eq!(f.cleanup(3601).await.unwrap().terminal_receipt, receipt);
+                assert_eq!(f.s.store.inspect().unwrap().latest_sequence, 2);
+            }
+        }
+
+        #[tokio::test]
+        async fn unsafe_unit_proofs_queries_and_both_locks_never_finalize() {
+            let f = Fixture::new();
+            for unit in 0..2 {
+                for mutation in 0..7 {
+                    let (mut b, mut m) = proofs();
+                    let e = if unit == 0 { &mut b } else { &mut m };
+                    match mutation {
+                        0 => e.main_pid = 42,
+                        1 => e.control_pid = 42,
+                        2 => e.job = "42".into(),
+                        3 => e.cgroup_procs_empty = false,
+                        4 => e.active_state = "activating".into(),
+                        5 => e.stopped_proven = false,
+                        _ => e.unit = "foreign.service".into(),
+                    }
+                    assert!(cleanup_with_store(
+                        &f.s.store,
+                        &f.hash,
+                        &f.config,
+                        &f.installation,
+                        || async { Ok((b, m, false)) },
+                        || f.s.now
+                    )
+                    .await
+                    .is_err());
+                    f.assert_active();
+                }
+            }
+            assert!(cleanup_with_store(
+                &f.s.store,
+                &f.hash,
+                &f.config,
+                &f.installation,
+                || async {
+                    Err(Stage8bP1fO2RunnerErrorV1::Command(
+                        ErrorKind::PermissionDenied,
+                    ))
+                },
+                || f.s.now
+            )
+            .await
+            .is_err());
+            let lock = f.s.store.acquire_execution_lock().unwrap();
+            assert!(f.cleanup(1).await.is_err());
+            drop(lock);
+            let lease = f.s.store.acquire_lease().unwrap();
+            assert!(f.cleanup(1).await.is_err());
+            drop(lease);
+            f.assert_active();
+            // The effect lock is held continuously even inside the OS probe.
+            cleanup_with_store(
+                &f.s.store,
+                &f.hash,
+                &f.config,
+                &f.installation,
+                || async {
+                    assert!(f.s.store.acquire_execution_lock().is_err());
+                    let (b, m) = proofs();
+                    Ok((b, m, false))
+                },
+                || f.s.now,
+            )
+            .await
+            .unwrap();
+        }
+
+        #[tokio::test]
+        async fn identity_corruption_and_partial_materialization_fail_closed_without_cleanup() {
+            for mutation in 0..10 {
+                let mut f = Fixture::new();
+                match mutation {
+                    0 => f.installation.push(b' '),
+                    1 => f.hash = "f".repeat(64),
+                    2 => {
+                        f.s.store
+                            .replace_exact(
+                                &f.s.root.join(AUTHORITY_DIRECTORY).join(HISTORY_HEAD_FILE),
+                                b"{}",
+                                0o440,
+                            )
+                            .unwrap();
+                    }
+                    3 => {
+                        f.s.store
+                            .write_create_new(
+                                &f.directory().join(MATERIALIZED_SET_RECEIPT_FILE),
+                                b"{}",
+                                0o440,
+                            )
+                            .unwrap();
+                    }
+                    4 => {
+                        fs::write(f.config.join("supervisor.json"), b"partial").unwrap();
+                    }
+                    5 => {
+                        fs::write(
+                            f.config
+                                .join("bootstrap/.stage8b-p1-first-boot-source-v1.json.p1f-create"),
+                            b"partial",
+                        )
+                        .unwrap();
+                    }
+                    6 => {
+                        fs::write(f.directory().join(PENDING_MATERIALIZATION_FILE), b"partial")
+                            .unwrap();
+                    }
+                    7 => {
+                        fs::write(f.directory().join(EXECUTION_OWNER_FILE), b"partial").unwrap();
+                    }
+                    8 => {
+                        fs::write(
+                            f.directory()
+                                .join(format!(".{MATERIALIZED_SET_RECEIPT_FILE}.p1f-create")),
+                            b"partial",
+                        )
+                        .unwrap();
+                    }
+                    _ => {
+                        fs::remove_dir(f.config.join("bootstrap")).unwrap();
+                    }
+                }
+                assert!(f.cleanup(3600).await.is_err(), "mutation {mutation}");
+                assert!(
+                    !event_path(&f.s.root.join(AUTHORITY_DIRECTORY), 2).exists(),
+                    "mutation {mutation}"
+                );
+            }
+        }
+    }
+
     fn sign<T, F>(domain: &[u8], value: &mut T, key: &SigningKey, set_signature: F) -> Vec<u8>
     where
         T: Serialize,
@@ -4985,6 +5516,17 @@ mod tests {
 
     #[test]
     fn o2_materialization_finalizes_only_source_hash_and_replays_exactly() {
+        o2_materialization_case(None);
+    }
+
+    #[test]
+    fn o2_cleanup_ready_stopping_pending_stopping_and_foreign_receipt() {
+        for frontier in 0..4 {
+            o2_materialization_case(Some(frontier));
+        }
+    }
+
+    fn o2_materialization_case(cleanup_frontier: Option<u8>) {
         let mut setup = Setup::new();
         let config_root = setup.root.with_extension("config");
         let bootstrap_dir = config_root.join("bootstrap");
@@ -5087,6 +5629,13 @@ mod tests {
             &sha256_hex(&policy),
             &sha256_hex(&template),
         );
+        let installation = canonical_json(&serde_json::json!({"installation_id": "install-1", "target_id": STAGE8B_P1F_TARGET_HOST_ID})).unwrap();
+        let mut phase: Stage8bP1fPhaseManifestV1 = parse_canonical(&phase).unwrap();
+        phase.installation_sha256 = sha256_hex(&installation);
+        phase.signature_ed25519_hex.clear();
+        let phase = sign(SIGNED_PHASE_DOMAIN, &mut phase, &setup.signing, |v, sig| {
+            v.signature_ed25519_hex = sig
+        });
         setup
             .store
             .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
@@ -5164,6 +5713,85 @@ mod tests {
             .unwrap();
         assert_eq!(permit.phase(), Stage8bP1fPhaseV1::O2MaterializeBootstrap);
         drop(permit);
+        if let Some(frontier) = cleanup_frontier {
+            let authority = setup.root.join(AUTHORITY_DIRECTORY);
+            let head = setup.store.inspect().unwrap();
+            if matches!(frontier, 1 | 2) {
+                let pending = PendingStoppingV1 {
+                    schema_version: 1,
+                    domain: "stage8b-p1f-pending-stopping-v1".into(),
+                    manifest_sha256: manifest_sha256.clone(),
+                    authority_generation: head.authority_generation,
+                    authority_sequence: head.latest_sequence + 1,
+                    predecessor_event_sha256: head.latest_event_sha256,
+                    reason_code: "supervision-failure".into(),
+                    stopping_started_at_utc: canonical_timestamp(
+                        trusted_now + Duration::seconds(1),
+                    ),
+                    force_kill_at_utc: canonical_timestamp(trusted_now + Duration::seconds(31)),
+                    boot_id: "fixture-boot".into(),
+                };
+                setup
+                    .store
+                    .write_create_new(
+                        &authority.join(PENDING_STOPPING_FILE),
+                        &canonical_json(&pending).unwrap(),
+                        0o440,
+                    )
+                    .unwrap();
+                if frontier == 1 {
+                    setup.store.continue_stopping_transaction(&pending).unwrap();
+                }
+            }
+            if frontier == 3 {
+                let mut foreign = first.clone();
+                foreign.manifest_sha256 = "f".repeat(64);
+                setup
+                    .store
+                    .replace_exact(
+                        &authority
+                            .join(MANIFESTS_DIRECTORY)
+                            .join(&manifest_sha256)
+                            .join(MATERIALIZED_SET_RECEIPT_FILE),
+                        &canonical_json(&foreign).unwrap(),
+                        0o440,
+                    )
+                    .unwrap();
+            }
+            let result = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(crate::stage8b_p1f_o2_systemd::cleanup_with_store(
+                    &setup.store,
+                    &manifest_sha256,
+                    &config_root,
+                    &installation,
+                    || async {
+                        let (b, m) = o2_cleanup_regression::proofs();
+                        Ok((b, m, false))
+                    },
+                    || trusted_now + Duration::seconds(1801),
+                ));
+            if frontier == 3 {
+                assert!(result.is_err());
+                assert!(!event_path(&authority, head.latest_sequence + 1).exists());
+            } else {
+                let terminal = result.unwrap().terminal_receipt;
+                assert_eq!(terminal.terminal_state, Stage8bP1fPhaseStateV1::Expired);
+                assert_eq!(
+                    terminal.reason_code,
+                    if frontier == 0 {
+                        "o2-runner-recovered"
+                    } else {
+                        "supervision-failure"
+                    }
+                );
+            }
+            fs::remove_dir_all(config_root).unwrap();
+            fs::remove_dir_all(durable_parent).unwrap();
+            return;
+        }
         assert_eq!(
             setup
                 .store

@@ -58,6 +58,192 @@ pub enum Stage8bP1fO2MaterializerErrorV1 {
     BarsTruth,
     #[error("O2 materialized source failed the accepted production parser")]
     SourceRejected,
+    #[error("O2 materialization failure: {0:?}")]
+    Diagnostic(Box<Stage8bP1fO2FailureContextV1>),
+}
+
+/// Bounded, allowlisted diagnostic projection. No upstream strings, response
+/// bodies, account identities, headers or credentials can be stored here.
+#[derive(Debug, Clone, Serialize)]
+pub struct Stage8bP1fO2FailureContextV1 {
+    stage: &'static str,
+    reason_code: &'static str,
+    last_validated_stage: &'static str,
+    completed_typed_gets: usize,
+    completed_chunks: usize,
+    chunk_index: Option<usize>,
+    chunk_start_utc: Option<i64>,
+    chunk_end_utc: Option<i64>,
+    m1_count: Option<usize>,
+    first_available_open_utc: Option<i64>,
+    last_available_open_utc: Option<i64>,
+    session_date: Option<chrono::NaiveDate>,
+    window_index: Option<usize>,
+    window_first_close_utc: Option<i64>,
+    window_last_close_utc: Option<i64>,
+    m10_close_utc: Option<i64>,
+    first_missing_m1_open_utc: Option<i64>,
+    candidate_close_utc: Option<i64>,
+    candidate_age_seconds: Option<i64>,
+}
+
+impl Stage8bP1fO2FailureContextV1 {
+    fn new(stage: &'static str, reason_code: &'static str) -> Self {
+        Self {
+            stage,
+            reason_code,
+            last_validated_stage: "none",
+            completed_typed_gets: 0,
+            completed_chunks: 0,
+            chunk_index: None,
+            chunk_start_utc: None,
+            chunk_end_utc: None,
+            m1_count: None,
+            first_available_open_utc: None,
+            last_available_open_utc: None,
+            session_date: None,
+            window_index: None,
+            window_first_close_utc: None,
+            window_last_close_utc: None,
+            m10_close_utc: None,
+            first_missing_m1_open_utc: None,
+            candidate_close_utc: None,
+            candidate_age_seconds: None,
+        }
+    }
+}
+
+impl Stage8bP1fO2MaterializerErrorV1 {
+    fn detailed(stage: &'static str, code: &'static str) -> Self {
+        Self::Diagnostic(Box::new(Stage8bP1fO2FailureContextV1::new(stage, code)))
+    }
+
+    fn context(self) -> Stage8bP1fO2FailureContextV1 {
+        let (stage, code) = match self {
+            Self::Diagnostic(context) => return *context,
+            Self::Get => ("collection", "get_or_observation_rejected"),
+            Self::Template => ("canonical_validation", "template_rejected"),
+            Self::AccountTruth => ("canonical_validation", "account_truth_rejected"),
+            Self::OrdersTruth => ("canonical_validation", "orders_truth_rejected"),
+            Self::InstrumentTruth => ("canonical_validation", "instrument_truth_rejected"),
+            Self::ScheduleTruth => ("canonical_validation", "schedule_truth_rejected"),
+            Self::BarsTruth => ("mapping", "bars_rejected"),
+            Self::SourceRejected => ("canonical_validation", "source_rejected"),
+        };
+        Stage8bP1fO2FailureContextV1::new(stage, code)
+    }
+
+    fn after(self, validated: &'static str) -> Self {
+        let mut context = self.context();
+        context.last_validated_stage = validated;
+        Self::Diagnostic(Box::new(context))
+    }
+
+    /// One bounded JSON journal record. Even malformed caller-provided hash or
+    /// time strings are discarded, not echoed. Numeric times are UTC seconds.
+    #[allow(clippy::too_many_arguments)]
+    pub fn diagnostic_json(
+        self,
+        manifest_sha256: &str,
+        policy_sha256: &str,
+        template_sha256: &str,
+        bars_start: &str,
+        bars_end: &str,
+        trusted_now: DateTime<Utc>,
+    ) -> String {
+        fn safe_hash(value: &str) -> Option<&str> {
+            valid_sha256(value).then_some(value)
+        }
+        let value = json!({
+            "schema_version": 1, "domain": "stage8b-p1f-o2-failure-diagnostic-v1",
+            "manifest_sha256": safe_hash(manifest_sha256),
+            "policy_sha256": safe_hash(policy_sha256),
+            "template_sha256": safe_hash(template_sha256),
+            "symbol": STAGE8B_P1F_O2_VENUE_SYMBOL,
+            "requested_bars_start_utc": parse_timestamp(bars_start).map(|t| t.timestamp()),
+            "requested_bars_end_utc": parse_timestamp(bars_end).map(|t| t.timestamp()),
+            "trusted_now_utc": trusted_now.timestamp(), "failure": self.context(),
+        });
+        let encoded = value.to_string();
+        if encoded.len() <= 4096 {
+            encoded
+        } else {
+            "{\"schema_version\":1,\"domain\":\"stage8b-p1f-o2-failure-diagnostic-v1\",\"reason_code\":\"diagnostic_size_limit\"}".into()
+        }
+    }
+}
+
+#[derive(Default)]
+struct CollectionProgress {
+    gets: usize,
+    chunks: usize,
+    last_collected: Option<&'static str>,
+    chunk: Option<(usize, i64, i64)>,
+    bars: Option<(usize, Option<i64>, Option<i64>)>,
+}
+
+impl CollectionProgress {
+    fn error(&self, error: Stage8bP1fO2MaterializerErrorV1) -> Stage8bP1fO2MaterializerErrorV1 {
+        let mut c = error.context();
+        c.completed_typed_gets = self.gets;
+        c.completed_chunks = self.chunks;
+        if c.last_validated_stage == "none" {
+            c.last_validated_stage = self.last_collected.unwrap_or("none");
+        }
+        if let Some((index, start, end)) = self.chunk {
+            c.chunk_index = Some(index);
+            c.chunk_start_utc = Some(start);
+            c.chunk_end_utc = Some(end);
+        }
+        if let Some((count, first, last)) = self.bars {
+            c.m1_count = Some(count);
+            c.first_available_open_utc = first;
+            c.last_available_open_utc = last;
+        }
+        Stage8bP1fO2MaterializerErrorV1::Diagnostic(Box::new(c))
+    }
+
+    fn observe_bars(&mut self, bars: &BarsResponse) {
+        let mut timestamps = bars
+            .bars
+            .iter()
+            .filter_map(|b| parse_timestamp(&b.timestamp).map(|t| t.timestamp()));
+        let first = timestamps.next();
+        let (first, last) = timestamps.fold((first, first), |(low, high), ts| {
+            (
+                Some(low.unwrap_or(ts).min(ts)),
+                Some(high.unwrap_or(ts).max(ts)),
+            )
+        });
+        self.bars = Some((bars.bars.len(), first, last));
+    }
+}
+
+fn merge_bars_chunk(
+    bars: &mut BTreeMap<String, broker_finam::dto::Bar>,
+    chunk: BarsResponse,
+) -> Result<(), Stage8bP1fO2MaterializerErrorV1> {
+    if chunk.symbol != STAGE8B_P1F_O2_VENUE_SYMBOL {
+        return Err(Stage8bP1fO2MaterializerErrorV1::detailed(
+            "collection",
+            "chunk_symbol_mismatch",
+        ));
+    }
+    for bar in chunk.bars {
+        match bars.entry(bar.timestamp.clone()) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(bar);
+            }
+            std::collections::btree_map::Entry::Occupied(entry) if entry.get() == &bar => {}
+            std::collections::btree_map::Entry::Occupied(_) => {
+                return Err(Stage8bP1fO2MaterializerErrorV1::detailed(
+                    "collection",
+                    "chunk_duplicate_conflict",
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,86 +291,95 @@ pub async fn collect_stage8b_p1f_o2_source_v1(
     bars_end_utc: &str,
     trusted_now: DateTime<Utc>,
 ) -> Result<Stage8bP1fO2MaterializedSourceV1, Stage8bP1fO2MaterializerErrorV1> {
-    let client = Stage8bP1fO2GetOnlyClientV1::new(account_id)
-        .map_err(|_| Stage8bP1fO2MaterializerErrorV1::Get)?;
-    let (account, account_observation) = client
-        .fetch_typed::<AccountResponse>(token, Stage8bP1fO2GetRouteV1::Account)
-        .await
-        .map_err(|_| Stage8bP1fO2MaterializerErrorV1::Get)?;
-    let (orders, orders_observation) = client
-        .fetch_typed::<AccountOrdersResponse>(token, Stage8bP1fO2GetRouteV1::AccountOrders)
-        .await
-        .map_err(|_| Stage8bP1fO2MaterializerErrorV1::Get)?;
-    let (params, params_observation) = client
-        .fetch_typed::<AssetParamsResponse>(token, Stage8bP1fO2GetRouteV1::AssetParams)
-        .await
-        .map_err(|_| Stage8bP1fO2MaterializerErrorV1::Get)?;
-    let (schedule, schedule_observation) = client
-        .fetch_typed::<AssetScheduleResponse>(token, Stage8bP1fO2GetRouteV1::AssetSchedule)
-        .await
-        .map_err(|_| Stage8bP1fO2MaterializerErrorV1::Get)?;
-    let bars_start = parse_canonical_timestamp(bars_start_utc)?;
-    let bars_end = parse_canonical_timestamp(bars_end_utc)?;
-    let range_seconds = bars_end.signed_duration_since(bars_start).num_seconds();
-    if range_seconds <= 0 || range_seconds > MAX_BARS_RANGE_SECONDS {
-        return Err(Stage8bP1fO2MaterializerErrorV1::Get);
-    }
-    let mut cursor = bars_start;
-    let mut bars_by_timestamp = BTreeMap::new();
-    let mut bars_observations = Vec::new();
-    while cursor < bars_end {
-        let chunk_end = (cursor + Duration::seconds(MAX_BARS_CHUNK_SECONDS)).min(bars_end);
-        let (chunk, observation) = client
-            .fetch_typed::<BarsResponse>(
-                token,
-                Stage8bP1fO2GetRouteV1::Bars {
-                    start_time: canonical_timestamp(cursor),
-                    end_time: canonical_timestamp(chunk_end),
-                },
-            )
+    let mut progress = CollectionProgress::default();
+    let collected = async {
+        let client = Stage8bP1fO2GetOnlyClientV1::new(account_id)
+            .map_err(|_| Stage8bP1fO2MaterializerErrorV1::Get)?;
+        let (account, account_observation) = client
+            .fetch_typed::<AccountResponse>(token, Stage8bP1fO2GetRouteV1::Account)
             .await
             .map_err(|_| Stage8bP1fO2MaterializerErrorV1::Get)?;
-        if chunk.symbol != STAGE8B_P1F_O2_VENUE_SYMBOL {
-            return Err(Stage8bP1fO2MaterializerErrorV1::BarsTruth);
+        progress.gets += 1;
+        progress.last_collected = Some("account_collected");
+        let (orders, orders_observation) = client
+            .fetch_typed::<AccountOrdersResponse>(token, Stage8bP1fO2GetRouteV1::AccountOrders)
+            .await
+            .map_err(|_| Stage8bP1fO2MaterializerErrorV1::Get)?;
+        progress.gets += 1;
+        progress.last_collected = Some("orders_collected");
+        let (params, params_observation) = client
+            .fetch_typed::<AssetParamsResponse>(token, Stage8bP1fO2GetRouteV1::AssetParams)
+            .await
+            .map_err(|_| Stage8bP1fO2MaterializerErrorV1::Get)?;
+        progress.gets += 1;
+        progress.last_collected = Some("params_collected");
+        let (schedule, schedule_observation) = client
+            .fetch_typed::<AssetScheduleResponse>(token, Stage8bP1fO2GetRouteV1::AssetSchedule)
+            .await
+            .map_err(|_| Stage8bP1fO2MaterializerErrorV1::Get)?;
+        progress.gets += 1;
+        progress.last_collected = Some("schedule_collected");
+        let bars_start = parse_canonical_timestamp(bars_start_utc)?;
+        let bars_end = parse_canonical_timestamp(bars_end_utc)?;
+        let range_seconds = bars_end.signed_duration_since(bars_start).num_seconds();
+        if range_seconds <= 0 || range_seconds > MAX_BARS_RANGE_SECONDS {
+            return Err(Stage8bP1fO2MaterializerErrorV1::Get);
         }
-        for bar in chunk.bars {
-            match bars_by_timestamp.entry(bar.timestamp.clone()) {
-                std::collections::btree_map::Entry::Vacant(entry) => {
-                    entry.insert(bar);
-                }
-                std::collections::btree_map::Entry::Occupied(entry) if entry.get() == &bar => {}
-                std::collections::btree_map::Entry::Occupied(_) => {
-                    return Err(Stage8bP1fO2MaterializerErrorV1::BarsTruth);
-                }
-            }
+        let mut cursor = bars_start;
+        let mut bars_by_timestamp = BTreeMap::new();
+        let mut bars_observations = Vec::new();
+        while cursor < bars_end {
+            let chunk_end = (cursor + Duration::seconds(MAX_BARS_CHUNK_SECONDS)).min(bars_end);
+            progress.chunk = Some((progress.chunks, cursor.timestamp(), chunk_end.timestamp()));
+            progress.bars = None;
+            let (chunk, observation) = client
+                .fetch_typed::<BarsResponse>(
+                    token,
+                    Stage8bP1fO2GetRouteV1::Bars {
+                        start_time: canonical_timestamp(cursor),
+                        end_time: canonical_timestamp(chunk_end),
+                    },
+                )
+                .await
+                .map_err(|_| Stage8bP1fO2MaterializerErrorV1::Get)?;
+            progress.gets += 1;
+            progress.observe_bars(&chunk);
+            merge_bars_chunk(&mut bars_by_timestamp, chunk)?;
+            progress.chunks += 1;
+            progress.last_collected = Some("bar_chunk_merged");
+            bars_observations.push(observation);
+            cursor = chunk_end;
         }
-        bars_observations.push(observation);
-        cursor = chunk_end;
-    }
-    let bars = BarsResponse {
-        bars: bars_by_timestamp.into_values().collect(),
-        symbol: STAGE8B_P1F_O2_VENUE_SYMBOL.to_string(),
-    };
-    let mut observations = vec![
-        account_observation,
-        orders_observation,
-        params_observation,
-        schedule_observation,
-    ];
-    observations.extend(bars_observations);
+        let bars = BarsResponse {
+            bars: bars_by_timestamp.into_values().collect(),
+            symbol: STAGE8B_P1F_O2_VENUE_SYMBOL.to_string(),
+        };
+        progress.chunk = None;
+        progress.observe_bars(&bars);
+        progress.last_collected = Some("collection_complete");
+        let mut observations = vec![
+            account_observation,
+            orders_observation,
+            params_observation,
+            schedule_observation,
+        ];
+        observations.extend(bars_observations);
 
-    materialize_stage8b_p1f_o2_source_v1(
-        source_template_bytes,
-        account_id,
-        STAGE8B_P1F_O2_ACCOUNT_ALIAS,
-        account,
-        orders,
-        params,
-        schedule,
-        bars,
-        trusted_now,
-        observations,
-    )
+        materialize_stage8b_p1f_o2_source_v1(
+            source_template_bytes,
+            account_id,
+            STAGE8B_P1F_O2_ACCOUNT_ALIAS,
+            account,
+            orders,
+            params,
+            schedule,
+            bars,
+            trusted_now,
+            observations,
+        )
+    }
+    .await;
+    collected.map_err(|error| progress.error(error))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -225,14 +420,15 @@ pub fn materialize_stage8b_p1f_o2_source_v1(
     validate_params(expected_account_id, &params)?;
     validate_schedule(&schedule)?;
     validate_route_observations(&observations, &account, &orders, &params, &schedule, &bars)?;
-    let mapped = map_exact_m1(&bars)?;
+    let mapped = map_exact_m1(&bars).map_err(|error| error.after("truth_and_routes"))?;
     let coverage_sessions = source
         .get("history_coverage")
         .and_then(Value::as_object)
         .and_then(|coverage| coverage.get("sessions"))
         .cloned()
         .ok_or(Stage8bP1fO2MaterializerErrorV1::Template)?;
-    let (history_bars, history_inputs) = build_history(&mapped, coverage_sessions.clone())?;
+    let (history_bars, history_inputs) = build_history(&mapped, coverage_sessions.clone())
+        .map_err(|error| error.after("mapping"))?;
     let (runtime, _) = runtime_durable_service::Stage8bP1RuntimeProfileV1::build_hybrid_runtime()
         .map_err(|_| Stage8bP1fO2MaterializerErrorV1::SourceRejected)?;
     let riskgate_observations =
@@ -251,7 +447,8 @@ pub fn materialize_stage8b_p1f_o2_source_v1(
             })
         })
         .collect::<Vec<_>>();
-    let candidate = build_candidate_from_mapped(&mapped, &operational_identity, trusted_now)?;
+    let candidate = build_candidate_from_mapped(&mapped, &operational_identity, trusted_now)
+        .map_err(|error| error.after("history_and_riskgate"))?;
 
     let captured_at = canonical_timestamp(trusted_now);
     source["captured_at_utc"] = Value::String(captured_at.clone());
@@ -524,14 +721,18 @@ fn validate_route_observations(
 
 fn map_exact_m1(response: &BarsResponse) -> Result<Vec<Bar>, Stage8bP1fO2MaterializerErrorV1> {
     if response.symbol != STAGE8B_P1F_O2_VENUE_SYMBOL {
-        return Err(Stage8bP1fO2MaterializerErrorV1::BarsTruth);
+        return Err(Stage8bP1fO2MaterializerErrorV1::detailed(
+            "mapping",
+            "symbol_mismatch",
+        ));
     }
     let mut mapped = response
         .bars
         .iter()
         .map(|bar| {
-            let mut mapped = map_bar(STAGE8B_P1F_O2_VENUE_SYMBOL, bar, 60)
-                .map_err(|_| Stage8bP1fO2MaterializerErrorV1::BarsTruth)?;
+            let mut mapped = map_bar(STAGE8B_P1F_O2_VENUE_SYMBOL, bar, 60).map_err(|_| {
+                Stage8bP1fO2MaterializerErrorV1::detailed("mapping", "m1_mapping_rejected")
+            })?;
             mapped.instrument.market = Market::Futures;
             mapped.source_kind = MarketDataSourceKind::HistoricalPoll;
             Ok(mapped)
@@ -542,7 +743,10 @@ fn map_exact_m1(response: &BarsResponse) -> Result<Vec<Bar>, Stage8bP1fO2Materia
         .windows(2)
         .any(|pair| pair[0].open_ts >= pair[1].open_ts)
     {
-        return Err(Stage8bP1fO2MaterializerErrorV1::BarsTruth);
+        return Err(Stage8bP1fO2MaterializerErrorV1::detailed(
+            "mapping",
+            "m1_chronology_conflict",
+        ));
     }
     Ok(mapped)
 }
@@ -567,7 +771,10 @@ fn build_history(
         .map(|bar| (bar.open_ts.timestamp(), bar))
         .collect::<BTreeMap<_, _>>();
     if by_open.len() != mapped.len() {
-        return Err(Stage8bP1fO2MaterializerErrorV1::BarsTruth);
+        return Err(Stage8bP1fO2MaterializerErrorV1::detailed(
+            "history",
+            "history_duplicate_open",
+        ));
     }
     let mut history = Vec::new();
     let mut inputs = Vec::new();
@@ -580,7 +787,7 @@ fn build_history(
             return Err(Stage8bP1fO2MaterializerErrorV1::Template);
         }
         prior_session = Some(session_date);
-        for window in session.windows {
+        for (window_index, window) in session.windows.into_iter().enumerate() {
             if window.first_close_time_utc <= 0
                 || window.first_close_time_utc.rem_euclid(600) != 0
                 || window.last_close_time_utc < window.first_close_time_utc
@@ -591,7 +798,15 @@ fn build_history(
             }
             let mut close = window.first_close_time_utc;
             loop {
-                let emitted = aggregate_exact_bucket(&by_open, close)?;
+                let emitted = aggregate_exact_bucket(&by_open, close).map_err(|error| {
+                    let mut context = error.context();
+                    context.session_date = Some(session_date);
+                    context.window_index = Some(window_index);
+                    context.window_first_close_utc = Some(window.first_close_time_utc);
+                    context.window_last_close_utc = Some(window.last_close_time_utc);
+                    context.m10_close_utc = Some(close);
+                    Stage8bP1fO2MaterializerErrorV1::Diagnostic(Box::new(context))
+                })?;
                 if (emitted.close_ts + chrono::Duration::hours(3)).date_naive() != session_date {
                     return Err(Stage8bP1fO2MaterializerErrorV1::Template);
                 }
@@ -633,15 +848,17 @@ fn aggregate_exact_bucket(
     by_open: &BTreeMap<i64, &Bar>,
     close_time_utc: i64,
 ) -> Result<Bar, Stage8bP1fO2MaterializerErrorV1> {
-    let first_open = close_time_utc
-        .checked_sub(600)
-        .ok_or(Stage8bP1fO2MaterializerErrorV1::BarsTruth)?;
+    let first_open = close_time_utc.checked_sub(600).ok_or_else(|| {
+        Stage8bP1fO2MaterializerErrorV1::detailed("history", "history_time_overflow")
+    })?;
     let mut aggregator = CanonicalBarAggregator::new(600);
     for index in 0_i64..10 {
         let expected_open = first_open + index * 60;
-        let bar = by_open
-            .get(&expected_open)
-            .ok_or(Stage8bP1fO2MaterializerErrorV1::BarsTruth)?;
+        let bar = by_open.get(&expected_open).ok_or_else(|| {
+            let mut context = Stage8bP1fO2FailureContextV1::new("history", "history_missing_m1");
+            context.first_missing_m1_open_utc = Some(expected_open);
+            Stage8bP1fO2MaterializerErrorV1::Diagnostic(Box::new(context))
+        })?;
         match aggregator.observe_final_source_bar((*bar).clone()) {
             BarAggregationAction::Buffered { buffered_count, .. }
                 if index < 9 && buffered_count == usize::try_from(index + 1).unwrap_or(0) => {}
@@ -650,10 +867,18 @@ fn aggregate_exact_bucket(
             {
                 return Ok(emitted)
             }
-            _ => return Err(Stage8bP1fO2MaterializerErrorV1::BarsTruth),
+            _ => {
+                return Err(Stage8bP1fO2MaterializerErrorV1::detailed(
+                    "history",
+                    "history_aggregation_rejected",
+                ))
+            }
         }
     }
-    Err(Stage8bP1fO2MaterializerErrorV1::BarsTruth)
+    Err(Stage8bP1fO2MaterializerErrorV1::detailed(
+        "history",
+        "history_aggregation_incomplete",
+    ))
 }
 
 struct CandidateV1 {
@@ -687,17 +912,35 @@ fn build_candidate_from_mapped(
                     .all(|pair| pair[0].close_ts == pair[1].open_ts)
                 && window[9].close_ts <= trusted_now
         })
-        .ok_or(Stage8bP1fO2MaterializerErrorV1::BarsTruth)?;
+        .ok_or_else(|| {
+            Stage8bP1fO2MaterializerErrorV1::detailed(
+                "candidate",
+                "candidate_no_complete_closed_window",
+            )
+        })?;
+    let candidate_error = |stage, code| {
+        let mut context = Stage8bP1fO2FailureContextV1::new(stage, code);
+        context.candidate_close_utc = Some(selected[9].close_ts.timestamp());
+        context.candidate_age_seconds = Some(
+            trusted_now
+                .signed_duration_since(selected[9].close_ts)
+                .num_seconds(),
+        );
+        Stage8bP1fO2MaterializerErrorV1::Diagnostic(Box::new(context))
+    };
     if trusted_now
         .signed_duration_since(selected[9].close_ts)
         .num_seconds()
         > MAX_CANDIDATE_AGE_SECONDS
     {
-        return Err(Stage8bP1fO2MaterializerErrorV1::BarsTruth);
+        return Err(candidate_error("candidate", "candidate_stale"));
     }
     let exact_m1 = selected
         .iter()
-        .map(|bar| serde_json::to_vec(bar).map_err(|_| Stage8bP1fO2MaterializerErrorV1::BarsTruth))
+        .map(|bar| {
+            serde_json::to_vec(bar)
+                .map_err(|_| candidate_error("canonical_validation", "m1_serialization_rejected"))
+        })
         .collect::<Result<Vec<_>, _>>()?;
     let source_m1 = selected
         .iter()
@@ -719,10 +962,16 @@ fn build_candidate_from_mapped(
             BarAggregationAction::Buffered { buffered_count, .. }
                 if index < 9 && buffered_count == index + 1 => {}
             BarAggregationAction::Emitted { emitted: bar } if index == 9 => emitted = Some(bar),
-            _ => return Err(Stage8bP1fO2MaterializerErrorV1::BarsTruth),
+            _ => {
+                return Err(candidate_error(
+                    "candidate",
+                    "candidate_aggregation_rejected",
+                ))
+            }
         }
     }
-    let emitted = emitted.ok_or(Stage8bP1fO2MaterializerErrorV1::BarsTruth)?;
+    let emitted =
+        emitted.ok_or_else(|| candidate_error("candidate", "candidate_aggregation_incomplete"))?;
     let canonical = runtime_durable_service::build_stage8b_p1_canonical_m10(
         runtime_durable_service::Stage8bP1CanonicalM10BuildInput {
             operational_identity_sha256: operational_identity.to_string(),
@@ -736,10 +985,10 @@ fn build_candidate_from_mapped(
             source_m1: source_m1.clone(),
         },
     )
-    .map_err(|_| Stage8bP1fO2MaterializerErrorV1::BarsTruth)?;
+    .map_err(|_| candidate_error("canonical_validation", "canonical_m10_build_rejected"))?;
     let parsed =
         runtime_durable_service::parse_stage8b_p1_canonical_m10(&canonical, operational_identity)
-            .map_err(|_| Stage8bP1fO2MaterializerErrorV1::BarsTruth)?;
+            .map_err(|_| candidate_error("canonical_validation", "canonical_m10_parse_rejected"))?;
     let redis_id = parsed.redis_id().to_string();
     let semantic_id_sha256 = parsed.semantic_id_sha256().to_string();
     Ok(CandidateV1 {
@@ -909,9 +1158,23 @@ mod tests {
             candidate.redis_id,
             format!("{}-0", now.timestamp_millis() - 60_000)
         );
+        let stale = build_candidate(&response, &"11".repeat(32), now + Duration::seconds(901))
+            .err()
+            .unwrap()
+            .context();
+        assert_eq!(stale.reason_code, "candidate_stale");
+        assert_eq!(stale.stage, "candidate");
+        assert_eq!(stale.candidate_close_utc, Some(now.timestamp() - 60));
+        assert_eq!(stale.candidate_age_seconds, Some(961));
+        let canonical = build_candidate(&response, "invalid-identity", now)
+            .err()
+            .unwrap()
+            .context();
+        assert_eq!(canonical.reason_code, "canonical_m10_build_rejected");
+        assert_eq!(canonical.stage, "canonical_validation");
         let mut gapped = bars;
         gapped.remove(4);
-        assert!(build_candidate(
+        let absent = build_candidate(
             &BarsResponse {
                 bars: gapped,
                 symbol: STAGE8B_P1F_O2_VENUE_SYMBOL.into(),
@@ -919,7 +1182,90 @@ mod tests {
             &"11".repeat(32),
             now,
         )
-        .is_err());
+        .err()
+        .unwrap()
+        .context();
+        assert_eq!(absent.reason_code, "candidate_no_complete_closed_window");
+        assert_eq!(absent.candidate_close_utc, None);
+    }
+
+    #[test]
+    fn collection_diagnostics_are_bounded_redacted_and_count_only_completed_work() {
+        let now = Utc.with_ymd_and_hms(2026, 9, 29, 12, 0, 0).unwrap();
+        let sentinel = "RAW_TOKEN_ACCOUNT_HEADER_DO_NOT_LOG";
+        let mut progress = CollectionProgress {
+            gets: 4,
+            chunks: 0,
+            last_collected: Some("schedule_collected"),
+            chunk: Some((0, now.timestamp() - 600, now.timestamp())),
+            bars: None,
+        };
+        let denied = progress
+            .error(Stage8bP1fO2MaterializerErrorV1::Get)
+            .context();
+        assert_eq!(denied.completed_typed_gets, 4);
+        assert_eq!(denied.completed_chunks, 0);
+        assert_eq!(denied.m1_count, None);
+        let bar = dto::Bar {
+            timestamp: canonical_timestamp(now - Duration::seconds(60)),
+            open: dto::DecimalValue {
+                value: "2200".into(),
+            },
+            high: dto::DecimalValue {
+                value: "2201".into(),
+            },
+            low: dto::DecimalValue {
+                value: "2199".into(),
+            },
+            close: dto::DecimalValue {
+                value: "2200".into(),
+            },
+            volume: dto::DecimalValue { value: "1".into() },
+        };
+        let mut chunk = BarsResponse {
+            symbol: STAGE8B_P1F_O2_VENUE_SYMBOL.into(),
+            bars: vec![bar],
+        };
+        let mut merged = BTreeMap::new();
+        merge_bars_chunk(&mut merged, chunk.clone()).unwrap();
+        // Conflicting raw price is never placed in the diagnostic projection.
+        chunk.bars[0].close.value = sentinel.repeat(10000);
+        progress.gets += 1;
+        progress.observe_bars(&chunk);
+        let error = progress.error(merge_bars_chunk(&mut merged, chunk.clone()).unwrap_err());
+        let output = error.diagnostic_json(
+            sentinel,
+            &"a".repeat(64),
+            &"b".repeat(64),
+            sentinel,
+            &canonical_timestamp(now),
+            now,
+        );
+        assert!(output.len() <= 4096 && !output.contains(sentinel));
+        let json: Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(json["failure"]["reason_code"], "chunk_duplicate_conflict");
+        assert_eq!(json["failure"]["completed_typed_gets"], 5);
+        assert_eq!(json["failure"]["completed_chunks"], 0);
+        assert_eq!(
+            json["failure"]["last_validated_stage"],
+            "schedule_collected"
+        );
+        assert_eq!(json["failure"]["chunk_index"], 0);
+        assert_eq!(json["failure"]["m1_count"], 1);
+        assert_eq!(
+            json["failure"]["first_available_open_utc"],
+            now.timestamp() - 60
+        );
+        assert!(json["manifest_sha256"].is_null());
+        assert!(json["requested_bars_start_utc"].is_null());
+        chunk.symbol = sentinel.into();
+        assert_eq!(
+            merge_bars_chunk(&mut merged, chunk)
+                .unwrap_err()
+                .context()
+                .reason_code,
+            "chunk_symbol_mismatch"
+        );
     }
 
     #[test]
@@ -1060,6 +1406,32 @@ mod tests {
             bars,
             symbol: STAGE8B_P1F_O2_VENUE_SYMBOL.into(),
         };
+        let mut gapped = bars.clone();
+        let missing = parse_timestamp(&gapped.bars.remove(4).timestamp)
+            .unwrap()
+            .timestamp();
+        let mapped = map_exact_m1(&gapped).unwrap();
+        let gap = build_history(&mapped, template["history_coverage"]["sessions"].clone())
+            .unwrap_err()
+            .context();
+        assert_eq!(gap.stage, "history");
+        assert_eq!(gap.reason_code, "history_missing_m1");
+        assert_eq!(gap.first_missing_m1_open_utc, Some(missing));
+        assert_eq!(gap.m10_close_utc, Some(missing + 360));
+        assert_eq!(gap.window_index, Some(0));
+        assert_eq!(gap.session_date.unwrap().to_string(), "2026-01-05");
+        assert_eq!(gap.candidate_close_utc, None); // candidate has not been examined
+        gapped.bars[0].timestamp = "secret-invalid-upstream-time".into();
+        assert_eq!(
+            map_exact_m1(&gapped).unwrap_err().context().reason_code,
+            "m1_mapping_rejected"
+        );
+        let mut duplicate = bars.clone();
+        duplicate.bars.push(duplicate.bars[0].clone());
+        assert_eq!(
+            map_exact_m1(&duplicate).unwrap_err().context().reason_code,
+            "m1_chronology_conflict"
+        );
         let split = bars.bars.len() / 2;
         let bars_chunks = [
             BarsResponse {
