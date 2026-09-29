@@ -507,3 +507,16 @@ non-activating replacement/installation, then one bounded O2 execution gate.
 No historical re-audit or roadmap renumbering is needed. The operational goal
 remains bounded paper sessions against ALOR-live, followed by separately admitted
 FINAM live micro; O3/O4 and FINAM write surfaces are not opened here.
+
+## Current checkpoint — 2026-09-29
+
+Artifact `7196aaa` is independently ARTIFACT ACCEPTED, including the baseline07
+supervisor prerequisite. The next candidate is the
+[non-activating O2 installation/replacement package](stage-8/stage8b-p1f-o2-installation-package.md):
+exact accepted files, new complete installation identity, old O1 before-images,
+strict target preconditions and bounded rollback. No new binary build, strategy
+logic, workflow or historical acceptance changes are needed. After package
+review/user permission: fresh target preflight, non-activating installation,
+actual installation evidence, then separate permission for one bounded O2.
+Limited O3/O4 paper windows against ALOR-live and separately admitted live micro
+remain the next functional steps; they are not authorized by artifact acceptance.

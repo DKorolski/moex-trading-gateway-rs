@@ -54,7 +54,7 @@
     "stage8b_s_authorized": false
   },
   "governance_control_plane_manifest": {
-    "aggregate_sha256": "3939321f84ed8050276389a468a970d86ea75f9f502cdedbb4c55865af011c6e",
+    "aggregate_sha256": "418bd1b0284c3699ddcc22784db88269816d5fc8caf4e4eb7d89d55b06edfa87",
     "entries": {
       ".github/workflows/ci.yml": {
         "mode": "100644",
@@ -68,13 +68,13 @@
       },
       "docs/current-status.md": {
         "mode": "100644",
-        "sha256": "3a8976bc85a703a45cc511eeef47c81bbf49566be08558714f3e4f4f2ebe0f0a",
-        "size": 142877
+        "sha256": "7d6981672f20b126732c886c300ac023e912dc304d0cf855f040b86ef81192e9",
+        "size": 143160
       },
       "docs/roadmap.md": {
         "mode": "100644",
-        "sha256": "734a8a4d0e1d056b7266c6d1a92a8596d90312ed7ee302bbdfc81af6e34f1f9c",
-        "size": 31819
+        "sha256": "74181e702413d21072c945b22373fe41f178961b04b4ed4623f5fce0e7dcce2d",
+        "size": 32641
       },
       "docs/stage-5/stage5f-authority-rotation.json": {
         "mode": "100644",

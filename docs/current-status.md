@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-09-28.
+Status date: 2026-09-29.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -19,13 +19,17 @@ findings are closed. The [authority successor](stage-8/stage8b-p1f-o2-recovery-a
 binds these accepted bytes without Rust/Cargo, workflow or deployment changes.
 Fresh required PR #9 checks (`rust` and `redis-smoke`) passed in run `36460100665`.
 History-preserving merge `9d9bd1192467532d0ee48350d3c531d9e156dee3` is now on
-`main`; its tree equals the accepted PR head. The [corrected O2 artifact candidate](stage-8/stage8b-p1f-o2-artifact-resumption.md)
-builds from that exact merge and preserves baseline07 BO-only. In addition to
-the two O2 facades it includes the same-source bootstrap supervisor: the O1
-installed supervisor predates baseline07. Its non-activating replacement is
-explicitly required, but not authorized. Artifact review, separate installation
-acceptance/permission and bounded O2 execution still precede O3/O4. No VPS,
-operational Redis, FINAM or signed-authority action is performed here.
+`main`; its tree equals the accepted PR head. The corrected O2 artifact
+`7196aaac7c0bf45a03d90742d8ef483078649de6` is independently ARTIFACT ACCEPTED,
+including baseline07 and the required replacement of the O1 bootstrap supervisor.
+Next candidate: [non-activating installation/replacement package](stage-8/stage8b-p1f-o2-installation-package.md).
+It reuses the three accepted ELF payloads and adds exact before/after inventories,
+preconditions, durable receipt and limited pre-activation rollback. No Rust,
+profile, Cargo, accepted unit or workflow bytes change. Local Linux filesystem
+tests are not target systemd evidence. Package acceptance and explicit permission
+still precede installation; installation evidence and separate bounded O2
+authorization precede O3/O4. No VPS, Redis, FINAM, signing or activation action
+has been performed by this package preparation.
 
 The O1 immutable package at
 `8864a2bbba64ef930073fae4e71dfcde82ceba58` and its operational-evidence

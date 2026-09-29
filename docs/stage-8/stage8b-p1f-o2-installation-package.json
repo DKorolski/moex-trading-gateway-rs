@@ -1,0 +1,163 @@
+{
+  "acceptance_review_sha256": "84971a4cee1e0e38168c9fc1fe9005481131ae3d82f652fa703c9d0fe5c97187",
+  "artifact_ref": "7196aaac7c0bf45a03d90742d8ef483078649de6",
+  "artifact_sha256": "1069cbeb597e902126ebdb0b2c01ef52dca45420dfe2a69a6963b939de33ac4a",
+  "closed_surfaces": [
+    "genesis",
+    "activation-certificate",
+    "signed-phase",
+    "service-reload-enable-start",
+    "FINAM-transport",
+    "Redis-contact",
+    "O2-bootstrap",
+    "O3-O4",
+    "real-orders"
+  ],
+  "daemon_reload_authorized": false,
+  "execution_authorized": false,
+  "installation_identity_sha256": "7252b88c2c2ff36e857e26bc7513c1be3d7974709f22957ab721b123331da8d6",
+  "inventory": {
+    "activation_performed": false,
+    "artifact_ref": "7196aaac7c0bf45a03d90742d8ef483078649de6",
+    "artifact_sha256": "1069cbeb597e902126ebdb0b2c01ef52dca45420dfe2a69a6963b939de33ac4a",
+    "custody_helper_sha256": "df35bd602435441f874fd3aa586e23c698933b59ccc297cef177640f50e32e5e",
+    "daemon_reload_performed": false,
+    "directories": {
+      "/etc/moex-finam-p1-paper/o2": {
+        "group": "service",
+        "mode": "0750",
+        "owner": "root"
+      },
+      "/var/lib/moex-finam-p1-paper-control": {
+        "group": "service",
+        "mode": "0750",
+        "owner": "root"
+      },
+      "/var/lib/moex-finam-p1-paper-o2-staging": {
+        "group": "root",
+        "mode": "0700",
+        "owner": "root"
+      }
+    },
+    "domain": "moex.stage8b.p1f.o2.installation.v1",
+    "finam_contact_performed": false,
+    "installation_id": "stage8b-p1f-o2-baseline07-7196aaa-v1",
+    "installer_sha256": "e7da14e9a29613f959c4549088f023a4d4642bede6de7cdca8822a7205cd62e0",
+    "payload": {
+      "/etc/moex-finam-p1-paper/o2/authority-public-key.hex": {
+        "group": "service",
+        "mode": "0440",
+        "owner": "root",
+        "sha256": "b92f0006e6f8571cf4ce13f7cb32d460a4e633228a5015b1d1d2ebfb0261886b",
+        "size": 65
+      },
+      "/etc/moex-finam-p1-paper/o2/materialization-policy.json": {
+        "group": "service",
+        "mode": "0440",
+        "owner": "root",
+        "sha256": "e9ea92697ef76bd3a3c48392438cca6c1afb65806be8a07ddddf838e04477993",
+        "size": 334
+      },
+      "/etc/moex-finam-p1-paper/o2/source-template.json": {
+        "group": "service",
+        "mode": "0440",
+        "owner": "root",
+        "sha256": "17a2112a59d85008a7eabe6d2f46af582a865d92a1a07f2e81f22869ce379f2d",
+        "size": 54327
+      },
+      "/etc/moex-finam-p1-paper/o2/supervisor.template.json": {
+        "group": "service",
+        "mode": "0440",
+        "owner": "root",
+        "sha256": "489cbaa7ca1c88f2cffe64146e8251b249a2bde7155d8865aa34d6ccb28ff121",
+        "size": 1813
+      },
+      "/etc/systemd/system/moex-finam-p1-paper-bootstrap-recover@.service": {
+        "group": "root",
+        "mode": "0644",
+        "owner": "root",
+        "sha256": "022e71072b86487f34b63015cf70bb4a1d0fb1e31006dd783f2fa385668e2987",
+        "size": 1033
+      },
+      "/etc/systemd/system/moex-finam-p1-paper-bootstrap.service": {
+        "group": "root",
+        "mode": "0644",
+        "owner": "root",
+        "sha256": "f5f6db6e08d45f39fa3976701f78526a55e1485f3398f4140d13eaba1b2bc62b",
+        "size": 1003
+      },
+      "/etc/systemd/system/moex-finam-p1-paper-o2-bootstrap-runner.service": {
+        "group": "root",
+        "mode": "0644",
+        "owner": "root",
+        "sha256": "545e7ff1667529012eaed2a0793319565c1865d201a204b187597429225c94ff",
+        "size": 1139
+      },
+      "/etc/systemd/system/moex-finam-p1-paper.service": {
+        "group": "root",
+        "mode": "0644",
+        "owner": "root",
+        "sha256": "7e260e3d46f94dbea93d48aa39d1c16bf8fd6f14aa76cc9be2b197e7ab4f536f",
+        "size": 1206
+      },
+      "/etc/systemd/system/moex-finam-p1f-o2-materializer.service": {
+        "group": "root",
+        "mode": "0644",
+        "owner": "root",
+        "sha256": "e06c35538b477cb82e3ca202fe52c0c00db4acdd895eb395657b6ed0fda93dff",
+        "size": 1267
+      },
+      "/usr/lib/sysusers.d/moex-finam-p1-paper.conf": {
+        "group": "root",
+        "mode": "0644",
+        "owner": "root",
+        "sha256": "efaa190119271332ed3aedc14b5fd45cdfc216c529e8eff8a7f0a956e6ee9d90",
+        "size": 80
+      },
+      "/usr/lib/tmpfiles.d/moex-finam-p1-paper.conf": {
+        "group": "root",
+        "mode": "0644",
+        "owner": "root",
+        "sha256": "a9942c2adb779ea8e42e91e6271c9e8e9e4fcc3e919f23fb72243aab4b0379a6",
+        "size": 522
+      },
+      "/usr/local/libexec/moex/stage8b-p1-paper-supervisor": {
+        "group": "root",
+        "mode": "0755",
+        "owner": "root",
+        "sha256": "3e336dffa2446f79318fb95a3f6135fa96dd3abeef6ad2dd47494c68b9415f82",
+        "size": 13115456
+      },
+      "/usr/local/libexec/moex/stage8b-p1f-o2-materializer": {
+        "group": "root",
+        "mode": "0755",
+        "owner": "root",
+        "sha256": "00171bed636f12a88f45187ed4408ab21ab42d58158e92a1ebc3610d0586b083",
+        "size": 8332904
+      },
+      "/usr/local/libexec/moex/stage8b-p1f-o2-operator": {
+        "group": "root",
+        "mode": "0755",
+        "owner": "root",
+        "sha256": "8a048913895b31737796fb0f78fd8917ef702c8a8aaae08114c4e3268f8393c2",
+        "size": 3387256
+      },
+      "/usr/local/share/moex/stage8b-p1e/installation-v1.json": {
+        "group": "root",
+        "mode": "0644",
+        "owner": "root",
+        "sha256": "ef2ed23ccb749cd57a2b185cd8ee1e8ef1627d6719a39e24b0cc26d417e6060e",
+        "size": 1635
+      }
+    },
+    "predecessor_manifest_sha256": "dab3e1426e40acb5101a8743cce5aac5aec8d3ae54d81fb73ac33c9bb18d464f",
+    "redis_contact_performed": false,
+    "schema_version": 1,
+    "target_id": "stage8b-p1f-isolated-vps-1"
+  },
+  "schema_version": 1,
+  "stage": "Stage 8B-P1-f O2 non-activating installation/replacement package",
+  "status": "REVIEW_CANDIDATE_EXECUTION_NOT_AUTHORIZED",
+  "systemd_manager_tested": false,
+  "target_mutation_performed": false
+}
