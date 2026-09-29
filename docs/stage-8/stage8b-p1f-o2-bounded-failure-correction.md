@@ -1,6 +1,8 @@
 # O2 bounded failure — source correction
 
-Status: SOURCE REVIEW PENDING; O2 HOLD. Date: 2026-09-29.
+Status: SOURCE ACCEPTED at `590304af44830197704503c8ebc67329693ac75b`;
+O2 HOLD. Date: 2026-09-29. Acceptance review SHA-256:
+`4ff21077154d17b2f911fa2919dba9f9a2adfc8b6ba48f6979eda0ed51da26fe`.
 Baseline: `60bc4821dd72126d0b981cc86810c9eb8611cf33`.
 Review: `FINAM_O2_BOUNDED_FAILURE_REVIEW_AND_CORRECTION_TZ_2026-09-29.md`,
 SHA-256 `c36b4ffea3c4f2317a0636eff6d12a36a4d8d01d970d0721050ebb4784f68211`.
@@ -121,7 +123,9 @@ local macOS tests. Native systemd mount behavior remains for artifact acceptance
 
 ## Next gate
 
-Request SOURCE ACCEPT now, not another operational attempt. Then bind authority
+SOURCE ACCEPT is recorded above. The immutable source gate below belongs to
+that exact source commit; it is not rerun against a governance successor that
+has intentionally rebound authority. Next bind authority
 to accepted source, build a provenance-pinned recovery executable for the old
 installation/phase, and separately authorize its exact delivery and invocation.
 Do not overwrite an installed executable under the old manifest, use the old

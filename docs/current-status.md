@@ -30,14 +30,18 @@ deadline, authority generation 1 was still ACTIVE at sequence 1, not Expired.
 P0 was unchanged and DB15 empty. These are retained observations, not a fresh
 VPS inspection.
 
-The active local slice is [O2 bounded-failure source correction](stage-8/stage8b-p1f-o2-bounded-failure-correction.md):
-pre-materialization terminal cleanup and bounded redacted bars diagnostics.
-SOURCE REVIEW PENDING; no VPS/FINAM contact or authority mutation is authorized
-by this correction. Current-tree authority rebinding is separate from source
-acceptance. After acceptance, prepare a separately authorized, provenance-bound
-recovery delivery for the **old** phase. Preserve control-root/history; do not
-reuse the pre-activation installer against a nonempty root. Only after exact
-terminal receipt/reread and explicit authorization may a new bounded O2 run occur.
+The [bounded-failure source correction](stage-8/stage8b-p1f-o2-bounded-failure-correction.md)
+is independently SOURCE ACCEPTED at `590304af44830197704503c8ebc67329693ac75b`.
+P1-O2REC01 and P2-O2DIAG01 are closed. The current slice is an
+[authority successor and isolated recovery artifact](stage-8/stage8b-p1f-o2-terminal-recovery-package.md)
+with no Rust/Cargo or strategy changes. Local authority checks and an offline
+Linux/amd64 build are preparation gates; fresh GitHub CI, artifact review and
+explicit target-execution permission remain separate requirements. The old
+installation manifest and control-root/history must stay intact. The candidate
+operator is staged separately, never substituted under the old installed hash.
+No VPS/FINAM contact is authorized by this preparation. O2 remains HOLD until
+the old terminal receipt is committed and reread under separate authorization.
+Only then prepare the updated full O2 installation and request a new bounded run.
 
 ### Earlier accepted milestones (historical boundaries)
 
