@@ -30,11 +30,16 @@ import is restricted to `cfg(test)` so canonical all-features Clippy can pass.
 No runtime behavior, Cargo, workflows, checkers or deployed bytes change.
 The closure itself changes only authority inventories and status documents.
 Build fix `7c80d70` is independently accepted; the `3992fc7` authority delta is
-correct, but aggregate closure remains HOLD for the test-harness P1-NRG01.
+correct. Its test-harness HOLD is now lifted on correction commit
+`ca16bf5ab8debe875925421f0d0ee4de0f769525`: **SOURCE / TEST-HARNESS ACCEPT;
+P1-NRG01 CLOSED**. The original interrupted `3992fc7` run remains failed evidence.
 The [test-only cleanup correction](stage-8/stage8b-p1f-nrg01-harness-correction.md)
-is a review candidate; production semantics are unchanged. Its final gate and
-independent review, then fresh required CI checks, remain pending; exact artifact
-replacement, installation and O2 execution remain separate gates. The retained
+has accepted exact-tree qualification: complete durable all-features 388 passed,
+default process 42 passed, exact witness 3/3, authority negatives 45/45, fmt and
+canonical Clippy PASS; production semantics are unchanged. Fresh required GitHub
+`rust` and `redis-smoke` still precede one history-preserving merge of this
+completed block. Exact artifact replacement, installation and O2 execution remain
+separate gates. The retained
 2148 tests and 38/38 frozen model rounds are source evidence, not FINAM live fills.
 
 The [narrow O2 recovery source correction](stage-8/stage8b-p1f-o2-recovery-source-correction.md)

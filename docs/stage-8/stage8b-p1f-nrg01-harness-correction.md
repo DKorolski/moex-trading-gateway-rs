@@ -1,14 +1,38 @@
 # P1-NRG01 — bounded process-test cleanup correction
 
-Date: 2026-09-30. Status: TEST-ONLY CORRECTION REVIEW CANDIDATE.
-No aggregate acceptance, merge readiness, O2 or operational authorization is claimed.
+Date: 2026-09-30. Status: SOURCE / TEST-HARNESS ACCEPT; P1-NRG01 CLOSED.
+Correction source and local qualification are independently accepted. Fresh
+required GitHub checks remain pending; no merge readiness, O2 or operational
+authorization is claimed by this status update.
+
+## Independent acceptance
+
+- Correction: `ca16bf5ab8debe875925421f0d0ee4de0f769525`.
+- Tree: `d597a363d5926b5741fc4c0f854a722f1850298f`.
+- Review: `FINAM_ca16bf5_NRG01_CORRECTION_REVIEW_2026-09-30.md`.
+- Review SHA-256: `c3c517d95777abe319ebdbd01eeddf3e5e81c4ba9dfa123b569bb04d953b5f9c`.
+- ZIP: `moex-trading-project-ca16bf5-nrg01-correction-review.zip`.
+- ZIP SHA-256: `02820a18dda321f3dcc25ede4e241c447a6210ef2a21c513da1498676bd2b0cf`.
+- Accepted local qualification: all 12 commands exit 0, complete durable lib
+  all-features 388 passed / 0 failed / 16 ignored / 0 filtered in 1628.65 seconds;
+  default process 42 passed; exact witness 3/3; second proxy witness PASS;
+  cleanup controls PASS; fmt, canonical Clippy, authority and 45/45 negatives PASS.
+- Watchdog timeout/124 and forced-panic exit 101 remain expected negative
+  evidence, not production PASS. The original 3992fc7 interrupted run is not
+  relabeled. Its initial trigger remains unknown and is not a closure blocker.
+
+Reviewer independently verified the package/tree/delta/evidence, authority and
+45 mutations, plus watchdog timeout and normal-exit controls. Rust/Redis were
+unavailable there; Rust acceptance uses source review and retained developer
+qualification, not a claimed independent Rust rerun. No blocking P1/P2 found.
+This documentation successor does not modify the accepted Rust/Cargo/workflow.
 
 ## Accepted boundary and finding
 
 Source `2f46491a4f63249f64676306d5f9c3445818f4f9` remains SOURCE ACCEPTED.
 Build fix `7c80d709679ccbf41d7f754364034df4bfafeb78` is independently accepted.
 Review target/predecessor `3992fc75cedc56a55c2da420a235e6df9d162ea3` has a correct
-authority delta, but its aggregate closure is HOLD for P1-NRG01.
+authority delta; its historical aggregate closure was HOLD for P1-NRG01.
 Review: `FINAM_3992fc7_BUILDFIX_AUTHORITY_HANG_REVIEW_2026-09-30.md`, SHA-256
 `63e756ebe7df889de5cb77496bf0142cfc604425f41f9d64a2d5c1692155e7b0`.
 

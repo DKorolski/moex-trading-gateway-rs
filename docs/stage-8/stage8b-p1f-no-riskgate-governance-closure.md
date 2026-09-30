@@ -1,16 +1,19 @@
 # BO-only no-riskgate — build correction and authority closure
 
-Date: 2026-09-30. Status: SOURCE ACCEPTED / BUILD FIX + AUTHORITY REVIEW CANDIDATE.
+Date: 2026-09-30. Status: SOURCE / BUILD-FIX / TEST-HARNESS ACCEPTED; FRESH CI PENDING.
 Review update: `7c80d70` BUILD-FIX ACCEPT; `3992fc7` authority delta correct,
-aggregate HOLD for P1-NRG01 test cleanup. The [test-only correction](stage8b-p1f-nrg01-harness-correction.md)
-records the bounded next slice; this historical closure is not relabeled PASS.
+historical aggregate HOLD for P1-NRG01 test cleanup. The [test-only correction](stage8b-p1f-nrg01-harness-correction.md)
+at `ca16bf5` and its full local qualification are independently accepted:
+P1-NRG01 CLOSED and HOLD lifted on ca16bf5. The old interrupted gate remains
+unchanged failed evidence, not retroactively PASS. This document's original
+closure scope below describes 3992fc7, separately from the accepted test delta.
 Fresh required GitHub checks and history-preserving merge are separate pending gates.
 No operational permission is introduced.
 
 The accepted source failed canonical all-features Clippy. A separately authorized,
 minimal conditional-import fix is recorded before the authority-only successor.
 Local results are retained in the review package; they do not claim fresh GitHub
-CI acceptance or independent acceptance of this correction/closure.
+CI acceptance. Independent source/build/test acceptance is recorded above.
 
 ## Immutable acceptance
 
@@ -77,7 +80,8 @@ explicitly approved this narrow expansion on 2026-09-30. The complete canonical
 Clippy command now passes locally. The new gate additionally exercises both
 default and fixture-enabled durable-service tests and retains exact-tree logs.
 No lint suppression, CI feature reduction or canonical workflow change is used.
-Fresh GitHub checks, review and merge remain pending.
+Build-fix and test-harness reviews are accepted. Fresh GitHub checks and merge
+remain pending; the unchanged strategy does not need another source review.
 
 ### Artifact and operational gates
 

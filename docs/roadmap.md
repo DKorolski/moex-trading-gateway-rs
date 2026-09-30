@@ -42,10 +42,20 @@ another retry of the installed 121/120-session High180 contract. The
 independently SOURCE ACCEPTED at `2f46491a4f63249f64676306d5f9c3445818f4f9`;
 installed binaries and accepted historical artifacts are unchanged. The next
 boundary is the [narrow authority closure](stage-8/stage8b-p1f-no-riskgate-governance-closure.md),
-with accepted `7c80d70` build fix and a correct `3992fc7` authority delta. Aggregate
-closure is HOLD for P1-NRG01 test cleanup. The [test-only correction](stage-8/stage8b-p1f-nrg01-harness-correction.md),
-its qualification/review and fresh required CI precede closure, not a new source
-redesign. Runtime semantics are unchanged.
+with accepted `7c80d70` build fix and a correct `3992fc7` authority delta. The
+[test-only correction](stage-8/stage8b-p1f-nrg01-harness-correction.md) at
+`ca16bf5ab8debe875925421f0d0ee4de0f769525` and its full local qualification are
+independently accepted; **P1-NRG01 CLOSED**, its HOLD lifted on that correction.
+Fresh required GitHub `rust`/`redis-smoke` precede one history-preserving merge
+of the completed no-riskgate block. Runtime semantics are unchanged by the
+test-harness correction; no additional source redesign is required.
+
+Owner-approved working cadence (2026-09-30): commit finished local changes,
+push working branches for preservation, and review meaningful functional
+boundaries. Merge accepted blocks before they become artifact/install baselines,
+not every review or documentation update separately. Required CI/repository rules
+remain unchanged. Preparation may proceed during CI; baseline-dependent build
+and operational actions still wait for their required gates and permissions.
 
 Order: accepted source + short-warmup/parity/restart evidence → scoped authority
 closure and fresh required CI → exact replacement artifact → separately authorized installation preserving
