@@ -1530,6 +1530,9 @@ fn stage5d_validate_canonical_restart_export_self_consistency(
     envelope: &Stage5dPersistenceEnvelope,
     validated_evidence: &Stage5dValidatedRiskGateLedgerEvidence,
 ) -> Result<(), Stage5dEnvelopeValidationError> {
+    if strategy.stage8b_p1_bo_only_riskgate_disabled() {
+        return stage5d_validate_disabled_bo_only_riskgate(strategy, envelope, validated_evidence);
+    }
     let apply_state = stage5d_build_validated_materialized_riskgate_apply_state(
         strategy,
         envelope,
@@ -3870,12 +3873,20 @@ pub(crate) fn stage5d_reconstruct_runtime_from_clean_restart(
     Strategy::set_state(&mut fresh_strategy, state);
     fresh_strategy
         .stage5d_apply_runtime_private_extension(&decoded.envelope.runtime_private_extension)?;
-    stage5d_apply_validated_materialized_riskgate_for_restart(
-        &mut fresh_strategy,
-        validated_envelope,
-        decoded.validated_evidence,
-    )
-    .map_err(|_| Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)?;
+    if fresh_strategy.stage8b_p1_bo_only_riskgate_disabled() {
+        stage5d_validate_disabled_bo_only_riskgate(
+            &fresh_strategy,
+            &validated_envelope.envelope,
+            &decoded.validated_evidence,
+        )?;
+    } else {
+        stage5d_apply_validated_materialized_riskgate_for_restart(
+            &mut fresh_strategy,
+            validated_envelope,
+            decoded.validated_evidence,
+        )
+        .map_err(|_| Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)?;
+    }
     Ok((fresh_strategy, decoded.stage5g_extension_json))
 }
 
@@ -4877,6 +4888,137 @@ pub(crate) fn stage8b_p1_build_riskgate_authority(
         persistence,
         evidence,
     })
+}
+
+/// Schema-neutral absence of riskgate accounting for the explicit BO-only
+/// disabled configuration. This does not import a seed, rebuild a ledger, or
+/// grant the public Stage 5D riskgate-injected lifecycle capability.
+pub(crate) fn stage8b_p1_build_disabled_riskgate_authority(
+    strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+    strategy_id: &str,
+) -> Result<Stage8bP1RiskGateAuthority, Stage5dRiskGateInjectionBlockReason> {
+    if !strategy.stage8b_p1_bo_only_riskgate_disabled() || strategy_id.is_empty() {
+        return Err(Stage5dRiskGateInjectionBlockReason::RiskGateNotApplicable);
+    }
+    let semantic: Stage5dSemanticStrategyStateV1 = serde_json::from_value(
+        serde_json::to_value(Strategy::state(strategy))
+            .map_err(|_| Stage5dRiskGateInjectionBlockReason::MaterializedStateInvalid)?,
+    )
+    .map_err(|_| Stage5dRiskGateInjectionBlockReason::MaterializedStateInvalid)?;
+    let Stage5dSemanticStrategyStateV1::HybridIntradayRuntime(semantic) = semantic;
+    if !stage5d_disabled_riskgate_semantics_are_empty(&semantic)
+        || !strategy
+            .stage5d_export_runtime_private_extension()
+            .map_err(|_| Stage5dRiskGateInjectionBlockReason::MaterializedStateInvalid)?
+            .runtime_pending_finalizations
+            .is_empty()
+    {
+        return Err(Stage5dRiskGateInjectionBlockReason::MaterializedStateMismatch);
+    }
+    let source_identity = strategy.stage5d_expected_riskgate_identity(strategy_id.to_string());
+    let identity = Stage5dRiskGateIdentity {
+        strategy_id: source_identity.strategy_id,
+        profile_id: source_identity.profile_id,
+        mr_variant: source_identity.mr_variant,
+        timeframe: source_identity.timeframe,
+        session_policy: source_identity.session_policy,
+        model_version: source_identity.model_version,
+    };
+    let mut evidence = Stage5dRiskGateLedgerEvidence {
+        schema_version: STAGE5D_RISKGATE_SCHEMA_VERSION,
+        identity: identity.clone(),
+        ledger_tail_hash: String::new(),
+        ledger_records: Vec::new(),
+        seed_loaded: false,
+        current_shadow_session_date: None,
+        current_shadow_pnl_points: "0.0".to_string(),
+        current_generation: crate::hybrid_intraday::RISK_GATE_STATE_GENERATION.to_string(),
+    };
+    evidence.ledger_tail_hash = stage5d_compute_riskgate_ledger_tail_hash(&evidence)
+        .map_err(|_| Stage5dRiskGateInjectionBlockReason::LedgerEvidenceInvalid)?;
+    stage5d_validate_riskgate_ledger_evidence(evidence.clone())?;
+    let persistence = Stage5dRiskGatePersistence {
+        schema_version: STAGE5D_RISKGATE_SCHEMA_VERSION,
+        identity: identity.clone(),
+        materialized_state: Stage5dRiskGateMaterializedState {
+            mr_enabled_current_session: None,
+            mr_enabled_next_session: None,
+            rolling_sum_lb120: None,
+            last_finalized_session_date: None,
+            ledger_rows_count: 0,
+            seed_loaded: false,
+            current_shadow_session_date: None,
+            current_shadow_pnl_points: "0.0".to_string(),
+            current_generation: evidence.current_generation.clone(),
+        },
+        ledger_tail_hash: evidence.ledger_tail_hash.clone(),
+        durable_finalization_outbox: Vec::new(),
+    };
+    Ok(Stage8bP1RiskGateAuthority {
+        runtime_state: RiskGateRuntimeState {
+            profile_id: identity.profile_id,
+            last_finalized_session_date: None,
+            rolling_sum_lb120: None,
+            mr_enabled_current_session: None,
+            mr_enabled_next_session: None,
+            ledger_rows_count: 0,
+        },
+        persistence,
+        evidence,
+    })
+}
+
+fn stage5d_disabled_riskgate_semantics_are_empty(
+    state: &Stage5dHybridIntradayStrategyStateV1,
+) -> bool {
+    state.risk_gate_shadow_session_date.is_none()
+        && stage5d_is_source_zero(state.risk_gate_shadow_pnl_points)
+        && state.risk_gate_shadow_trade_count == 0
+        && state.risk_gate_shadow_entry_ts_utc.is_none()
+        && state.risk_gate_shadow_entry_price.is_none()
+        && state.risk_gate_shadow_side.is_none()
+        && state.risk_gate_shadow_target_price.is_none()
+        && state.risk_gate_shadow_stop_price.is_none()
+        && state.risk_gate_pending_session_date.is_none()
+        && stage5d_is_source_zero(state.risk_gate_pending_shadow_pnl_points)
+        && state.risk_gate_pending_shadow_trade_count == 0
+        && state.risk_gate_mr_enabled_current_session.is_none()
+        && state.risk_gate_rolling_sum_lb120.is_none()
+        && state.risk_gate_last_finalized_session_date.is_none()
+        && state.risk_gate_ledger_rows_count == 0
+}
+
+fn stage5d_validate_disabled_bo_only_riskgate(
+    strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+    envelope: &Stage5dPersistenceEnvelope,
+    validated_evidence: &Stage5dValidatedRiskGateLedgerEvidence,
+) -> Result<(), Stage5dEnvelopeValidationError> {
+    let expected =
+        stage8b_p1_build_disabled_riskgate_authority(strategy, &envelope.binding.strategy_id)
+            .map_err(|_| Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)?;
+    if envelope.binding.profile_binding != stage5d_profile_binding_string(strategy)
+        || envelope.binding.stage5c_compat_config_fingerprint
+            != strategy.stage5c_config_fingerprint()
+        || envelope.binding.stage5d_canonical_config_fingerprint
+            != strategy.stage5d_canonical_config_fingerprint()
+    {
+        return Err(Stage5dEnvelopeValidationError::BindingMismatch);
+    }
+    let semantic: Stage5dSemanticStrategyStateV1 =
+        serde_json::from_value(envelope.strategy_state.strategy_state_json.clone())
+            .map_err(|_| Stage5dEnvelopeValidationError::SemanticStateInvalid)?;
+    let Stage5dSemanticStrategyStateV1::HybridIntradayRuntime(semantic) = semantic;
+    if envelope.riskgate != expected.persistence
+        || validated_evidence.evidence != expected.evidence
+        || !stage5d_disabled_riskgate_semantics_are_empty(&semantic)
+        || !envelope
+            .runtime_private_extension
+            .runtime_pending_finalizations
+            .is_empty()
+    {
+        return Err(Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent);
+    }
+    Ok(())
 }
 
 /// Versioned Stage 5D persistence envelope DTO.

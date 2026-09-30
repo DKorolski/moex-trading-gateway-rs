@@ -12,6 +12,21 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 ## Active Stage 8B-P1-f source boundary
 
+Current development direction (project owner, 2026-09-30): current ALOR systems
+do not use riskgate. The [no-riskgate / short-warmup ADR](adr/adr-stage8b-bo-only-no-riskgate-short-warmup.md)
+and [handoff reconciliation](stage-8/stage8b-p1f-bo-only-handoff-alignment-2026-09-30.md)
+fix the narrow source correction: baseline07 BO-only paper without mandatory
+High180/lb120 reconstruction, using model-required recent history. The
+[additive source implementation](stage-8/stage8b-p1f-no-riskgate-source-correction.md)
+is now a **SOURCE REVIEW CANDIDATE**, not independently accepted: explicit profile
+V2 / wire V3, four prior sessions plus current prefix, disabled accounting and
+profile-bound restart. Legacy V1/V2 validation is retained.
+The installed profile still requires 121 history / 120 riskgate sessions and
+the minimum 180-day query. Historical acceptance below does not make that
+dependency a requirement of the new target. No VPS change or activation authority
+is introduced. The old current-tree governance authority is not rebound by this
+source candidate; exact artifact/template replacement remains a later gate.
+
 The [narrow O2 recovery source correction](stage-8/stage8b-p1f-o2-recovery-source-correction.md)
 is independently SOURCE ACCEPTED at `5b8f878833dbf71fa7614152a4a5fb03cbf40b65`.
 Both retained account-alias replay and active-manifest selector replacement
@@ -42,15 +57,25 @@ P0, installed bytes and selector were unchanged; P1 stopped. These are retained
 observations, not a new live snapshot. The old `BarsTruth` cause remains unknown;
 **O2 itself is not passed**.
 
-The current preparation slice is the
-[full successor artifact and terminal-preserving update](stage-8/stage8b-p1f-o2-terminal-successor.md).
-Three binaries are built from exact accepted merge `589b801`; the existing
-genesis-bound installation ID is retained, with a new artifact/installation hash.
-The bounded updater preserves all terminal history and does not reload/start,
-sign, claim or activate. Linux/systemd lock-mount qualification and update/rollback
-fixtures are local evidence only. Artifact/update review and explicit operational
-installation permission precede any VPS mutation; a fresh bounded O2 is separately
-authorized after that. No new recovery framework or strategy change is required.
+The [full successor artifact and terminal-preserving update](stage-8/stage8b-p1f-o2-terminal-successor.md)
+at `3923c5c94f27a1dc980297f289c10ecca652f99b` and its non-activating installation
+evidence are independently accepted. Three binaries were built from exact merge
+`589b801`, retaining the genesis-bound installation ID and prior terminal history.
+
+A subsequent separately authorized bounded O2 on 2026-09-30 failed before
+bootstrap: materializer exit 70, `history_missing_m1` at
+`2026-04-10T13:27:00Z`. One cleanup exit 0 recorded **FAILED, generation 1 /
+sequence 4** at `09:36:38Z`; the earlier Expired/2 history is retained. P0 and
+installed bytes were unchanged, P1 was not bootstrapped and DB15 remained empty.
+These are retained observations, not a fresh VPS inspection. Evidence ZIP
+`finam-o2-3923c5c-bounded-successor-evidence-20260930.zip`, SHA-256
+`527d20dbc23079d9151f6868c81cab135b2db5c53fac2dce24fce64a83cac2d7`, is prepared;
+independent acceptance of this attempt is pending. **O2 remains HOLD.**
+
+Next: review the scoped no-riskgate source correction and short-warmup regression
+evidence, then authority closure, exact artifact/update and separate operational
+gates. Do not retry the old long-history contract or loosen required recent-bar
+quality checks. No new recovery framework is required.
 
 ### Earlier accepted milestones (historical boundaries)
 

@@ -27,11 +27,14 @@ use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    stage8b_p1_imoexf_instrument_map_fingerprint_sha256, Stage8bP1RuntimeProfileV1,
+    stage8b_p1_imoexf_instrument_map_fingerprint_sha256, Stage8bP1RuntimeProfileKind,
     Stage8bP1ValidatedBootstrapConfig, Stage8bP1eSupervisorConfigError,
     Stage8bP1eValidatedSupervisorConfigV1, STAGE8B_P1E_FIRST_BOOT_SOURCE_PATH,
-    STAGE8B_P1E_RUNTIME_PROFILE_SHA256, STAGE8B_P1_VENUE_SYMBOL,
+    STAGE8B_P1_VENUE_SYMBOL,
 };
+
+#[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
+use crate::{Stage8bP1RuntimeProfileV1, STAGE8B_P1E_RUNTIME_PROFILE_SHA256};
 
 pub const STAGE8B_P1E_FIRST_BOOT_SOURCE_SCHEMA_VERSION: u16 = 2;
 pub const STAGE8B_P1E_FIRST_BOOT_SOURCE_DOMAIN: &str =
@@ -43,6 +46,20 @@ pub const STAGE8B_P1E_FIRST_BOOT_MIN_RISKGATE_SESSIONS: usize = 120;
 pub const STAGE8B_P1E_FIRST_BOOT_TRUTH_MAX_AGE_SECONDS: i64 = 300;
 pub const STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V2_SHA256: &str =
     "2a507577075b8b5315a462ffeee221dd0a7f8a8f61d42516fbdb9346cc3464ca";
+pub const STAGE8B_P1E_FIRST_BOOT_SHORT_HISTORY_SESSIONS: usize = 4;
+pub const STAGE8B_P1E_FIRST_BOOT_SHORT_HISTORY_MAX_DAYS: i64 = 14;
+pub const STAGE8B_P1E_FIRST_BOOT_SOURCE_V3_DOMAIN: &str =
+    "moex.stage8b.p1e.first-boot-source-bundle.v3";
+pub const STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V3_SHA256: &str =
+    "d722d70a897578ce93217f34c82dff2a7ed6c6c402a12914b7b862c2d95b693c";
+
+pub(crate) fn first_boot_source_plan_sha256(profile: Stage8bP1RuntimeProfileKind) -> &'static str {
+    if profile.no_riskgate() {
+        STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V3_SHA256
+    } else {
+        STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V2_SHA256
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum Stage8bP1eFirstBootSourceError {
@@ -75,6 +92,7 @@ pub enum Stage8bP1eFirstBootSourceError {
 /// Authenticated source observations. The type is intentionally linear and
 /// non-serializable; later F01-F16 composition must consume it by value.
 pub struct Stage8bP1eValidatedFirstBootSourceV1 {
+    runtime_profile: Stage8bP1RuntimeProfileKind,
     source_bundle_sha256: String,
     source_bundle_generation: u64,
     captured_at: DateTime<Utc>,
@@ -286,17 +304,19 @@ fn prepare_stage8b_p1_first_boot_source_v1(
     source: Stage8bP1eValidatedFirstBootSourceV1,
 ) -> Result<Stage8bP1ePreparedFirstBootV1, Stage8bP1eFirstBootBuildError> {
     let operational_identity_sha256 = bootstrap.operational_identity_sha256().to_string();
-    let (fresh_runtime, fresh_fingerprint) = Stage8bP1RuntimeProfileV1::build_hybrid_runtime()?;
-    if fresh_fingerprint != bootstrap.runtime_config_fingerprint_sha256() {
+    let (fresh_runtime, fresh_fingerprint) = source.runtime_profile.build_hybrid_runtime()?;
+    if fresh_fingerprint != bootstrap.runtime_config_fingerprint_sha256()
+        || runtime.stage5c_config_fingerprint() != fresh_fingerprint
+    {
         return Err(Stage8bP1eFirstBootBuildError::RuntimeProfile);
     }
     let provenance = strategy_runtime_core::Stage8bP1eFirstBootProvenanceV1::new(
         operational_identity_sha256.clone(),
-        STAGE8B_P1E_RUNTIME_PROFILE_SHA256.to_string(),
+        source.runtime_profile.profile_sha256().to_string(),
         bootstrap.runtime_config_fingerprint_sha256().to_string(),
         source.source_bundle_sha256.clone(),
         source.source_bundle_generation,
-        STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V2_SHA256.to_string(),
+        first_boot_source_plan_sha256(source.runtime_profile).to_string(),
         source.history_bars_sha256.clone(),
         source.riskgate_session_observations_sha256.clone(),
         source.candidate_semantic_id_sha256.clone(),
@@ -377,6 +397,10 @@ fn core_bar_input(
 }
 
 impl Stage8bP1eValidatedFirstBootSourceV1 {
+    pub fn runtime_profile(&self) -> Stage8bP1RuntimeProfileKind {
+        self.runtime_profile
+    }
+
     pub fn source_bundle_sha256(&self) -> &str {
         &self.source_bundle_sha256
     }
@@ -497,16 +521,18 @@ struct FirstBootHistoryCoverageV2 {
     source_mode: String,
     sessions_sha256: String,
     sessions: Vec<FirstBootHistorySessionV2>,
+    #[serde(default)]
+    candidate_session: Option<FirstBootHistorySessionV2>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct FirstBootHistorySessionV2 {
     session_date: String,
     windows: Vec<FirstBootHistoryWindowV2>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct FirstBootHistoryWindowV2 {
     first_close_time_utc: i64,
@@ -577,16 +603,20 @@ pub fn load_stage8b_p1e_first_boot_source_v1(
     let path = Path::new(STAGE8B_P1E_FIRST_BOOT_SOURCE_PATH);
     let expected_gid = service_group_gid()?;
     let bytes = read_protected_first_boot_source(path, 0, expected_gid, || {})?;
-    parse_stage8b_p1e_first_boot_source_v1(
+    let source = parse_stage8b_p1e_first_boot_source_v1(
         &bytes,
         supervisor.first_boot_source_bundle_sha256(),
         supervisor.bootstrap().operational_identity_sha256(),
         supervisor.bootstrap().account_id().as_str(),
         trusted_now,
-    )
+    )?;
+    if source.runtime_profile != supervisor.runtime_profile() {
+        return Err(Stage8bP1eFirstBootSourceError::IdentityMismatch);
+    }
+    Ok(source)
 }
 
-/// Validates already materialized wire-V2 source bytes through the exact
+/// Validates already materialized wire-V2/V3 source bytes through the exact
 /// production first-boot parser. This read-only O2 boundary grants no
 /// file-system, guardian, Redis or runtime authority; the expected source
 /// digest is derived from the supplied bytes themselves.
@@ -738,14 +768,27 @@ fn parse_stage8b_p1e_first_boot_source_with_policy_v1(
         .and_then(|coverage| coverage.get("sessions"))
         .map(canonical_value_sha256)
         .ok_or(Stage8bP1eFirstBootSourceError::InvalidSchema)?;
+    let candidate_session_field_present = value["history_coverage"]
+        .as_object()
+        .is_some_and(|coverage| coverage.contains_key("candidate_session"));
     let document: FirstBootSourceDocumentV1 =
         serde_json::from_value(value).map_err(|_| Stage8bP1eFirstBootSourceError::InvalidSchema)?;
 
-    if document.schema_version != STAGE8B_P1E_FIRST_BOOT_SOURCE_SCHEMA_VERSION
-        || document.domain != STAGE8B_P1E_FIRST_BOOT_SOURCE_DOMAIN
+    let runtime_profile =
+        Stage8bP1RuntimeProfileKind::from_sha256(&document.runtime_profile_sha256)
+            .map_err(|_| Stage8bP1eFirstBootSourceError::IdentityMismatch)?;
+    let (schema_version, domain) = if runtime_profile.no_riskgate() {
+        (3, STAGE8B_P1E_FIRST_BOOT_SOURCE_V3_DOMAIN)
+    } else {
+        (
+            STAGE8B_P1E_FIRST_BOOT_SOURCE_SCHEMA_VERSION,
+            STAGE8B_P1E_FIRST_BOOT_SOURCE_DOMAIN,
+        )
+    };
+    if document.schema_version != schema_version
+        || document.domain != domain
         || document.source_bundle_generation == 0
         || document.operational_identity_sha256 != expected_operational_identity_sha256
-        || document.runtime_profile_sha256 != STAGE8B_P1E_RUNTIME_PROFILE_SHA256
         || document.instrument_map_fingerprint_sha256
             != stage8b_p1_imoexf_instrument_map_fingerprint_sha256()
         || document.broker_truth.account_id != expected_account_id
@@ -818,21 +861,35 @@ fn parse_stage8b_p1e_first_boot_source_with_policy_v1(
         );
         history_bars.push(bar);
     }
-    if history_sessions.len() < STAGE8B_P1E_FIRST_BOOT_MIN_HISTORY_SESSIONS
+    let minimum_history_sessions = if runtime_profile.no_riskgate() {
+        STAGE8B_P1E_FIRST_BOOT_SHORT_HISTORY_SESSIONS
+    } else {
+        STAGE8B_P1E_FIRST_BOOT_MIN_HISTORY_SESSIONS
+    };
+    if history_sessions.len() < minimum_history_sessions
         || !history_coverage_is_exact(
             &document.history_coverage.sessions,
             &history_bars,
             &history_sessions,
+            minimum_history_sessions,
         )
+        || (!runtime_profile.no_riskgate() && candidate_session_field_present)
     {
         return Err(Stage8bP1eFirstBootSourceError::InvalidHistory);
     }
 
-    if document.riskgate_history.source_mode != "source-compatible-high180-shadow-history-v1"
-        || document.riskgate_history.state_generation != "runtime-ledger-v1"
+    let valid_riskgate_mode = if runtime_profile.no_riskgate() {
+        document.riskgate_history.source_mode == "disabled-bo-only-v1"
+            && document.riskgate_history.state_generation == "disabled-v1"
+            && document.riskgate_history.session_observations.is_empty()
+    } else {
+        document.riskgate_history.source_mode == "source-compatible-high180-shadow-history-v1"
+            && document.riskgate_history.state_generation == "runtime-ledger-v1"
+            && document.riskgate_history.session_observations.len()
+                >= STAGE8B_P1E_FIRST_BOOT_MIN_RISKGATE_SESSIONS
+    };
+    if !valid_riskgate_mode
         || observations_hash != document.riskgate_history.session_observations_sha256
-        || document.riskgate_history.session_observations.len()
-            < STAGE8B_P1E_FIRST_BOOT_MIN_RISKGATE_SESSIONS
     {
         return Err(Stage8bP1eFirstBootSourceError::InvalidRiskGateHistory);
     }
@@ -885,9 +942,20 @@ fn parse_stage8b_p1e_first_boot_source_with_policy_v1(
         .ok_or(Stage8bP1eFirstBootSourceError::InvalidCandidate)?;
     if candidate.close_time_utc <= history_tail.close_time_utc
         || candidate.close_time_utc > captured_at.timestamp()
-        || candidate_session <= tail_session
+        || (!runtime_profile.no_riskgate() && candidate_session <= tail_session)
     {
         return Err(Stage8bP1eFirstBootSourceError::InvalidCandidate);
+    }
+    let candidate_age_reference = if truth_policy == FirstBootTruthPolicy::FreshAdmission {
+        trusted_now
+    } else {
+        captured_at
+    };
+    if runtime_profile.no_riskgate()
+        && (!short_history_coverage_is_exact(&document.history_coverage, &candidate)
+            || candidate_age_reference.timestamp() - candidate.close_time_utc > 900)
+    {
+        return Err(Stage8bP1eFirstBootSourceError::InvalidHistory);
     }
     let candidate_open_ts_utc_ms = document
         .candidate
@@ -925,6 +993,7 @@ fn parse_stage8b_p1e_first_boot_source_with_policy_v1(
     }
 
     Ok(Stage8bP1eValidatedFirstBootSourceV1 {
+        runtime_profile,
         source_bundle_sha256: actual_source_bundle_sha256,
         source_bundle_generation: document.source_bundle_generation,
         captured_at,
@@ -940,14 +1009,123 @@ fn parse_stage8b_p1e_first_boot_source_with_policy_v1(
     })
 }
 
+/// The full current-day windows remain source/config-bound, rather than
+/// inferring a clearing break from absent market data. Only their exact
+/// prefix may warm the current session before the Replay candidate.
+fn short_history_coverage_is_exact(
+    coverage: &FirstBootHistoryCoverageV2,
+    candidate: &Stage8bP1eFirstBootBarV1,
+) -> bool {
+    let Some(candidate_date) = moscow_session_date(candidate.close_time_utc) else {
+        return false;
+    };
+    let Some(current) = &coverage.candidate_session else {
+        return false;
+    };
+    if current.session_date != candidate_date.format("%Y-%m-%d").to_string()
+        || !complete_short_session(current)
+        || !current.windows.iter().any(|window| {
+            (window.first_close_time_utc..=window.last_close_time_utc)
+                .contains(&candidate.close_time_utc)
+        })
+    {
+        return false;
+    }
+    let prior = coverage
+        .sessions
+        .iter()
+        .filter(|session| session.session_date < current.session_date)
+        .collect::<Vec<_>>();
+    if prior.len() != STAGE8B_P1E_FIRST_BOOT_SHORT_HISTORY_SESSIONS
+        || !prior.iter().all(|session| {
+            complete_short_session(session)
+                && NaiveDate::parse_from_str(&session.session_date, "%Y-%m-%d").is_ok_and(|date| {
+                    let age = candidate_date.signed_duration_since(date).num_days();
+                    (1..=STAGE8B_P1E_FIRST_BOOT_SHORT_HISTORY_MAX_DAYS).contains(&age)
+                })
+        })
+    {
+        return false;
+    }
+    let prefix = current
+        .windows
+        .iter()
+        .filter_map(|window| {
+            (window.first_close_time_utc < candidate.close_time_utc).then_some(
+                FirstBootHistoryWindowV2 {
+                    first_close_time_utc: window.first_close_time_utc,
+                    last_close_time_utc: window
+                        .last_close_time_utc
+                        .min(candidate.close_time_utc - 600),
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+    if prefix.is_empty() {
+        coverage.sessions.len() == STAGE8B_P1E_FIRST_BOOT_SHORT_HISTORY_SESSIONS
+    } else {
+        coverage.sessions.len() == STAGE8B_P1E_FIRST_BOOT_SHORT_HISTORY_SESSIONS + 1
+            && coverage.sessions.last().is_some_and(|session| {
+                session.session_date == current.session_date && session.windows == prefix
+            })
+    }
+}
+
+fn complete_short_session(session: &FirstBootHistorySessionV2) -> bool {
+    let Ok(date) = NaiveDate::parse_from_str(&session.session_date, "%Y-%m-%d") else {
+        return false;
+    };
+    if date.format("%Y-%m-%d").to_string() != session.session_date
+        || matches!(date.weekday(), Weekday::Sat | Weekday::Sun)
+        // This explicit baseline07 profile does not interpret pre-transition
+        // legacy09 calendars as short-warmup observations.
+        || session.session_date.as_str() < "2026-07-14"
+    {
+        return false;
+    }
+    let first = date
+        .and_hms_opt(4, 10, 0)
+        .expect("constant time")
+        .and_utc()
+        .timestamp();
+    let last = date
+        .and_hms_opt(20, 50, 0)
+        .expect("constant time")
+        .and_utc()
+        .timestamp();
+    if session
+        .windows
+        .first()
+        .map(|window| window.first_close_time_utc)
+        != Some(first)
+        || session
+            .windows
+            .last()
+            .map(|window| window.last_close_time_utc)
+            != Some(last)
+    {
+        return false;
+    }
+    let mut prior = None;
+    session.windows.iter().all(|window| {
+        let valid = window.first_close_time_utc >= first
+            && window.last_close_time_utc <= last
+            && window.first_close_time_utc <= window.last_close_time_utc
+            && window.first_close_time_utc.rem_euclid(600) == 0
+            && window.last_close_time_utc.rem_euclid(600) == 0
+            && prior.map_or(true, |close| window.first_close_time_utc > close);
+        prior = Some(window.last_close_time_utc);
+        valid
+    })
+}
+
 fn history_coverage_is_exact(
     sessions: &[FirstBootHistorySessionV2],
     history_bars: &[Stage8bP1eFirstBootBarV1],
     history_sessions: &BTreeSet<NaiveDate>,
+    minimum_sessions: usize,
 ) -> bool {
-    if sessions.len() < STAGE8B_P1E_FIRST_BOOT_MIN_HISTORY_SESSIONS
-        || sessions.len() != history_sessions.len()
-    {
+    if sessions.len() < minimum_sessions || sessions.len() != history_sessions.len() {
         return false;
     }
     let mut expected_closes = Vec::with_capacity(history_bars.len());
@@ -1435,6 +1613,10 @@ pub(crate) fn stage8b_p1f_ie_first_boot_source_fixture_v1(
 }
 
 #[cfg(test)]
+#[path = "stage8b_p1e_no_riskgate_tests.rs"]
+mod no_riskgate_tests;
+
+#[cfg(test)]
 pub(crate) mod tests {
     use std::{
         ffi::CString,
@@ -1648,9 +1830,9 @@ pub(crate) mod tests {
         strategy_runtime_core::Stage8bP1eFirstBootCompositionV1,
         strategy_runtime_core::Stage8bP1eFirstBootCompositionError,
     > {
-        let (runtime, fingerprint) = Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
+        let (runtime, fingerprint) = source.runtime_profile.build_hybrid_runtime().unwrap();
         let (fresh_runtime, fresh_fingerprint) =
-            Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
+            source.runtime_profile.build_hybrid_runtime().unwrap();
         assert_eq!(fingerprint, fresh_fingerprint);
         strategy_runtime_core::build_stage8b_p1_first_boot_composition_v1(
             strategy_runtime_core::Stage8bP1eFirstBootCompositionInputV1 {
@@ -1680,7 +1862,7 @@ pub(crate) mod tests {
         )
     }
 
-    fn temp_directory(label: &str) -> PathBuf {
+    pub(super) fn temp_directory(label: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!(
             "stage8b-p1e-first-boot-{label}-{}-{}",
             std::process::id(),
@@ -1714,7 +1896,7 @@ pub(crate) mod tests {
         );
     }
 
-    fn bootstrap_config(
+    pub(super) fn bootstrap_config(
         durable_parent: PathBuf,
         runtime_config_fingerprint_sha256: String,
     ) -> crate::Stage8bP1BootstrapConfig {

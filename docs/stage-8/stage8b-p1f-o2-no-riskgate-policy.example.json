@@ -1,0 +1,11 @@
+{
+  "schema_version": 2,
+  "domain": "stage8b-p1f-o2-materialization-policy-v2",
+  "runtime_profile_id": "imoexf-baseline07-bo-only-no-riskgate-paper-v2",
+  "runtime_profile_sha256": "6d7dff3543993b7727a161f85af3037f74762ecd2ce8332e0594b9c92d987c38",
+  "account_id_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "account_alias": "finam-paper-primary",
+  "venue_symbol": "IMOEXF@RTSX",
+  "bars_start_utc": "2026-09-22T04:00:00Z",
+  "bars_end_utc": "2026-09-28T20:50:00Z"
+}

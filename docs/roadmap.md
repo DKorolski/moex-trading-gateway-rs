@@ -27,17 +27,26 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Current as of 2026-09-30: old-phase terminal recovery is independently accepted;
-the retained frontier is **EXPIRED, generation 1 / sequence 2**, not ACTIVE.
-Source correction `590304a`, recovery artifact `43d5f4e`, PR #10 merge `589b801`
-and its green required CI are accepted predecessors. **O2 itself remains HOLD**;
-the earlier BarsTruth cause is unknown. The immediate slice is the
-[full successor artifact / terminal-preserving update](stage-8/stage8b-p1f-o2-terminal-successor.md).
-Order: full artifact + isolated lock-mount proof + narrow update/rollback review
-→ separately authorized non-activating installation preserving terminal history
-→ separately authorized fresh bounded O2 → O3/O4 paper windows and ALOR comparison
-→ separately accepted live micro. No history deletion, deadline extension, new
-genesis, FINAM writes or runtime-live is permitted by this preparation.
+Current as of 2026-09-30: successor artifact/update `3923c5c` and its installation
+evidence are independently accepted. A subsequent authorized bounded O2 failed
+before bootstrap on a missing April 10 M1. Its retained terminal frontier is
+**FAILED, generation 1 / sequence 4**; accepted Expired/2 history is preserved.
+The latest attempt's evidence is prepared, not independently accepted; these are
+retained observations, not a fresh VPS inspection. **O2 remains HOLD.**
+
+The owner confirms current ALOR models do not use riskgate. The next slice is
+the [BO-only no-riskgate / short-warmup source correction](stage-8/stage8b-p1f-bo-only-handoff-alignment-2026-09-30.md)
+under the [scoped ADR](adr/adr-stage8b-bo-only-no-riskgate-short-warmup.md), not
+another retry of the installed 121/120-session High180 contract. The
+[source implementation](stage-8/stage8b-p1f-no-riskgate-source-correction.md) is a
+review candidate; installed binaries and accepted historical artifacts are unchanged.
+
+Order: scoped source correction + short-warmup/parity/restart regression review
+→ scoped authority closure → exact replacement artifact → separately authorized installation preserving
+terminal history → separately authorized bounded O2 → O3/O4 paper windows and
+ALOR comparison of the same model → separately accepted live micro. No history
+deletion, deadline extension, new genesis, FINAM order writes or runtime-live is
+permitted by this documentation update. Macro-stage numbering is unchanged.
 
 ### Historical entry and accepted dependencies
 

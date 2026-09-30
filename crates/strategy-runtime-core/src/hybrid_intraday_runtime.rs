@@ -22,6 +22,11 @@ use crate::strategy_host::{
     RiskGateSessionFinalization, StopOrderEvent, Strategy, StrategyCtx,
 };
 
+#[cfg(test)]
+thread_local! {
+    static STAGE8B_P1_RISKGATE_ORACLE_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: runtime-private-snapshot
 fn stage5d_owner_to_runtime(owner: crate::stage5d_persistence::Stage5dOwner) -> Owner {
     match owner {
@@ -715,6 +720,14 @@ impl HybridIntradayRuntimeStrategy {
         self.risk_gate_shadow_enabled()
     }
 
+    /// An explicit BO-only configuration, not an inference from absent ledger
+    /// data or from `risk_gate_mode` alone (which does not disable shadow MR).
+    pub(crate) fn stage8b_p1_bo_only_riskgate_disabled(&self) -> bool {
+        self.config.mr_gate_policy == MrGatePolicy::Disabled
+            && self.config.risk_gate_mode == RiskGateMode::Disabled
+            && !self.config.live_mr_entries_enabled
+    }
+
     #[cfg(test)]
     pub(crate) fn stage5d_test_replace_pending_riskgate_finalizations(
         &mut self,
@@ -985,6 +998,8 @@ impl HybridIntradayRuntimeStrategy {
         &self,
         bars: &[BarEvent],
     ) -> Result<Vec<RiskGateSessionFinalization>, ()> {
+        #[cfg(test)]
+        STAGE8B_P1_RISKGATE_ORACLE_CALLS.with(|calls| calls.set(calls.get() + 1));
         let mut oracle = Self::new(self.config.clone());
         let mut processed = 0_usize;
         for bar in bars {
@@ -1040,6 +1055,11 @@ impl HybridIntradayRuntimeStrategy {
             oracle.finalize_risk_gate_shadow_session(last_session);
         }
         Ok(oracle.pending_risk_gate_finalizations)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stage8b_p1_test_riskgate_oracle_calls() -> usize {
+        STAGE8B_P1_RISKGATE_ORACLE_CALLS.with(std::cell::Cell::get)
     }
 
     pub(crate) fn stage5g_protective_completion_post_callback_summary(
@@ -3941,6 +3961,25 @@ mod tests {
     fn disabled_live_mr_never_claims_owner_and_later_breakout_remains_eligible() {
         let mut cfg = risk_gate_test_config();
         cfg.live_mr_entries_enabled = false;
+        assert_disabled_mr_never_claims_owner(cfg);
+    }
+
+    #[test]
+    fn explicit_bo_only_no_riskgate_suppresses_high180_and_classic_mr_before_ownership() {
+        for variant in [
+            MeanReversionVariant::High180,
+            MeanReversionVariant::ClassicPrevDayRange,
+        ] {
+            let mut cfg = risk_gate_test_config();
+            cfg.live_mr_entries_enabled = false;
+            cfg.mr_gate_policy = MrGatePolicy::Disabled;
+            cfg.risk_gate_mode = RiskGateMode::Disabled;
+            cfg.mr_variant = variant;
+            assert_disabled_mr_never_claims_owner(cfg);
+        }
+    }
+
+    fn assert_disabled_mr_never_claims_owner(cfg: HybridIntradayRuntimeConfig) {
         let mut strategy = HybridIntradayRuntimeStrategy::new(cfg);
         let day = chrono::NaiveDate::from_ymd_opt(2026, 1, 6).expect("date");
         strategy.prev_day_close = Some(100.0);
@@ -4251,6 +4290,472 @@ mod tests {
             assert!((actual.entry_price - expected.entry_price).abs() <= f64::EPSILON);
             assert!((actual.exit_price - expected.exit_price).abs() <= f64::EPSILON);
         }
+    }
+
+    // These successor tests deliberately leave the accepted High180/lb120
+    // frozen test above unchanged. Read the actual V2 semantic values without
+    // introducing a core -> durable-service dependency.
+    fn frozen_baseline07_no_riskgate_profile_v2_config() -> HybridIntradayRuntimeConfig {
+        let profile: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../docs/stage-8/stage8b-p1e-runtime-profile-v2.json"
+        ))
+        .expect("actual V2 runtime profile parses");
+        assert_eq!(profile["schema_version"], 2);
+        assert_eq!(profile["domain"], "moex.stage8b.p1e.runtime-profile.v2");
+        assert_eq!(
+            profile["profile_id"],
+            "imoexf-baseline07-bo-only-no-riskgate-paper-v2"
+        );
+        assert_eq!(
+            profile["constructor"],
+            "Stage8bP1RuntimeProfileV2::build_hybrid_runtime"
+        );
+        assert_eq!(profile["paper_safety"]["trade_mode"], "paper");
+        for field in [
+            "allow_live_orders",
+            "finam_transport_attached",
+            "broker_dispatch_attached",
+            "runtime_live",
+            "real_orders",
+        ] {
+            assert_eq!(profile["paper_safety"][field], false, "{field}");
+        }
+        let semantic = &profile["semantic_config"];
+        assert_eq!(semantic["symbol"], "IMOEXF");
+        assert_eq!(semantic["profile"], "baseline_runtime_hybrid");
+        assert_eq!(semantic["mr_variant"], "high180");
+        assert_eq!(semantic["live_mr_entries_enabled"], false);
+        assert_eq!(semantic["mr_gate_policy"], "disabled");
+        assert_eq!(semantic["risk_gate_mode"], "disabled");
+        assert!(semantic["risk_gate_seed_file"].is_null());
+        assert!(semantic["risk_gate_ledger_key"].is_null());
+        assert_eq!(semantic["live_order_style"], "market");
+        assert_eq!(semantic["breakout"]["min_range_mode"], "absolute");
+        assert_eq!(semantic["orchestrator"]["breakout_eod_mode"], "same_day");
+        let number = |value: &serde_json::Value| value.as_str().unwrap().parse::<f64>().unwrap();
+        let time = |value: &serde_json::Value| {
+            NaiveTime::parse_from_str(value.as_str().unwrap(), "%H:%M:%S").unwrap()
+        };
+        let unsigned = |field: &str| semantic[field].as_u64().unwrap();
+        let mr = &semantic["mean_reversion"];
+        let bo = &semantic["breakout"];
+        HybridIntradayRuntimeConfig {
+            symbol: semantic["symbol"].as_str().unwrap().to_string(),
+            profile: HybridIntradayProfile::BaselineRuntimeHybrid,
+            mr_variant: MeanReversionVariant::High180,
+            live_mr_entries_enabled: semantic["live_mr_entries_enabled"].as_bool().unwrap(),
+            mr_gate_policy: MrGatePolicy::Disabled,
+            risk_gate_mode: RiskGateMode::Disabled,
+            risk_gate_seed_file: None,
+            risk_gate_ledger_key: None,
+            model_session_start_time: Some(time(&semantic["model_session_start_time"])),
+            model_session_end_time: Some(time(&semantic["model_session_end_time"])),
+            qty: number(&semantic["qty"]),
+            live_order_style: MarketBuyAndCloseLiveOrderStyle::Market,
+            tick_size: number(&semantic["tick_size"]),
+            marketable_limit_offset_ticks: semantic["marketable_limit_offset_ticks"]
+                .as_i64()
+                .unwrap(),
+            timezone_offset_hours: semantic["timezone_offset_hours"]
+                .as_i64()
+                .unwrap()
+                .try_into()
+                .unwrap(),
+            session_close_hour: unsigned("session_close_hour").try_into().unwrap(),
+            session_close_minute: unsigned("session_close_minute").try_into().unwrap(),
+            weekends_off: semantic["weekends_off"].as_bool().unwrap(),
+            stop_end_buffer_sec: unsigned("stop_end_buffer_sec"),
+            repair_deadline_sec: unsigned("repair_deadline_sec"),
+            sl_escalate_timeout_sec: unsigned("sl_escalate_timeout_sec"),
+            max_repair_retries: unsigned("max_repair_retries").try_into().unwrap(),
+            repair_backoff_base_sec: unsigned("repair_backoff_base_sec"),
+            repair_backoff_max_sec: unsigned("repair_backoff_max_sec"),
+            pending_timeout_sec: unsigned("pending_timeout_sec"),
+            partial_entry_fill_timeout_ms: unsigned("partial_entry_fill_timeout_ms"),
+            mr_config: MeanReversionConfig {
+                min_range_long: number(&mr["min_range_long"]),
+                max_range_long: number(&mr["max_range_long"]),
+                k_long: number(&mr["k_long"]),
+                take_k_long: number(&mr["take_k_long"]),
+                stop_k_long: number(&mr["stop_k_long"]),
+                min_range_short: number(&mr["min_range_short"]),
+                max_range_short: number(&mr["max_range_short"]),
+                k_short: number(&mr["k_short"]),
+                take_k_short: number(&mr["take_k_short"]),
+                stop_k_short: number(&mr["stop_k_short"]),
+                tick_size: number(&mr["tick_size"]),
+                session_end_time: time(&mr["session_end_time"]),
+                exit_offset: ChronoDuration::seconds(mr["exit_offset_seconds"].as_i64().unwrap()),
+            },
+            breakout_config: IntradayBreakoutConfig {
+                k: number(&bo["k"]),
+                stop1_range: number(&bo["stop1_range"]),
+                stop2_range: number(&bo["stop2_range"]),
+                big_move_threshold: number(&bo["big_move_threshold"]),
+                min_range: number(&bo["min_range"]),
+                min_range_mode: crate::strategies::hybrid_intraday::MinRangeMode::Absolute,
+                exclude_weekends: bo["exclude_weekends"].as_bool().unwrap(),
+                wait_hours: number(&bo["wait_hours"]),
+            },
+            orchestrator_config: HybridOrchestratorConfig {
+                breakout_eod_mode: BreakoutEodMode::SameDay,
+                breakout_overnight_exit_time: time(
+                    &semantic["orchestrator"]["breakout_overnight_exit_time"],
+                ),
+            },
+        }
+    }
+
+    fn frozen_no_riskgate_bar(row: &FrozenParityBar, start_utc: i64) -> BarEvent {
+        BarEvent {
+            symbol: "IMOEXF".to_string(),
+            close_time_utc: start_utc,
+            close: row.close,
+            o: row.open,
+            h: row.high,
+            l: row.low,
+            v: row.volume,
+            origin: DataOrigin::HistoryGap,
+        }
+    }
+
+    fn frozen_no_riskgate_eligible(label: NaiveDateTime) -> bool {
+        let transition = NaiveDate::from_ymd_opt(2026, 7, 14).unwrap();
+        !matches!(label.weekday(), Weekday::Sat | Weekday::Sun)
+            && label.time()
+                >= NaiveTime::from_hms_opt(if label.date() < transition { 9 } else { 7 }, 0, 0)
+                    .unwrap()
+            && label.time() <= NaiveTime::from_hms_opt(23, 49, 59).unwrap()
+    }
+
+    fn frozen_no_riskgate_context() -> StrategyCtx {
+        let mut ctx = test_ctx(Some(0.0));
+        ctx.trade_mode = TradeMode::Paper;
+        ctx.paper_execution_mode = crate::PaperExecutionMode::HistorySim;
+        ctx.allow_live_orders = false;
+        ctx
+    }
+
+    fn assert_frozen_no_riskgate_accounting(strategy: &HybridIntradayRuntimeStrategy) {
+        assert_eq!(
+            strategy.config.profile,
+            HybridIntradayProfile::BaselineRuntimeHybrid
+        );
+        assert!(strategy.stage8b_p1_bo_only_riskgate_disabled());
+        assert!(!strategy.stage5d_riskgate_applicable());
+        assert_eq!(strategy.risk_gate_shadow_session_date, None);
+        assert_eq!(
+            strategy.risk_gate_shadow_pnl_points.to_bits(),
+            0.0_f64.to_bits()
+        );
+        assert_eq!(strategy.risk_gate_shadow_trade_count, 0);
+        assert!(strategy.risk_gate_shadow_position.is_none());
+        assert!(strategy.risk_gate_shadow_open.is_none());
+        assert!(strategy.pending_risk_gate_finalizations.is_empty());
+        assert_eq!(strategy.risk_gate_mr_enabled_current_session, None);
+        assert_eq!(strategy.risk_gate_rolling_sum_lb120, None);
+        assert_eq!(strategy.risk_gate_last_finalized_session_date, None);
+        assert_eq!(strategy.risk_gate_ledger_rows_count, 0);
+    }
+
+    fn frozen_no_riskgate_bo_projection(
+        strategy: &HybridIntradayRuntimeStrategy,
+    ) -> serde_json::Value {
+        let state = serde_json::to_value(Strategy::state(strategy)).unwrap();
+        let semantic = state["HybridIntradayRuntime"].as_object().unwrap();
+        let fields = [
+            "entry_ready",
+            "last_bar_close",
+            "prev_day_close",
+            "prev_day_range",
+            "prev_day_return",
+            "day_before_close",
+            "last_day_local",
+            "current_day_high",
+            "current_day_low",
+            "current_day_close",
+            "today_start_local",
+            "was_long_today",
+            "was_short_today",
+            "current_owner",
+            "current_side",
+            "pending_entry_owner",
+            "pending_entry_side",
+            "pending_entry_request_id",
+            "pending_exit_request_id",
+        ];
+        serde_json::Value::Object(
+            fields
+                .into_iter()
+                .map(|field| (field.to_string(), semantic.get(field).unwrap().clone()))
+                .collect(),
+        )
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct FrozenNoRiskgateDecision {
+        model_label: String,
+        bo_state: serde_json::Value,
+        intents: Vec<Intent>,
+    }
+
+    // Use the same explicit current-close simulation as the retained offline
+    // oracle test. This compares BO signals/results, not FINAM execution fills.
+    fn replay_frozen_no_riskgate<'a>(
+        strategy: &mut HybridIntradayRuntimeStrategy,
+        rows: impl Iterator<Item = &'a (FrozenParityBar, NaiveDateTime, i64, i64)>,
+    ) -> (Vec<RuntimeParityRound>, Vec<FrozenNoRiskgateDecision>) {
+        let mut ctx = frozen_no_riskgate_context();
+        let mut rounds = Vec::new();
+        let mut decisions = Vec::new();
+        let mut open_round: Option<(&'static str, String, f64)> = None;
+        let mut position_qty: f64 = 0.0;
+        for (row, label, start_utc, available_at_utc) in rows {
+            ctx.position_qty = Some(position_qty);
+            ctx.event_ts_utc = *available_at_utc;
+            ctx.now_ts_utc = *available_at_utc;
+            ctx.last_bar_ts = Some(*start_utc);
+            let intents = strategy.on_bar(&ctx, &frozen_no_riskgate_bar(row, *start_utc));
+            assert_frozen_no_riskgate_accounting(strategy);
+            if let Some(owner) = strategy.orchestrator.snapshot().current_owner {
+                assert_eq!(owner, Owner::IntradayBreakout, "owner at {label}");
+            }
+            let intent_count = intents.len();
+            decisions.push(FrozenNoRiskgateDecision {
+                model_label: row.bar_start_msk.clone(),
+                bo_state: frozen_no_riskgate_bo_projection(strategy),
+                intents,
+            });
+            let mut fill_price = None;
+            if position_qty.abs() <= f64::EPSILON {
+                if let Some(entry) = strategy.pending_entry {
+                    assert_eq!(entry.owner, Owner::IntradayBreakout);
+                    assert!(intent_count > 0, "entry missing at {label}");
+                    let (side, qty) = match entry.side {
+                        Side::Long => ("long", 1.0),
+                        Side::Short => ("short", -1.0),
+                    };
+                    assert!(open_round.is_none());
+                    open_round = Some((side, row.bar_start_msk.clone(), row.close));
+                    position_qty = qty;
+                    fill_price = Some(row.close);
+                }
+            } else if let Some(exit) = strategy.pending_exit {
+                assert_eq!(exit.owner, Owner::IntradayBreakout);
+                assert!(intent_count > 0, "exit missing at {label}");
+                let (side, entry_bar, entry_price) =
+                    open_round.take().expect("BO exit closes a round");
+                rounds.push(RuntimeParityRound {
+                    side,
+                    entry_bar,
+                    entry_price,
+                    exit_bar: row.bar_start_msk.clone(),
+                    exit_price: row.close,
+                    exit_reason: parity_reason(exit.reason),
+                });
+                position_qty = 0.0;
+                fill_price = Some(0.0);
+            }
+            if let Some(avg_price) = fill_price {
+                ctx.position_qty = Some(position_qty);
+                strategy.on_position(
+                    &ctx,
+                    &PositionEvent {
+                        symbol: "IMOEXF".to_string(),
+                        qty: position_qty,
+                        existing: false,
+                        avg_price,
+                        ts_utc: *available_at_utc,
+                    },
+                );
+                assert_frozen_no_riskgate_accounting(strategy);
+            }
+        }
+        assert!(open_round.is_none(), "BO replay must end flat");
+        (rounds, decisions)
+    }
+
+    #[test]
+    fn frozen_baseline07_no_riskgate_profile_v2_matches_all_38_alor_rounds() {
+        let calls = HybridIntradayRuntimeStrategy::stage8b_p1_test_riskgate_oracle_calls();
+        let transition = NaiveDate::from_ymd_opt(2026, 7, 14).unwrap();
+        let bars = parse_frozen_parity_bars();
+        assert_eq!(bars.len(), 7_307);
+        let config = frozen_baseline07_no_riskgate_profile_v2_config();
+        assert_eq!(config.profile, HybridIntradayProfile::BaselineRuntimeHybrid);
+        assert_eq!(config.pending_timeout_sec, 60);
+        let mut strategy = HybridIntradayRuntimeStrategy::new(config);
+        assert_ne!(
+            strategy.stage5c_config_fingerprint(),
+            HybridIntradayRuntimeStrategy::new(frozen_baseline07_config())
+                .stage5c_config_fingerprint()
+        );
+        let warmup = bars
+            .iter()
+            .filter(|(_, label, _, _)| {
+                label.date() < transition && frozen_no_riskgate_eligible(*label)
+            })
+            .map(|(row, _, start_utc, _)| frozen_no_riskgate_bar(row, *start_utc))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            strategy.warmup_from_history(&frozen_no_riskgate_context(), &warmup),
+            warmup.len()
+        );
+        assert!(strategy.entry_ready);
+        assert!(strategy.pending_entry.is_none() && strategy.pending_exit.is_none());
+        assert_frozen_no_riskgate_accounting(&strategy);
+        let (actual, decisions) = replay_frozen_no_riskgate(
+            &mut strategy,
+            bars.iter().filter(|(_, label, _, _)| {
+                label.date() >= transition && frozen_no_riskgate_eligible(*label)
+            }),
+        );
+        assert!(!decisions.is_empty());
+        let mut reader = csv::Reader::from_reader(
+            include_bytes!(
+                "../../../fixtures/stage8b-p1f-parity/baseline07_python_reference_trades.csv"
+            )
+            .as_slice(),
+        );
+        let expected = reader
+            .deserialize::<FrozenParityRound>()
+            .map(|row| row.unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(expected.len(), 38);
+        assert_eq!(actual.len(), expected.len());
+        for (index, (actual, expected)) in actual.iter().zip(&expected).enumerate() {
+            assert_eq!(expected.profile, "bo_only_weekday07_control");
+            assert_eq!(expected.component, "BO");
+            assert_eq!(actual.side, expected.side, "side at round {index}");
+            assert_eq!(
+                actual.entry_bar, expected.entry_bar,
+                "entry at round {index}"
+            );
+            assert_eq!(actual.exit_bar, expected.exit_bar, "exit at round {index}");
+            assert_eq!(
+                actual.exit_reason, expected.exit_reason,
+                "reason at round {index}"
+            );
+            assert!(
+                (actual.entry_price - expected.entry_price).abs() <= f64::EPSILON,
+                "entry price at round {index}"
+            );
+            assert!(
+                (actual.exit_price - expected.exit_price).abs() <= f64::EPSILON,
+                "exit price at round {index}"
+            );
+        }
+        assert_eq!(
+            HybridIntradayRuntimeStrategy::stage8b_p1_test_riskgate_oracle_calls(),
+            calls
+        );
+    }
+
+    #[test]
+    fn frozen_baseline07_no_riskgate_four_sessions_match_full_history_anchors_and_decisions() {
+        let calls = HybridIntradayRuntimeStrategy::stage8b_p1_test_riskgate_oracle_calls();
+        let bars = parse_frozen_parity_bars();
+        let mut compared_bars = 0;
+        // Transition day, a Monday crossing a weekend, and a late-sample day.
+        // This is offline model parity; exact calendar/M1 admission belongs to
+        // the source wire-V3 tests, not to this pre-aggregated M10 fixture.
+        for day in [(2026, 7, 14), (2026, 7, 20), (2026, 9, 25)] {
+            let day = NaiveDate::from_ymd_opt(day.0, day.1, day.2).unwrap();
+            let prior_sessions = bars
+                .iter()
+                .filter(|(_, label, _, _)| {
+                    label.date() < day && frozen_no_riskgate_eligible(*label)
+                })
+                .map(|(_, label, _, _)| label.date())
+                .collect::<std::collections::BTreeSet<_>>();
+            assert!(prior_sessions.len() > 4);
+            let short_start = *prior_sessions.iter().rev().nth(3).unwrap();
+            for hour in [7, 10, 15] {
+                let cutoff = day.and_hms_opt(hour, 0, 0).unwrap();
+                let full_history = bars
+                    .iter()
+                    .filter(|(_, label, _, _)| {
+                        *label < cutoff && frozen_no_riskgate_eligible(*label)
+                    })
+                    .collect::<Vec<_>>();
+                let short_history = full_history
+                    .iter()
+                    .copied()
+                    .filter(|(_, label, _, _)| label.date() >= short_start)
+                    .collect::<Vec<_>>();
+                assert!(short_history.len() < full_history.len());
+                assert_eq!(
+                    short_history
+                        .iter()
+                        .filter(|(_, label, _, _)| label.date() < day)
+                        .map(|(_, label, _, _)| label.date())
+                        .collect::<std::collections::BTreeSet<_>>()
+                        .len(),
+                    4
+                );
+                // No candidate/future candle is used to establish anchors.
+                let cutoff_utc = (cutoff - ChronoDuration::hours(3)).and_utc().timestamp();
+                assert!(short_history
+                    .iter()
+                    .all(|(_, _, _, available)| *available <= cutoff_utc));
+                let mut full = HybridIntradayRuntimeStrategy::new(
+                    frozen_baseline07_no_riskgate_profile_v2_config(),
+                );
+                let mut short = HybridIntradayRuntimeStrategy::new(
+                    frozen_baseline07_no_riskgate_profile_v2_config(),
+                );
+                for (strategy, history) in
+                    [(&mut full, &full_history), (&mut short, &short_history)]
+                {
+                    let warmup = history
+                        .iter()
+                        .map(|(row, _, start, _)| frozen_no_riskgate_bar(row, *start))
+                        .collect::<Vec<_>>();
+                    assert_eq!(
+                        strategy.warmup_from_history(&frozen_no_riskgate_context(), &warmup),
+                        warmup.len()
+                    );
+                    assert!(strategy.entry_ready);
+                    assert!(
+                        strategy.current_owner.is_none()
+                            && strategy.pending_entry.is_none()
+                            && strategy.pending_exit.is_none()
+                    );
+                    assert_frozen_no_riskgate_accounting(strategy);
+                }
+                assert_eq!(
+                    frozen_no_riskgate_bo_projection(&short),
+                    frozen_no_riskgate_bo_projection(&full),
+                    "warmup anchors at {cutoff}"
+                );
+                let remainder = || {
+                    bars.iter().filter(move |(_, label, _, _)| {
+                        label.date() == day
+                            && *label >= cutoff
+                            && frozen_no_riskgate_eligible(*label)
+                    })
+                };
+                let (full_rounds, full_decisions) =
+                    replay_frozen_no_riskgate(&mut full, remainder());
+                let (short_rounds, short_decisions) =
+                    replay_frozen_no_riskgate(&mut short, remainder());
+                assert!(!full_decisions.is_empty());
+                assert_eq!(short_decisions.len(), full_decisions.len());
+                for (short, full) in short_decisions.iter().zip(&full_decisions) {
+                    assert_eq!(short, full, "BO decision after warmup cutoff {cutoff}");
+                }
+                assert_eq!(
+                    short_rounds, full_rounds,
+                    "BO rounds after warmup cutoff {cutoff}"
+                );
+                compared_bars += full_decisions.len();
+            }
+        }
+        assert!(compared_bars > 500);
+        assert_eq!(
+            HybridIntradayRuntimeStrategy::stage8b_p1_test_riskgate_oracle_calls(),
+            calls
+        );
     }
 
     #[test]
@@ -7185,7 +7690,12 @@ impl Strategy for HybridIntradayRuntimeStrategy {
                 return intents;
             }
         }
-        let mut actions = if self.uses_mr_override() {
+        let mut actions = if self.stage8b_p1_bo_only_riskgate_disabled() {
+            // The explicit BO-only contract also excludes classic MR before
+            // the orchestrator can acquire owner/pending state.
+            self.orchestrator
+                .on_bar_with_mr_override(bar_input, None, None)
+        } else if self.uses_mr_override() {
             let mr_entry_signal = if !self.config.live_mr_entries_enabled {
                 None
             } else if self.uses_high180_mr() {

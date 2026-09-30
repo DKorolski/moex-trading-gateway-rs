@@ -149,6 +149,13 @@ pub fn build_stage8b_p1_first_boot_composition_v1(
     {
         return Err(Stage8bP1eFirstBootCompositionError::Identity);
     }
+    let riskgate_disabled = input.runtime.stage8b_p1_bo_only_riskgate_disabled();
+    if riskgate_disabled
+        && (!input.riskgate_observations.is_empty()
+            || input.riskgate_session_observations_sha256 != canonical_observations_sha256(&[]))
+    {
+        return Err(Stage8bP1eFirstBootCompositionError::RiskGate);
+    }
     let instrument = instrument_id();
     let instrument_spec = instrument_spec();
     let truth = BrokerTruthSnapshot {
@@ -251,38 +258,52 @@ pub fn build_stage8b_p1_first_boot_composition_v1(
     )
     .map_err(|_| Stage8bP1eFirstBootCompositionError::History)?;
 
-    let oracle_bars = input
-        .history_bars
-        .iter()
-        .map(history_bar_event)
-        .collect::<Result<Vec<_>, _>>()?;
-    let oracle = warmed
-        .stage8b_p1_rebuild_riskgate_history(&oracle_bars)
+    let (warmed, observations) = if riskgate_disabled {
+        // There is no history oracle or riskgate callback in this branch. The
+        // empty authority is checked again after Replay and during persistence.
+        crate::stage5d_persistence::stage8b_p1_build_disabled_riskgate_authority(
+            warmed.stage8b_p1_strategy(),
+            STRATEGY_ID,
+        )
         .map_err(|_| Stage8bP1eFirstBootCompositionError::RiskGate)?;
-    let observations = validate_riskgate_observations(
-        &oracle,
-        &input.riskgate_observations,
-        &input.riskgate_session_observations_sha256,
-    )?;
-    let pre_candidate_authority = crate::stage5d_persistence::stage8b_p1_build_riskgate_authority(
-        warmed.stage8b_p1_strategy(),
-        STRATEGY_ID,
-        &observations,
-        input.captured_at,
-    )
-    .map_err(|_| Stage8bP1eFirstBootCompositionError::RiskGate)?;
-    if pre_candidate_authority
-        .current_shadow_session_date()
-        .is_some()
-        || pre_candidate_authority.current_shadow_pnl_points() != "0.0"
-    {
-        return Err(Stage8bP1eFirstBootCompositionError::RiskGate);
-    }
-    let warmed = crate::stage5c_paper_host::stage8b_p1_apply_riskgate_to_warmed(
-        warmed,
-        pre_candidate_authority.runtime_state(),
-    )
-    .map_err(|_| Stage8bP1eFirstBootCompositionError::RiskGate)?;
+        (warmed, None)
+    } else {
+        let oracle_bars = input
+            .history_bars
+            .iter()
+            .map(history_bar_event)
+            .collect::<Result<Vec<_>, _>>()?;
+        let oracle = warmed
+            .stage8b_p1_rebuild_riskgate_history(&oracle_bars)
+            .map_err(|_| Stage8bP1eFirstBootCompositionError::RiskGate)?;
+        let observations = validate_riskgate_observations(
+            &oracle,
+            &input.riskgate_observations,
+            &input.riskgate_session_observations_sha256,
+        )?;
+        let pre_candidate_authority =
+            crate::stage5d_persistence::stage8b_p1_build_riskgate_authority(
+                warmed.stage8b_p1_strategy(),
+                STRATEGY_ID,
+                &observations,
+                input.captured_at,
+            )
+            .map_err(|_| Stage8bP1eFirstBootCompositionError::RiskGate)?;
+        if pre_candidate_authority
+            .current_shadow_session_date()
+            .is_some()
+            || pre_candidate_authority.current_shadow_pnl_points() != "0.0"
+        {
+            return Err(Stage8bP1eFirstBootCompositionError::RiskGate);
+        }
+        let warmed = crate::stage5c_paper_host::stage8b_p1_apply_riskgate_to_warmed(
+            warmed,
+            pre_candidate_authority.runtime_state(),
+        )
+        .map_err(|_| Stage8bP1eFirstBootCompositionError::RiskGate)?;
+
+        (warmed, Some(observations))
+    };
 
     let group = format!("paper-runtime:{}:{STRATEGY_ID}", input.account_id);
     let streams = [
@@ -339,7 +360,8 @@ pub fn build_stage8b_p1_first_boot_composition_v1(
         .and_then(|bar| strategy_model_bar_label_utc(bar).ok())
         .and_then(moscow_date)
         .ok_or(Stage8bP1eFirstBootCompositionError::History)?;
-    if candidate_session <= history_tail_session
+    if candidate_session < history_tail_session
+        || (!riskgate_disabled && candidate_session == history_tail_session)
         || input.candidate.close_time_utc > input.captured_at.timestamp()
     {
         return Err(Stage8bP1eFirstBootCompositionError::Candidate);
@@ -377,17 +399,26 @@ pub fn build_stage8b_p1_first_boot_composition_v1(
     )
     .map_err(|_| Stage8bP1eFirstBootCompositionError::Candidate)?;
 
-    let final_authority = crate::stage5d_persistence::stage8b_p1_build_riskgate_authority(
-        source.stage5g_runtime_strategy(),
-        STRATEGY_ID,
-        &observations,
-        input.captured_at,
-    )
-    .map_err(|_| Stage8bP1eFirstBootCompositionError::RiskGate)?;
-    let candidate_session_text = candidate_session.format("%Y-%m-%d").to_string();
-    if final_authority.current_shadow_session_date() != Some(candidate_session_text.as_str()) {
-        return Err(Stage8bP1eFirstBootCompositionError::RiskGate);
-    }
+    let final_authority = if let Some(observations) = observations {
+        let authority = crate::stage5d_persistence::stage8b_p1_build_riskgate_authority(
+            source.stage5g_runtime_strategy(),
+            STRATEGY_ID,
+            &observations,
+            input.captured_at,
+        )
+        .map_err(|_| Stage8bP1eFirstBootCompositionError::RiskGate)?;
+        let candidate_session_text = candidate_session.format("%Y-%m-%d").to_string();
+        if authority.current_shadow_session_date() != Some(candidate_session_text.as_str()) {
+            return Err(Stage8bP1eFirstBootCompositionError::RiskGate);
+        }
+        authority
+    } else {
+        crate::stage5d_persistence::stage8b_p1_build_disabled_riskgate_authority(
+            source.stage5g_runtime_strategy(),
+            STRATEGY_ID,
+        )
+        .map_err(|_| Stage8bP1eFirstBootCompositionError::RiskGate)?
+    };
     let (riskgate, riskgate_evidence) = final_authority.into_export_parts();
     let snapshot_id = first_boot_snapshot_id(
         &input.operational_identity_sha256,
@@ -638,4 +669,434 @@ fn is_sha256_hex(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hybrid_intraday::{
+        HybridOrchestratorConfig, IntradayBreakoutConfig, MeanReversionConfig,
+    };
+    use crate::hybrid_intraday_runtime::{
+        HybridIntradayProfile, HybridIntradayRuntimeConfig, MeanReversionVariant, MrGatePolicy,
+        RiskGateMode,
+    };
+    use crate::runtime_compat::Strategy;
+    use crate::stage5g_clean_restart::{
+        export_stage5g_clean_restart, restore_stage5g_clean_restart, Stage5gCleanRestartSource,
+        Stage5gLifecycleCommitmentKey,
+    };
+    use chrono::{Datelike, Duration, NaiveTime, Weekday};
+
+    fn config(disabled: bool) -> HybridIntradayRuntimeConfig {
+        HybridIntradayRuntimeConfig {
+            symbol: INTERNAL_SYMBOL.to_string(),
+            profile: HybridIntradayProfile::ImoexfPrimaryRiskgateHigh180Lb120,
+            mr_variant: MeanReversionVariant::High180,
+            live_mr_entries_enabled: false,
+            mr_gate_policy: if disabled {
+                MrGatePolicy::Disabled
+            } else {
+                MrGatePolicy::ShadowPnlLb120Positive
+            },
+            risk_gate_mode: if disabled {
+                RiskGateMode::Disabled
+            } else {
+                RiskGateMode::NormalAppend
+            },
+            risk_gate_seed_file: None,
+            risk_gate_ledger_key: None,
+            model_session_start_time: NaiveTime::from_hms_opt(7, 0, 0),
+            model_session_end_time: NaiveTime::from_hms_opt(23, 49, 59),
+            qty: 1.0,
+            live_order_style: crate::BrokerNeutralMarketOrderStyle::Market,
+            tick_size: 0.5,
+            marketable_limit_offset_ticks: 0,
+            timezone_offset_hours: 3,
+            session_close_hour: 23,
+            session_close_minute: 49,
+            weekends_off: true,
+            stop_end_buffer_sec: 60,
+            repair_deadline_sec: 180,
+            sl_escalate_timeout_sec: 30,
+            max_repair_retries: 3,
+            repair_backoff_base_sec: 5,
+            repair_backoff_max_sec: 60,
+            pending_timeout_sec: 60,
+            partial_entry_fill_timeout_ms: 3000,
+            mr_config: MeanReversionConfig::default(),
+            breakout_config: IntradayBreakoutConfig {
+                k: 0.53,
+                stop1_range: 0.51,
+                stop2_range: 0.35,
+                big_move_threshold: 0.025,
+                min_range: 1.01,
+                min_range_mode: crate::hybrid_intraday::MinRangeMode::Absolute,
+                exclude_weekends: true,
+                wait_hours: 3.0,
+            },
+            orchestrator_config: HybridOrchestratorConfig::default(),
+        }
+    }
+
+    fn bar(day: NaiveDate, model_minute: i64) -> Stage8bP1eFirstBootBarInputV1 {
+        let model_start =
+            day.and_hms_opt(4, 0, 0).unwrap().and_utc() + Duration::minutes(model_minute);
+        Stage8bP1eFirstBootBarInputV1 {
+            close_time_utc: (model_start + Duration::minutes(10)).timestamp(),
+            open: "100".to_string(),
+            high: "102".to_string(),
+            low: "98".to_string(),
+            close: "100".to_string(),
+            volume: "10".to_string(),
+        }
+    }
+
+    fn input_with_config(
+        config: HybridIntradayRuntimeConfig,
+        sessions: usize,
+        prefix: bool,
+    ) -> Stage8bP1eFirstBootCompositionInputV1 {
+        let mut day = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        let mut history_bars = Vec::new();
+        for _ in 0..sessions {
+            for minute in (0..=1000).step_by(10) {
+                history_bars.push(bar(day, minute));
+            }
+            day += Duration::days(1);
+            while matches!(day.weekday(), Weekday::Sat | Weekday::Sun) {
+                day += Duration::days(1);
+            }
+        }
+        if prefix {
+            for minute in (0..180).step_by(10) {
+                history_bars.push(bar(day, minute));
+            }
+        }
+        let candidate = bar(day, if prefix { 180 } else { 0 });
+        let captured_at = Utc.timestamp_opt(candidate.close_time_utc + 1, 0).unwrap();
+        Stage8bP1eFirstBootCompositionInputV1 {
+            runtime: HybridIntradayRuntimeStrategy::new(config.clone()),
+            fresh_runtime: HybridIntradayRuntimeStrategy::new(config),
+            account_id: BrokerAccountId::new("core-disabled-paper"),
+            operational_identity_sha256: "11".repeat(32),
+            captured_at,
+            broker_truth_checked_at: captured_at,
+            history_bars_sha256: canonical_history_sha256(&history_bars),
+            riskgate_session_observations_sha256: canonical_observations_sha256(&[]),
+            validated_candidate_semantic_id_sha256: "22".repeat(32),
+            history_bars,
+            riskgate_observations: Vec::new(),
+            candidate,
+        }
+    }
+
+    fn input(
+        disabled: bool,
+        sessions: usize,
+        prefix: bool,
+    ) -> Stage8bP1eFirstBootCompositionInputV1 {
+        input_with_config(config(disabled), sessions, prefix)
+    }
+
+    fn add_observations(input: &mut Stage8bP1eFirstBootCompositionInputV1) {
+        input.riskgate_observations =
+            rebuild_stage8b_p1e_riskgate_observations_v1(&input.runtime, &input.history_bars)
+                .unwrap();
+        input.riskgate_session_observations_sha256 =
+            canonical_observations_sha256(&input.riskgate_observations);
+    }
+
+    fn key() -> Stage5gLifecycleCommitmentKey {
+        Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x5a; 32]).unwrap()
+    }
+
+    fn export(
+        input: Stage8bP1eFirstBootCompositionInputV1,
+    ) -> (Vec<u8>, HybridIntradayRuntimeStrategy) {
+        let (source, export, fresh) = build_stage8b_p1_first_boot_composition_v1(input)
+            .unwrap()
+            .into_parts();
+        let bytes = export_stage5g_clean_restart(
+            Stage5gCleanRestartSource::P1BootstrapReady(source),
+            export,
+            &key(),
+        )
+        .unwrap();
+        (bytes, fresh)
+    }
+
+    #[test]
+    fn disabled_four_session_first_boot_has_empty_authority_and_roundtrips_without_oracle() {
+        let calls = HybridIntradayRuntimeStrategy::stage8b_p1_test_riskgate_oracle_calls();
+        let (source, export, fresh) =
+            build_stage8b_p1_first_boot_composition_v1(input(true, 4, false))
+                .unwrap()
+                .into_parts();
+        assert!(export.riskgate_evidence.ledger_records.is_empty());
+        assert!(!export.riskgate_evidence.seed_loaded);
+        assert_eq!(export.riskgate_evidence.current_shadow_session_date, None);
+        assert_eq!(export.riskgate_evidence.current_shadow_pnl_points, "0.0");
+        assert_eq!(export.riskgate.materialized_state.ledger_rows_count, 0);
+        assert_eq!(export.riskgate.materialized_state.rolling_sum_lb120, None);
+        assert_eq!(
+            export
+                .riskgate
+                .materialized_state
+                .mr_enabled_current_session,
+            None
+        );
+        assert!(export.riskgate.durable_finalization_outbox.is_empty());
+        let state =
+            serde_json::to_value(Strategy::state(source.stage5g_runtime_strategy())).unwrap();
+        assert_eq!(state["HybridIntradayRuntime"]["entry_ready"], true);
+        assert!(state["HybridIntradayRuntime"]["current_owner"].is_null());
+        assert!(state["HybridIntradayRuntime"]["pending_entry_request_id"].is_null());
+        let expected =
+            crate::stage5c_paper_host::stage5c_semantic_value_fingerprint(&state).unwrap();
+        let bytes = export_stage5g_clean_restart(
+            Stage5gCleanRestartSource::P1BootstrapReady(source),
+            export.clone(),
+            &key(),
+        )
+        .unwrap();
+        let restored = restore_stage5g_clean_restart(&bytes, &key(), fresh).unwrap();
+        assert_eq!(
+            restored.reconstructed_runtime_state_fingerprint_sha256(),
+            expected
+        );
+        assert!(!restored.intent_sink_attached());
+        assert!(!restored.redis_command_stream_attached());
+        assert!(!restored.finam_transport_attached());
+        let restored_source = restored.into_stage8b_p1_timer_ready().unwrap();
+        let reexported = export_stage5g_clean_restart(
+            Stage5gCleanRestartSource::P1BootstrapReady(restored_source),
+            export,
+            &key(),
+        )
+        .unwrap();
+        let again = restore_stage5g_clean_restart(
+            &reexported,
+            &key(),
+            HybridIntradayRuntimeStrategy::new(config(true)),
+        )
+        .unwrap();
+        assert_eq!(
+            again.reconstructed_runtime_state_fingerprint_sha256(),
+            expected
+        );
+        assert_eq!(
+            HybridIntradayRuntimeStrategy::stage8b_p1_test_riskgate_oracle_calls(),
+            calls
+        );
+    }
+
+    #[test]
+    fn disabled_current_session_prefix_preserves_model_start_and_close_bound_watermark() {
+        let boot_input = input(true, 4, true);
+        let candidate_close = boot_input.candidate.close_time_utc;
+        let (source, export, _) = build_stage8b_p1_first_boot_composition_v1(boot_input)
+            .unwrap()
+            .into_parts();
+        let state =
+            serde_json::to_value(Strategy::state(source.stage5g_runtime_strategy())).unwrap();
+        assert!(state["HybridIntradayRuntime"]["today_start_local"]
+            .as_str()
+            .unwrap()
+            .ends_with("07:00:00"));
+        assert_eq!(state["HybridIntradayRuntime"]["prev_day_close"], 100.0);
+        assert_eq!(state["HybridIntradayRuntime"]["prev_day_range"], 4.0);
+        assert_eq!(state["HybridIntradayRuntime"]["prev_day_return"], 0.0);
+        assert_eq!(
+            export
+                .lifecycle_watermarks
+                .last_semantic_bar_ts
+                .unwrap()
+                .timestamp(),
+            candidate_close
+        );
+        for offset in [0, -600] {
+            let mut duplicate = input(true, 4, true);
+            duplicate.candidate.close_time_utc =
+                duplicate.history_bars.last().unwrap().close_time_utc + offset;
+            assert!(build_stage8b_p1_first_boot_composition_v1(duplicate).is_err());
+        }
+    }
+
+    #[test]
+    fn disabled_observations_must_be_empty_with_canonical_empty_hash() {
+        for supplied in [false, true] {
+            let mut input = input(true, 4, false);
+            if supplied {
+                input
+                    .riskgate_observations
+                    .push(Stage8bP1eRiskGateObservationInputV1 {
+                        session_date: NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
+                        shadow_pnl_points: "0.0".to_string(),
+                        shadow_trade_count: 0,
+                    });
+                input.riskgate_session_observations_sha256 =
+                    canonical_observations_sha256(&input.riskgate_observations);
+            } else {
+                input.riskgate_session_observations_sha256 = "aa".repeat(32);
+            }
+            let calls = HybridIntradayRuntimeStrategy::stage8b_p1_test_riskgate_oracle_calls();
+            assert!(matches!(
+                build_stage8b_p1_first_boot_composition_v1(input),
+                Err(Stage8bP1eFirstBootCompositionError::RiskGate)
+            ));
+            assert_eq!(
+                HybridIntradayRuntimeStrategy::stage8b_p1_test_riskgate_oracle_calls(),
+                calls
+            );
+        }
+    }
+
+    #[test]
+    fn no_riskgate_shortcut_requires_all_three_actual_config_fields() {
+        for missing in 0..3 {
+            let mut config = config(true);
+            match missing {
+                0 => config.mr_gate_policy = MrGatePolicy::ShadowPnlLb120Positive,
+                1 => config.risk_gate_mode = RiskGateMode::NormalAppend,
+                _ => config.live_mr_entries_enabled = true,
+            }
+            let input = input_with_config(config, 4, false);
+            assert!(!input.runtime.stage8b_p1_bo_only_riskgate_disabled());
+            let calls = HybridIntradayRuntimeStrategy::stage8b_p1_test_riskgate_oracle_calls();
+            assert!(matches!(
+                build_stage8b_p1_first_boot_composition_v1(input),
+                Err(Stage8bP1eFirstBootCompositionError::RiskGate)
+            ));
+            assert_eq!(
+                HybridIntradayRuntimeStrategy::stage8b_p1_test_riskgate_oracle_calls(),
+                calls + 1
+            );
+        }
+    }
+
+    #[test]
+    fn enabled_first_boot_retains_oracle_history_floor_and_cross_profile_restore_rejection() {
+        let mut short = input(false, 4, false);
+        add_observations(&mut short);
+        assert!(matches!(
+            build_stage8b_p1_first_boot_composition_v1(short),
+            Err(Stage8bP1eFirstBootCompositionError::RiskGate)
+        ));
+        let mut legacy = input(false, 121, false);
+        add_observations(&mut legacy);
+        let calls = HybridIntradayRuntimeStrategy::stage8b_p1_test_riskgate_oracle_calls();
+        let (legacy_bytes, fresh) = export(legacy);
+        assert_eq!(
+            HybridIntradayRuntimeStrategy::stage8b_p1_test_riskgate_oracle_calls(),
+            calls + 1
+        );
+        assert!(restore_stage5g_clean_restart(&legacy_bytes, &key(), fresh).is_ok());
+        assert!(restore_stage5g_clean_restart(
+            &legacy_bytes,
+            &key(),
+            HybridIntradayRuntimeStrategy::new(config(true))
+        )
+        .is_err());
+        let (disabled_bytes, _) = export(input(true, 4, false));
+        assert!(restore_stage5g_clean_restart(
+            &disabled_bytes,
+            &key(),
+            HybridIntradayRuntimeStrategy::new(config(false))
+        )
+        .is_err());
+        let mut forged = input(false, 121, false);
+        add_observations(&mut forged);
+        forged.riskgate_observations[0].shadow_trade_count += 1;
+        forged.riskgate_session_observations_sha256 =
+            canonical_observations_sha256(&forged.riskgate_observations);
+        assert!(matches!(
+            build_stage8b_p1_first_boot_composition_v1(forged),
+            Err(Stage8bP1eFirstBootCompositionError::RiskGate)
+        ));
+        let mut same_session = input(false, 121, true);
+        add_observations(&mut same_session);
+        assert!(matches!(
+            build_stage8b_p1_first_boot_composition_v1(same_session),
+            Err(Stage8bP1eFirstBootCompositionError::Candidate)
+        ));
+    }
+
+    #[test]
+    fn disabled_restart_rejects_nonempty_semantic_or_materialized_riskgate_even_when_rehashed() {
+        use crate::stage5d_persistence::{
+            stage5d_decode_canonical_restart_bytes_requiring_stage5g,
+            stage5d_reconstruct_runtime_from_clean_restart,
+        };
+        let (bytes, _) = export(input(true, 4, false));
+        let mutations = [
+            (
+                "/riskgate/durable_finalization_outbox",
+                serde_json::json!([{"session_date": "2025-01-09", "generation": 1, "state": "prepared", "identity_hash": "unexpected"}]),
+            ),
+            (
+                "/runtime_private_extension/runtime_pending_finalizations",
+                serde_json::json!([{"session_date": "2025-01-09", "shadow_pnl_points": "0.0", "shadow_trade_count": 0}]),
+            ),
+            ("/riskgate/materialized_state/seed_loaded", serde_json::json!(true)),
+            ("/riskgate/materialized_state/rolling_sum_lb120", serde_json::json!("0.0")),
+            ("/riskgate/materialized_state/mr_enabled_next_session", serde_json::json!(false)),
+            ("/strategy_state/strategy_state_json/HybridIntradayRuntime/risk_gate_rolling_sum_lb120", serde_json::json!(0.0)),
+            ("/strategy_state/strategy_state_json/HybridIntradayRuntime/risk_gate_shadow_trade_count", serde_json::json!(1)),
+            ("/strategy_state/strategy_state_json/HybridIntradayRuntime/risk_gate_shadow_pnl_points", serde_json::json!(-0.0)),
+        ];
+        for (pointer, value) in mutations {
+            let mut decoded =
+                stage5d_decode_canonical_restart_bytes_requiring_stage5g(&bytes).unwrap();
+            let mut envelope = serde_json::to_value(&decoded.envelope).unwrap();
+            // seed_loaded is omitted when false by the legacy serializer.
+            if pointer == "/riskgate/materialized_state/seed_loaded" {
+                envelope["riskgate"]["materialized_state"]["seed_loaded"] = value;
+            } else {
+                *envelope.pointer_mut(pointer).unwrap() = value;
+            }
+            decoded.envelope = serde_json::from_value(envelope).unwrap();
+            decoded.envelope.payload_checksum_sha256 =
+                decoded.envelope.compute_payload_checksum_sha256().unwrap();
+            // Exercise semantic reconstruction below authentication, so a HMAC
+            // rejection cannot hide an accidental empty-authority bypass.
+            assert!(
+                stage5d_reconstruct_runtime_from_clean_restart(
+                    decoded,
+                    HybridIntradayRuntimeStrategy::new(config(true))
+                )
+                .is_err(),
+                "{pointer}"
+            );
+        }
+    }
+
+    #[test]
+    fn disabled_export_rejects_nonempty_authority_instead_of_normalizing_it() {
+        for mutation in 0..5 {
+            let (source, mut export, _) =
+                build_stage8b_p1_first_boot_composition_v1(input(true, 4, false))
+                    .unwrap()
+                    .into_parts();
+            match mutation {
+                0 => export.riskgate.materialized_state.seed_loaded = true,
+                1 => export.riskgate.materialized_state.rolling_sum_lb120 = Some("0.0".to_string()),
+                2 => {
+                    export.riskgate_evidence.current_shadow_session_date =
+                        Some("2025-01-10".to_string())
+                }
+                3 => export.riskgate_evidence.current_shadow_pnl_points = "1.0".to_string(),
+                _ => export.riskgate_evidence.seed_loaded = true,
+            }
+            assert!(
+                export_stage5g_clean_restart(
+                    Stage5gCleanRestartSource::P1BootstrapReady(source),
+                    export,
+                    &key()
+                )
+                .is_err(),
+                "mutation {mutation}"
+            );
+        }
+    }
 }
