@@ -33,8 +33,10 @@ use crate::{
     STAGE8B_P1_VENUE_SYMBOL,
 };
 
+#[cfg(test)]
+use crate::Stage8bP1RuntimeProfileV1;
 #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
-use crate::{Stage8bP1RuntimeProfileV1, STAGE8B_P1E_RUNTIME_PROFILE_SHA256};
+use crate::STAGE8B_P1E_RUNTIME_PROFILE_SHA256;
 
 pub const STAGE8B_P1E_FIRST_BOOT_SOURCE_SCHEMA_VERSION: u16 = 2;
 pub const STAGE8B_P1E_FIRST_BOOT_SOURCE_DOMAIN: &str =
