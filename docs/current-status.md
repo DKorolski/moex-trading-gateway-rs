@@ -18,14 +18,20 @@ and [handoff reconciliation](stage-8/stage8b-p1f-bo-only-handoff-alignment-2026-
 fix the narrow source correction: baseline07 BO-only paper without mandatory
 High180/lb120 reconstruction, using model-required recent history. The
 [additive source implementation](stage-8/stage8b-p1f-no-riskgate-source-correction.md)
-is now a **SOURCE REVIEW CANDIDATE**, not independently accepted: explicit profile
+is independently **SOURCE ACCEPTED** at `2f46491a4f63249f64676306d5f9c3445818f4f9`: explicit profile
 V2 / wire V3, four prior sessions plus current prefix, disabled accounting and
 profile-bound restart. Legacy V1/V2 validation is retained.
 The installed profile still requires 121 history / 120 riskgate sessions and
 the minimum 180-day query. Historical acceptance below does not make that
 dependency a requirement of the new target. No VPS change or activation authority
-is introduced. The old current-tree governance authority is not rebound by this
-source candidate; exact artifact/template replacement remains a later gate.
+is introduced. The [narrow authority closure](stage-8/stage8b-p1f-no-riskgate-governance-closure.md)
+follows the separately recorded build-only correction `7c80d70`: the V1 type
+import is restricted to `cfg(test)` so canonical all-features Clippy can pass.
+No runtime behavior, Cargo, workflows, checkers or deployed bytes change.
+The closure itself changes only authority inventories and status documents.
+Build-fix/closure review and fresh required CI checks are pending; exact artifact
+replacement, installation and O2 execution remain separate gates. The retained
+2148 tests and 38/38 frozen model rounds are source evidence, not FINAM live fills.
 
 The [narrow O2 recovery source correction](stage-8/stage8b-p1f-o2-recovery-source-correction.md)
 is independently SOURCE ACCEPTED at `5b8f878833dbf71fa7614152a4a5fb03cbf40b65`.
@@ -72,8 +78,8 @@ These are retained observations, not a fresh VPS inspection. Evidence ZIP
 `527d20dbc23079d9151f6868c81cab135b2db5c53fac2dce24fce64a83cac2d7`, is prepared;
 independent acceptance of this attempt is pending. **O2 remains HOLD.**
 
-Next: review the scoped no-riskgate source correction and short-warmup regression
-evidence, then authority closure, exact artifact/update and separate operational
+Next: complete narrow authority closure review and fresh CI, then the exact
+no-riskgate artifact/update and separate operational
 gates. Do not retry the old long-history contract or loosen required recent-bar
 quality checks. No new recovery framework is required.
 

@@ -1,9 +1,11 @@
 # ADR: BO-only paper target without mandatory riskgate history
 
 Date: 2026-09-30.
-Status: accepted project-owner direction; source correction is now a
-[review candidate](../stage-8/stage8b-p1f-no-riskgate-source-correction.md), independent
-implementation acceptance pending. This decision record grants no activation authority.
+Status: accepted project-owner direction; the
+[source correction](../stage-8/stage8b-p1f-no-riskgate-source-correction.md) is
+independently SOURCE ACCEPTED at `2f46491a4f63249f64676306d5f9c3445818f4f9`.
+Authority closure/CI and artifact gates remain separate. This decision record
+grants no activation authority.
 
 ## Context
 

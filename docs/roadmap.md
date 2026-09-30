@@ -34,15 +34,19 @@ before bootstrap on a missing April 10 M1. Its retained terminal frontier is
 The latest attempt's evidence is prepared, not independently accepted; these are
 retained observations, not a fresh VPS inspection. **O2 remains HOLD.**
 
-The owner confirms current ALOR models do not use riskgate. The next slice is
+The owner confirms current ALOR models do not use riskgate. The accepted slice is
 the [BO-only no-riskgate / short-warmup source correction](stage-8/stage8b-p1f-bo-only-handoff-alignment-2026-09-30.md)
 under the [scoped ADR](adr/adr-stage8b-bo-only-no-riskgate-short-warmup.md), not
 another retry of the installed 121/120-session High180 contract. The
-[source implementation](stage-8/stage8b-p1f-no-riskgate-source-correction.md) is a
-review candidate; installed binaries and accepted historical artifacts are unchanged.
+[source implementation](stage-8/stage8b-p1f-no-riskgate-source-correction.md) is
+independently SOURCE ACCEPTED at `2f46491a4f63249f64676306d5f9c3445818f4f9`;
+installed binaries and accepted historical artifacts are unchanged. The next
+boundary is the [narrow authority closure](stage-8/stage8b-p1f-no-riskgate-governance-closure.md),
+with the separate `7c80d70` conditional-import build fix, closure review and fresh
+required CI pending, not another source redesign. Runtime semantics are unchanged.
 
-Order: scoped source correction + short-warmup/parity/restart regression review
-→ scoped authority closure → exact replacement artifact → separately authorized installation preserving
+Order: accepted source + short-warmup/parity/restart evidence → scoped authority
+closure and fresh required CI → exact replacement artifact → separately authorized installation preserving
 terminal history → separately authorized bounded O2 → O3/O4 paper windows and
 ALOR comparison of the same model → separately accepted live micro. No history
 deletion, deadline extension, new genesis, FINAM order writes or runtime-live is

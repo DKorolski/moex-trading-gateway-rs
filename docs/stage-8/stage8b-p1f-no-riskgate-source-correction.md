@@ -1,7 +1,10 @@
 # BO-only no-riskgate / short-warmup source correction
 
-Date: 2026-09-30. Status: SOURCE REVIEW CANDIDATE; no operational activation.
+Date: 2026-09-30. Status: SOURCE ACCEPTED at
+`2f46491a4f63249f64676306d5f9c3445818f4f9`; no operational activation.
 Predecessor: `3923c5c94f27a1dc980297f289c10ecca652f99b`.
+Review: `FINAM_2f46491_NO_RISKGATE_SOURCE_REVIEW_2026-09-30.md`.
+Review SHA-256: `eeeddf2155d47545e9fc107bd1326859e9a42e2bcaf0850120e864a0fcebf4d1`.
 
 Direction: [owner ADR](../adr/adr-stage8b-bo-only-no-riskgate-short-warmup.md).
 Evidence/model scope: [handoff reconciliation](stage8b-p1f-bo-only-handoff-alignment-2026-09-30.md).
@@ -77,10 +80,12 @@ pure export/restore and filesystem transaction/ordinary restart with exact
 profile/plan binding. Legacy long-history and High180 tests remain in place.
 Gate logs, not this document, are authoritative for executed counts/results.
 
-The existing GOV-CI current-tree authority describes the accepted predecessor.
-Its actual result is retained separately; this source candidate does not refresh
-that authority or relabel its expected drift as PASS. Independent source review
-must precede the scoped governance rebind and any merge/artifact deployment.
+At the accepted source commit the GOV-CI authority still described the predecessor.
+Its actual exit 1 remains in the immutable source evidence and is not relabeled
+PASS. The [governance successor](stage8b-p1f-no-riskgate-governance-closure.md)
+rebinds the accepted source plus the separate `7c80d70` test-import build fix;
+build-fix/closure review and fresh required CI
+must precede merge/artifact deployment.
 CI workflows, branch rules and old source manifests are not changed.
 
 ## Artifact and operational handoff
@@ -92,7 +97,7 @@ The later exact artifact must bind a newly validated operational identity,
 profile fingerprint, selected calendar/cutoff, supervisor config and installation
 manifest. Old installed template/policy files remain byte-exact.
 
-Next: source review → scoped authority closure → full exact artifact → separately
+Next: scoped authority closure review + fresh required CI → full exact artifact → separately
 authorized terminal-history-preserving installation → separately authorized O2.
 Retain Failed generation 1 / sequence 4 and preceding Expired/2 history; neither
 is reset or replaced by a new genesis. O2 remains HOLD. P0/VPS unchanged in this

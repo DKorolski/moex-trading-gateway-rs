@@ -16,7 +16,9 @@ USDRUBF MR logic.
 
 The installed FINAM binary still has the legacy 121/120-session dependency;
 the [additive correction](stage8b-p1f-no-riskgate-source-correction.md) is implemented
-as a source review candidate, not an installed artifact. Latest retained O2
+and independently SOURCE ACCEPTED at `2f46491`, not installed. The
+[authority closure](stage8b-p1f-no-riskgate-governance-closure.md) and fresh CI
+are the next boundary. Latest retained O2
 ended Failed generation 1 / sequence 4, before bootstrap; its evidence is
 prepared, not independently accepted. See [current status](../current-status.md)
 for accepted milestones and operational gates. The September 2 milestones and
