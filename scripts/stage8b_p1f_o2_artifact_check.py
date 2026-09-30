@@ -17,7 +17,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 ARTIFACT = ROOT / "docs/stage-8/stage8b-p1f-o2-execution-artifact.json"
 MATRIX = ROOT / "docs/stage-8/stage8b-p1f-o2-artifact-acceptance-matrix.csv"
-IMPLEMENTATION_REF = "9e7f44d119cac63e33d5d5437ff972e49922c797"
+IMPLEMENTATION_REF = "9d9bd1192467532d0ee48350d3c531d9e156dee3"
+IMPLEMENTATION_TREE = "0e1ee00d73e23460dc0c4af5a13296d6e2ad12e3"
 CONTRACT_REF = "a9f8fe30a45752c943f9e399775322d83fcd8a36"
 PUBLIC_KEY = "8ed71461f37c51d6239db25aeac1e709f250bd16d6d7bb6ba117b716cebf4802"
 ACCOUNT_HASH = "e14dde9c8231a28b065789a2deba6f65804c1cad7dd3aa98776f2515e1ad671f"
@@ -25,6 +26,9 @@ ACCOUNT_ALIAS = "finam-paper-primary"
 SOURCE_SENTINEL = "f" * 64
 TEMPLATE_ACCOUNT_SENTINEL = "INJECT_FROM_ACCOUNT_CREDENTIAL"
 EXPECTED_MATRIX_IDS = [f"O2A-{index:03d}" for index in range(1, 31)]
+PROFILE_ID = "imoexf-baseline07-bo-only-paper-v1"
+PROFILE_SHA256 = "8f346b730760c8a70c4ab8576da60147a80a7c0668ba2068783ea2e5a2637872"
+RUNTIME_CONFIG_SHA256 = "6ac8994e5fc8777035c48c0b871b2d15a6662cdae6be88220f2bcdcadf0a244d"
 
 
 class ArtifactError(ValueError):
@@ -70,6 +74,13 @@ def validate_document(document: dict[str, Any], *, verify_files: bool = True) ->
     require(document.get("status") == "REVIEW_CANDIDATE_EXECUTION_NOT_AUTHORIZED", "status drift")
     require(document.get("accepted_contract_ref") == CONTRACT_REF, "contract ref drift")
     require(document.get("implementation_ref") == IMPLEMENTATION_REF, "implementation ref drift")
+    require(document.get("implementation_tree") == IMPLEMENTATION_TREE, "implementation tree drift")
+    require(document.get("runtime_profile") == {
+        "profile_id": PROFILE_ID,
+        "canonical_sha256": PROFILE_SHA256,
+        "runtime_config_fingerprint_sha256": RUNTIME_CONFIG_SHA256,
+    }, "artifact runtime profile drift")
+    require(document.get("operator_runner_failure_exit_code") == 70, "operator exit contract drift")
     require(document.get("execution_authorized") is False, "execution was authorized")
     require(document.get("target_mutation_performed") is False, "target mutation was claimed")
 
@@ -96,15 +107,29 @@ def validate_document(document: dict[str, Any], *, verify_files: bool = True) ->
     build = document["build"]
     require(build["platform"] == "linux/amd64", "build platform drift")
     require(build["rust_image"] == "rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922", "build image drift")
-    require(build["cargo_args"] == ["build", "--locked", "--release", "-p", "finam-gateway", "--bin", "stage8b-p1f-o2-materializer", "-p", "runtime-durable-service", "--bin", "stage8b-p1f-o2-operator"], "build command drift")
+    require(build["cargo_args"] == ["build", "--locked", "--release", "-p", "finam-gateway", "--bin", "stage8b-p1f-o2-materializer", "-p", "runtime-durable-service", "--bin", "stage8b-p1f-o2-operator", "--bin", "stage8b-p1-paper-supervisor"], "build command drift")
     binaries = build["binaries"]
-    require(len(binaries) == 2, "binary inventory drift")
+    require(len(binaries) == 3, "binary inventory drift")
+    require({item["name"] for item in binaries} == {"stage8b-p1f-o2-materializer", "stage8b-p1f-o2-operator", "stage8b-p1-paper-supervisor"}, "binary identity drift")
     for binary in binaries:
         require(binary["sha256"] and len(binary["sha256"]) == 64, "binary hash missing")
         require(isinstance(binary["size"], int) and binary["size"] > 1_000_000, "binary size invalid")
         require(binary["elf_machine"] == "x86-64", "binary architecture drift")
+    prerequisite = document["bootstrap_runtime_prerequisite"]
+    runtime = next(item for item in binaries if item["name"] == "stage8b-p1-paper-supervisor")
+    require(prerequisite == {
+        "binary": runtime["name"], "sha256": runtime["sha256"],
+        "source_ref": IMPLEMENTATION_REF,
+        "superseded_installed_sha256": "cee324a4e4f251227a25d4a7b23dda332a94522b45407671982f4fc896614406",
+        "replacement_required": True, "replacement_authorized": False,
+        "install_path": "/usr/local/libexec/moex/stage8b-p1-paper-supervisor",
+        "bootstrap_unit_path": "deploy/stage8b-p1e/moex-finam-p1-paper-bootstrap.service",
+    }, "bootstrap runtime prerequisite drift")
+    require(runtime["sha256"] != prerequisite["superseded_installed_sha256"], "old High180 runtime readmitted")
 
     public_inputs = document["public_inputs"]
+    require(set(public_inputs) == {"authority_public_key", "materialization_policy", "source_template", "supervisor_template", "runtime_profile", "bootstrap_unit"}, "public input inventory drift")
+    require(public_inputs["bootstrap_unit"]["path"] == prerequisite["bootstrap_unit_path"], "bootstrap unit binding drift")
     for name, item in public_inputs.items():
         require(set(item) == {"path", "sha256"}, f"public input shape drift: {name}")
         if verify_files:
@@ -147,6 +172,25 @@ def validate_document(document: dict[str, Any], *, verify_files: bool = True) ->
     require(all(value is False for value in document["closed_surfaces"].values()), "closed surface opened")
 
 
+def validate_profile_binding(profile: dict, source: dict, config: dict) -> None:
+    """Bind both templates to the independently accepted baseline07 profile.
+
+    This is a public-input check, not broker freshness or executable evidence.
+    Source schema stays v2; only the accepted profile binding changes.
+    """
+    require(profile["profile_id"] == PROFILE_ID, "accepted profile id drift")
+    raw = json.dumps(profile, sort_keys=True, separators=(",", ":")).encode()
+    require(hashlib.sha256(raw).hexdigest() == PROFILE_SHA256, "accepted profile content drift")
+    require(source["schema_version"] == 2 and source["domain"] == "moex.stage8b.p1e.first-boot-source-bundle.v2", "source schema drift")
+    require(source["runtime_profile_sha256"] == PROFILE_SHA256, "source profile binding drift")
+    require(config["schema_version"] == 1, "supervisor schema drift")
+    require(config["runtime_profile_id"] == PROFILE_ID, "supervisor profile id drift")
+    require(config["runtime_profile_sha256"] == PROFILE_SHA256, "supervisor profile binding drift")
+    require(config["bootstrap"]["runtime_config_fingerprint_sha256"] == RUNTIME_CONFIG_SHA256, "runtime config fingerprint drift")
+    require(config["first_boot_source_bundle_sha256"] == SOURCE_SENTINEL, "template source sentinel drift")
+    require(config["bootstrap"]["account_id"] == ACCOUNT_ALIAS, "template account alias drift")
+
+
 def validate_files() -> None:
     policy = load_json(ROOT / "docs/stage-8/stage8b-p1f-o2-materialization-policy.json")
     require(policy == {
@@ -182,6 +226,8 @@ def validate_files() -> None:
             previous_close = last
 
     config = load_json(ROOT / "docs/stage-8/stage8b-p1f-o2-supervisor-template.json")
+    profile = load_json(ROOT / "docs/stage-8/stage8b-p1e-runtime-profile-v1.json")
+    validate_profile_binding(profile, source, config)
     require(config["first_boot_source_bundle_sha256"] == SOURCE_SENTINEL, "source hash sentinel drift")
     bootstrap = config["bootstrap"]
     require(bootstrap["account_id"] == ACCOUNT_ALIAS, "broker-neutral account alias drift")
@@ -230,16 +276,11 @@ def validate_matrix() -> None:
 def validate_git_scope() -> None:
     head = subprocess.check_output(("git", "rev-parse", "HEAD"), cwd=ROOT, text=True).strip()
     require(subprocess.run(("git", "merge-base", "--is-ancestor", IMPLEMENTATION_REF, head), cwd=ROOT).returncode == 0, "implementation is not an ancestor")
-    production = [
-        "crates/broker-finam/src/o2_readonly.rs",
-        "crates/finam-gateway/src/bin/stage8b-p1f-o2-materializer.rs",
-        "crates/finam-gateway/src/stage8b_p1f_o2_materializer.rs",
-        "crates/runtime-durable-service/src/bin/stage8b-p1f-o2-operator.rs",
-        "crates/runtime-durable-service/src/stage8b_p1f_o2_systemd.rs",
-        "deploy/stage8b-p1e/moex-finam-p1f-o2-materializer.service",
-        "deploy/stage8b-p1e/moex-finam-p1-paper-o2-bootstrap-runner.service",
-    ]
-    changed = subprocess.check_output(("git", "diff", "--name-only", IMPLEMENTATION_REF, head, "--", *production), cwd=ROOT, text=True).splitlines()
+    require(subprocess.check_output(("git", "rev-parse", IMPLEMENTATION_REF + "^{tree}"), cwd=ROOT, text=True).strip() == IMPLEMENTATION_TREE, "implementation tree mismatch")
+    production = ["crates", "Cargo.toml", "Cargo.lock", "deploy", "config", ".github",
+                  "docs/stage-8/stage8b-p1e-runtime-profile-v1.json"]
+    # Include unstaged/staged changes, not just committed HEAD.
+    changed = subprocess.check_output(("git", "diff", "--name-only", IMPLEMENTATION_REF, "--", *production), cwd=ROOT, text=True).splitlines()
     require(not changed, f"production drift after implementation ref: {changed}")
 
 

@@ -3,7 +3,7 @@ O2A-001,lineage,Accepted O2 R1 contract is the predecessor,REQUIRED
 O2A-002,scope,Artifact status does not authorize execution or target mutation,REQUIRED
 O2A-003,roles,Exactly five accepted thin roles map to two fixed binaries,REQUIRED
 O2A-004,build,Pinned Linux amd64 image and exact implementation commit,REQUIRED
-O2A-005,build,Both ELF payload hashes and sizes are pinned,REQUIRED
+O2A-005,build,Two facade and one bootstrap prerequisite ELF hashes and sizes are pinned,REQUIRED
 O2A-006,authority,Public O2 Ed25519 identity is pinned and private seed excluded,REQUIRED
 O2A-007,identity,Raw FINAM account is transient and only its SHA256 crosses public boundary,REQUIRED
 O2A-008,identity,Durable source and config use exact broker neutral account alias,REQUIRED
@@ -15,7 +15,7 @@ O2A-013,history,Source template pins at least 121 ordered sessions and explicit 
 O2A-014,history,Missing M1 or incomplete M10 fails before source acceptance,REQUIRED
 O2A-015,riskgate,High180 observations are rebuilt from accepted runtime source,REQUIRED
 O2A-016,config,Supervisor template allows only source bundle hash finalization,REQUIRED
-O2A-017,unit,Materializer and runner unit bytes and hashes are pinned,REQUIRED
+O2A-017,unit,Materializer runner and bootstrap unit bytes and hashes are pinned,REQUIRED
 O2A-018,supervision,Permit and exact unit are polled every 250 ms,REQUIRED
 O2A-019,supervision,Observation stop and kill commands are bounded,REQUIRED
 O2A-020,supervision,Stopped proof requires job PID state and empty cgroup,REQUIRED
@@ -24,7 +24,7 @@ O2A-022,restart,Runner loss cleanup is independent of SSH and process witness,RE
 O2A-023,replay,Retained pending terminal transaction replays byte exact,REQUIRED
 O2A-024,replay,Restart never grants a fresh stop grace interval,REQUIRED
 O2A-025,witness,Linked local O2 to terminal receipt witness passes,REQUIRED
-O2A-026,safety,Handoff reconstructs Git tree and validates ELF payload inventory,REQUIRED
+O2A-026,safety,Handoff reconstructs packaging and compiled Git trees and validates three ELF payloads,REQUIRED
 O2A-027,secrets,Token account private seed lifecycle key and fresh responses are excluded,REQUIRED
 O2A-028,closed,Redis mutation FINAM writes broker dispatch runtime live and real orders remain closed,REQUIRED
 O2A-029,governance,Installation and start commands are inert until separate permission,REQUIRED

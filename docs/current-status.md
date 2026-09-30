@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-09-28.
+Status date: 2026-09-29.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -17,11 +17,33 @@ is independently SOURCE ACCEPTED at `5b8f878833dbf71fa7614152a4a5fb03cbf40b65`.
 Both retained account-alias replay and active-manifest selector replacement
 findings are closed. The [authority successor](stage-8/stage8b-p1f-o2-recovery-authority-closure.md)
 binds these accepted bytes without Rust/Cargo, workflow or deployment changes.
-Fresh required PR #9 checks still precede history-preserving merge; the old green
-run `36380295678` at `38c7b82` is not evidence for this successor. After merge,
-rebuild the O2 artifact from the exact synchronized commit, preserving the accepted
-baseline07 BO-only profile. Artifact review and separately authorized installation
-and execution follow; this successor performs none of those operational actions.
+Fresh required PR #9 checks (`rust` and `redis-smoke`) passed in run `36460100665`.
+History-preserving merge `9d9bd1192467532d0ee48350d3c531d9e156dee3` is now on
+`main`; its tree equals the accepted PR head. The corrected O2 artifact
+`7196aaac7c0bf45a03d90742d8ef483078649de6` is independently ARTIFACT ACCEPTED,
+including baseline07 and the required replacement of the O1 bootstrap supervisor.
+The corrected installation at `60bc482` and its operational evidence are
+independently accepted. One separately authorized bounded O2 attempt then failed
+in the materializer (exit 70); bootstrap/ordinary P1 did not run. Failure evidence
+is independently accepted, **O2 remains HOLD**. At the retained observation after
+deadline, authority generation 1 was still ACTIVE at sequence 1, not Expired.
+P0 was unchanged and DB15 empty. These are retained observations, not a fresh
+VPS inspection.
+
+The [bounded-failure source correction](stage-8/stage8b-p1f-o2-bounded-failure-correction.md)
+is independently SOURCE ACCEPTED at `590304af44830197704503c8ebc67329693ac75b`.
+P1-O2REC01 and P2-O2DIAG01 are closed. The current slice is an
+[authority successor and isolated recovery artifact](stage-8/stage8b-p1f-o2-terminal-recovery-package.md)
+with no Rust/Cargo or strategy changes. Local authority checks and an offline
+Linux/amd64 build are preparation gates; fresh GitHub CI, artifact review and
+explicit target-execution permission remain separate requirements. The old
+installation manifest and control-root/history must stay intact. The candidate
+operator is staged separately, never substituted under the old installed hash.
+No VPS/FINAM contact is authorized by this preparation. O2 remains HOLD until
+the old terminal receipt is committed and reread under separate authorization.
+Only then prepare the updated full O2 installation and request a new bounded run.
+
+### Earlier accepted milestones (historical boundaries)
 
 The O1 immutable package at
 `8864a2bbba64ef930073fae4e71dfcde82ceba58` and its operational-evidence

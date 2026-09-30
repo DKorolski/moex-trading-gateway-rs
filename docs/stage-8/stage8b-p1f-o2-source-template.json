@@ -2,7 +2,7 @@
   "schema_version": 2,
   "domain": "moex.stage8b.p1e.first-boot-source-bundle.v2",
   "operational_identity_sha256": "9b3572618c2540b32e7fd2fb256b5604fd48aec74b7de63a1e01d498b4b962c0",
-  "runtime_profile_sha256": "dd5a211e708db0d40175d19ed1eeb51db26497d344a553b41d7afbfdddde0ef6",
+  "runtime_profile_sha256": "8f346b730760c8a70c4ab8576da60147a80a7c0668ba2068783ea2e5a2637872",
   "instrument_map_fingerprint_sha256": "ba4e7b1190dc2686559b6d7c0df0185e96a10dfac6b13f6a582a349b14198558",
   "source_bundle_generation": 1,
   "captured_at_utc": "1970-01-01T00:00:00Z",

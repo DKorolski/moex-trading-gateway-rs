@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import base64
 import json
 import sys
 import zipfile
@@ -15,10 +16,11 @@ import stage8b_p1e_i1a_handoff_safety_check as common
 
 STAGE = "Stage 8B-P1F O2 immutable execution artifact"
 STATUS = "REVIEW_CANDIDATE_EXECUTION_NOT_AUTHORIZED"
-BRANCH = "stage8b-paper-shadow-resumption"
+BRANCH = "stage8b-o2-artifact-resumption"
 CONTRACT_REF = "a9f8fe30a45752c943f9e399775322d83fcd8a36"
-IMPLEMENTATION_REF = "9e7f44d119cac63e33d5d5437ff972e49922c797"
-ARTIFACT_REF = "5ab038c2da48b649a641b45e3bd00eb44e658f8f"
+IMPLEMENTATION_REF = "9d9bd1192467532d0ee48350d3c531d9e156dee3"
+IMPLEMENTATION_TREE = "0e1ee00d73e23460dc0c4af5a13296d6e2ad12e3"
+ARTIFACT_REF = IMPLEMENTATION_REF
 REVIEW_NAME = "FINAM_P1F_O2_R1_CONTRACT_ACCEPT_a9f8fe3_2026-09-27.md"
 REVIEW_SHA256 = "3342409133760dbb8ea909460310881eebdd91c797ed97f3879be4cfbb12ce1b"
 
@@ -29,10 +31,20 @@ COMMIT_RAW = PREFIX + "source-commit.raw"
 EVIDENCE = PREFIX + "stage8b-p1f-o2-artifact-handoff-evidence.json"
 GATE = PREFIX + "stage8b-p1f-o2-artifact-gate.txt"
 BUILD = PREFIX + "stage8b-p1f-o2-linux-build.json"
+BUILD_LOG = PREFIX + "linux-build.log"
+BUILD_COMMIT = PREFIX + "build-source-commit.raw"
+BUILD_MANIFEST = PREFIX + "build-source-tree-manifest.json"
+BUILD_ORIGINALS = PREFIX + "build-source-original-blobs.json"
+ELF_SMOKE = PREFIX + "linux-elf-smoke.log"
+SOURCE_REVIEW_NAME = "FINAM_5b8f878_O2_RECOVERY_SOURCE_REVIEW_2026-09-28.md"
+SOURCE_REVIEW = PREFIX + "reviews/" + SOURCE_REVIEW_NAME
+SOURCE_REVIEW_SHA256 = "4759f46e8b878bd9a86ee13de46d968ca52e4c4e827501524ef081563b59d177"
 REVIEW = PREFIX + "reviews/" + REVIEW_NAME
 MATERIALIZER = "payload/stage8b-p1f-o2-materializer"
 OPERATOR = "payload/stage8b-p1f-o2-operator"
-GENERATED = {MARKER, MANIFEST, COMMIT_RAW, EVIDENCE, GATE, BUILD, REVIEW, MATERIALIZER, OPERATOR}
+SUPERVISOR = "payload/stage8b-p1-paper-supervisor"
+GENERATED = {MARKER, MANIFEST, COMMIT_RAW, EVIDENCE, GATE, BUILD, REVIEW, MATERIALIZER, OPERATOR,
+             BUILD_LOG, BUILD_COMMIT, BUILD_MANIFEST, BUILD_ORIGINALS, ELF_SMOKE, SOURCE_REVIEW, SUPERVISOR}
 
 REQUIRED_TRACKED = {
     "docs/stage-8/stage8b-p1f-o2-execution-artifact.json",
@@ -50,6 +62,9 @@ REQUIRED_TRACKED = {
     "scripts/stage8b_p1f_o2_artifact_gate.sh",
     "scripts/make_stage8b_p1f_o2_artifact_handoff.py",
     "scripts/stage8b_p1f_o2_artifact_handoff_safety_check.py",
+    "scripts/stage8b_p1f_o2_build_linux.py",
+    "scripts/stage8b_p1f_o2_elf_smoke.sh",
+    "deploy/stage8b-p1e/moex-finam-p1-paper-bootstrap.service",
 }
 
 
@@ -178,6 +193,7 @@ def check(path: str) -> dict[str, Any]:
         require(artifact["status"] == STATUS, "artifact status drift")
         require(artifact["accepted_contract_ref"] == CONTRACT_REF, "artifact contract drift")
         require(artifact["implementation_ref"] == IMPLEMENTATION_REF, "artifact implementation drift")
+        require(artifact["implementation_tree"] == IMPLEMENTATION_TREE, "artifact implementation tree drift")
         require(artifact["execution_authorized"] is False, "execution opened")
         require(artifact["target_mutation_performed"] is False, "target mutation claimed")
         binary_by_name = {item["name"]: item for item in artifact["build"]["binaries"]}
@@ -186,6 +202,9 @@ def check(path: str) -> dict[str, Any]:
         require(sha256(files[OPERATOR]) == binary_by_name["stage8b-p1f-o2-operator"]["sha256"], "operator payload drift")
         require(len(files[OPERATOR]) == binary_by_name["stage8b-p1f-o2-operator"]["size"], "operator size drift")
         require(files[MATERIALIZER][:4] == b"\x7fELF" and files[OPERATOR][:4] == b"\x7fELF", "payload is not ELF")
+        for name in (MATERIALIZER, OPERATOR, SUPERVISOR):
+            require(files[name][:6] == b"\x7fELF\x02\x01" and int.from_bytes(files[name][18:20], "little") == 62, "payload is not ELF64 x86-64")
+            require((by_name[name].external_attr >> 16) == 0o100755, "payload executable mode drift")
 
         evidence = json.loads(files[EVIDENCE], object_pairs_hook=strict_object)
         require(evidence["stage"] == STAGE and evidence["status"] == STATUS, "evidence status drift")
@@ -195,6 +214,24 @@ def check(path: str) -> dict[str, Any]:
         require(evidence["gate_sha256"] == sha256(files[GATE]), "gate evidence drift")
         require(evidence["build_sha256"] == sha256(files[BUILD]), "build evidence drift")
         require(evidence["review_sha256"] == REVIEW_SHA256 == sha256(files[REVIEW]), "review evidence drift")
+        require(sha256(files[SOURCE_REVIEW]) == SOURCE_REVIEW_SHA256, "source review drift")
+        require(evidence["elf_smoke_sha256"] == sha256(files[ELF_SMOKE]), "ELF smoke evidence drift")
+        require(b"PASS stage8b-p1f-o2-elf-smoke network=none authority=absent systemd_runtime_tested=false execution=false" in files[ELF_SMOKE], "ELF smoke marker missing")
+        require(evidence["systemd_runtime_tested"] is False, "ELF smoke overstated as systemd proof")
+        for binary, payload, field in (
+            ("stage8b-p1f-o2-materializer", MATERIALIZER, "materializer_sha256"),
+            ("stage8b-p1f-o2-operator", OPERATOR, "operator_sha256"),
+            ("stage8b-p1-paper-supervisor", SUPERVISOR, "bootstrap_supervisor_sha256"),
+        ):
+            require(evidence[field] == sha256(files[payload]), "evidence payload drift")
+            require(f"{sha256(files[payload])}  /usr/local/libexec/moex/{binary}".encode() in files[ELF_SMOKE], "smoke payload identity drift")
+        for smoke_marker in (
+            b"PASS exact-elf bootstrap-supervisor-baseline07-config",
+            b"PASS exact-elf bootstrap-supervisor-stale-profile exit=64",
+            b"PASS exact-elf runner-no-selector exit=70",
+            b"PASS exact-elf precreated-control-root-no-capabilities",
+        ):
+            require(smoke_marker in files[ELF_SMOKE], "smoke coverage marker missing")
         require(evidence["private_authority_key_in_handoff"] is False, "private authority key included")
         require(evidence["finam_credentials_in_handoff"] is False, "FINAM credential included")
         require(evidence["execution_authorized"] is False, "evidence opened execution")
@@ -204,11 +241,40 @@ def check(path: str) -> dict[str, Any]:
         build = json.loads(files[BUILD], object_pairs_hook=strict_object)
         require(build["platform"] == "linux/amd64", "build platform drift")
         require(build["implementation_ref"] == IMPLEMENTATION_REF, "build implementation drift")
-        require(build["materializer_sha256"] == sha256(files[MATERIALIZER]), "build materializer drift")
-        require(build["operator_sha256"] == sha256(files[OPERATOR]), "build operator drift")
+        require(build["source_tree"] == IMPLEMENTATION_TREE, "build tree drift")
+        require(build["rust_image"] == artifact["build"]["rust_image"] and build["cargo_args"] == artifact["build"]["cargo_args"], "build recipe drift")
+        require(build["network"] == "none" and build["cargo_offline"] is True, "build network drift")
+        require(build["build_log_sha256"] == sha256(files[BUILD_LOG]), "build log drift")
+        require(build["source_commit_raw_sha256"] == sha256(files[BUILD_COMMIT]), "build commit evidence drift")
+        require(common.git_object_id("commit", files[BUILD_COMMIT]) == IMPLEMENTATION_REF, "build commit object mismatch")
+        require(files[BUILD_COMMIT].splitlines()[0] == f"tree {IMPLEMENTATION_TREE}".encode(), "build commit tree mismatch")
+        built = {item["name"]: item for item in build["binaries"]}
+        require(len(build["binaries"]) == 3 and set(built) == set(binary_by_name), "build binary inventory drift")
+        for name, payload in (("stage8b-p1f-o2-materializer", MATERIALIZER), ("stage8b-p1f-o2-operator", OPERATOR), ("stage8b-p1-paper-supervisor", SUPERVISOR)):
+            require(built[name]["sha256"] == sha256(files[payload]) and built[name]["size"] == len(files[payload]), "build payload drift")
+            require(binary_by_name[name]["sha256"] == sha256(files[payload]) and binary_by_name[name]["size"] == len(files[payload]), "manifest payload drift")
+        prerequisite = artifact["bootstrap_runtime_prerequisite"]
+        require(prerequisite["sha256"] == sha256(files[SUPERVISOR]) and prerequisite["source_ref"] == IMPLEMENTATION_REF, "bootstrap prerequisite identity drift")
+        require(prerequisite["replacement_required"] is True and prerequisite["replacement_authorized"] is False, "bootstrap replacement boundary drift")
+        # Reconstruct the compiled merge tree independently from the packaging
+        # tree. Only changed original public blobs need duplication in the ZIP.
+        source_manifest = json.loads(files[BUILD_MANIFEST], object_pairs_hook=strict_object)
+        original_blobs = json.loads(files[BUILD_ORIGINALS], object_pairs_hook=strict_object)
+        source_entries = source_manifest["entries"]
+        require(source_manifest["source_ref"] == IMPLEMENTATION_REF, "build source manifest ref drift")
+        require(source_manifest["entry_count"] == len(source_entries), "build source manifest count drift")
+        source_payloads = {}
+        for entry in source_entries:
+            name = entry["path"]
+            require(name not in source_payloads, "duplicate build-source entry")
+            raw = base64.b64decode(original_blobs[name], validate=True) if name in original_blobs else files[name]
+            require(sha256(raw) == entry["sha256"] and len(raw) == entry["size"], "build source blob drift")
+            source_payloads[name] = raw
+        require(set(original_blobs) <= set(source_payloads), "unreferenced build-source original")
+        require(common.build_tree_oid(source_entries, source_payloads) == IMPLEMENTATION_TREE, "compiled tree reconstruction failed")
         for marker_text in (
             b"PASS stage8b-p1f-o2-artifact-check rows=30 execution=false",
-            b"PASS stage8b-p1f-o2-artifact-negative-harness 25/25",
+            b"PASS stage8b-p1f-o2-artifact-negative-harness 36/36",
             b"PASS stage8b-p1f-o2-artifact-witness execution=false",
             b"PASS stage8b-p1f-o2-artifact-gate execution=false",
         ):
@@ -223,8 +289,13 @@ def check(path: str) -> dict[str, Any]:
             "unsafe_paths": 0,
             "source_ref": marker["source_ref"],
             "source_tree": marker["source_tree"],
+            "build_source_ref": IMPLEMENTATION_REF,
+            "build_source_tree": IMPLEMENTATION_TREE,
+            "build_tree_binding": True,
+            "systemd_runtime_tested": False,
             "materializer_sha256": sha256(files[MATERIALIZER]),
             "operator_sha256": sha256(files[OPERATOR]),
+            "supervisor_sha256": sha256(files[SUPERVISOR]),
             "execution_authorized": False,
         }
 

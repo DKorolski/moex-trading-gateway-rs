@@ -67,7 +67,7 @@ fn main() -> ExitCode {
             Err(_) => ExitCode::from(70),
         },
         Err(error) => {
-            eprintln!("stage8b-p1f-o2-materializer: {error}");
+            eprintln!("{error}");
             ExitCode::from(70)
         }
     }
@@ -100,6 +100,9 @@ fn run() -> Result<MaterializerResultV1, String> {
     )?;
     let manifest_sha256 = runtime_durable_service::stage8b_p1f_o2_active_manifest_sha256_v1()
         .map_err(|error| error.to_string())?;
+    let collection_lock =
+        runtime_durable_service::lock_stage8b_p1f_o2_collection_v1(&manifest_sha256)
+            .map_err(|error| error.to_string())?;
     let output_path = staging_path(&manifest_sha256)?;
     if output_path.exists() {
         return validate_existing(&output_path, &manifest_sha256, &policy, &account_id);
@@ -125,7 +128,16 @@ fn run() -> Result<MaterializerResultV1, String> {
             &policy.bars_end_utc,
             trusted_now,
         ))
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| {
+            error.diagnostic_json(
+                &manifest_sha256,
+                &sha256_hex(&policy_bytes),
+                &sha256_hex(&template_bytes),
+                &policy.bars_start_utc,
+                &policy.bars_end_utc,
+                trusted_now,
+            )
+        })?;
     let source_bundle_sha256 = sha256_hex(&materialized.exact_source_bytes);
     let exact_source_json = String::from_utf8(materialized.exact_source_bytes)
         .map_err(|_| "materialized source is not UTF-8 JSON")?;
@@ -138,6 +150,9 @@ fn run() -> Result<MaterializerResultV1, String> {
         evidence: materialized.evidence,
     };
     let staged_bytes = serde_json::to_vec(&staged).map_err(|error| error.to_string())?;
+    collection_lock
+        .validate_before_publication()
+        .map_err(|error| error.to_string())?;
     write_create_new(&output_path, &staged_bytes)?;
     Ok(MaterializerResultV1 {
         schema_version: 1,

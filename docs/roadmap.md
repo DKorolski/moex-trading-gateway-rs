@@ -27,6 +27,19 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
+Current as of 2026-09-29: O2 installation `60bc482` and the subsequent bounded
+failure evidence are accepted; **O2 HOLD**, old claim still ACTIVE at the retained
+post-deadline observation. The bounded-failure source correction is independently
+SOURCE ACCEPTED at `590304a`. The immediate slice is the
+[authority/recovery package](stage-8/stage8b-p1f-o2-terminal-recovery-package.md).
+Order: authority + fresh CI → artifact provenance and narrow recovery delivery
+review → explicitly authorized terminal recovery of old claim → exact receipt
+reread → separately authorized new bounded O2 → O3/O4 paper sessions and ALOR
+comparison. No history deletion, deadline extension, new claim over ACTIVE,
+FINAM execution or runtime-live is permitted by the source correction.
+
+### Historical entry and accepted dependencies
+
 The accepted P1F-O1 package `8864a2b` has been installed once on the isolated
 target under its authorized non-activating boundary. Its corrected operational
 evidence at `997e8a1` is independently accepted: exact installed bytes/custody,
@@ -496,10 +509,34 @@ this repair.
 The two O2 recovery findings are independently SOURCE ACCEPTED at `5b8f878`:
 retained account-alias replay and guardian-bound manifest selector publication.
 The [narrow authority successor](stage-8/stage8b-p1f-o2-recovery-authority-closure.md)
-binds the accepted tree. Fresh PR #9 checks precede history-preserving merge.
-Next development deliverable: an exact-merge O2 Linux artifact with renewed
-binary/source/profile/unit identities and bounded local witnesses, then artifact
-review. Non-activating installation and O2 execution remain separate permissions.
+binds the accepted tree. Fresh PR #9 checks passed in run `36460100665`;
+history-preserving merge `9d9bd1192467532d0ee48350d3c531d9e156dee3` is on `main`.
+The [corrected artifact candidate](stage-8/stage8b-p1f-o2-artifact-resumption.md)
+is built from this exact merge with renewed binary/source/profile/unit identities
+and bounded local witnesses. It additionally carries the bootstrap supervisor
+from the same source because the O1 installed runtime predates baseline07.
+Next: artifact review including this dependency, separately permitted
+non-activating replacement/installation, then one bounded O2 execution gate.
 No historical re-audit or roadmap renumbering is needed. The operational goal
 remains bounded paper sessions against ALOR-live, followed by separately admitted
 FINAM live micro; O3/O4 and FINAM write surfaces are not opened here.
+
+## Current checkpoint — 2026-09-29
+
+Artifact `7196aaa` is independently ARTIFACT ACCEPTED, including the baseline07
+supervisor prerequisite. The next candidate is the
+[non-activating O2 installation/replacement package](stage-8/stage8b-p1f-o2-installation-package.md):
+exact accepted files, new complete installation identity, old O1 before-images,
+strict target preconditions and bounded rollback. No new binary build, strategy
+logic, workflow or historical acceptance changes are needed. After package
+review/user permission: fresh target preflight, non-activating installation,
+actual installation evidence, then separate permission for one bounded O2.
+Limited O3/O4 paper windows against ALOR-live and separately admitted live micro
+remain the next functional steps; they are not authorized by artifact acceptance.
+
+The accepted installation package `304cd56` then reached a real native preflight
+and stopped before replacement: not-found O2 units omit ExecStart in systemd 255.
+Root-only staging remains, exact O1/P0 are unchanged and DB15 is empty. The next
+review is a narrow local native-observer correction with captured response tests,
+not a new stage or infrastructure redesign. Fresh accepted installation evidence
+is still required before separately authorized O2; no activation was attempted.

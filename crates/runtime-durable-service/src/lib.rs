@@ -571,12 +571,12 @@ pub use stage8b_p1f_local_supervision::{
 };
 pub use stage8b_p1f_o2_systemd::{
     collect_stage8b_p1f_o2_readonly_evidence_v1, collect_stage8b_p1f_o2_unit_evidence_v1,
-    run_stage8b_p1f_o2_cleanup_v1, run_stage8b_p1f_o2_fixed_cleanup_v1,
-    run_stage8b_p1f_o2_fixed_systemd_runner_v1, run_stage8b_p1f_o2_systemd_runner_v1,
-    stage8b_p1f_o2_active_manifest_sha256_v1, Stage8bP1fO2ReadOnlyEvidenceV1,
-    Stage8bP1fO2RunnerErrorV1, Stage8bP1fO2RunnerResultV1, Stage8bP1fO2UnitEvidenceV1,
-    STAGE8B_P1F_O2_ACTIVE_MANIFEST_PATH, STAGE8B_P1F_O2_RUNNER_BINARY_PATH,
-    STAGE8B_P1F_O2_RUNNER_UNIT,
+    lock_stage8b_p1f_o2_collection_v1, run_stage8b_p1f_o2_cleanup_v1,
+    run_stage8b_p1f_o2_fixed_cleanup_v1, run_stage8b_p1f_o2_fixed_systemd_runner_v1,
+    run_stage8b_p1f_o2_systemd_runner_v1, stage8b_p1f_o2_active_manifest_sha256_v1,
+    Stage8bP1fO2CollectionLockV1, Stage8bP1fO2ReadOnlyEvidenceV1, Stage8bP1fO2RunnerErrorV1,
+    Stage8bP1fO2RunnerResultV1, Stage8bP1fO2UnitEvidenceV1, STAGE8B_P1F_O2_ACTIVE_MANIFEST_PATH,
+    STAGE8B_P1F_O2_RUNNER_BINARY_PATH, STAGE8B_P1F_O2_RUNNER_UNIT,
 };
 
 use std::{

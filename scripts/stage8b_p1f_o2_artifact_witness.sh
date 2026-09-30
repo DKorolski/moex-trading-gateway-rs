@@ -3,6 +3,9 @@ set -euo pipefail
 
 cargo test -p broker-finam o2_readonly::tests:: -- --nocapture
 cargo test -p finam-gateway stage8b_p1f_o2_materializer::tests:: -- --nocapture
+cargo test --locked -p finam-gateway --bin stage8b-p1f-o2-materializer -- --nocapture
+cargo test --locked -p runtime-durable-service --lib \
+  stage8b_p1f_guardian::tests::o2_selector_ -- --nocapture
 cargo test -p runtime-durable-service stage8b_p1f_o2_systemd::tests:: -- --nocapture
 
 for test_name in \

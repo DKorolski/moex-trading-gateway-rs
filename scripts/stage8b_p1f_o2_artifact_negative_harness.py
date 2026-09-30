@@ -11,11 +11,24 @@ import stage8b_p1f_o2_artifact_check as check
 
 def main() -> None:
     original = check.load_json(check.ARTIFACT)
+    check.validate_document(original, verify_files=True)
+    check.validate_files()
     cases = [
         ("execution-open", lambda value: value.__setitem__("execution_authorized", True)),
         ("target-mutated", lambda value: value.__setitem__("target_mutation_performed", True)),
         ("contract-ref", lambda value: value.__setitem__("accepted_contract_ref", "0" * 40)),
         ("implementation-ref", lambda value: value.__setitem__("implementation_ref", "0" * 40)),
+        ("implementation-tree", lambda value: value.__setitem__("implementation_tree", "0" * 40)),
+        ("profile-id", lambda value: value["runtime_profile"].__setitem__("profile_id", "imoexf-hybrid-high180-paper-v1")),
+        ("profile-hash", lambda value: value["runtime_profile"].__setitem__("canonical_sha256", "0" * 64)),
+        ("profile-config", lambda value: value["runtime_profile"].__setitem__("runtime_config_fingerprint_sha256", "0" * 64)),
+        ("operator-exit", lambda value: value.__setitem__("operator_runner_failure_exit_code", 72)),
+        ("binary-duplicate", lambda value: value["build"]["binaries"][1].__setitem__("name", value["build"]["binaries"][0]["name"])),
+        ("binary-foreign", lambda value: value["build"]["binaries"][1].__setitem__("name", "foreign")),
+        ("bootstrap-runtime-drop", lambda value: value["build"]["binaries"].pop()),
+        ("bootstrap-replacement-bypassed", lambda value: value["bootstrap_runtime_prerequisite"].__setitem__("replacement_required", False)),
+        ("bootstrap-replacement-authorized", lambda value: value["bootstrap_runtime_prerequisite"].__setitem__("replacement_authorized", True)),
+        ("bootstrap-old-hash", lambda value: value["bootstrap_runtime_prerequisite"].__setitem__("sha256", "cee324a4e4f251227a25d4a7b23dda332a94522b45407671982f4fc896614406")),
         ("authority-key", lambda value: value["authority"].__setitem__("public_key_ed25519_hex", "0" * 64)),
         ("private-key", lambda value: value["authority"].__setitem__("private_key_in_artifact", True)),
         ("raw-account", lambda value: value["account_boundary"].__setitem__("broker_account_id_in_artifact", True)),
