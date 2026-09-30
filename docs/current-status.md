@@ -29,7 +29,11 @@ follows the separately recorded build-only correction `7c80d70`: the V1 type
 import is restricted to `cfg(test)` so canonical all-features Clippy can pass.
 No runtime behavior, Cargo, workflows, checkers or deployed bytes change.
 The closure itself changes only authority inventories and status documents.
-Build-fix/closure review and fresh required CI checks are pending; exact artifact
+Build fix `7c80d70` is independently accepted; the `3992fc7` authority delta is
+correct, but aggregate closure remains HOLD for the test-harness P1-NRG01.
+The [test-only cleanup correction](stage-8/stage8b-p1f-nrg01-harness-correction.md)
+is a review candidate; production semantics are unchanged. Its final gate and
+independent review, then fresh required CI checks, remain pending; exact artifact
 replacement, installation and O2 execution remain separate gates. The retained
 2148 tests and 38/38 frozen model rounds are source evidence, not FINAM live fills.
 

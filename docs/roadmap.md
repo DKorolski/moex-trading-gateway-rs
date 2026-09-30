@@ -42,8 +42,10 @@ another retry of the installed 121/120-session High180 contract. The
 independently SOURCE ACCEPTED at `2f46491a4f63249f64676306d5f9c3445818f4f9`;
 installed binaries and accepted historical artifacts are unchanged. The next
 boundary is the [narrow authority closure](stage-8/stage8b-p1f-no-riskgate-governance-closure.md),
-with the separate `7c80d70` conditional-import build fix, closure review and fresh
-required CI pending, not another source redesign. Runtime semantics are unchanged.
+with accepted `7c80d70` build fix and a correct `3992fc7` authority delta. Aggregate
+closure is HOLD for P1-NRG01 test cleanup. The [test-only correction](stage-8/stage8b-p1f-nrg01-harness-correction.md),
+its qualification/review and fresh required CI precede closure, not a new source
+redesign. Runtime semantics are unchanged.
 
 Order: accepted source + short-warmup/parity/restart evidence → scoped authority
 closure and fresh required CI → exact replacement artifact → separately authorized installation preserving

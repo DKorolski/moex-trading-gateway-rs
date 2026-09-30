@@ -1,6 +1,9 @@
 # BO-only no-riskgate — build correction and authority closure
 
 Date: 2026-09-30. Status: SOURCE ACCEPTED / BUILD FIX + AUTHORITY REVIEW CANDIDATE.
+Review update: `7c80d70` BUILD-FIX ACCEPT; `3992fc7` authority delta correct,
+aggregate HOLD for P1-NRG01 test cleanup. The [test-only correction](stage8b-p1f-nrg01-harness-correction.md)
+records the bounded next slice; this historical closure is not relabeled PASS.
 Fresh required GitHub checks and history-preserving merge are separate pending gates.
 No operational permission is introduced.
 

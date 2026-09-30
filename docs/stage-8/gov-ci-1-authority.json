@@ -54,7 +54,7 @@
     "stage8b_s_authorized": false
   },
   "governance_control_plane_manifest": {
-    "aggregate_sha256": "759892fc308f019560b26a6acb311a1c73e39a989de95b4e8a5dc2a1299c81aa",
+    "aggregate_sha256": "f73aefc3a32d682933b09fd314e3cde5b4e92a2ba1a3fa409693b437a4efa76c",
     "entries": {
       ".github/workflows/ci.yml": {
         "mode": "100644",
@@ -68,13 +68,13 @@
       },
       "docs/current-status.md": {
         "mode": "100644",
-        "sha256": "4212ffbceea484160eebdb089cabf44e2759cfde9fc2da3c06ecbe5a53f1c62f",
-        "size": 146800
+        "sha256": "7d6448d723f086405eb80b490baefb85c7df884189f97d2e761a23fd47d1a786",
+        "size": 147117
       },
       "docs/roadmap.md": {
         "mode": "100644",
-        "sha256": "bc89f6bb11c3b66313adf521a7231c5fcd4ca85a5190a6274a7e2c881c878015",
-        "size": 35018
+        "sha256": "6cdb9e36e0351752d91cc10c58c0b954692ba73d2e753c43a8332f991c6d8d8b",
+        "size": 35181
       },
       "docs/stage-5/stage5f-authority-rotation.json": {
         "mode": "100644",
@@ -176,8 +176,8 @@
   },
   "negative_cases": 45,
   "production_code_manifest": {
-    "aggregate_sha256": "047948a466e06f66d40ed2dad8ccd43163e51476a0d26fc356ce9946ce1a3948",
-    "content_sha256": "685f602ff9ffb8ce0f7bb8b89a86a7afef6558776c0f813e2b97ca48d59cf2d1",
+    "aggregate_sha256": "0d35b814adccdb83252b42ea259ecba96e6e0c587d8d896c74825a3c4bafb0bc",
+    "content_sha256": "7580b251c4b39c980574edf81f78e4e64bcc487e10e43ee4d672c017528cb9e4",
     "entries": {
       "Cargo.lock": {
         "mode": "100644",
@@ -671,8 +671,8 @@
       },
       "crates/runtime-durable-service/src/stage8b_p1e_process.rs": {
         "mode": "100644",
-        "sha256": "8dde914df13bf9be634da719bc09ff74d22d49d75b7fd7849f5664cbc3b7cadd",
-        "size": 570670
+        "sha256": "cf7a17cc3ce65d1be4ff1e2a242d9f3f1b873f49450f5a2fc5e4113cc3498ed3",
+        "size": 582531
       },
       "crates/runtime-durable-service/src/stage8b_p1e_schedule_source.rs": {
         "mode": "100644",

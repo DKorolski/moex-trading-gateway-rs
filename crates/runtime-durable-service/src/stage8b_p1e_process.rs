@@ -6438,7 +6438,7 @@ mod tests {
         ffi::CString,
         io::{self, Write},
         net::{Shutdown, TcpListener, TcpStream},
-        os::unix::fs::DirBuilderExt,
+        os::unix::fs::{DirBuilderExt, OpenOptionsExt},
         os::unix::process::ExitStatusExt,
         path::PathBuf,
         process::{Child, Command, Stdio},
@@ -7133,12 +7133,37 @@ mod tests {
     /// the marker is written, then withheld until the test releases it. The
     /// production child therefore runs its unmodified startup select while a
     /// concrete server-processed request is in flight.
+    #[derive(Default)]
+    struct ProxySockets {
+        stopping: bool,
+        sockets: Vec<TcpStream>,
+    }
+
+    impl ProxySockets {
+        fn register(&mut self, socket: &TcpStream) -> io::Result<bool> {
+            if self.stopping {
+                let _ = socket.shutdown(Shutdown::Both);
+                return Ok(false);
+            }
+            self.sockets.push(socket.try_clone()?);
+            Ok(true)
+        }
+
+        fn stop(&mut self) {
+            self.stopping = true;
+            for socket in self.sockets.drain(..) {
+                let _ = socket.shutdown(Shutdown::Both);
+            }
+        }
+    }
+
     struct RedisResponseDelayProxy {
         url: String,
-        address: std::net::SocketAddr,
         released: Arc<(Mutex<bool>, Condvar)>,
         stop: Arc<AtomicBool>,
-        listener: Option<JoinHandle<()>>,
+        sockets: Arc<Mutex<ProxySockets>>,
+        cleanup_evidence: PathBuf,
+        listener: Option<JoinHandle<(usize, usize)>>,
     }
 
     impl RedisResponseDelayProxy {
@@ -7149,6 +7174,9 @@ mod tests {
             let upstream = redis_url_socket_address(upstream_url);
             let released = Arc::new((Mutex::new(false), Condvar::new()));
             let stop = Arc::new(AtomicBool::new(false));
+            let sockets = Arc::new(Mutex::new(ProxySockets::default()));
+            let listener_sockets = Arc::clone(&sockets);
+            let cleanup_evidence = marker.with_extension("proxy-cleanup.json");
             let claimed = Arc::new(AtomicBool::new(false));
             let matching_responses = Arc::new(AtomicUsize::new(0));
             let listener_released = Arc::clone(&released);
@@ -7162,12 +7190,22 @@ mod tests {
                                 let _ = client.shutdown(Shutdown::Both);
                                 break;
                             }
-                            client.set_nonblocking(false).unwrap();
+                            if client.set_nonblocking(false).is_err()
+                                || !listener_sockets
+                                    .lock()
+                                    .unwrap_or_else(|e| e.into_inner())
+                                    .register(&client)
+                                    .unwrap_or(false)
+                            {
+                                let _ = client.shutdown(Shutdown::Both);
+                                continue;
+                            }
                             let handler_target = target.clone();
                             let handler_marker = marker.clone();
                             let handler_released = Arc::clone(&listener_released);
                             let handler_claimed = Arc::clone(&claimed);
                             let handler_matching_responses = Arc::clone(&matching_responses);
+                            let handler_sockets = Arc::clone(&listener_sockets);
                             handlers.push(std::thread::spawn(move || {
                                 relay_redis_connection(
                                     client,
@@ -7175,8 +7213,8 @@ mod tests {
                                     handler_marker,
                                     handler_target,
                                     handler_released,
-                                    handler_claimed,
-                                    handler_matching_responses,
+                                    (handler_claimed, handler_matching_responses),
+                                    handler_sockets,
                                 );
                             }));
                         }
@@ -7186,15 +7224,21 @@ mod tests {
                         Err(_) => break,
                     }
                 }
+                let started = handlers.len();
+                let mut panicked = 0;
                 for handler in handlers {
-                    let _ = handler.join();
+                    if handler.join().is_err() {
+                        panicked += 1;
+                    }
                 }
+                (started, panicked)
             });
             Self {
                 url: format!("redis://{address}/"),
-                address,
                 released,
                 stop,
+                sockets,
+                cleanup_evidence,
                 listener: Some(listener_thread),
             }
         }
@@ -7205,18 +7249,31 @@ mod tests {
 
         fn release(&self) {
             let (released, condition) = &*self.released;
-            *released.lock().unwrap() = true;
+            *released.lock().unwrap_or_else(|e| e.into_inner()) = true;
             condition.notify_all();
         }
     }
 
     impl Drop for RedisResponseDelayProxy {
         fn drop(&mut self) {
-            self.release();
             self.stop.store(true, Ordering::SeqCst);
-            let _ = TcpStream::connect(self.address);
+            // Registration and cancellation share one lock: even a connection
+            // finishing concurrently with Drop cannot escape shutdown.
+            self.sockets
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .stop();
+            self.release();
             if let Some(listener) = self.listener.take() {
-                let _ = listener.join();
+                let joined = listener.join();
+                let evidence = match joined {
+                    Ok((count, panicked)) => serde_json::json!({
+                        "listener_joined": true, "handlers_joined": count,
+                        "handler_panics": panicked,
+                    }),
+                    Err(_) => serde_json::json!({"listener_joined": false}),
+                };
+                let _ = fs::write(&self.cleanup_evidence, evidence.to_string());
             }
         }
     }
@@ -7236,13 +7293,24 @@ mod tests {
         marker: PathBuf,
         target: RedisResponseDelayTarget,
         released: Arc<(Mutex<bool>, Condvar)>,
-        claimed: Arc<AtomicBool>,
-        matching_responses: Arc<AtomicUsize>,
+        claim_state: (Arc<AtomicBool>, Arc<AtomicUsize>),
+        sockets: Arc<Mutex<ProxySockets>>,
     ) {
-        let Ok(mut server) = TcpStream::connect(upstream) else {
+        let (claimed, matching_responses) = claim_state;
+        let Ok(mut server) = TcpStream::connect_timeout(&upstream, StdDuration::from_secs(1))
+        else {
             eprintln!("RESP proxy failed to connect upstream {upstream}");
             return;
         };
+        if !sockets
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .register(&server)
+            .unwrap_or(false)
+        {
+            let _ = server.shutdown(Shutdown::Both);
+            return;
+        }
         loop {
             let request = match read_resp_frame(&mut client) {
                 Ok(Some(frame)) => frame,
@@ -7305,6 +7373,72 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn nrg01_proxy_cleanup_joins_idle_withheld_and_blocked_io_handlers() {
+        for mode in ["idle-client", "blocked-upstream", "withheld-response"] {
+            let control = temp_directory(mode);
+            let marker = control.join("response-withheld");
+            let upstream = TcpListener::bind("127.0.0.1:0").unwrap();
+            upstream.set_nonblocking(true).unwrap();
+            let proxy = RedisResponseDelayProxy::start(
+                &format!("redis://{}/", upstream.local_addr().unwrap()),
+                marker.clone(),
+                RedisResponseDelayTarget::AttachManifestGet,
+            );
+            let mut client = TcpStream::connect(redis_url_socket_address(proxy.url())).unwrap();
+            client
+                .set_read_timeout(Some(StdDuration::from_secs(1)))
+                .unwrap();
+            let deadline = Instant::now() + StdDuration::from_secs(2);
+            let mut server = loop {
+                match upstream.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                        assert!(Instant::now() < deadline, "proxy did not connect");
+                        std::thread::sleep(StdDuration::from_millis(2));
+                    }
+                    Err(e) => panic!("test upstream accept: {e}"),
+                }
+            };
+            server.set_nonblocking(false).unwrap();
+            server
+                .set_read_timeout(Some(StdDuration::from_secs(1)))
+                .unwrap();
+            if mode != "idle-client" {
+                client
+                    .write_all(
+                        &redis::cmd("GET")
+                            .arg(crate::STAGE8B_P1E_DEPLOYMENT_MANIFEST_KEY)
+                            .get_packed_command(),
+                    )
+                    .unwrap();
+                assert!(read_resp_frame(&mut server).unwrap().is_some());
+            }
+            if mode == "withheld-response" {
+                server.write_all(b"+OK\r\n").unwrap();
+                while !marker.exists() {
+                    assert!(Instant::now() < deadline, "response was not withheld");
+                    std::thread::sleep(StdDuration::from_millis(2));
+                }
+            }
+            let stopped = Instant::now();
+            // Both peers remain alive. Teardown must actively close its own
+            // endpoints, not wait for the test/Redis to drop them first.
+            drop(proxy);
+            assert!(stopped.elapsed() < StdDuration::from_secs(2), "{mode}");
+            let evidence: serde_json::Value = serde_json::from_slice(
+                &fs::read(marker.with_extension("proxy-cleanup.json")).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(evidence["listener_joined"], true);
+            assert_eq!(evidence["handlers_joined"], 1);
+            assert_eq!(evidence["handler_panics"], 0);
+            assert_eq!(client.read(&mut [0_u8; 1]).unwrap(), 0);
+            drop(server);
+            fs::remove_dir_all(control).unwrap();
+        }
     }
 
     fn read_resp_frame(stream: &mut TcpStream) -> io::Result<Option<Vec<u8>>> {
@@ -7481,6 +7615,77 @@ mod tests {
             .unwrap()
     }
 
+    /// Owns only this test's child. File-backed output cannot fill a pipe and
+    /// block reap. Drop does not panic or hide the original assertion.
+    struct ProcessTestChild {
+        child: Child,
+        evidence: PathBuf,
+    }
+
+    impl ProcessTestChild {
+        fn spawn(mut command: Command) -> Self {
+            let evidence = match std::env::var_os("STAGE8B_PROCESS_TEST_EVIDENCE_DIR") {
+                Some(root) => {
+                    let path = PathBuf::from(root).join(uuid::Uuid::new_v4().simple().to_string());
+                    fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
+                    path
+                }
+                None => temp_directory("child-evidence"),
+            };
+            let stdout = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(evidence.join("stdout.txt"))
+                .unwrap();
+            let stderr = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(evidence.join("stderr.txt"))
+                .unwrap();
+            let child = command.stdout(stdout).stderr(stderr).spawn().unwrap();
+            eprintln!(
+                "process-test-child pid={} evidence={}",
+                child.id(),
+                evidence.display()
+            );
+            Self { child, evidence }
+        }
+    }
+
+    impl std::ops::Deref for ProcessTestChild {
+        type Target = Child;
+        fn deref(&self) -> &Child {
+            &self.child
+        }
+    }
+
+    impl std::ops::DerefMut for ProcessTestChild {
+        fn deref_mut(&mut self) -> &mut Child {
+            &mut self.child
+        }
+    }
+
+    impl Drop for ProcessTestChild {
+        fn drop(&mut self) {
+            let status = match self.child.try_wait() {
+                Ok(Some(status)) => Ok(status),
+                _ => {
+                    let _ = self.child.kill();
+                    self.child.wait()
+                }
+            };
+            let evidence = serde_json::json!({
+                "pid": self.child.id(), "reaped": status.is_ok(),
+                "exit_code": status.as_ref().ok().and_then(|s| s.code()),
+                "signal": status.as_ref().ok().and_then(|s| s.signal()),
+                "parent_unwinding": std::thread::panicking(),
+            });
+            let _ = fs::write(self.evidence.join("cleanup.json"), evidence.to_string());
+        }
+    }
+
     fn spawn_production_startup_fixture_child(
         redis_url: &str,
         parent: &Path,
@@ -7488,7 +7693,7 @@ mod tests {
         credentials: &Path,
         phase: &str,
         manifest_sha256: &str,
-    ) -> Child {
+    ) -> ProcessTestChild {
         let mut command = Command::new(std::env::current_exe().unwrap());
         command
             .arg("--ignored")
@@ -7501,10 +7706,8 @@ mod tests {
             .env(PROCESS_PRODUCTION_PHASE, phase)
             .env(PROCESS_FIXTURE_MANIFEST_SHA256, manifest_sha256)
             .env(PROCESS_FIXTURE_CREDENTIALS, credentials)
-            .env("CREDENTIALS_DIRECTORY", credentials)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        command.spawn().unwrap()
+            .env("CREDENTIALS_DIRECTORY", credentials);
+        ProcessTestChild::spawn(command)
     }
 
     fn wait_for_process_fixture(child: &mut Child, ready: &Path) {
@@ -8150,9 +8353,72 @@ mod tests {
 
     #[tokio::test]
     async fn production_heartbeat_turns_draining_while_ready_poll_response_is_withheld() {
+        production_heartbeat_witness(None).await;
+    }
+
+    // Explicitly invoked by the negative control, never a replacement for the
+    // positive witness. Its real process exit must remain a failing exit 101.
+    #[tokio::test]
+    #[ignore]
+    async fn nrg01_early_failure_fixture_child() {
+        let control = PathBuf::from(std::env::var_os("STAGE8B_NRG01_CONTROL_DIR").unwrap());
+        production_heartbeat_witness(Some(&control)).await;
+    }
+
+    #[test]
+    fn nrg01_early_failure_preserves_panic_reaps_child_and_joins_proxy() {
+        let control = temp_directory("nrg01-early-failure");
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--ignored",
+                "--exact",
+                "stage8b_p1e_process::tests::nrg01_early_failure_fixture_child",
+                "--nocapture",
+            ])
+            .env("STAGE8B_NRG01_CONTROL_DIR", &control);
+        let mut child = ProcessTestChild::spawn(command);
+        let started = Instant::now();
+        let status = wait_for_process_exit(&mut child);
+        assert_eq!(status.code(), Some(101));
+        assert_eq!(status.signal(), None);
+        assert!(started.elapsed() < StdDuration::from_secs(15));
+        let stderr = fs::read_to_string(child.evidence.join("stderr.txt")).unwrap();
+        assert!(stderr.contains("P1-NRG01 forced early assertion before SIGTERM"));
+        let early: serde_json::Value =
+            serde_json::from_slice(&fs::read(control.join("early-failure.json")).unwrap()).unwrap();
+        let owned_pid = i32::try_from(early["pid"].as_u64().unwrap()).unwrap();
+        let cleanup_path = Path::new(early["evidence"].as_str().unwrap()).join("cleanup.json");
+        let cleanup: serde_json::Value =
+            serde_json::from_slice(&fs::read(&cleanup_path).unwrap()).unwrap();
+        assert_eq!(cleanup["reaped"], true);
+        assert_eq!(cleanup["parent_unwinding"], true);
+        assert_eq!(unsafe { libc::kill(owned_pid, 0) }, -1);
+        assert_eq!(io::Error::last_os_error().raw_os_error(), Some(libc::ESRCH));
+        let proxy_path = control.join("second-ready-poll-response-withheld.proxy-cleanup.json");
+        let proxy: serde_json::Value =
+            serde_json::from_slice(&fs::read(&proxy_path).unwrap()).unwrap();
+        assert_eq!(proxy["listener_joined"], true);
+        assert!(proxy["handlers_joined"].as_u64().unwrap() > 0);
+        assert_eq!(proxy["handler_panics"], 0);
+        fs::copy(
+            cleanup_path,
+            child.evidence.join("owned-child-cleanup.json"),
+        )
+        .unwrap();
+        fs::copy(proxy_path, child.evidence.join("proxy-cleanup.json")).unwrap();
+        eprintln!(
+            "P1-NRG01 negative-control: expected exit=101; child reaped; handlers joined\n{stderr}"
+        );
+        fs::remove_dir_all(control).unwrap();
+    }
+
+    async fn production_heartbeat_witness(early_failure: Option<&Path>) {
         let redis = RedisServer::start().await;
         let parent = temp_directory("production-ready-poll-draining");
-        let control = temp_directory("production-ready-poll-draining-control");
+        let control = early_failure
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| temp_directory("production-ready-poll-draining-control"));
         let credentials = production_process_credentials("production-ready-poll-draining-creds");
         seed_adopted_production_process_fixture(&parent);
         let manifest_sha256 =
@@ -8180,13 +8446,28 @@ mod tests {
         wait_for_process_fixture(&mut child, &ready);
         assert_eq!(fs::read_to_string(&ready).unwrap(), target.marker());
 
+        if early_failure.is_some() {
+            fs::write(
+                control.join("early-failure.json"),
+                serde_json::json!({
+                    "pid": child.id(), "evidence": child.evidence,
+                })
+                .to_string(),
+            )
+            .unwrap();
+            panic!("P1-NRG01 forced early assertion before SIGTERM");
+        }
+
         let mut connection =
             redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
                 .await
                 .unwrap();
         let before_signal =
             telemetry_phases(&mut connection, &namespace.readiness_stream, "phase").await;
-        assert!(before_signal.iter().any(|phase| phase == "paper_ready"));
+        assert!(
+            before_signal.iter().any(|phase| phase == "paper_ready"),
+            "PaperReady missing after withheld-response marker; observed phases: {before_signal:?}"
+        );
 
         assert_eq!(
             unsafe { libc::kill(child.id().try_into().unwrap(), libc::SIGTERM) },
