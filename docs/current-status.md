@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-09-29.
+Status date: 2026-09-30.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -32,16 +32,25 @@ VPS inspection.
 
 The [bounded-failure source correction](stage-8/stage8b-p1f-o2-bounded-failure-correction.md)
 is independently SOURCE ACCEPTED at `590304af44830197704503c8ebc67329693ac75b`.
-P1-O2REC01 and P2-O2DIAG01 are closed. The current slice is an
-[authority successor and isolated recovery artifact](stage-8/stage8b-p1f-o2-terminal-recovery-package.md)
-with no Rust/Cargo or strategy changes. Local authority checks and an offline
-Linux/amd64 build are preparation gates; fresh GitHub CI, artifact review and
-explicit target-execution permission remain separate requirements. The old
-installation manifest and control-root/history must stay intact. The candidate
-operator is staged separately, never substituted under the old installed hash.
-No VPS/FINAM contact is authorized by this preparation. O2 remains HOLD until
-the old terminal receipt is committed and reread under separate authorization.
-Only then prepare the updated full O2 installation and request a new bounded run.
+P1-O2REC01 and P2-O2DIAG01 are closed. The recovery artifact at `43d5f4e`
+was accepted, its required CI passed, and PR #10 merged as
+`589b80144adaa4c615aaa94781035d5a6af64c71`. The separately authorized old-phase
+terminal recovery is independently **OPERATIONAL TERMINAL RECOVERY EVIDENCE
+ACCEPTED**: one cleanup exit 0, `EXPIRED`, generation 1 / sequence 2 at
+`2026-09-30T06:07:41Z`, exact returned/durable receipt and history validation.
+P0, installed bytes and selector were unchanged; P1 stopped. These are retained
+observations, not a new live snapshot. The old `BarsTruth` cause remains unknown;
+**O2 itself is not passed**.
+
+The current preparation slice is the
+[full successor artifact and terminal-preserving update](stage-8/stage8b-p1f-o2-terminal-successor.md).
+Three binaries are built from exact accepted merge `589b801`; the existing
+genesis-bound installation ID is retained, with a new artifact/installation hash.
+The bounded updater preserves all terminal history and does not reload/start,
+sign, claim or activate. Linux/systemd lock-mount qualification and update/rollback
+fixtures are local evidence only. Artifact/update review and explicit operational
+installation permission precede any VPS mutation; a fresh bounded O2 is separately
+authorized after that. No new recovery framework or strategy change is required.
 
 ### Earlier accepted milestones (historical boundaries)
 

@@ -1,0 +1,184 @@
+{
+  "artifact_name": "moex-trading-project-589b801-o2-terminal-successor-artifact.zip",
+  "artifact_sha256": "a671a9b6e238ae9ec4540b29f413ea4a15fedf00c1d4744c5aa20eb9e3d48923",
+  "compiled_source_ref": "589b80144adaa4c615aaa94781035d5a6af64c71",
+  "domain": "moex.o2.terminal-update.v1",
+  "execution_authorized": false,
+  "new_manifest_sha256": "295c49dffc688edbe1e5d1b79eaf0e9773b512db5150cf2180a51aab16f0247e",
+  "old_inventory": {
+    "activation_performed": false,
+    "artifact_ref": "7196aaac7c0bf45a03d90742d8ef483078649de6",
+    "artifact_sha256": "1069cbeb597e902126ebdb0b2c01ef52dca45420dfe2a69a6963b939de33ac4a",
+    "custody_helper_sha256": "df35bd602435441f874fd3aa586e23c698933b59ccc297cef177640f50e32e5e",
+    "daemon_reload_performed": false,
+    "directories": {
+      "/etc/moex-finam-p1-paper/o2": {
+        "group": "service",
+        "mode": "0750",
+        "owner": "root"
+      },
+      "/var/lib/moex-finam-p1-paper-control": {
+        "group": "service",
+        "mode": "0750",
+        "owner": "root"
+      },
+      "/var/lib/moex-finam-p1-paper-o2-staging": {
+        "group": "root",
+        "mode": "0700",
+        "owner": "root"
+      }
+    },
+    "domain": "moex.stage8b.p1f.o2.installation.v1",
+    "finam_contact_performed": false,
+    "installation_id": "stage8b-p1f-o2-baseline07-7196aaa-v1",
+    "installer_sha256": "7cd86ea01aa3214aa0baec599ffc4606337a40f8146e48da7f43afe58670747c",
+    "payload": {
+      "/etc/moex-finam-p1-paper/o2/authority-public-key.hex": {
+        "group": "service",
+        "mode": "0440",
+        "owner": "root",
+        "sha256": "b92f0006e6f8571cf4ce13f7cb32d460a4e633228a5015b1d1d2ebfb0261886b",
+        "size": 65
+      },
+      "/etc/moex-finam-p1-paper/o2/materialization-policy.json": {
+        "group": "service",
+        "mode": "0440",
+        "owner": "root",
+        "sha256": "e9ea92697ef76bd3a3c48392438cca6c1afb65806be8a07ddddf838e04477993",
+        "size": 334
+      },
+      "/etc/moex-finam-p1-paper/o2/source-template.json": {
+        "group": "service",
+        "mode": "0440",
+        "owner": "root",
+        "sha256": "17a2112a59d85008a7eabe6d2f46af582a865d92a1a07f2e81f22869ce379f2d",
+        "size": 54327
+      },
+      "/etc/moex-finam-p1-paper/o2/supervisor.template.json": {
+        "group": "service",
+        "mode": "0440",
+        "owner": "root",
+        "sha256": "489cbaa7ca1c88f2cffe64146e8251b249a2bde7155d8865aa34d6ccb28ff121",
+        "size": 1813
+      },
+      "/etc/systemd/system/moex-finam-p1-paper-bootstrap-recover@.service": {
+        "group": "root",
+        "mode": "0644",
+        "owner": "root",
+        "sha256": "022e71072b86487f34b63015cf70bb4a1d0fb1e31006dd783f2fa385668e2987",
+        "size": 1033
+      },
+      "/etc/systemd/system/moex-finam-p1-paper-bootstrap.service": {
+        "group": "root",
+        "mode": "0644",
+        "owner": "root",
+        "sha256": "f5f6db6e08d45f39fa3976701f78526a55e1485f3398f4140d13eaba1b2bc62b",
+        "size": 1003
+      },
+      "/etc/systemd/system/moex-finam-p1-paper-o2-bootstrap-runner.service": {
+        "group": "root",
+        "mode": "0644",
+        "owner": "root",
+        "sha256": "545e7ff1667529012eaed2a0793319565c1865d201a204b187597429225c94ff",
+        "size": 1139
+      },
+      "/etc/systemd/system/moex-finam-p1-paper.service": {
+        "group": "root",
+        "mode": "0644",
+        "owner": "root",
+        "sha256": "7e260e3d46f94dbea93d48aa39d1c16bf8fd6f14aa76cc9be2b197e7ab4f536f",
+        "size": 1206
+      },
+      "/etc/systemd/system/moex-finam-p1f-o2-materializer.service": {
+        "group": "root",
+        "mode": "0644",
+        "owner": "root",
+        "sha256": "e06c35538b477cb82e3ca202fe52c0c00db4acdd895eb395657b6ed0fda93dff",
+        "size": 1267
+      },
+      "/usr/lib/sysusers.d/moex-finam-p1-paper.conf": {
+        "group": "root",
+        "mode": "0644",
+        "owner": "root",
+        "sha256": "efaa190119271332ed3aedc14b5fd45cdfc216c529e8eff8a7f0a956e6ee9d90",
+        "size": 80
+      },
+      "/usr/lib/tmpfiles.d/moex-finam-p1-paper.conf": {
+        "group": "root",
+        "mode": "0644",
+        "owner": "root",
+        "sha256": "a9942c2adb779ea8e42e91e6271c9e8e9e4fcc3e919f23fb72243aab4b0379a6",
+        "size": 522
+      },
+      "/usr/local/libexec/moex/stage8b-p1-paper-supervisor": {
+        "group": "root",
+        "mode": "0755",
+        "owner": "root",
+        "sha256": "3e336dffa2446f79318fb95a3f6135fa96dd3abeef6ad2dd47494c68b9415f82",
+        "size": 13115456
+      },
+      "/usr/local/libexec/moex/stage8b-p1f-o2-materializer": {
+        "group": "root",
+        "mode": "0755",
+        "owner": "root",
+        "sha256": "00171bed636f12a88f45187ed4408ab21ab42d58158e92a1ebc3610d0586b083",
+        "size": 8332904
+      },
+      "/usr/local/libexec/moex/stage8b-p1f-o2-operator": {
+        "group": "root",
+        "mode": "0755",
+        "owner": "root",
+        "sha256": "8a048913895b31737796fb0f78fd8917ef702c8a8aaae08114c4e3268f8393c2",
+        "size": 3387256
+      },
+      "/usr/local/share/moex/stage8b-p1e/installation-v1.json": {
+        "group": "root",
+        "mode": "0644",
+        "owner": "root",
+        "sha256": "ef2ed23ccb749cd57a2b185cd8ee1e8ef1627d6719a39e24b0cc26d417e6060e",
+        "size": 1635
+      }
+    },
+    "predecessor_manifest_sha256": "dab3e1426e40acb5101a8743cce5aac5aec8d3ae54d81fb73ac33c9bb18d464f",
+    "redis_contact_performed": false,
+    "schema_version": 1,
+    "target_id": "stage8b-p1f-isolated-vps-1"
+  },
+  "old_manifest_sha256": "316c2376cf4d02a7f0ee3837e96d93bbf2cb1b2b8e3aabe10205f783f088aad8",
+  "preserved_installation_id": "stage8b-p1f-o2-baseline07-7196aaa-v1",
+  "schema_version": 1,
+  "target_mutation_performed": false,
+  "terminal_evidence_sha256": "828fb41cabc590054590a1744587f71cc84b603fff5d44d3021fcdef841e813b",
+  "updates": {
+    "/etc/systemd/system/moex-finam-p1f-o2-materializer.service": {
+      "new_sha256": "faed24b932ae568283abf4498f9ef34493a2b56b26f22effddecb3d69b9a1b3a",
+      "old_sha256": "e06c35538b477cb82e3ca202fe52c0c00db4acdd895eb395657b6ed0fda93dff",
+      "size": 1470
+    },
+    "/usr/local/libexec/moex/stage8b-p1-paper-supervisor": {
+      "new_sha256": "0db7104bfaeccfade66b396f92a93e31d9d064fdbf59d2be3fae17d2112667cc",
+      "old_sha256": "3e336dffa2446f79318fb95a3f6135fa96dd3abeef6ad2dd47494c68b9415f82",
+      "size": 13120600
+    },
+    "/usr/local/libexec/moex/stage8b-p1f-o2-materializer": {
+      "new_sha256": "decfee2cb4a1c4af818c747931799df3ea348855b9ad88b0e3a4e499a7fcf4fd",
+      "old_sha256": "00171bed636f12a88f45187ed4408ab21ab42d58158e92a1ebc3610d0586b083",
+      "size": 8760912
+    },
+    "/usr/local/libexec/moex/stage8b-p1f-o2-operator": {
+      "new_sha256": "54552f6fa6cf6e9d971538d39e81866a3a458803d4f08d4c52dc1435a016db3f",
+      "old_sha256": "8a048913895b31737796fb0f78fd8917ef702c8a8aaae08114c4e3268f8393c2",
+      "size": 3439512
+    },
+    "/usr/local/share/moex/stage8b-p1e/installation-o2-v1.json": {
+      "new_sha256": "295c49dffc688edbe1e5d1b79eaf0e9773b512db5150cf2180a51aab16f0247e",
+      "old_sha256": "316c2376cf4d02a7f0ee3837e96d93bbf2cb1b2b8e3aabe10205f783f088aad8",
+      "size": 3916
+    },
+    "/usr/local/share/moex/stage8b-p1e/installation-v1.json": {
+      "new_sha256": "3f90bf158877efc622b1d354108d3de4712444ed5059acdeb3cf6869a795b25d",
+      "old_sha256": "ef2ed23ccb749cd57a2b185cd8ee1e8ef1627d6719a39e24b0cc26d417e6060e",
+      "size": 1635
+    }
+  }
+}

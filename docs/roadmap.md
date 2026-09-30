@@ -27,16 +27,17 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Current as of 2026-09-29: O2 installation `60bc482` and the subsequent bounded
-failure evidence are accepted; **O2 HOLD**, old claim still ACTIVE at the retained
-post-deadline observation. The bounded-failure source correction is independently
-SOURCE ACCEPTED at `590304a`. The immediate slice is the
-[authority/recovery package](stage-8/stage8b-p1f-o2-terminal-recovery-package.md).
-Order: authority + fresh CI → artifact provenance and narrow recovery delivery
-review → explicitly authorized terminal recovery of old claim → exact receipt
-reread → separately authorized new bounded O2 → O3/O4 paper sessions and ALOR
-comparison. No history deletion, deadline extension, new claim over ACTIVE,
-FINAM execution or runtime-live is permitted by the source correction.
+Current as of 2026-09-30: old-phase terminal recovery is independently accepted;
+the retained frontier is **EXPIRED, generation 1 / sequence 2**, not ACTIVE.
+Source correction `590304a`, recovery artifact `43d5f4e`, PR #10 merge `589b801`
+and its green required CI are accepted predecessors. **O2 itself remains HOLD**;
+the earlier BarsTruth cause is unknown. The immediate slice is the
+[full successor artifact / terminal-preserving update](stage-8/stage8b-p1f-o2-terminal-successor.md).
+Order: full artifact + isolated lock-mount proof + narrow update/rollback review
+→ separately authorized non-activating installation preserving terminal history
+→ separately authorized fresh bounded O2 → O3/O4 paper windows and ALOR comparison
+→ separately accepted live micro. No history deletion, deadline extension, new
+genesis, FINAM writes or runtime-live is permitted by this preparation.
 
 ### Historical entry and accepted dependencies
 
