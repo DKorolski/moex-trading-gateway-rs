@@ -1,6 +1,6 @@
 # P2 — short-history calendar / transport range alignment
 
-Date: 2026-10-01. Status: SOURCE CORRECTION REVIEW CANDIDATE; no activation.
+Date: 2026-10-01. Status: SOURCE ACCEPTED at `8e7a647`; no activation.
 Baseline: `c8fe58b7b8b8945d248e69108f46e62d0c068330`, PR #11.
 Finding: [review thread](https://github.com/DKorolski/moex-trading-gateway-rs/pull/11#discussion_r4148517519).
 
@@ -54,8 +54,11 @@ Retain the initial RED and final exact-tree gate separately; only actual final
 results count. fmt, full canonical Clippy, gateway regression, affected runtime
 source tests and authority + 45 negatives accompany the immutable review ZIP.
 
-Push to the same PR for fresh CI. Independent narrow source acceptance and
-required green checks precede one history-preserving merge. Then prepare the
-new exact-baseline O2 artifact for review, not another recovery framework.
+Independent review `FINAM_8e7a647_CALENDAR_RANGE_REVIEW_2026-10-01.md`
+(SHA-256 `a4f025e8b084f494e2b85c243d79ca765fcaa98d044332d647972dd97f651d25`)
+accepted the source and closed this P2. Fresh required checks passed in run
+`36869369875`; the thread was resolved normally and PR #11 merged as
+`ca1e5da7ea41eec219bce1cfe2bdf4b8d63d9029`, with the same Git tree as `8e7a647`.
+Next is the new exact-baseline O2 artifact for review, not another recovery framework.
 No VPS, operational Redis, FINAM writes, installation or O2 execution is
 authorized here; all terminal history must remain intact.

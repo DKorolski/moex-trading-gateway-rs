@@ -37,8 +37,8 @@ The [test-only cleanup correction](stage-8/stage8b-p1f-nrg01-harness-correction.
 has accepted exact-tree qualification: complete durable all-features 388 passed,
 default process 42 passed, exact witness 3/3, authority negatives 45/45, fmt and
 canonical Clippy PASS; production semantics are unchanged. Fresh required GitHub
-`rust` and `redis-smoke` still precede one history-preserving merge of this
-completed block. Exact artifact replacement, installation and O2 execution remain
+`rust` and `redis-smoke` passed before the history-preserving merge of this
+completed block (see the October 1 update below). Exact artifact replacement, installation and O2 execution remain
 separate gates. The retained
 2148 tests and 38/38 frozen model rounds are source evidence, not FINAM live fills.
 
@@ -47,8 +47,15 @@ in run `36765599251`, but merge was blocked by a new P2 calendar/fetch-range
 finding. The owner authorized the [narrow range correction](stage-8/stage8b-p1f-short-history-range-correction.md)
 in the same PR: calendar age remains 14 days / four prior sessions; policy and
 collector share a positive <=15-day transport envelope for intraday coverage.
-This new source delta is a review candidate and requires fresh CI; earlier
-acceptances remain intact. No merge, installation or activation is claimed.
+The correction `8e7a6472e8b90ccd98d8dca134f09e7fd77c6bdb` is independently
+**SOURCE ACCEPTED** in `FINAM_8e7a647_CALENDAR_RANGE_REVIEW_2026-10-01.md`
+(SHA-256 `a4f025e8b084f494e2b85c243d79ca765fcaa98d044332d647972dd97f651d25`).
+Fresh CI run `36869369875` passed both required jobs and the corrected discussion
+was resolved normally. PR #11 merged as `ca1e5da7ea41eec219bce1cfe2bdf4b8d63d9029`;
+its tree equals the accepted source. Local and origin main were synchronized.
+The [offline no-riskgate artifact preparation](stage-8/stage8b-p1f-o2-no-riskgate-artifact-preparation.md)
+uses that exact build ref. It does not install files, issue operational inputs,
+activate a phase or reopen source semantics. Prior acceptance remains intact.
 
 The [narrow O2 recovery source correction](stage-8/stage8b-p1f-o2-recovery-source-correction.md)
 is independently SOURCE ACCEPTED at `5b8f878833dbf71fa7614152a4a5fb03cbf40b65`.
@@ -95,8 +102,7 @@ These are retained observations, not a fresh VPS inspection. Evidence ZIP
 `527d20dbc23079d9151f6868c81cab135b2db5c53fac2dce24fce64a83cac2d7`, is prepared;
 independent acceptance of this attempt is pending. **O2 remains HOLD.**
 
-Next: complete narrow authority closure review and fresh CI, then the exact
-no-riskgate artifact/update and separate operational
+Next: finish the exact no-riskgate artifact/update review and separate operational
 gates. Do not retry the old long-history contract or loosen required recent-bar
 quality checks. No new recovery framework is required.
 
