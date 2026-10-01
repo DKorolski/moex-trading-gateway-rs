@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-09-30.
+Status date: 2026-10-01.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -41,6 +41,14 @@ canonical Clippy PASS; production semantics are unchanged. Fresh required GitHub
 completed block. Exact artifact replacement, installation and O2 execution remain
 separate gates. The retained
 2148 tests and 38/38 frozen model rounds are source evidence, not FINAM live fills.
+
+2026-10-01 update: PR #11 head `c8fe58b` passed required `rust` and `redis-smoke`
+in run `36765599251`, but merge was blocked by a new P2 calendar/fetch-range
+finding. The owner authorized the [narrow range correction](stage-8/stage8b-p1f-short-history-range-correction.md)
+in the same PR: calendar age remains 14 days / four prior sessions; policy and
+collector share a positive <=15-day transport envelope for intraday coverage.
+This new source delta is a review candidate and requires fresh CI; earlier
+acceptances remain intact. No merge, installation or activation is claimed.
 
 The [narrow O2 recovery source correction](stage-8/stage8b-p1f-o2-recovery-source-correction.md)
 is independently SOURCE ACCEPTED at `5b8f878833dbf71fa7614152a4a5fb03cbf40b65`.

@@ -50,6 +50,12 @@ Fresh required GitHub `rust`/`redis-smoke` precede one history-preserving merge
 of the completed no-riskgate block. Runtime semantics are unchanged by the
 test-harness correction; no additional source redesign is required.
 
+2026-10-01: required CI passed for PR #11/c8fe58b (run `36765599251`). A new P2
+thread blocked merge: calendar session age 14 was inconsistent with a 14*24h
+fetch cap. The owner authorized a [two-file materializer correction](stage-8/stage8b-p1f-short-history-range-correction.md)
+and boundary tests in that same PR, without changing four-session warmup or
+strategy semantics. Narrow source review and fresh CI remain pending for it.
+
 Owner-approved working cadence (2026-09-30): commit finished local changes,
 push working branches for preservation, and review meaningful functional
 boundaries. Merge accepted blocks before they become artifact/install baselines,

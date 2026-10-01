@@ -54,7 +54,7 @@
     "stage8b_s_authorized": false
   },
   "governance_control_plane_manifest": {
-    "aggregate_sha256": "ef4cfa5cf47181396e13f8f1003ba3f010a86420a2a2a3bdd791ac6c150de284",
+    "aggregate_sha256": "6f3bb0e8fc66ea5a761b140901c58aa7e49487ea9744bc2b4e92522132fa2fc5",
     "entries": {
       ".github/workflows/ci.yml": {
         "mode": "100644",
@@ -68,13 +68,13 @@
       },
       "docs/current-status.md": {
         "mode": "100644",
-        "sha256": "48329c470464dbd954356ad62ebbfecbc20f180cf038e50aab199bd6ac768948",
-        "size": 147458
+        "sha256": "24041bd2ef6d5ae66ff1e303f5ee522b7d297006b0b7dac5d484daa6585bd304",
+        "size": 148041
       },
       "docs/roadmap.md": {
         "mode": "100644",
-        "sha256": "7d397c6a54e06924226f5f220ee2587b9fda6f1fc48f3ae2bb23ec2a96d73f3f",
-        "size": 35858
+        "sha256": "4741d80502d784ac88fb173fef8423ab24418a2ab1a018664ff86aeb16034c53",
+        "size": 36293
       },
       "docs/stage-5/stage5f-authority-rotation.json": {
         "mode": "100644",
@@ -176,8 +176,8 @@
   },
   "negative_cases": 45,
   "production_code_manifest": {
-    "aggregate_sha256": "0d35b814adccdb83252b42ea259ecba96e6e0c587d8d896c74825a3c4bafb0bc",
-    "content_sha256": "7580b251c4b39c980574edf81f78e4e64bcc487e10e43ee4d672c017528cb9e4",
+    "aggregate_sha256": "386d8e14f3e8721dac032a505dd3b5e03b4790272bafe81b9364b3dbe9e8da06",
+    "content_sha256": "8b08cb2d37039af497246677e22930e410d205137f6015085fd5024557d35c79",
     "entries": {
       "Cargo.lock": {
         "mode": "100644",
@@ -416,8 +416,8 @@
       },
       "crates/finam-gateway/src/bin/stage8b-p1f-o2-materializer.rs": {
         "mode": "100644",
-        "sha256": "f0ac1a4bca3d28de64e603889ef3ba31713ddcf2382463aa396cb13feb46699a",
-        "size": 31359
+        "sha256": "38aef08dcb707e193c1067de4f7f1a9c3ec5805b77588ea34cbcbf818b6cb798",
+        "size": 32494
       },
       "crates/finam-gateway/src/bin/stage8b-r2a6-source-adapter.rs": {
         "mode": "100644",
@@ -571,8 +571,8 @@
       },
       "crates/finam-gateway/src/stage8b_p1f_o2_materializer.rs": {
         "mode": "100644",
-        "sha256": "97440ae381f86eb93cfa4b906aa4928424b3dc9f8c7b0c8b5f18e67e09e3ae7a",
-        "size": 91385
+        "sha256": "0cd1c184c6029b20d7b41bf940a5311ac0deeacee1f603e0220dfaac05802184",
+        "size": 96152
       },
       "crates/finam-gateway/src/stage8b_r2a7_source_adapter.rs": {
         "mode": "100644",

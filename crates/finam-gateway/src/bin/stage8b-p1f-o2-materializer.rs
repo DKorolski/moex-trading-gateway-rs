@@ -243,11 +243,8 @@ fn validate_policy(policy: &MaterializationPolicyV1) -> Result<(), String> {
     let end = canonical_time(&policy.bars_end_utc)?;
     let range = end.signed_duration_since(start);
     let valid_range = if profile.no_riskgate() {
-        range > chrono::Duration::zero()
-            && range
-                <= chrono::Duration::days(
-                    runtime_durable_service::STAGE8B_P1E_FIRST_BOOT_SHORT_HISTORY_MAX_DAYS,
-                )
+        finam_gateway::Stage8bP1fO2MaterializedSourceV1::validate_bars_interval(profile, start, end)
+            .is_ok()
     } else {
         range >= chrono::Duration::days(MIN_BARS_RANGE_DAYS)
             && range <= chrono::Duration::days(MAX_BARS_RANGE_DAYS)
@@ -541,6 +538,29 @@ mod tests {
     }
 
     #[test]
+    fn short_policy_accepts_age_14_session_with_full_intraday_tail() {
+        let mut template = short_template();
+        let earliest = &mut template["history_coverage"]["sessions"][0];
+        earliest["session_date"] = json!("2026-09-14");
+        for window in earliest["windows"].as_array_mut().unwrap() {
+            for field in ["first_close_time_utc", "last_close_time_utc"] {
+                window[field] = json!(window[field].as_i64().unwrap() - 8 * 86400);
+            }
+        }
+        let bytes = serde_json::to_vec(&template).unwrap();
+        let mut policy = short_policy();
+        // Include the first M1 candle of the 07:10 MSK M10 close and the full
+        // candidate day. Age 14 calendar days is not a 14*24-hour fetch span.
+        policy.bars_start_utc = "2026-09-14T04:00:00Z".into();
+        policy.bars_end_utc = "2026-09-28T20:50:00Z".into();
+        assert!(
+            finam_gateway::Stage8bP1fO2MaterializedSourceV1::validate_template_profile(&bytes)
+                .is_ok()
+        );
+        validate_template_policy(&bytes, &policy).unwrap();
+    }
+
+    #[test]
     fn policy_ranges_are_versioned_without_relaxing_legacy_limits() {
         let mut legacy: MaterializationPolicyV1 = serde_json::from_slice(include_bytes!(
             "../../../../docs/stage-8/stage8b-p1f-o2-materialization-policy.json"
@@ -566,7 +586,10 @@ mod tests {
             (0, false),
             (1, true),
             (14 * 86400, true),
-            (14 * 86400 + 1, false),
+            (14 * 86400 + 1, true),
+            (14 * 86400 + 16 * 3600 + 50 * 60, true),
+            (15 * 86400, true),
+            (15 * 86400 + 1, false),
             (180 * 86400, false),
         ] {
             policy.bars_end_utc = (start + chrono::Duration::seconds(seconds))

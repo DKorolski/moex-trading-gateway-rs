@@ -507,6 +507,29 @@ impl Stage8bP1fO2MaterializedSourceV1 {
     ) -> Result<Stage8bP1RuntimeProfileKind, Stage8bP1fO2MaterializerErrorV1> {
         template_profile(bytes)
     }
+
+    /// Shared policy/collector transport bound, with no I/O. Session age is a
+    /// calendar-date difference: age 14 can touch 15 dates including today.
+    /// The extra day covers intraday M1 endpoints, not an extra warmup session.
+    /// Source admission still requires four sessions of age 1..=14.
+    pub fn validate_bars_interval(
+        profile: Stage8bP1RuntimeProfileKind,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<(), Stage8bP1fO2MaterializerErrorV1> {
+        let maximum = if profile.no_riskgate() {
+            Duration::days(
+                runtime_durable_service::STAGE8B_P1E_FIRST_BOOT_SHORT_HISTORY_MAX_DAYS + 1,
+            )
+        } else {
+            Duration::seconds(MAX_BARS_RANGE_SECONDS)
+        };
+        let range = end.signed_duration_since(start);
+        if range <= Duration::zero() || range > maximum {
+            return Err(Stage8bP1fO2MaterializerErrorV1::Get);
+        }
+        Ok(())
+    }
 }
 
 /// Executes the five accepted O2 GET route kinds and feeds their typed
@@ -526,15 +549,7 @@ pub async fn collect_stage8b_p1f_o2_source_v1(
         let profile = template_profile(source_template_bytes)?;
         let bars_start = parse_canonical_timestamp(bars_start_utc)?;
         let bars_end = parse_canonical_timestamp(bars_end_utc)?;
-        let range_seconds = bars_end.signed_duration_since(bars_start).num_seconds();
-        let maximum = if profile.no_riskgate() {
-            runtime_durable_service::STAGE8B_P1E_FIRST_BOOT_SHORT_HISTORY_MAX_DAYS * 24 * 60 * 60
-        } else {
-            MAX_BARS_RANGE_SECONDS
-        };
-        if range_seconds <= 0 || range_seconds > maximum {
-            return Err(Stage8bP1fO2MaterializerErrorV1::Get);
-        }
+        Stage8bP1fO2MaterializedSourceV1::validate_bars_interval(profile, bars_start, bars_end)?;
         let client = Stage8bP1fO2GetOnlyClientV1::new(account_id)
             .map_err(|_| Stage8bP1fO2MaterializerErrorV1::Get)?;
         let (account, account_observation) = client
@@ -1531,6 +1546,95 @@ mod tests {
     }
 
     #[test]
+    fn short_fetch_envelope_covers_calendar_boundary_without_growing_session_age() {
+        let start = Utc.with_ymd_and_hms(2026, 9, 14, 4, 0, 0).single().unwrap();
+        for (seconds, valid) in [
+            (-1, false),
+            (0, false),
+            (1, true),
+            (14 * 86400, true),
+            (14 * 86400 + 1, true),
+            (14 * 86400 + 16 * 3600 + 50 * 60, true),
+            (15 * 86400, true),
+            (15 * 86400 + 1, false),
+            (180 * 86400, false),
+        ] {
+            assert_eq!(
+                Stage8bP1fO2MaterializedSourceV1::validate_bars_interval(
+                    Stage8bP1RuntimeProfileKind::V2,
+                    start,
+                    start + Duration::seconds(seconds)
+                )
+                .is_ok(),
+                valid,
+                "short {seconds}"
+            );
+        }
+        for (seconds, valid) in [
+            (-1, false),
+            (0, false),
+            (1, true),
+            (400 * 86400, true),
+            (400 * 86400 + 1, false),
+        ] {
+            assert_eq!(
+                Stage8bP1fO2MaterializedSourceV1::validate_bars_interval(
+                    Stage8bP1RuntimeProfileKind::V1,
+                    start,
+                    start + Duration::seconds(seconds)
+                )
+                .is_ok(),
+                valid,
+                "legacy collector {seconds}"
+            );
+        }
+        let mut template = short_template();
+        template["history_coverage"]["sessions"][0] = short_session(14);
+        assert_eq!(
+            template_profile(&serde_json::to_vec(&template).unwrap()).unwrap(),
+            Stage8bP1RuntimeProfileKind::V2
+        );
+        // Both dates are weekdays; rejection is age 15, not a weekend artefact.
+        template["history_coverage"]["candidate_session"] = short_session(29);
+        assert!(template_profile(&serde_json::to_vec(&template).unwrap()).is_err());
+    }
+
+    #[test]
+    fn age_14_intraday_fixture_materializes_and_passes_runtime_source_admission() {
+        let mut template = short_template();
+        template["history_coverage"]["sessions"][0] = short_session(14);
+        let close = Utc
+            .with_ymd_and_hms(2026, 9, 28, 20, 40, 0)
+            .single()
+            .unwrap();
+        let start = Utc.with_ymd_and_hms(2026, 9, 14, 4, 0, 0).single().unwrap();
+        assert!(close - start > Duration::days(14));
+        Stage8bP1fO2MaterializedSourceV1::validate_bars_interval(
+            Stage8bP1RuntimeProfileKind::V2,
+            start,
+            close + Duration::minutes(10),
+        )
+        .unwrap();
+        let bars = short_bars(&template, close.timestamp());
+        let materialized =
+            materialize_short(&template, bars, close + Duration::minutes(1)).unwrap();
+        // materialize_short calls the actual runtime source validator internally.
+        let source: Value = serde_json::from_slice(&materialized.exact_source_bytes).unwrap();
+        let sessions = source["history_coverage"]["sessions"].as_array().unwrap();
+        assert_eq!(sessions.len(), 5); // Four prior sessions + today's prefix.
+        assert_eq!(sessions[0]["session_date"], "2026-09-14");
+        assert_eq!(source["candidate"]["close_time_utc"], close.timestamp());
+        assert_eq!(
+            source["riskgate_history"]["source_mode"],
+            "disabled-bo-only-v1"
+        );
+        assert_eq!(
+            source["riskgate_history"]["session_observations"],
+            json!([])
+        );
+    }
+
+    #[test]
     fn short_materializer_preserves_full_calendar_and_exact_candidate_exclusive_prefix() {
         let template = short_template();
         for (hour, minute, prefix_bars) in [(4, 10, 0), (4, 30, 2), (6, 10, 3), (6, 30, 5)] {
@@ -1804,6 +1908,21 @@ mod tests {
             (
                 serde_json::to_vec(&short_template()).unwrap(),
                 "2026-09-01T00:00:00Z",
+                "2026-09-28T06:30:00Z",
+            ),
+            (
+                serde_json::to_vec(&short_template()).unwrap(),
+                "2026-09-13T06:29:59Z", // New exact cap + one second.
+                "2026-09-28T06:30:00Z",
+            ),
+            (
+                serde_json::to_vec(&short_template()).unwrap(),
+                "2026-09-28T06:30:00Z", // Zero length.
+                "2026-09-28T06:30:00Z",
+            ),
+            (
+                serde_json::to_vec(&short_template()).unwrap(),
+                "2026-09-28T06:30:01Z", // Reversed range.
                 "2026-09-28T06:30:00Z",
             ),
         ] {

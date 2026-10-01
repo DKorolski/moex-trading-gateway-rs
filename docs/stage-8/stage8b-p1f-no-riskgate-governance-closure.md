@@ -95,7 +95,9 @@ Source-plan V3 SHA-256: `d722d70a897578ce93217f34c82dff2a7ed6c6c402a12914b7b862c
 
 Select and review the latest four actual complete sessions and the full current
 day windows at artifact preparation. The dated fixture examples are not deployable.
-The 14-day fetch cap is not a mandate to fetch all 14 days. Missing required
+The historical 14*24h fetch cap has a [narrow P2 successor](stage8b-p1f-short-history-range-correction.md)
+to cover the intraday tail of age-14 sessions. The proposed <=15-day transport
+ceiling is not a mandate to fetch all 15 days; session age stays <=14. Missing required
 recent M1 still fails closed; do not restore the obsolete 121-session requirement
 or infer a clearing break from missing data. No universal calendar service or
 new recovery framework is requested by this closure.
