@@ -57,6 +57,17 @@ The [offline no-riskgate artifact preparation](stage-8/stage8b-p1f-o2-no-riskgat
 uses that exact build ref. It does not install files, issue operational inputs,
 activate a phase or reopen source semantics. Prior acceptance remains intact.
 
+The no-riskgate binary artifact at `64f1fd5d00993c01a3109a2f89c990466ac2f781`
+is independently **BINARY ARTIFACT ACCEPTED** (review SHA-256
+`3366ed7127ca0404d6f96614868c149d132552c999a976859fe2df7d640d8477`).
+The owner authorized local preparation of the [non-activating installation
+package](stage-8/stage8b-p1f-o2-no-riskgate-installation.md): eight exact payload
+replacements, expected FAILED/1/4, retained genesis installation ID and all
+terminal history. Calendar candidate is 2026-10-02, four prior sessions from
+2026-09-28 through 2026-10-01; it is not an execution appointment. The package
+requires independent review and separate installation/phase/O2 permissions.
+No VPS inspection, installation or fresh operational PASS is claimed.
+
 The [narrow O2 recovery source correction](stage-8/stage8b-p1f-o2-recovery-source-correction.md)
 is independently SOURCE ACCEPTED at `5b8f878833dbf71fa7614152a4a5fb03cbf40b65`.
 Both retained account-alias replay and active-manifest selector replacement
@@ -102,8 +113,8 @@ These are retained observations, not a fresh VPS inspection. Evidence ZIP
 `527d20dbc23079d9151f6868c81cab135b2db5c53fac2dce24fce64a83cac2d7`, is prepared;
 independent acceptance of this attempt is pending. **O2 remains HOLD.**
 
-Next: finish the exact no-riskgate artifact/update review and separate operational
-gates. Do not retry the old long-history contract or loosen required recent-bar
+Next: review the exact no-riskgate installation package, then separate operational
+gates with fresh preflight and calendar/freshness checks. Do not retry the old long-history contract or loosen required recent-bar
 quality checks. No new recovery framework is required.
 
 ### Earlier accepted milestones (historical boundaries)

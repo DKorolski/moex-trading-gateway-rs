@@ -1,8 +1,13 @@
 # No-riskgate O2 binary artifact — review candidate
 
-2026-10-01. Status: BINARY_ARTIFACT_REVIEW_CANDIDATE_NOT_INSTALLABLE.
+2026-10-01. Status: BINARY ARTIFACT ACCEPTED at `64f1fd5`; NOT INSTALLABLE by itself.
+Independent review SHA-256:
+`3366ed7127ca0404d6f96614868c149d132552c999a976859fe2df7d640d8477`.
+The immutable original ZIP retains its review-candidate descriptor; this status
+update does not alter that accepted archive. Next is the separately reviewed
+[installation package](stage8b-p1f-o2-no-riskgate-installation.md).
 The local compiler blocker is resolved by the owner-authorized Docker Desktop
-restart; this is not independent artifact acceptance or operational O2 success.
+restart; that recovery alone was not artifact acceptance or operational O2 success.
 
 Accepted compiled baseline: PR #11 normal merge
 `ca1e5da7ea41eec219bce1cfe2bdf4b8d63d9029`, tree

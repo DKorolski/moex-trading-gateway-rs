@@ -62,6 +62,14 @@ The artifact's fixture inputs are not an operational calendar/identity or an
 installation authorization. Preserve Failed/4 and earlier Expired/2 evidence;
 installation and bounded O2 remain separate gates. No extra roadmap stage.
 
+No-riskgate binary artifact `64f1fd5` is independently BINARY ARTIFACT ACCEPTED.
+Current work is the [non-activating installation package](stage-8/stage8b-p1f-o2-no-riskgate-installation.md)
+using those exact three ELFs, V2 profile / V3 source plan, eight replacement
+slots and the retained FAILED/1/4 predecessor. Its proposed 2026-10-02 calendar
+must be rebound if the execution window is missed. Package acceptance precedes
+separate installation permission/evidence and then bounded O2 permission. No
+authority issuance, deployment or FINAM/Redis call occurs in local preparation.
+
 Owner-approved working cadence (2026-09-30): commit finished local changes,
 push working branches for preservation, and review meaningful functional
 boundaries. Merge accepted blocks before they become artifact/install baselines,
