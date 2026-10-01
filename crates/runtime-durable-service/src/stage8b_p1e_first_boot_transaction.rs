@@ -31,10 +31,9 @@ use crate::{
         build_stage8b_p1_historical_recovery_source_v1, Stage8bP1eHistoricalSourceBindingV5,
     },
     Stage7bDurableRootAuthority, Stage7bRecoveryReadyOwner, Stage7bRestartOutcome,
-    Stage8bP1FirstBootAdminCommand, Stage8bP1ValidatedBootstrapConfig,
+    Stage8bP1FirstBootAdminCommand, Stage8bP1RuntimeProfileKind, Stage8bP1ValidatedBootstrapConfig,
     Stage8bP1ePreparedFirstBootV1, Stage8bP1eValidatedSupervisorConfigV1, STAGE7B_JOURNAL_FILE,
-    STAGE7B_RECOVERY_SEAL_FILE, STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V2_SHA256,
-    STAGE8B_P1E_RUNTIME_PROFILE_SHA256,
+    STAGE7B_RECOVERY_SEAL_FILE,
 };
 
 pub const STAGE8B_P1E_TRANSACTION_MARKER_SCHEMA_VERSION: u16 = 4;
@@ -756,6 +755,9 @@ pub fn recover_stage8b_p1e_first_boot_adoption_v5(
     )?;
     if marker.transaction_id_sha256 != expected_transaction_id_sha256
         || marker.operational_identity_sha256 != config.operational_identity_sha256()
+        || !marker_profile_matches_config(&marker, &config)
+        || marker.runtime_config_fingerprint_sha256 != config.runtime_config_fingerprint_sha256()
+        || fresh_runtime.stage5c_config_fingerprint() != config.runtime_config_fingerprint_sha256()
         || marker.phase != Stage8bP1eFirstBootTransactionPhaseV4::SealCommitted
         || canonical_root_identity_sha256(&root_path)? != marker.canonical_root_identity_sha256
         || !path_exists(root_path.join(STAGE7B_JOURNAL_FILE))?
@@ -1241,9 +1243,8 @@ fn marker_matches_durable_recovery(
 ) -> bool {
     marker.transaction_id_sha256 == expected_transaction_id_sha256
         && marker.operational_identity_sha256 == config.operational_identity_sha256()
-        && marker.runtime_profile_sha256 == STAGE8B_P1E_RUNTIME_PROFILE_SHA256
+        && marker_profile_matches_config(marker, config)
         && marker.runtime_config_fingerprint_sha256 == config.runtime_config_fingerprint_sha256()
-        && marker.source_plan_sha256 == STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V2_SHA256
         && transaction_id_sha256(
             &marker.operational_identity_sha256,
             &marker.source_bundle_sha256,
@@ -1251,6 +1252,18 @@ fn marker_matches_durable_recovery(
             marker.bootstrap_attempt_generation,
         )
         .is_ok_and(|derived| derived == marker.transaction_id_sha256)
+}
+
+fn marker_profile_matches_config(
+    marker: &Stage8bP1eFirstBootTransactionMarkerV4,
+    config: &Stage8bP1ValidatedBootstrapConfig,
+) -> bool {
+    Stage8bP1RuntimeProfileKind::from_fingerprint(config.runtime_config_fingerprint_sha256())
+        .is_ok_and(|profile| {
+            marker.runtime_profile_sha256 == profile.profile_sha256()
+                && marker.source_plan_sha256
+                    == crate::stage8b_p1e_first_boot_source::first_boot_source_plan_sha256(profile)
+        })
 }
 
 fn read_expected_durable_recovery_marker(
@@ -2305,7 +2318,7 @@ fn admit_stage8b_p1e_ordinary_run_with_restart_v1(
     validate_owned_regular_file(&root_path.join(STAGE7B_RECOVERY_SEAL_FILE))?;
     if marker.phase != Stage8bP1eFirstBootTransactionPhaseV4::Adopted
         || marker.operational_identity_sha256 != config.operational_identity_sha256()
-        || marker.runtime_profile_sha256 != STAGE8B_P1E_RUNTIME_PROFILE_SHA256
+        || !marker_profile_matches_config(&marker, &config)
         || marker.runtime_config_fingerprint_sha256 != config.runtime_config_fingerprint_sha256()
         || marker.canonical_root_identity_sha256 != canonical_root_identity_sha256(&root_path)?
         || receipt.deployment_identity_sha256 != STAGE8B_P1E_DEPLOYMENT_IDENTITY_V2_SHA256
@@ -2395,7 +2408,13 @@ fn classify_stage8b_p1e_first_boot_v5_inner(
     let seal_exists = root_exists && path_exists(root_path.join(STAGE7B_RECOVERY_SEAL_FILE))?;
 
     for authority in marker.iter().chain(marker_temp.iter()) {
-        if authority.operational_identity_sha256 != expected_operational_identity {
+        if authority.operational_identity_sha256 != expected_operational_identity
+            || !marker_profile_matches_config(authority, &config)
+            || authority.runtime_config_fingerprint_sha256
+                != config.runtime_config_fingerprint_sha256()
+            || fresh_runtime.stage5c_config_fingerprint()
+                != config.runtime_config_fingerprint_sha256()
+        {
             return Err(Stage8bP1eFirstBootTransactionError::InvalidAuthorityFile);
         }
     }

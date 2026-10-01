@@ -13,7 +13,8 @@ use broker_finam::{
     Stage8bP1fO2GetObservationV1, Stage8bP1fO2GetOnlyClientV1, Stage8bP1fO2GetRouteV1,
     STAGE8B_P1F_O2_VENUE_SYMBOL,
 };
-use chrono::{DateTime, Duration, SecondsFormat, TimeZone, Utc};
+use chrono::{DateTime, Datelike, Duration, NaiveDate, SecondsFormat, TimeZone, Utc, Weekday};
+use runtime_durable_service::Stage8bP1RuntimeProfileKind;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -26,18 +27,238 @@ const MAX_BARS_RANGE_SECONDS: i64 = 400 * 24 * 60 * 60;
 pub const STAGE8B_P1F_O2_ACCOUNT_TEMPLATE_SENTINEL: &str = "INJECT_FROM_ACCOUNT_CREDENTIAL";
 pub const STAGE8B_P1F_O2_ACCOUNT_ALIAS: &str = "finam-paper-primary";
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CoverageSessionV1 {
     session_date: String,
     windows: Vec<CoverageWindowV1>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CoverageWindowV1 {
     first_close_time_utc: i64,
     last_close_time_utc: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EmptyTemplateObject {}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TemplateBrokerTruth {
+    account_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TemplateCoverage {
+    source_mode: String,
+    sessions_sha256: String,
+    sessions: Vec<CoverageSessionV1>,
+    candidate_session: Option<CoverageSessionV1>,
+}
+
+/// Templates are deliberately not source bundles: only these placeholders may
+/// be filled from GET truth. Typed decoding rejects duplicate/unknown fields
+/// before any network access, including inside declared calendar windows.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceTemplate {
+    schema_version: u16,
+    domain: String,
+    operational_identity_sha256: String,
+    runtime_profile_sha256: String,
+    instrument_map_fingerprint_sha256: String,
+    source_bundle_generation: u64,
+    captured_at_utc: String,
+    broker_truth: TemplateBrokerTruth,
+    #[serde(rename = "history_provenance")]
+    _history_provenance: EmptyTemplateObject,
+    history_coverage: TemplateCoverage,
+    history_bars: Vec<Value>,
+    #[serde(rename = "riskgate_history")]
+    _riskgate_history: EmptyTemplateObject,
+    #[serde(rename = "candidate")]
+    _candidate: EmptyTemplateObject,
+}
+
+fn template_profile(
+    bytes: &[u8],
+) -> Result<Stage8bP1RuntimeProfileKind, Stage8bP1fO2MaterializerErrorV1> {
+    let invalid = || Stage8bP1fO2MaterializerErrorV1::Template;
+    if bytes.len() as u64 > runtime_durable_service::STAGE8B_P1E_FIRST_BOOT_SOURCE_MAX_BYTES {
+        return Err(invalid());
+    }
+    let template: SourceTemplate = serde_json::from_slice(bytes).map_err(|_| invalid())?;
+    let value: Value = serde_json::from_slice(bytes).map_err(|_| invalid())?;
+    if !value.is_object()
+        || [
+            "broker_truth",
+            "history_provenance",
+            "history_coverage",
+            "riskgate_history",
+            "candidate",
+        ]
+        .into_iter()
+        .any(|key| !value[key].is_object())
+    {
+        return Err(invalid());
+    }
+    let profile = Stage8bP1RuntimeProfileKind::from_sha256(&template.runtime_profile_sha256)
+        .map_err(|_| invalid())?;
+    let (schema, domain) = if profile.no_riskgate() {
+        (3, "moex.stage8b.p1e.first-boot-source-bundle.v3")
+    } else {
+        (2, "moex.stage8b.p1e.first-boot-source-bundle.v2")
+    };
+    if template.schema_version != schema
+        || template.domain != domain
+        || !valid_sha256(&template.operational_identity_sha256)
+        || template.instrument_map_fingerprint_sha256
+            != runtime_durable_service::stage8b_p1_imoexf_instrument_map_fingerprint_sha256()
+        || template.source_bundle_generation == 0
+        || parse_canonical_timestamp(&template.captured_at_utc).is_err()
+        || template.broker_truth.account_id != STAGE8B_P1F_O2_ACCOUNT_TEMPLATE_SENTINEL
+        || !template.history_bars.is_empty()
+        || template.history_coverage.source_mode != "config-bound-explicit-session-windows-v1"
+        || !valid_sha256(&template.history_coverage.sessions_sha256)
+    {
+        return Err(invalid());
+    }
+    let coverage = &template.history_coverage;
+    if profile.no_riskgate() {
+        let current = coverage.candidate_session.as_ref().ok_or_else(invalid)?;
+        let current_date = validate_coverage_session(current, true)?;
+        if coverage.sessions.len()
+            != runtime_durable_service::STAGE8B_P1E_FIRST_BOOT_SHORT_HISTORY_SESSIONS
+        {
+            return Err(invalid());
+        }
+        let mut prior = None;
+        for session in &coverage.sessions {
+            let date = validate_coverage_session(session, true)?;
+            if prior.is_some_and(|prior| date <= prior)
+                || date >= current_date
+                || current_date.signed_duration_since(date).num_days()
+                    > runtime_durable_service::STAGE8B_P1E_FIRST_BOOT_SHORT_HISTORY_MAX_DAYS
+            {
+                return Err(invalid());
+            }
+            prior = Some(date);
+        }
+    } else {
+        // V2 must not silently accept even a null V3-only calendar authority.
+        if value["history_coverage"].get("candidate_session").is_some()
+            || coverage.sessions.len()
+                < runtime_durable_service::STAGE8B_P1E_FIRST_BOOT_MIN_HISTORY_SESSIONS
+        {
+            return Err(invalid());
+        }
+        let mut prior = None;
+        for session in &coverage.sessions {
+            let date = validate_coverage_session(session, false)?;
+            if prior.is_some_and(|prior| date <= prior) {
+                return Err(invalid());
+            }
+            prior = Some(date);
+        }
+    }
+    Ok(profile)
+}
+
+fn validate_coverage_session(
+    session: &CoverageSessionV1,
+    full_session: bool,
+) -> Result<NaiveDate, Stage8bP1fO2MaterializerErrorV1> {
+    let invalid = || Stage8bP1fO2MaterializerErrorV1::Template;
+    let date =
+        NaiveDate::parse_from_str(&session.session_date, "%Y-%m-%d").map_err(|_| invalid())?;
+    if date.format("%Y-%m-%d").to_string() != session.session_date
+        || matches!(date.weekday(), Weekday::Sat | Weekday::Sun)
+        || session.windows.is_empty()
+        || (full_session && date < NaiveDate::from_ymd_opt(2026, 7, 14).unwrap())
+    {
+        return Err(invalid());
+    }
+    // Baseline07 model labels are candle starts, canonical identities closes.
+    // Full declared sessions therefore start at 07:10 and end at 23:50 MSK.
+    let first = date
+        .and_hms_opt(4, 10, 0)
+        .ok_or_else(invalid)?
+        .and_utc()
+        .timestamp();
+    let last = date
+        .and_hms_opt(20, 50, 0)
+        .ok_or_else(invalid)?
+        .and_utc()
+        .timestamp();
+    let mut prior = None;
+    for window in &session.windows {
+        if window.first_close_time_utc <= 0
+            || window.first_close_time_utc.rem_euclid(600) != 0
+            || window.last_close_time_utc < window.first_close_time_utc
+            || window.last_close_time_utc.rem_euclid(600) != 0
+            || prior.is_some_and(|prior| window.first_close_time_utc <= prior)
+            || [window.first_close_time_utc, window.last_close_time_utc]
+                .into_iter()
+                .any(|close| {
+                    DateTime::from_timestamp(close, 0)
+                        .and_then(|time| time.checked_add_signed(Duration::hours(3)))
+                        .map(|time| time.date_naive())
+                        != Some(date)
+                })
+            || (full_session
+                && (window.first_close_time_utc < first || window.last_close_time_utc > last))
+        {
+            return Err(invalid());
+        }
+        prior = Some(window.last_close_time_utc);
+    }
+    if full_session
+        && (session.windows.first().map(|w| w.first_close_time_utc) != Some(first)
+            || session.windows.last().map(|w| w.last_close_time_utc) != Some(last))
+    {
+        return Err(invalid());
+    }
+    Ok(date)
+}
+
+fn short_history_coverage(
+    source: &Value,
+    candidate_close: i64,
+) -> Result<Value, Stage8bP1fO2MaterializerErrorV1> {
+    let invalid = || Stage8bP1fO2MaterializerErrorV1::Template;
+    let mut sessions: Vec<CoverageSessionV1> =
+        serde_json::from_value(source["history_coverage"]["sessions"].clone())
+            .map_err(|_| invalid())?;
+    let mut current: CoverageSessionV1 =
+        serde_json::from_value(source["history_coverage"]["candidate_session"].clone())
+            .map_err(|_| invalid())?;
+    if candidate_close.rem_euclid(600) != 0
+        || !current.windows.iter().any(|window| {
+            window.first_close_time_utc <= candidate_close
+                && candidate_close <= window.last_close_time_utc
+        })
+    {
+        return Err(Stage8bP1fO2MaterializerErrorV1::detailed(
+            "candidate",
+            "candidate_outside_declared_session",
+        ));
+    }
+    // Never infer calendar gaps from received bars. Trim only the future tail
+    // of the approved full-day windows, preserving every required prefix M1.
+    current
+        .windows
+        .retain(|window| window.first_close_time_utc < candidate_close);
+    for window in &mut current.windows {
+        window.last_close_time_utc = window.last_close_time_utc.min(candidate_close - 600);
+    }
+    if !current.windows.is_empty() {
+        sessions.push(current);
+    }
+    serde_json::to_value(sessions).map_err(|_| invalid())
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -279,6 +500,38 @@ pub struct Stage8bP1fO2MaterializedSourceV1 {
     pub evidence: Stage8bP1fO2MaterializationEvidenceV1,
 }
 
+impl Stage8bP1fO2MaterializedSourceV1 {
+    /// Pure preflight shared with the fixed-path binary; no credentials or GETs.
+    pub fn validate_template_profile(
+        bytes: &[u8],
+    ) -> Result<Stage8bP1RuntimeProfileKind, Stage8bP1fO2MaterializerErrorV1> {
+        template_profile(bytes)
+    }
+
+    /// Shared policy/collector transport bound, with no I/O. Session age is a
+    /// calendar-date difference: age 14 can touch 15 dates including today.
+    /// The extra day covers intraday M1 endpoints, not an extra warmup session.
+    /// Source admission still requires four sessions of age 1..=14.
+    pub fn validate_bars_interval(
+        profile: Stage8bP1RuntimeProfileKind,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<(), Stage8bP1fO2MaterializerErrorV1> {
+        let maximum = if profile.no_riskgate() {
+            Duration::days(
+                runtime_durable_service::STAGE8B_P1E_FIRST_BOOT_SHORT_HISTORY_MAX_DAYS + 1,
+            )
+        } else {
+            Duration::seconds(MAX_BARS_RANGE_SECONDS)
+        };
+        let range = end.signed_duration_since(start);
+        if range <= Duration::zero() || range > maximum {
+            return Err(Stage8bP1fO2MaterializerErrorV1::Get);
+        }
+        Ok(())
+    }
+}
+
 /// Executes the five accepted O2 GET route kinds and feeds their typed
 /// snapshots into the pure materializer. Bars use deterministic bounded time
 /// chunks of the same closed route kind. No caller-provided method, URL or
@@ -293,6 +546,10 @@ pub async fn collect_stage8b_p1f_o2_source_v1(
 ) -> Result<Stage8bP1fO2MaterializedSourceV1, Stage8bP1fO2MaterializerErrorV1> {
     let mut progress = CollectionProgress::default();
     let collected = async {
+        let profile = template_profile(source_template_bytes)?;
+        let bars_start = parse_canonical_timestamp(bars_start_utc)?;
+        let bars_end = parse_canonical_timestamp(bars_end_utc)?;
+        Stage8bP1fO2MaterializedSourceV1::validate_bars_interval(profile, bars_start, bars_end)?;
         let client = Stage8bP1fO2GetOnlyClientV1::new(account_id)
             .map_err(|_| Stage8bP1fO2MaterializerErrorV1::Get)?;
         let (account, account_observation) = client
@@ -319,12 +576,6 @@ pub async fn collect_stage8b_p1f_o2_source_v1(
             .map_err(|_| Stage8bP1fO2MaterializerErrorV1::Get)?;
         progress.gets += 1;
         progress.last_collected = Some("schedule_collected");
-        let bars_start = parse_canonical_timestamp(bars_start_utc)?;
-        let bars_end = parse_canonical_timestamp(bars_end_utc)?;
-        let range_seconds = bars_end.signed_duration_since(bars_start).num_seconds();
-        if range_seconds <= 0 || range_seconds > MAX_BARS_RANGE_SECONDS {
-            return Err(Stage8bP1fO2MaterializerErrorV1::Get);
-        }
         let mut cursor = bars_start;
         let mut bars_by_timestamp = BTreeMap::new();
         let mut bars_observations = Vec::new();
@@ -395,6 +646,7 @@ pub fn materialize_stage8b_p1f_o2_source_v1(
     trusted_now: DateTime<Utc>,
     observations: Vec<Stage8bP1fO2GetObservationV1>,
 ) -> Result<Stage8bP1fO2MaterializedSourceV1, Stage8bP1fO2MaterializerErrorV1> {
+    let profile = template_profile(source_template_bytes)?;
     let mut source: Value = serde_json::from_slice(source_template_bytes)
         .map_err(|_| Stage8bP1fO2MaterializerErrorV1::Template)?;
     let operational_identity = source
@@ -421,23 +673,47 @@ pub fn materialize_stage8b_p1f_o2_source_v1(
     validate_schedule(&schedule)?;
     validate_route_observations(&observations, &account, &orders, &params, &schedule, &bars)?;
     let mapped = map_exact_m1(&bars).map_err(|error| error.after("truth_and_routes"))?;
-    let coverage_sessions = source
+    let mut coverage_sessions = source
         .get("history_coverage")
         .and_then(Value::as_object)
         .and_then(|coverage| coverage.get("sessions"))
         .cloned()
         .ok_or(Stage8bP1fO2MaterializerErrorV1::Template)?;
-    let (history_bars, history_inputs) = build_history(&mapped, coverage_sessions.clone())
-        .map_err(|error| error.after("mapping"))?;
-    let (runtime, _) = runtime_durable_service::Stage8bP1RuntimeProfileV1::build_hybrid_runtime()
-        .map_err(|_| Stage8bP1fO2MaterializerErrorV1::SourceRejected)?;
-    let riskgate_observations =
+    // V3 must know the exact candidate before deciding which current-session
+    // bars are history. V2 retains its original history/rebuild/candidate order.
+    let short_candidate = if profile.no_riskgate() {
+        let candidate = build_candidate_from_mapped(&mapped, &operational_identity, trusted_now)
+            .map_err(|error| error.after("mapping"))?;
+        coverage_sessions = short_history_coverage(
+            &source,
+            candidate.value["close_time_utc"]
+                .as_i64()
+                .ok_or(Stage8bP1fO2MaterializerErrorV1::BarsTruth)?,
+        )?;
+        Some(candidate)
+    } else {
+        None
+    };
+    let minimum_sessions = if profile.no_riskgate() {
+        runtime_durable_service::STAGE8B_P1E_FIRST_BOOT_SHORT_HISTORY_SESSIONS
+    } else {
+        runtime_durable_service::STAGE8B_P1E_FIRST_BOOT_MIN_HISTORY_SESSIONS
+    };
+    let (history_bars, history_inputs) =
+        build_history_with_minimum(&mapped, coverage_sessions.clone(), minimum_sessions)
+            .map_err(|error| error.after("mapping"))?;
+    let riskgate_observations = if profile.no_riskgate() {
+        // No High180 runtime, seed import or ledger reconstruction in V3.
+        Vec::new()
+    } else {
+        let (runtime, _) = profile
+            .build_hybrid_runtime()
+            .map_err(|_| Stage8bP1fO2MaterializerErrorV1::SourceRejected)?;
         strategy_runtime_core::rebuild_stage8b_p1e_riskgate_observations_v1(
             &runtime,
             &history_inputs,
         )
-        .map_err(|_| Stage8bP1fO2MaterializerErrorV1::SourceRejected)?;
-    let riskgate_observations = riskgate_observations
+        .map_err(|_| Stage8bP1fO2MaterializerErrorV1::SourceRejected)?
         .into_iter()
         .map(|observation| {
             json!({
@@ -446,9 +722,13 @@ pub fn materialize_stage8b_p1f_o2_source_v1(
                 "shadow_trade_count": observation.shadow_trade_count
             })
         })
-        .collect::<Vec<_>>();
-    let candidate = build_candidate_from_mapped(&mapped, &operational_identity, trusted_now)
-        .map_err(|error| error.after("history_and_riskgate"))?;
+        .collect::<Vec<_>>()
+    };
+    let candidate = match short_candidate {
+        Some(candidate) => candidate,
+        None => build_candidate_from_mapped(&mapped, &operational_identity, trusted_now)
+            .map_err(|error| error.after("history_and_riskgate"))?,
+    };
 
     let captured_at = canonical_timestamp(trusted_now);
     source["captured_at_utc"] = Value::String(captured_at.clone());
@@ -473,15 +753,19 @@ pub fn materialize_stage8b_p1f_o2_source_v1(
         "aggregation_complete": true,
         "gap_absence_proven": true
     });
+    let candidate_session = source["history_coverage"].get("candidate_session").cloned();
     source["history_coverage"] = json!({
         "source_mode": "config-bound-explicit-session-windows-v1",
         "sessions_sha256": coverage_hash,
         "sessions": coverage_sessions
     });
+    if let Some(candidate_session) = candidate_session {
+        source["history_coverage"]["candidate_session"] = candidate_session;
+    }
     source["history_bars"] = Value::Array(history_bars);
     source["riskgate_history"] = json!({
-        "source_mode": "source-compatible-high180-shadow-history-v1",
-        "state_generation": "runtime-ledger-v1",
+        "source_mode": if profile.no_riskgate() { "disabled-bo-only-v1" } else { "source-compatible-high180-shadow-history-v1" },
+        "state_generation": if profile.no_riskgate() { "disabled-v1" } else { "runtime-ledger-v1" },
         "history_bars_sha256": history_hash,
         "session_observations_sha256": riskgate_hash,
         "session_observations": riskgate_observations
@@ -751,6 +1035,7 @@ fn map_exact_m1(response: &BarsResponse) -> Result<Vec<Bar>, Stage8bP1fO2Materia
     Ok(mapped)
 }
 
+#[cfg(test)]
 fn build_history(
     mapped: &[Bar],
     coverage_value: Value,
@@ -761,9 +1046,27 @@ fn build_history(
     ),
     Stage8bP1fO2MaterializerErrorV1,
 > {
+    build_history_with_minimum(
+        mapped,
+        coverage_value,
+        runtime_durable_service::STAGE8B_P1E_FIRST_BOOT_MIN_HISTORY_SESSIONS,
+    )
+}
+
+fn build_history_with_minimum(
+    mapped: &[Bar],
+    coverage_value: Value,
+    minimum_sessions: usize,
+) -> Result<
+    (
+        Vec<Value>,
+        Vec<strategy_runtime_core::Stage8bP1eFirstBootBarInputV1>,
+    ),
+    Stage8bP1fO2MaterializerErrorV1,
+> {
     let coverage: Vec<CoverageSessionV1> = serde_json::from_value(coverage_value)
         .map_err(|_| Stage8bP1fO2MaterializerErrorV1::Template)?;
-    if coverage.len() < runtime_durable_service::STAGE8B_P1E_FIRST_BOOT_MIN_HISTORY_SESSIONS {
+    if coverage.len() < minimum_sessions {
         return Err(Stage8bP1fO2MaterializerErrorV1::Template);
     }
     let by_open = mapped
@@ -1087,6 +1390,569 @@ mod tests {
     use super::*;
     use broker_finam::{dto, Stage8bP1fO2GetRouteKindV1};
     use chrono::{Datelike, NaiveDate, Weekday};
+
+    fn short_session(day: u32) -> Value {
+        let time = |hour, minute| {
+            Utc.with_ymd_and_hms(2026, 9, day, hour, minute, 0)
+                .single()
+                .unwrap()
+                .timestamp()
+        };
+        json!({
+            "session_date": format!("2026-09-{day:02}"),
+            // An explicit reviewed gap; absence of bars never creates it.
+            "windows": [
+                {"first_close_time_utc": time(4, 10), "last_close_time_utc": time(4, 30)},
+                {"first_close_time_utc": time(6, 10), "last_close_time_utc": time(20, 50)}
+            ]
+        })
+    }
+
+    fn short_template() -> Value {
+        json!({
+            "schema_version": 3,
+            "domain": "moex.stage8b.p1e.first-boot-source-bundle.v3",
+            "operational_identity_sha256": "11".repeat(32),
+            "runtime_profile_sha256": Stage8bP1RuntimeProfileKind::V2.profile_sha256(),
+            "instrument_map_fingerprint_sha256": runtime_durable_service::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+            "source_bundle_generation": 1,
+            "captured_at_utc": "1970-01-01T00:00:00Z",
+            "broker_truth": {"account_id": STAGE8B_P1F_O2_ACCOUNT_TEMPLATE_SENTINEL},
+            "history_provenance": {},
+            "history_coverage": {
+                "source_mode": "config-bound-explicit-session-windows-v1",
+                "sessions_sha256": "00".repeat(32),
+                "sessions": [short_session(22), short_session(23), short_session(24), short_session(25)],
+                "candidate_session": short_session(28)
+            },
+            "history_bars": [], "riskgate_history": {}, "candidate": {}
+        })
+    }
+
+    fn short_bars(template: &Value, candidate_close: i64) -> BarsResponse {
+        let mut sessions = template["history_coverage"]["sessions"]
+            .as_array()
+            .unwrap()
+            .clone();
+        sessions.push(template["history_coverage"]["candidate_session"].clone());
+        let mut bars = Vec::new();
+        for session in sessions {
+            for window in session["windows"].as_array().unwrap() {
+                let first = window["first_close_time_utc"].as_i64().unwrap();
+                let last = window["last_close_time_utc"]
+                    .as_i64()
+                    .unwrap()
+                    .min(candidate_close);
+                for close in (first..=last).step_by(600) {
+                    for minute in 0..10 {
+                        bars.push(dto::Bar {
+                            timestamp: canonical_timestamp(
+                                Utc.timestamp_opt(close - 600 + minute * 60, 0)
+                                    .single()
+                                    .unwrap(),
+                            ),
+                            open: dto::DecimalValue {
+                                value: "2200".into(),
+                            },
+                            high: dto::DecimalValue {
+                                value: "2201".into(),
+                            },
+                            low: dto::DecimalValue {
+                                value: "2199".into(),
+                            },
+                            close: dto::DecimalValue {
+                                value: "2200.5".into(),
+                            },
+                            volume: dto::DecimalValue { value: "1".into() },
+                        });
+                    }
+                }
+            }
+        }
+        BarsResponse {
+            bars,
+            symbol: STAGE8B_P1F_O2_VENUE_SYMBOL.into(),
+        }
+    }
+
+    fn materialize_short(
+        template: &Value,
+        bars: BarsResponse,
+        now: DateTime<Utc>,
+    ) -> Result<Stage8bP1fO2MaterializedSourceV1, Stage8bP1fO2MaterializerErrorV1> {
+        let account_id = "ACC_TEST_0001";
+        let account: AccountResponse = serde_json::from_value(json!({
+            "account_id": account_id, "cash": [], "positions": [],
+            "status": "ACCOUNT_STATUS_OPEN"
+        }))
+        .unwrap();
+        let orders = AccountOrdersResponse { orders: Vec::new() };
+        let params: AssetParamsResponse = serde_json::from_value(json!({
+            "account_id": account_id, "symbol": STAGE8B_P1F_O2_VENUE_SYMBOL,
+            "is_tradable": true
+        }))
+        .unwrap();
+        let schedule: AssetScheduleResponse = serde_json::from_value(json!({
+            "symbol": STAGE8B_P1F_O2_VENUE_SYMBOL,
+            "sessions": [{"interval": {
+                "start_time": "2026-09-28T04:00:00Z", "end_time": "2026-09-28T20:50:00Z"
+            }, "type": "SESSION_TYPE_MAIN"}]
+        }))
+        .unwrap();
+        let observations = [
+            (
+                Stage8bP1fO2GetRouteKindV1::Account,
+                serde_json::to_vec(&account).unwrap(),
+            ),
+            (
+                Stage8bP1fO2GetRouteKindV1::AccountOrders,
+                serde_json::to_vec(&orders).unwrap(),
+            ),
+            (
+                Stage8bP1fO2GetRouteKindV1::AssetParams,
+                serde_json::to_vec(&params).unwrap(),
+            ),
+            (
+                Stage8bP1fO2GetRouteKindV1::AssetSchedule,
+                serde_json::to_vec(&schedule).unwrap(),
+            ),
+            (
+                Stage8bP1fO2GetRouteKindV1::Bars,
+                serde_json::to_vec(&bars).unwrap(),
+            ),
+        ]
+        .into_iter()
+        .map(
+            |(route, exact_response_bytes)| Stage8bP1fO2GetObservationV1 {
+                route,
+                request_sha256: "11".repeat(32),
+                response_sha256: sha256_hex(&exact_response_bytes),
+                exact_response_bytes,
+            },
+        )
+        .collect();
+        materialize_stage8b_p1f_o2_source_v1(
+            &serde_json::to_vec(template).unwrap(),
+            account_id,
+            STAGE8B_P1F_O2_ACCOUNT_ALIAS,
+            account,
+            orders,
+            params,
+            schedule,
+            bars,
+            now,
+            observations,
+        )
+    }
+
+    #[test]
+    fn short_fetch_envelope_covers_calendar_boundary_without_growing_session_age() {
+        let start = Utc.with_ymd_and_hms(2026, 9, 14, 4, 0, 0).single().unwrap();
+        for (seconds, valid) in [
+            (-1, false),
+            (0, false),
+            (1, true),
+            (14 * 86400, true),
+            (14 * 86400 + 1, true),
+            (14 * 86400 + 16 * 3600 + 50 * 60, true),
+            (15 * 86400, true),
+            (15 * 86400 + 1, false),
+            (180 * 86400, false),
+        ] {
+            assert_eq!(
+                Stage8bP1fO2MaterializedSourceV1::validate_bars_interval(
+                    Stage8bP1RuntimeProfileKind::V2,
+                    start,
+                    start + Duration::seconds(seconds)
+                )
+                .is_ok(),
+                valid,
+                "short {seconds}"
+            );
+        }
+        for (seconds, valid) in [
+            (-1, false),
+            (0, false),
+            (1, true),
+            (400 * 86400, true),
+            (400 * 86400 + 1, false),
+        ] {
+            assert_eq!(
+                Stage8bP1fO2MaterializedSourceV1::validate_bars_interval(
+                    Stage8bP1RuntimeProfileKind::V1,
+                    start,
+                    start + Duration::seconds(seconds)
+                )
+                .is_ok(),
+                valid,
+                "legacy collector {seconds}"
+            );
+        }
+        let mut template = short_template();
+        template["history_coverage"]["sessions"][0] = short_session(14);
+        assert_eq!(
+            template_profile(&serde_json::to_vec(&template).unwrap()).unwrap(),
+            Stage8bP1RuntimeProfileKind::V2
+        );
+        // Both dates are weekdays; rejection is age 15, not a weekend artefact.
+        template["history_coverage"]["candidate_session"] = short_session(29);
+        assert!(template_profile(&serde_json::to_vec(&template).unwrap()).is_err());
+    }
+
+    #[test]
+    fn age_14_intraday_fixture_materializes_and_passes_runtime_source_admission() {
+        let mut template = short_template();
+        template["history_coverage"]["sessions"][0] = short_session(14);
+        let close = Utc
+            .with_ymd_and_hms(2026, 9, 28, 20, 40, 0)
+            .single()
+            .unwrap();
+        let start = Utc.with_ymd_and_hms(2026, 9, 14, 4, 0, 0).single().unwrap();
+        assert!(close - start > Duration::days(14));
+        Stage8bP1fO2MaterializedSourceV1::validate_bars_interval(
+            Stage8bP1RuntimeProfileKind::V2,
+            start,
+            close + Duration::minutes(10),
+        )
+        .unwrap();
+        let bars = short_bars(&template, close.timestamp());
+        let materialized =
+            materialize_short(&template, bars, close + Duration::minutes(1)).unwrap();
+        // materialize_short calls the actual runtime source validator internally.
+        let source: Value = serde_json::from_slice(&materialized.exact_source_bytes).unwrap();
+        let sessions = source["history_coverage"]["sessions"].as_array().unwrap();
+        assert_eq!(sessions.len(), 5); // Four prior sessions + today's prefix.
+        assert_eq!(sessions[0]["session_date"], "2026-09-14");
+        assert_eq!(source["candidate"]["close_time_utc"], close.timestamp());
+        assert_eq!(
+            source["riskgate_history"]["source_mode"],
+            "disabled-bo-only-v1"
+        );
+        assert_eq!(
+            source["riskgate_history"]["session_observations"],
+            json!([])
+        );
+    }
+
+    #[test]
+    fn short_materializer_preserves_full_calendar_and_exact_candidate_exclusive_prefix() {
+        let template = short_template();
+        for (hour, minute, prefix_bars) in [(4, 10, 0), (4, 30, 2), (6, 10, 3), (6, 30, 5)] {
+            let close = Utc
+                .with_ymd_and_hms(2026, 9, 28, hour, minute, 0)
+                .single()
+                .unwrap();
+            let bars = short_bars(&template, close.timestamp());
+            let materialized =
+                materialize_short(&template, bars.clone(), close + Duration::minutes(1)).unwrap();
+            let source: Value = serde_json::from_slice(&materialized.exact_source_bytes).unwrap();
+            assert_eq!(source["schema_version"], 3);
+            assert_eq!(
+                source["runtime_profile_sha256"],
+                Stage8bP1RuntimeProfileKind::V2.profile_sha256()
+            );
+            assert_eq!(
+                source["history_coverage"]["candidate_session"],
+                template["history_coverage"]["candidate_session"]
+            );
+            assert_eq!(
+                source["history_coverage"]["sessions"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                if prefix_bars == 0 { 4 } else { 5 }
+            );
+            let history = source["history_bars"].as_array().unwrap();
+            assert_eq!(history.len(), bars.bars.len() / 10 - 1);
+            assert_eq!(
+                history
+                    .iter()
+                    .filter(|bar| bar["close_time_utc"].as_i64().unwrap()
+                        >= close
+                            .date_naive()
+                            .and_hms_opt(0, 0, 0)
+                            .unwrap()
+                            .and_utc()
+                            .timestamp())
+                    .count(),
+                prefix_bars
+            );
+            assert!(history
+                .iter()
+                .all(|bar| bar["close_time_utc"].as_i64().unwrap() < close.timestamp()));
+            assert_eq!(source["candidate"]["close_time_utc"], close.timestamp());
+            assert_eq!(source["candidate"]["volume"], "10");
+            assert_eq!(
+                source["candidate"]["source_m1"].as_array().unwrap().len(),
+                10
+            );
+            assert_eq!(
+                source["riskgate_history"],
+                json!({
+                    "source_mode": "disabled-bo-only-v1", "state_generation": "disabled-v1",
+                    "history_bars_sha256": canonical_value_sha256(&source["history_bars"]),
+                    "session_observations_sha256": canonical_value_sha256(&json!([])),
+                    "session_observations": []
+                })
+            );
+            assert_eq!(
+                source["history_coverage"]["sessions_sha256"],
+                canonical_value_sha256(&source["history_coverage"]["sessions"])
+            );
+        }
+    }
+
+    #[test]
+    fn short_materializer_missing_prior_or_current_prefix_m1_fails_without_inferred_skip() {
+        let template = short_template();
+        let close = Utc
+            .with_ymd_and_hms(2026, 9, 28, 6, 30, 0)
+            .single()
+            .unwrap();
+        let bars = short_bars(&template, close.timestamp());
+        for missing in [0, bars.bars.len() - 14] {
+            let mut gapped = bars.clone();
+            let missing_time = parse_timestamp(&gapped.bars.remove(missing).timestamp)
+                .unwrap()
+                .timestamp();
+            let error = materialize_short(&template, gapped, close + Duration::minutes(1))
+                .unwrap_err()
+                .context();
+            assert_eq!(error.reason_code, "history_missing_m1");
+            assert_eq!(error.first_missing_m1_open_utc, Some(missing_time));
+        }
+    }
+
+    #[test]
+    fn short_materializer_truncates_at_selected_candidate_not_response_tail() {
+        let template = short_template();
+        let close = Utc
+            .with_ymd_and_hms(2026, 9, 28, 4, 30, 0)
+            .single()
+            .unwrap();
+        let full_day = Utc
+            .with_ymd_and_hms(2026, 9, 28, 20, 50, 0)
+            .single()
+            .unwrap();
+        let now = close + Duration::seconds(60);
+        let prefix =
+            materialize_short(&template, short_bars(&template, close.timestamp()), now).unwrap();
+        let full =
+            materialize_short(&template, short_bars(&template, full_day.timestamp()), now).unwrap();
+        // Response evidence differs, but the admitted exact source is identical.
+        assert_eq!(prefix.exact_source_bytes, full.exact_source_bytes);
+    }
+
+    #[test]
+    fn short_template_rejects_foreign_profiles_versions_and_malformed_current_windows() {
+        let template = short_template();
+        assert!(template_profile(&serde_json::to_vec(&template).unwrap())
+            .unwrap()
+            .no_riskgate());
+        for pointer in [
+            "/runtime_profile_sha256",
+            "/schema_version",
+            "/domain",
+            "/history_coverage/candidate_session/windows/0/first_close_time_utc",
+            "/history_coverage/candidate_session/windows/1/last_close_time_utc",
+            "/history_coverage/candidate_session/session_date",
+        ] {
+            let mut invalid = template.clone();
+            let value = invalid.pointer_mut(pointer).unwrap();
+            *value = match pointer {
+                "/runtime_profile_sha256" => {
+                    json!(Stage8bP1RuntimeProfileKind::V1.profile_sha256())
+                }
+                "/schema_version" => json!(2),
+                "/domain" => json!("moex.stage8b.p1e.first-boot-source-bundle.v2"),
+                "/history_coverage/candidate_session/session_date" => json!("2026-09-27"),
+                _ => json!(value.as_i64().unwrap() + 600),
+            };
+            assert!(
+                template_profile(&serde_json::to_vec(&invalid).unwrap()).is_err(),
+                "{pointer}"
+            );
+        }
+        let mut invalid = template.clone();
+        invalid["runtime_profile_sha256"] = json!("ff".repeat(32));
+        assert!(template_profile(&serde_json::to_vec(&invalid).unwrap()).is_err());
+        let mut invalid = template.clone();
+        invalid["unexpected"] = json!(true);
+        assert!(template_profile(&serde_json::to_vec(&invalid).unwrap()).is_err());
+        let mut invalid = template.clone();
+        invalid["history_coverage"]["candidate_session"]["unexpected"] = json!(true);
+        assert!(template_profile(&serde_json::to_vec(&invalid).unwrap()).is_err());
+        let mut invalid = template.clone();
+        invalid["history_coverage"]
+            .as_object_mut()
+            .unwrap()
+            .remove("candidate_session");
+        assert!(template_profile(&serde_json::to_vec(&invalid).unwrap()).is_err());
+        let mut invalid = template.clone();
+        invalid["history_coverage"]["sessions"]
+            .as_array_mut()
+            .unwrap()
+            .pop();
+        assert!(template_profile(&serde_json::to_vec(&invalid).unwrap()).is_err());
+        let mut invalid = template.clone();
+        invalid["history_coverage"]["sessions"][0] = short_session(11); // Older than 14 days.
+        assert!(template_profile(&serde_json::to_vec(&invalid).unwrap()).is_err());
+        let mut invalid = template.clone();
+        invalid["history_coverage"]["sessions"]
+            .as_array_mut()
+            .unwrap()
+            .push(short_session(28));
+        assert!(template_profile(&serde_json::to_vec(&invalid).unwrap()).is_err());
+        let mut invalid = template.clone();
+        invalid["history_coverage"]["candidate_session"]["windows"][1]["first_close_time_utc"] =
+            invalid["history_coverage"]["candidate_session"]["windows"][0]["last_close_time_utc"]
+                .clone();
+        assert!(template_profile(&serde_json::to_vec(&invalid).unwrap()).is_err());
+        let duplicate = serde_json::to_string(&template).unwrap().replacen(
+            "\"schema_version\":3",
+            "\"schema_version\":3,\"schema_version\":3",
+            1,
+        );
+        assert!(template_profile(duplicate.as_bytes()).is_err());
+        let duplicate = serde_json::to_string(&template).unwrap().replacen(
+            "\"session_date\":\"2026-09-28\"",
+            "\"session_date\":\"2026-09-28\",\"session_date\":\"2026-09-28\"",
+            1,
+        );
+        assert!(template_profile(duplicate.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn short_template_rejects_pre_transition_and_weekend_full_sessions() {
+        for date in [
+            NaiveDate::from_ymd_opt(2026, 1, 5).unwrap(),
+            NaiveDate::from_ymd_opt(2026, 9, 26).unwrap(),
+        ] {
+            let session = CoverageSessionV1 {
+                session_date: date.format("%Y-%m-%d").to_string(),
+                windows: vec![CoverageWindowV1 {
+                    first_close_time_utc: date.and_hms_opt(4, 10, 0).unwrap().and_utc().timestamp(),
+                    last_close_time_utc: date.and_hms_opt(20, 50, 0).unwrap().and_utc().timestamp(),
+                }],
+            };
+            assert!(validate_coverage_session(&session, true).is_err());
+        }
+    }
+
+    #[test]
+    fn short_candidate_must_belong_to_approved_full_windows_and_remain_fresh() {
+        let template = short_template();
+        let outside = Utc.with_ymd_and_hms(2026, 9, 28, 5, 0, 0).single().unwrap();
+        assert!(short_history_coverage(&template, outside.timestamp()).is_err());
+        let close = Utc
+            .with_ymd_and_hms(2026, 9, 28, 4, 30, 0)
+            .single()
+            .unwrap();
+        let bars = short_bars(&template, close.timestamp());
+        assert_eq!(
+            materialize_short(&template, bars, close + Duration::seconds(901))
+                .unwrap_err()
+                .context()
+                .reason_code,
+            "candidate_stale"
+        );
+        // Even after repairing hashes, deleting a required prefix bar is rejected
+        // by the production source parser against the retained full-day authority.
+        let bars = short_bars(&template, close.timestamp());
+        let result = materialize_short(&template, bars, close + Duration::seconds(60)).unwrap();
+        let mut source: Value = serde_json::from_slice(&result.exact_source_bytes).unwrap();
+        let current = source["history_coverage"]["sessions"]
+            .as_array_mut()
+            .unwrap()
+            .last_mut()
+            .unwrap();
+        current["windows"][0]["first_close_time_utc"] = json!(close.timestamp() - 600);
+        let missing_close = close.timestamp() - 1200;
+        source["history_bars"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|bar| bar["close_time_utc"].as_i64() != Some(missing_close));
+        source["riskgate_history"]["history_bars_sha256"] =
+            json!(canonical_value_sha256(&source["history_bars"]));
+        source["history_coverage"]["sessions_sha256"] = json!(canonical_value_sha256(
+            &source["history_coverage"]["sessions"]
+        ));
+        assert!(
+            runtime_durable_service::validate_stage8b_p1e_first_boot_source_bytes_v1(
+                &serde_json::to_vec(&source).unwrap(),
+                source["operational_identity_sha256"].as_str().unwrap(),
+                STAGE8B_P1F_O2_ACCOUNT_ALIAS,
+                close + Duration::seconds(60),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn invalid_template_and_short_range_fail_before_any_get() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let token = AccessToken::new("unused-offline-test-token");
+        let now = Utc
+            .with_ymd_and_hms(2026, 9, 28, 6, 31, 0)
+            .single()
+            .unwrap();
+        for (template, start, end) in [
+            (
+                b"{}".to_vec(),
+                "2026-09-22T04:00:00Z",
+                "2026-09-28T06:30:00Z",
+            ),
+            (
+                serde_json::to_vec(&short_template()).unwrap(),
+                "2026-09-01T00:00:00Z",
+                "2026-09-28T06:30:00Z",
+            ),
+            (
+                serde_json::to_vec(&short_template()).unwrap(),
+                "2026-09-13T06:29:59Z", // New exact cap + one second.
+                "2026-09-28T06:30:00Z",
+            ),
+            (
+                serde_json::to_vec(&short_template()).unwrap(),
+                "2026-09-28T06:30:00Z", // Zero length.
+                "2026-09-28T06:30:00Z",
+            ),
+            (
+                serde_json::to_vec(&short_template()).unwrap(),
+                "2026-09-28T06:30:01Z", // Reversed range.
+                "2026-09-28T06:30:00Z",
+            ),
+        ] {
+            let error = runtime
+                .block_on(collect_stage8b_p1f_o2_source_v1(
+                    "ACC_TEST_0001",
+                    &token,
+                    &template,
+                    start,
+                    end,
+                    now,
+                ))
+                .unwrap_err()
+                .context();
+            assert_eq!(error.completed_typed_gets, 0);
+            assert_eq!(error.last_validated_stage, "none");
+        }
+    }
+
+    #[test]
+    fn accepted_legacy_template_identity_is_unchanged() {
+        let bytes = include_bytes!("../../../docs/stage-8/stage8b-p1f-o2-source-template.json");
+        assert_eq!(
+            template_profile(bytes).unwrap(),
+            Stage8bP1RuntimeProfileKind::V1
+        );
+        let mut legacy: Value = serde_json::from_slice(bytes).unwrap();
+        legacy["history_coverage"]["candidate_session"] = Value::Null;
+        assert!(template_profile(&serde_json::to_vec(&legacy).unwrap()).is_err());
+    }
 
     fn orders(status: &str) -> AccountOrdersResponse {
         serde_json::from_value(json!({
@@ -1501,6 +2367,24 @@ mod tests {
             sha256_hex(account_id.as_bytes())
         );
         assert_eq!(value["history_bars"].as_array().unwrap().len(), 121);
+        assert_eq!(value["schema_version"], 2);
+        assert_eq!(
+            value["domain"],
+            "moex.stage8b.p1e.first-boot-source-bundle.v2"
+        );
+        assert_eq!(
+            value["runtime_profile_sha256"],
+            Stage8bP1RuntimeProfileKind::V1.profile_sha256()
+        );
+        assert!(value["history_coverage"].get("candidate_session").is_none());
+        assert_eq!(
+            value["riskgate_history"]["source_mode"],
+            "source-compatible-high180-shadow-history-v1"
+        );
+        assert_eq!(
+            value["riskgate_history"]["state_generation"],
+            "runtime-ledger-v1"
+        );
         assert!(
             value["riskgate_history"]["session_observations"]
                 .as_array()

@@ -1,7 +1,7 @@
 //! Stage 8B-P1-e deployable paper-supervisor contracts.
 //!
 //! This module is intentionally broker-network-free. It owns the exact
-//! production Hybrid profile, strict non-secret process configuration and the
+//! versioned Hybrid profiles, strict non-secret process configuration and the
 //! redacted coordinator/telemetry vocabulary used by the later process loop.
 
 use std::{collections::BTreeSet, fmt, future::Future, sync::Arc, time::Duration as StdDuration};
@@ -41,6 +41,10 @@ pub const STAGE8B_P1E_SUPERVISOR_CONFIG_SCHEMA_VERSION: u16 = 1;
 pub const STAGE8B_P1E_RUNTIME_PROFILE_ID: &str = "imoexf-baseline07-bo-only-paper-v1";
 pub const STAGE8B_P1E_RUNTIME_PROFILE_SHA256: &str =
     "8f346b730760c8a70c4ab8576da60147a80a7c0668ba2068783ea2e5a2637872";
+pub const STAGE8B_P1E_NO_RISKGATE_RUNTIME_PROFILE_ID: &str =
+    "imoexf-baseline07-bo-only-no-riskgate-paper-v2";
+pub const STAGE8B_P1E_NO_RISKGATE_RUNTIME_PROFILE_SHA256: &str =
+    "6d7dff3543993b7727a161f85af3037f74762ecd2ce8332e0594b9c92d987c38";
 pub const STAGE8B_P1E_REDIS_RUNTIME_POLICY_ID: &str = "imoexf-hybrid-paper-db15-runtime-v2";
 pub const STAGE8B_P1E_REDIS_RUNTIME_POLICY_SHA256: &str =
     "c39decbea8af3f305da1e930f1220a54c46e060d972fbb9bbc0c599e8c40ab1f";
@@ -68,6 +72,8 @@ pub const STAGE8B_P1E_NAMESPACE_DIGEST_SHA256: &str =
 
 const RUNTIME_PROFILE_BYTES: &[u8] =
     include_bytes!("../../../docs/stage-8/stage8b-p1e-runtime-profile-v1.json");
+const NO_RISKGATE_RUNTIME_PROFILE_BYTES: &[u8] =
+    include_bytes!("../../../docs/stage-8/stage8b-p1e-runtime-profile-v2.json");
 #[cfg(test)]
 const REDIS_RUNTIME_POLICY_BYTES: &[u8] =
     include_bytes!("../../../docs/stage-8/stage8b-p1e-redis-runtime-policy-v2.json");
@@ -121,6 +127,7 @@ pub struct Stage8bP1eSupervisorConfigV1 {
 /// connection are deliberately absent.
 pub struct Stage8bP1eValidatedSupervisorConfigV1 {
     bootstrap: Stage8bP1ValidatedBootstrapConfig,
+    runtime_profile_kind: Stage8bP1RuntimeProfileKind,
     runtime: HybridIntradayRuntimeStrategy,
     runtime_config_fingerprint_sha256: String,
     redis_url: String,
@@ -163,6 +170,14 @@ impl Stage8bP1eValidatedSupervisorConfigV1 {
 
     pub fn runtime(&self) -> &HybridIntradayRuntimeStrategy {
         &self.runtime
+    }
+
+    pub const fn runtime_profile_kind(&self) -> Stage8bP1RuntimeProfileKind {
+        self.runtime_profile_kind
+    }
+
+    pub const fn runtime_profile(&self) -> Stage8bP1RuntimeProfileKind {
+        self.runtime_profile_kind()
     }
 
     pub fn runtime_config_fingerprint_sha256(&self) -> &str {
@@ -955,9 +970,12 @@ pub fn validate_stage8b_p1e_supervisor_config_v1(
     config: Stage8bP1eSupervisorConfigV1,
     boot_id: [u8; 16],
 ) -> Result<Stage8bP1eValidatedSupervisorConfigV1, Stage8bP1eSupervisorConfigError> {
+    let runtime_profile_kind = Stage8bP1RuntimeProfileKind::from_identity(
+        &config.runtime_profile_id,
+        &config.runtime_profile_sha256,
+    )
+    .map_err(|_| Stage8bP1eSupervisorConfigError::InvalidConfig)?;
     if config.schema_version != STAGE8B_P1E_SUPERVISOR_CONFIG_SCHEMA_VERSION
-        || config.runtime_profile_id != STAGE8B_P1E_RUNTIME_PROFILE_ID
-        || config.runtime_profile_sha256 != STAGE8B_P1E_RUNTIME_PROFILE_SHA256
         || config.redis_runtime_policy_id != STAGE8B_P1E_REDIS_RUNTIME_POLICY_ID
         || config.redis_runtime_policy_sha256 != STAGE8B_P1E_REDIS_RUNTIME_POLICY_SHA256
         || config.telemetry_contract_sha256 != STAGE8B_P1E_TELEMETRY_CONTRACT_SHA256
@@ -979,7 +997,7 @@ pub fn validate_stage8b_p1e_supervisor_config_v1(
     }
 
     let (runtime, runtime_config_fingerprint_sha256) =
-        Stage8bP1RuntimeProfileV1::build_hybrid_runtime()?;
+        runtime_profile_kind.build_hybrid_runtime()?;
     if config.bootstrap.runtime_config_fingerprint_sha256 != runtime_config_fingerprint_sha256 {
         return Err(Stage8bP1eSupervisorConfigError::InvalidRuntimeProfile);
     }
@@ -1003,6 +1021,7 @@ pub fn validate_stage8b_p1e_supervisor_config_v1(
 
     Ok(Stage8bP1eValidatedSupervisorConfigV1 {
         bootstrap,
+        runtime_profile_kind,
         runtime,
         runtime_config_fingerprint_sha256,
         redis_url: config.redis_url,
@@ -1024,6 +1043,71 @@ fn valid_registry_version(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+}
+
+/// Exact immutable profile selection, shared by config and evidence readers.
+/// Unknown or mixed identities never fall back to a current/default profile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage8bP1RuntimeProfileKind {
+    /// Legacy baseline07 BO-only with High180/lb120 shadow accounting.
+    V1,
+    /// Baseline07 BO-only with riskgate accounting explicitly disabled.
+    V2,
+}
+
+impl Stage8bP1RuntimeProfileKind {
+    pub fn from_identity(id: &str, hash: &str) -> Result<Self, Stage8bP1eSupervisorConfigError> {
+        let kind = Self::from_sha256(hash)?;
+        if id != kind.profile_id() {
+            return Err(Stage8bP1eSupervisorConfigError::InvalidRuntimeProfile);
+        }
+        Ok(kind)
+    }
+
+    pub fn from_sha256(hash: &str) -> Result<Self, Stage8bP1eSupervisorConfigError> {
+        match hash {
+            STAGE8B_P1E_RUNTIME_PROFILE_SHA256 => Ok(Self::V1),
+            STAGE8B_P1E_NO_RISKGATE_RUNTIME_PROFILE_SHA256 => Ok(Self::V2),
+            _ => Err(Stage8bP1eSupervisorConfigError::InvalidRuntimeProfile),
+        }
+    }
+
+    pub fn from_fingerprint(fp: &str) -> Result<Self, Stage8bP1eSupervisorConfigError> {
+        for kind in [Self::V1, Self::V2] {
+            let (_, fingerprint) = kind.build_hybrid_runtime()?;
+            if fp == fingerprint {
+                return Ok(kind);
+            }
+        }
+        Err(Stage8bP1eSupervisorConfigError::InvalidRuntimeProfile)
+    }
+
+    pub fn build_hybrid_runtime(
+        self,
+    ) -> Result<(HybridIntradayRuntimeStrategy, String), Stage8bP1eSupervisorConfigError> {
+        match self {
+            Self::V1 => Stage8bP1RuntimeProfileV1::build_hybrid_runtime(),
+            Self::V2 => Stage8bP1RuntimeProfileV2::build_hybrid_runtime(),
+        }
+    }
+
+    pub const fn profile_id(self) -> &'static str {
+        match self {
+            Self::V1 => STAGE8B_P1E_RUNTIME_PROFILE_ID,
+            Self::V2 => STAGE8B_P1E_NO_RISKGATE_RUNTIME_PROFILE_ID,
+        }
+    }
+
+    pub const fn profile_sha256(self) -> &'static str {
+        match self {
+            Self::V1 => STAGE8B_P1E_RUNTIME_PROFILE_SHA256,
+            Self::V2 => STAGE8B_P1E_NO_RISKGATE_RUNTIME_PROFILE_SHA256,
+        }
+    }
+
+    pub const fn no_riskgate(self) -> bool {
+        matches!(self, Self::V2)
+    }
 }
 
 pub struct Stage8bP1RuntimeProfileV1;
@@ -1125,6 +1209,112 @@ impl Stage8bP1RuntimeProfileV1 {
         let runtime = HybridIntradayRuntimeStrategy::new(config);
         let fingerprint = runtime.stage5c_config_fingerprint();
         Ok((runtime, fingerprint))
+    }
+}
+
+/// Immutable no-riskgate successor; the V1 constructor remains a legacy boundary.
+pub struct Stage8bP1RuntimeProfileV2;
+
+impl Stage8bP1RuntimeProfileV2 {
+    pub fn build_hybrid_runtime(
+    ) -> Result<(HybridIntradayRuntimeStrategy, String), Stage8bP1eSupervisorConfigError> {
+        let runtime = HybridIntradayRuntimeStrategy::new(Self::build_config()?);
+        let fingerprint = runtime.stage5c_config_fingerprint();
+        Ok((runtime, fingerprint))
+    }
+
+    fn build_config() -> Result<HybridIntradayRuntimeConfig, Stage8bP1eSupervisorConfigError> {
+        let canonical = canonical_json_bytes(NO_RISKGATE_RUNTIME_PROFILE_BYTES)?;
+        if sha256_hex(&canonical) != STAGE8B_P1E_NO_RISKGATE_RUNTIME_PROFILE_SHA256 {
+            return Err(Stage8bP1eSupervisorConfigError::InvalidRuntimeProfile);
+        }
+        let profile: RuntimeProfileDocument =
+            serde_json::from_slice(NO_RISKGATE_RUNTIME_PROFILE_BYTES)
+                .map_err(|_| Stage8bP1eSupervisorConfigError::InvalidRuntimeProfile)?;
+        profile.validate_no_riskgate_envelope()?;
+        let semantic = profile.semantic_config;
+        semantic.validate_high180_defaults()?;
+        let config = HybridIntradayRuntimeConfig {
+            symbol: exact_string(&semantic.symbol, "IMOEXF")?,
+            profile: match semantic.profile.as_str() {
+                "baseline_runtime_hybrid" => HybridIntradayProfile::BaselineRuntimeHybrid,
+                _ => return Err(Stage8bP1eSupervisorConfigError::InvalidRuntimeProfile),
+            },
+            mr_variant: match semantic.mr_variant.as_str() {
+                "high180" => MeanReversionVariant::High180,
+                _ => return Err(Stage8bP1eSupervisorConfigError::InvalidRuntimeProfile),
+            },
+            live_mr_entries_enabled: semantic.live_mr_entries_enabled,
+            mr_gate_policy: match semantic.mr_gate_policy.as_str() {
+                "disabled" => MrGatePolicy::Disabled,
+                _ => return Err(Stage8bP1eSupervisorConfigError::InvalidRuntimeProfile),
+            },
+            risk_gate_mode: match semantic.risk_gate_mode.as_str() {
+                "disabled" => RiskGateMode::Disabled,
+                _ => return Err(Stage8bP1eSupervisorConfigError::InvalidRuntimeProfile),
+            },
+            risk_gate_seed_file: require_none(semantic.risk_gate_seed_file)?,
+            risk_gate_ledger_key: require_none(semantic.risk_gate_ledger_key)?,
+            model_session_start_time: Some(parse_time(&semantic.model_session_start_time)?),
+            model_session_end_time: Some(parse_time(&semantic.model_session_end_time)?),
+            qty: parse_decimal(&semantic.qty)?,
+            live_order_style: match semantic.live_order_style.as_str() {
+                "market" => BrokerNeutralMarketOrderStyle::Market,
+                _ => return Err(Stage8bP1eSupervisorConfigError::InvalidRuntimeProfile),
+            },
+            tick_size: parse_decimal(&semantic.tick_size)?,
+            marketable_limit_offset_ticks: semantic.marketable_limit_offset_ticks,
+            timezone_offset_hours: semantic.timezone_offset_hours,
+            session_close_hour: semantic.session_close_hour,
+            session_close_minute: semantic.session_close_minute,
+            weekends_off: semantic.weekends_off,
+            stop_end_buffer_sec: semantic.stop_end_buffer_sec,
+            repair_deadline_sec: semantic.repair_deadline_sec,
+            sl_escalate_timeout_sec: semantic.sl_escalate_timeout_sec,
+            max_repair_retries: semantic.max_repair_retries,
+            repair_backoff_base_sec: semantic.repair_backoff_base_sec,
+            repair_backoff_max_sec: semantic.repair_backoff_max_sec,
+            pending_timeout_sec: semantic.pending_timeout_sec,
+            partial_entry_fill_timeout_ms: semantic.partial_entry_fill_timeout_ms,
+            mr_config: MeanReversionConfig {
+                min_range_long: parse_decimal(&semantic.mean_reversion.min_range_long)?,
+                max_range_long: parse_decimal(&semantic.mean_reversion.max_range_long)?,
+                k_long: parse_decimal(&semantic.mean_reversion.k_long)?,
+                take_k_long: parse_decimal(&semantic.mean_reversion.take_k_long)?,
+                stop_k_long: parse_decimal(&semantic.mean_reversion.stop_k_long)?,
+                min_range_short: parse_decimal(&semantic.mean_reversion.min_range_short)?,
+                max_range_short: parse_decimal(&semantic.mean_reversion.max_range_short)?,
+                k_short: parse_decimal(&semantic.mean_reversion.k_short)?,
+                take_k_short: parse_decimal(&semantic.mean_reversion.take_k_short)?,
+                stop_k_short: parse_decimal(&semantic.mean_reversion.stop_k_short)?,
+                tick_size: parse_decimal(&semantic.mean_reversion.tick_size)?,
+                session_end_time: parse_time(&semantic.mean_reversion.session_end_time)?,
+                exit_offset: Duration::seconds(semantic.mean_reversion.exit_offset_seconds),
+            },
+            breakout_config: IntradayBreakoutConfig {
+                k: parse_decimal(&semantic.breakout.k)?,
+                stop1_range: parse_decimal(&semantic.breakout.stop1_range)?,
+                stop2_range: parse_decimal(&semantic.breakout.stop2_range)?,
+                big_move_threshold: parse_decimal(&semantic.breakout.big_move_threshold)?,
+                min_range: parse_decimal(&semantic.breakout.min_range)?,
+                min_range_mode: match semantic.breakout.min_range_mode.as_str() {
+                    "absolute" => MinRangeMode::Absolute,
+                    _ => return Err(Stage8bP1eSupervisorConfigError::InvalidRuntimeProfile),
+                },
+                exclude_weekends: semantic.breakout.exclude_weekends,
+                wait_hours: parse_decimal(&semantic.breakout.wait_hours)?,
+            },
+            orchestrator_config: HybridOrchestratorConfig {
+                breakout_eod_mode: match semantic.orchestrator.breakout_eod_mode.as_str() {
+                    "same_day" => BreakoutEodMode::SameDay,
+                    _ => return Err(Stage8bP1eSupervisorConfigError::InvalidRuntimeProfile),
+                },
+                breakout_overnight_exit_time: parse_time(
+                    &semantic.orchestrator.breakout_overnight_exit_time,
+                )?,
+            },
+        };
+        Ok(config)
     }
 }
 
@@ -1734,6 +1924,24 @@ struct RuntimeProfileDocument {
 }
 
 impl RuntimeProfileDocument {
+    fn validate_no_riskgate_envelope(&self) -> Result<(), Stage8bP1eSupervisorConfigError> {
+        if self.schema_version != 2
+            || self.domain != "moex.stage8b.p1e.runtime-profile.v2"
+            || self.profile_id != STAGE8B_P1E_NO_RISKGATE_RUNTIME_PROFILE_ID
+            || self.constructor != "Stage8bP1RuntimeProfileV2::build_hybrid_runtime"
+            || self.semantic_config.live_mr_entries_enabled
+            || self.paper_safety.trade_mode != "paper"
+            || self.paper_safety.allow_live_orders
+            || self.paper_safety.finam_transport_attached
+            || self.paper_safety.broker_dispatch_attached
+            || self.paper_safety.runtime_live
+            || self.paper_safety.real_orders
+        {
+            return Err(Stage8bP1eSupervisorConfigError::InvalidRuntimeProfile);
+        }
+        Ok(())
+    }
+
     fn validate_envelope(&self) -> Result<(), Stage8bP1eSupervisorConfigError> {
         if self.schema_version != 1
             || self.domain != "moex.stage8b.p1e.runtime-profile.v1"
@@ -2224,6 +2432,266 @@ mod tests {
             sha256_hex(ATOMIC_STALE_CONSUMER_DELETE_SCRIPT_V1.as_bytes()),
             "cfabc24e0563c490e9950e250fdb146f992403394d48953a1b5eb2a2ffd09b6b"
         );
+    }
+
+    #[test]
+    fn runtime_profile_v1_identity_and_fingerprint_are_frozen() {
+        assert_eq!(
+            STAGE8B_P1E_RUNTIME_PROFILE_ID,
+            "imoexf-baseline07-bo-only-paper-v1"
+        );
+        assert_eq!(
+            STAGE8B_P1E_RUNTIME_PROFILE_SHA256,
+            "8f346b730760c8a70c4ab8576da60147a80a7c0668ba2068783ea2e5a2637872"
+        );
+        let (_, fingerprint) = Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
+        assert_eq!(
+            fingerprint,
+            "6ac8994e5fc8777035c48c0b871b2d15a6662cdae6be88220f2bcdcadf0a244d"
+        );
+        let document: RuntimeProfileDocument =
+            serde_json::from_slice(RUNTIME_PROFILE_BYTES).unwrap();
+        document.validate_envelope().unwrap();
+        assert_eq!(document.semantic_config.risk_gate_mode, "normal_append");
+        assert_eq!(
+            document.semantic_config.mr_gate_policy,
+            "shadow_pnl_lb120_positive"
+        );
+        assert!(document.validate_no_riskgate_envelope().is_err());
+    }
+
+    #[test]
+    fn runtime_profile_v2_is_explicit_no_riskgate_baseline07() {
+        assert_eq!(
+            sha256_hex(&canonical_json_bytes(NO_RISKGATE_RUNTIME_PROFILE_BYTES).unwrap()),
+            STAGE8B_P1E_NO_RISKGATE_RUNTIME_PROFILE_SHA256
+        );
+        let legacy: Value = serde_json::from_slice(RUNTIME_PROFILE_BYTES).unwrap();
+        let current: Value = serde_json::from_slice(NO_RISKGATE_RUNTIME_PROFILE_BYTES).unwrap();
+        let mut expected_semantic = legacy["semantic_config"].clone();
+        expected_semantic["profile"] = Value::String("baseline_runtime_hybrid".to_string());
+        expected_semantic["mr_gate_policy"] = Value::String("disabled".to_string());
+        expected_semantic["risk_gate_mode"] = Value::String("disabled".to_string());
+        assert_eq!(current["semantic_config"], expected_semantic);
+        assert_eq!(current["paper_safety"], legacy["paper_safety"]);
+
+        let config = Stage8bP1RuntimeProfileV2::build_config().unwrap();
+        assert_eq!(config.profile, HybridIntradayProfile::BaselineRuntimeHybrid);
+        assert_eq!(config.mr_variant, MeanReversionVariant::High180);
+        assert!(!config.live_mr_entries_enabled);
+        assert_eq!(config.mr_gate_policy, MrGatePolicy::Disabled);
+        assert_eq!(config.risk_gate_mode, RiskGateMode::Disabled);
+        assert!(config.risk_gate_seed_file.is_none());
+        assert!(config.risk_gate_ledger_key.is_none());
+        assert_eq!(
+            config.model_session_start_time,
+            NaiveTime::from_hms_opt(7, 0, 0)
+        );
+        assert_eq!(
+            config.model_session_end_time,
+            NaiveTime::from_hms_opt(23, 49, 59)
+        );
+        assert!(config.weekends_off);
+        assert!(config.breakout_config.exclude_weekends);
+        assert_eq!(config.breakout_config.wait_hours, 3.0);
+        assert_eq!(config.qty, 1.0);
+        let expected_fingerprint =
+            HybridIntradayRuntimeStrategy::new(config).stage5c_config_fingerprint();
+        let (runtime, fingerprint) = Stage8bP1RuntimeProfileV2::build_hybrid_runtime().unwrap();
+        assert_eq!(runtime.stage5c_config_fingerprint(), fingerprint);
+        assert_eq!(fingerprint, expected_fingerprint);
+        assert_ne!(
+            fingerprint,
+            Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap().1
+        );
+    }
+
+    #[test]
+    fn runtime_profile_kind_round_trips_exact_identities_and_fingerprints() {
+        for kind in [
+            Stage8bP1RuntimeProfileKind::V1,
+            Stage8bP1RuntimeProfileKind::V2,
+        ] {
+            assert_eq!(
+                Stage8bP1RuntimeProfileKind::from_identity(
+                    kind.profile_id(),
+                    kind.profile_sha256()
+                ),
+                Ok(kind)
+            );
+            assert_eq!(
+                Stage8bP1RuntimeProfileKind::from_sha256(kind.profile_sha256()),
+                Ok(kind)
+            );
+            let (runtime, fingerprint) = kind.build_hybrid_runtime().unwrap();
+            assert_eq!(runtime.stage5c_config_fingerprint(), fingerprint);
+            assert_eq!(
+                Stage8bP1RuntimeProfileKind::from_fingerprint(&fingerprint),
+                Ok(kind)
+            );
+            assert_eq!(kind.no_riskgate(), kind == Stage8bP1RuntimeProfileKind::V2);
+        }
+    }
+
+    #[test]
+    fn runtime_profile_kind_rejects_unknown_mixed_and_noncanonical_identities() {
+        let invalid = Err(Stage8bP1eSupervisorConfigError::InvalidRuntimeProfile);
+        for kind in [
+            Stage8bP1RuntimeProfileKind::V1,
+            Stage8bP1RuntimeProfileKind::V2,
+        ] {
+            let other = if kind.no_riskgate() {
+                Stage8bP1RuntimeProfileKind::V1
+            } else {
+                Stage8bP1RuntimeProfileKind::V2
+            };
+            for id in [
+                "".to_string(),
+                "unknown".to_string(),
+                kind.profile_id().to_uppercase(),
+                format!("{} ", kind.profile_id()),
+                other.profile_id().to_string(),
+            ] {
+                assert_eq!(
+                    Stage8bP1RuntimeProfileKind::from_identity(&id, kind.profile_sha256()),
+                    invalid
+                );
+            }
+            for hash in [
+                "".to_string(),
+                "aa".repeat(32),
+                kind.profile_sha256().to_uppercase(),
+                format!("{} ", kind.profile_sha256()),
+            ] {
+                assert_eq!(Stage8bP1RuntimeProfileKind::from_sha256(&hash), invalid);
+                assert_eq!(
+                    Stage8bP1RuntimeProfileKind::from_identity(kind.profile_id(), &hash),
+                    invalid
+                );
+            }
+            let (_, fingerprint) = kind.build_hybrid_runtime().unwrap();
+            for fp in [
+                "".to_string(),
+                "aa".repeat(32),
+                kind.profile_sha256().to_string(),
+                fingerprint.to_uppercase(),
+                format!("{fingerprint} "),
+            ] {
+                assert_eq!(Stage8bP1RuntimeProfileKind::from_fingerprint(&fp), invalid);
+            }
+            assert_eq!(
+                Stage8bP1RuntimeProfileKind::from_sha256(&fingerprint),
+                invalid
+            );
+        }
+    }
+
+    #[test]
+    fn runtime_profile_v2_envelope_rejects_legacy_and_unsafe_policy() {
+        let baseline: Value = serde_json::from_slice(NO_RISKGATE_RUNTIME_PROFILE_BYTES).unwrap();
+        let document: RuntimeProfileDocument = serde_json::from_value(baseline.clone()).unwrap();
+        document.validate_no_riskgate_envelope().unwrap();
+        assert!(document.validate_envelope().is_err());
+        for (pointer, replacement) in [
+            ("/schema_version", serde_json::json!(1)),
+            (
+                "/domain",
+                serde_json::json!("moex.stage8b.p1e.runtime-profile.v1"),
+            ),
+            (
+                "/profile_id",
+                serde_json::json!(STAGE8B_P1E_RUNTIME_PROFILE_ID),
+            ),
+            (
+                "/constructor",
+                serde_json::json!("Stage8bP1RuntimeProfileV1::build_hybrid_runtime"),
+            ),
+            (
+                "/semantic_config/live_mr_entries_enabled",
+                serde_json::json!(true),
+            ),
+            ("/paper_safety/trade_mode", serde_json::json!("live")),
+            ("/paper_safety/allow_live_orders", serde_json::json!(true)),
+            (
+                "/paper_safety/finam_transport_attached",
+                serde_json::json!(true),
+            ),
+            (
+                "/paper_safety/broker_dispatch_attached",
+                serde_json::json!(true),
+            ),
+            ("/paper_safety/runtime_live", serde_json::json!(true)),
+            ("/paper_safety/real_orders", serde_json::json!(true)),
+        ] {
+            let mut changed = baseline.clone();
+            *changed.pointer_mut(pointer).unwrap() = replacement;
+            let document: RuntimeProfileDocument = serde_json::from_value(changed).unwrap();
+            assert_eq!(
+                document.validate_no_riskgate_envelope(),
+                Err(Stage8bP1eSupervisorConfigError::InvalidRuntimeProfile),
+                "{pointer}"
+            );
+        }
+    }
+
+    #[test]
+    fn runtime_profile_supervisor_selects_and_retains_both_exact_profiles() {
+        let parent = durable_parent();
+        for kind in [
+            Stage8bP1RuntimeProfileKind::V1,
+            Stage8bP1RuntimeProfileKind::V2,
+        ] {
+            let (_, fingerprint) = kind.build_hybrid_runtime().unwrap();
+            let mut config = supervisor_config(parent.clone());
+            config.runtime_profile_id = kind.profile_id().to_string();
+            config.runtime_profile_sha256 = kind.profile_sha256().to_string();
+            config.bootstrap.runtime_config_fingerprint_sha256 = fingerprint.clone();
+            let validated = validate_stage8b_p1e_supervisor_config_v1(config, [0xab; 16]).unwrap();
+            assert_eq!(validated.runtime_profile_kind(), kind);
+            assert_eq!(validated.runtime_profile(), kind);
+            assert_eq!(
+                validated.runtime().stage5c_config_fingerprint(),
+                fingerprint
+            );
+            assert_eq!(validated.runtime_config_fingerprint_sha256(), fingerprint);
+            let (bootstrap, runtime, plan, _) = validated.into_run_parts();
+            assert_eq!(bootstrap.runtime_config_fingerprint_sha256(), fingerprint);
+            assert_eq!(runtime.stage5c_config_fingerprint(), fingerprint);
+            assert_eq!(plan.runtime_config_fingerprint_sha256, fingerprint);
+        }
+        fs::remove_dir(parent).unwrap();
+    }
+
+    #[test]
+    fn runtime_profile_supervisor_rejects_cross_profile_hashes_and_fingerprints() {
+        for (kind, other) in [
+            (
+                Stage8bP1RuntimeProfileKind::V1,
+                Stage8bP1RuntimeProfileKind::V2,
+            ),
+            (
+                Stage8bP1RuntimeProfileKind::V2,
+                Stage8bP1RuntimeProfileKind::V1,
+            ),
+        ] {
+            let mut config = supervisor_config(std::env::temp_dir());
+            config.runtime_profile_id = kind.profile_id().to_string();
+            config.runtime_profile_sha256 = other.profile_sha256().to_string();
+            assert!(matches!(
+                validate_stage8b_p1e_supervisor_config_v1(config, [1; 16]),
+                Err(Stage8bP1eSupervisorConfigError::InvalidConfig)
+            ));
+
+            let mut config = supervisor_config(std::env::temp_dir());
+            config.runtime_profile_id = kind.profile_id().to_string();
+            config.runtime_profile_sha256 = kind.profile_sha256().to_string();
+            config.bootstrap.runtime_config_fingerprint_sha256 =
+                other.build_hybrid_runtime().unwrap().1;
+            assert!(matches!(
+                validate_stage8b_p1e_supervisor_config_v1(config, [1; 16]),
+                Err(Stage8bP1eSupervisorConfigError::InvalidRuntimeProfile)
+            ));
+        }
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-09-29.
+Status date: 2026-10-01.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -11,6 +11,44 @@ an accepted macro-stage into smaller patch gates, but it does not renumber or
 replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 ## Active Stage 8B-P1-f source boundary
+
+Current development direction (project owner, 2026-09-30): current ALOR systems
+do not use riskgate. The [no-riskgate / short-warmup ADR](adr/adr-stage8b-bo-only-no-riskgate-short-warmup.md)
+and [handoff reconciliation](stage-8/stage8b-p1f-bo-only-handoff-alignment-2026-09-30.md)
+fix the narrow source correction: baseline07 BO-only paper without mandatory
+High180/lb120 reconstruction, using model-required recent history. The
+[additive source implementation](stage-8/stage8b-p1f-no-riskgate-source-correction.md)
+is independently **SOURCE ACCEPTED** at `2f46491a4f63249f64676306d5f9c3445818f4f9`: explicit profile
+V2 / wire V3, four prior sessions plus current prefix, disabled accounting and
+profile-bound restart. Legacy V1/V2 validation is retained.
+The installed profile still requires 121 history / 120 riskgate sessions and
+the minimum 180-day query. Historical acceptance below does not make that
+dependency a requirement of the new target. No VPS change or activation authority
+is introduced. The [narrow authority closure](stage-8/stage8b-p1f-no-riskgate-governance-closure.md)
+follows the separately recorded build-only correction `7c80d70`: the V1 type
+import is restricted to `cfg(test)` so canonical all-features Clippy can pass.
+No runtime behavior, Cargo, workflows, checkers or deployed bytes change.
+The closure itself changes only authority inventories and status documents.
+Build fix `7c80d70` is independently accepted; the `3992fc7` authority delta is
+correct. Its test-harness HOLD is now lifted on correction commit
+`ca16bf5ab8debe875925421f0d0ee4de0f769525`: **SOURCE / TEST-HARNESS ACCEPT;
+P1-NRG01 CLOSED**. The original interrupted `3992fc7` run remains failed evidence.
+The [test-only cleanup correction](stage-8/stage8b-p1f-nrg01-harness-correction.md)
+has accepted exact-tree qualification: complete durable all-features 388 passed,
+default process 42 passed, exact witness 3/3, authority negatives 45/45, fmt and
+canonical Clippy PASS; production semantics are unchanged. Fresh required GitHub
+`rust` and `redis-smoke` still precede one history-preserving merge of this
+completed block. Exact artifact replacement, installation and O2 execution remain
+separate gates. The retained
+2148 tests and 38/38 frozen model rounds are source evidence, not FINAM live fills.
+
+2026-10-01 update: PR #11 head `c8fe58b` passed required `rust` and `redis-smoke`
+in run `36765599251`, but merge was blocked by a new P2 calendar/fetch-range
+finding. The owner authorized the [narrow range correction](stage-8/stage8b-p1f-short-history-range-correction.md)
+in the same PR: calendar age remains 14 days / four prior sessions; policy and
+collector share a positive <=15-day transport envelope for intraday coverage.
+This new source delta is a review candidate and requires fresh CI; earlier
+acceptances remain intact. No merge, installation or activation is claimed.
 
 The [narrow O2 recovery source correction](stage-8/stage8b-p1f-o2-recovery-source-correction.md)
 is independently SOURCE ACCEPTED at `5b8f878833dbf71fa7614152a4a5fb03cbf40b65`.
@@ -32,16 +70,35 @@ VPS inspection.
 
 The [bounded-failure source correction](stage-8/stage8b-p1f-o2-bounded-failure-correction.md)
 is independently SOURCE ACCEPTED at `590304af44830197704503c8ebc67329693ac75b`.
-P1-O2REC01 and P2-O2DIAG01 are closed. The current slice is an
-[authority successor and isolated recovery artifact](stage-8/stage8b-p1f-o2-terminal-recovery-package.md)
-with no Rust/Cargo or strategy changes. Local authority checks and an offline
-Linux/amd64 build are preparation gates; fresh GitHub CI, artifact review and
-explicit target-execution permission remain separate requirements. The old
-installation manifest and control-root/history must stay intact. The candidate
-operator is staged separately, never substituted under the old installed hash.
-No VPS/FINAM contact is authorized by this preparation. O2 remains HOLD until
-the old terminal receipt is committed and reread under separate authorization.
-Only then prepare the updated full O2 installation and request a new bounded run.
+P1-O2REC01 and P2-O2DIAG01 are closed. The recovery artifact at `43d5f4e`
+was accepted, its required CI passed, and PR #10 merged as
+`589b80144adaa4c615aaa94781035d5a6af64c71`. The separately authorized old-phase
+terminal recovery is independently **OPERATIONAL TERMINAL RECOVERY EVIDENCE
+ACCEPTED**: one cleanup exit 0, `EXPIRED`, generation 1 / sequence 2 at
+`2026-09-30T06:07:41Z`, exact returned/durable receipt and history validation.
+P0, installed bytes and selector were unchanged; P1 stopped. These are retained
+observations, not a new live snapshot. The old `BarsTruth` cause remains unknown;
+**O2 itself is not passed**.
+
+The [full successor artifact and terminal-preserving update](stage-8/stage8b-p1f-o2-terminal-successor.md)
+at `3923c5c94f27a1dc980297f289c10ecca652f99b` and its non-activating installation
+evidence are independently accepted. Three binaries were built from exact merge
+`589b801`, retaining the genesis-bound installation ID and prior terminal history.
+
+A subsequent separately authorized bounded O2 on 2026-09-30 failed before
+bootstrap: materializer exit 70, `history_missing_m1` at
+`2026-04-10T13:27:00Z`. One cleanup exit 0 recorded **FAILED, generation 1 /
+sequence 4** at `09:36:38Z`; the earlier Expired/2 history is retained. P0 and
+installed bytes were unchanged, P1 was not bootstrapped and DB15 remained empty.
+These are retained observations, not a fresh VPS inspection. Evidence ZIP
+`finam-o2-3923c5c-bounded-successor-evidence-20260930.zip`, SHA-256
+`527d20dbc23079d9151f6868c81cab135b2db5c53fac2dce24fce64a83cac2d7`, is prepared;
+independent acceptance of this attempt is pending. **O2 remains HOLD.**
+
+Next: complete narrow authority closure review and fresh CI, then the exact
+no-riskgate artifact/update and separate operational
+gates. Do not retry the old long-history contract or loosen required recent-bar
+quality checks. No new recovery framework is required.
 
 ### Earlier accepted milestones (historical boundaries)
 

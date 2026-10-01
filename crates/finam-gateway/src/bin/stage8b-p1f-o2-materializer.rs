@@ -34,6 +34,18 @@ struct MaterializationPolicyV1 {
     venue_symbol: String,
     bars_start_utc: String,
     bars_end_utc: String,
+    // Absent for the immutable V1 policy. V2 binds the reviewed short profile
+    // explicitly; a present null is not an absent legacy field.
+    #[serde(default, deserialize_with = "present_profile_field")]
+    runtime_profile_id: Option<String>,
+    #[serde(default, deserialize_with = "present_profile_field")]
+    runtime_profile_sha256: Option<String>,
+}
+
+fn present_profile_field<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
+    String::deserialize(deserializer).map(Some)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -98,6 +110,7 @@ fn run() -> Result<MaterializerResultV1, String> {
         runtime_durable_service::STAGE8B_P1E_FIRST_BOOT_SOURCE_MAX_BYTES,
         false,
     )?;
+    validate_template_policy(&template_bytes, &policy)?;
     let manifest_sha256 = runtime_durable_service::stage8b_p1f_o2_active_manifest_sha256_v1()
         .map_err(|error| error.to_string())?;
     let collection_lock =
@@ -196,6 +209,7 @@ fn validate_retained_bytes(
     }
     let source: serde_json::Value = serde_json::from_str(&staged.exact_source_json)
         .map_err(|_| "retained source is invalid JSON")?;
+    validate_source_profile_pairing(&source, policy)?;
     let identity = source
         .get("operational_identity_sha256")
         .and_then(serde_json::Value::as_str)
@@ -218,9 +232,8 @@ fn validate_retained_bytes(
 }
 
 fn validate_policy(policy: &MaterializationPolicyV1) -> Result<(), String> {
-    if policy.schema_version != 1
-        || policy.domain != "stage8b-p1f-o2-materialization-policy-v1"
-        || policy.venue_symbol != broker_finam::STAGE8B_P1F_O2_VENUE_SYMBOL
+    let profile = policy_profile(policy)?;
+    if policy.venue_symbol != broker_finam::STAGE8B_P1F_O2_VENUE_SYMBOL
         || policy.account_alias != finam_gateway::STAGE8B_P1F_O2_ACCOUNT_ALIAS
         || !valid_sha256(&policy.account_id_sha256)
     {
@@ -229,13 +242,81 @@ fn validate_policy(policy: &MaterializationPolicyV1) -> Result<(), String> {
     let start = canonical_time(&policy.bars_start_utc)?;
     let end = canonical_time(&policy.bars_end_utc)?;
     let range = end.signed_duration_since(start);
-    if start >= end
-        || range < chrono::Duration::days(MIN_BARS_RANGE_DAYS)
-        || range > chrono::Duration::days(MAX_BARS_RANGE_DAYS)
-    {
+    let valid_range = if profile.no_riskgate() {
+        finam_gateway::Stage8bP1fO2MaterializedSourceV1::validate_bars_interval(profile, start, end)
+            .is_ok()
+    } else {
+        range >= chrono::Duration::days(MIN_BARS_RANGE_DAYS)
+            && range <= chrono::Duration::days(MAX_BARS_RANGE_DAYS)
+    };
+    if !valid_range {
         return Err("materialization policy bars interval is insufficient".into());
     }
     Ok(())
+}
+
+fn policy_profile(
+    policy: &MaterializationPolicyV1,
+) -> Result<runtime_durable_service::Stage8bP1RuntimeProfileKind, String> {
+    use runtime_durable_service::Stage8bP1RuntimeProfileKind;
+    match (policy.schema_version, policy.domain.as_str()) {
+        (1, "stage8b-p1f-o2-materialization-policy-v1")
+            if policy.runtime_profile_id.is_none() && policy.runtime_profile_sha256.is_none() =>
+        {
+            Stage8bP1RuntimeProfileKind::from_sha256(
+                runtime_durable_service::STAGE8B_P1E_RUNTIME_PROFILE_SHA256,
+            )
+            .map_err(|_| "legacy policy profile is invalid".into())
+        }
+        (2, "stage8b-p1f-o2-materialization-policy-v2") => {
+            let profile = Stage8bP1RuntimeProfileKind::from_identity(
+                policy
+                    .runtime_profile_id
+                    .as_deref()
+                    .ok_or("policy profile id is missing")?,
+                policy
+                    .runtime_profile_sha256
+                    .as_deref()
+                    .ok_or("policy profile hash is missing")?,
+            )
+            .map_err(|_| "policy profile identity is invalid")?;
+            if !profile.no_riskgate() {
+                return Err("short policy requires the no-riskgate profile".into());
+            }
+            Ok(profile)
+        }
+        _ => Err("materialization policy identity is invalid".into()),
+    }
+}
+
+fn validate_source_profile_pairing(
+    source: &serde_json::Value,
+    policy: &MaterializationPolicyV1,
+) -> Result<(), String> {
+    let profile = policy_profile(policy)?;
+    let (schema, domain) = if profile.no_riskgate() {
+        (3, "moex.stage8b.p1e.first-boot-source-bundle.v3")
+    } else {
+        (2, "moex.stage8b.p1e.first-boot-source-bundle.v2")
+    };
+    if source["schema_version"].as_u64() != Some(schema)
+        || source["domain"].as_str() != Some(domain)
+        || source["runtime_profile_sha256"].as_str() != Some(profile.profile_sha256())
+    {
+        return Err("source schema/profile does not match materialization policy".into());
+    }
+    Ok(())
+}
+
+fn validate_template_policy(
+    template_bytes: &[u8],
+    policy: &MaterializationPolicyV1,
+) -> Result<(), String> {
+    validate_policy(policy)?;
+    finam_gateway::Stage8bP1fO2MaterializedSourceV1::validate_template_profile(template_bytes)
+        .map_err(|_| "source template preflight rejected")?;
+    let source = serde_json::from_slice(template_bytes).map_err(|_| "invalid source template")?;
+    validate_source_profile_pairing(&source, policy)
 }
 
 fn read_single_line_secret(bytes: &[u8], label: &str) -> Result<String, String> {
@@ -371,6 +452,223 @@ mod tests {
 
     const ACCOUNT: &str = "ACC_TEST_0001";
 
+    #[test]
+    fn documented_no_riskgate_examples_pass_read_only_preflight_at_frozen_time() {
+        let template_bytes = include_bytes!(
+            "../../../../docs/stage-8/stage8b-p1f-o2-no-riskgate-source-template.example.json"
+        );
+        let policy_bytes = include_bytes!(
+            "../../../../docs/stage-8/stage8b-p1f-o2-no-riskgate-policy.example.json"
+        );
+        let policy: MaterializationPolicyV1 = serde_json::from_slice(policy_bytes).unwrap();
+        let source: serde_json::Value = serde_json::from_slice(template_bytes).unwrap();
+        let frozen_now = canonical_time("2026-09-28T11:11:00Z").unwrap();
+
+        // Validate the exact documented bytes, not a repaired/rebound fixture.
+        // This is format/profile preflight only: no credentials, GETs, source
+        // materialization, active authority lookup or deployment admission.
+        validate_template_policy(template_bytes, &policy).unwrap();
+        assert!(policy_profile(&policy).unwrap().no_riskgate());
+        assert!(canonical_time(&policy.bars_start_utc).unwrap() <= frozen_now);
+        assert!(frozen_now < canonical_time(&policy.bars_end_utc).unwrap());
+        assert_eq!(
+            source["history_coverage"]["candidate_session"]["session_date"],
+            (frozen_now + chrono::Duration::hours(3))
+                .date_naive()
+                .format("%Y-%m-%d")
+                .to_string()
+        );
+        assert_eq!(
+            source["history_coverage"]["sessions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|session| session["session_date"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["2026-09-22", "2026-09-23", "2026-09-24", "2026-09-25"]
+        );
+        // Examples deliberately retain non-operational identity placeholders.
+        assert_eq!(source["operational_identity_sha256"], "1".repeat(64));
+        assert_eq!(policy.account_id_sha256, "2".repeat(64));
+        assert_eq!(source["captured_at_utc"], "1970-01-01T00:00:00Z");
+        assert_eq!(
+            source["broker_truth"]["account_id"],
+            finam_gateway::STAGE8B_P1F_O2_ACCOUNT_TEMPLATE_SENTINEL
+        );
+    }
+
+    fn short_policy() -> MaterializationPolicyV1 {
+        let profile = runtime_durable_service::Stage8bP1RuntimeProfileKind::V2;
+        MaterializationPolicyV1 {
+            schema_version: 2,
+            domain: "stage8b-p1f-o2-materialization-policy-v2".into(),
+            account_id_sha256: sha256_hex(ACCOUNT.as_bytes()),
+            account_alias: finam_gateway::STAGE8B_P1F_O2_ACCOUNT_ALIAS.into(),
+            venue_symbol: broker_finam::STAGE8B_P1F_O2_VENUE_SYMBOL.into(),
+            bars_start_utc: "2026-09-22T00:00:00Z".into(),
+            bars_end_utc: "2026-09-28T07:00:00Z".into(),
+            runtime_profile_id: Some(profile.profile_id().into()),
+            runtime_profile_sha256: Some(profile.profile_sha256().into()),
+        }
+    }
+
+    fn short_template() -> serde_json::Value {
+        let mut template: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../../../docs/stage-8/stage8b-p1f-o2-source-template.json"
+        ))
+        .unwrap();
+        template["schema_version"] = json!(3);
+        template["domain"] = json!("moex.stage8b.p1e.first-boot-source-bundle.v3");
+        template["runtime_profile_sha256"] =
+            json!(runtime_durable_service::Stage8bP1RuntimeProfileKind::V2.profile_sha256());
+        let session = |day: u32| {
+            let date = chrono::NaiveDate::from_ymd_opt(2026, 9, day).unwrap();
+            json!({
+                "session_date": format!("2026-09-{day:02}"),
+                "windows": [{
+                    "first_close_time_utc": date.and_hms_opt(4, 10, 0).unwrap().and_utc().timestamp(),
+                    "last_close_time_utc": date.and_hms_opt(20, 50, 0).unwrap().and_utc().timestamp()
+                }]
+            })
+        };
+        template["history_coverage"]["sessions"] =
+            json!([session(22), session(23), session(24), session(25)]);
+        template["history_coverage"]["candidate_session"] = session(28);
+        template
+    }
+
+    #[test]
+    fn short_policy_accepts_age_14_session_with_full_intraday_tail() {
+        let mut template = short_template();
+        let earliest = &mut template["history_coverage"]["sessions"][0];
+        earliest["session_date"] = json!("2026-09-14");
+        for window in earliest["windows"].as_array_mut().unwrap() {
+            for field in ["first_close_time_utc", "last_close_time_utc"] {
+                window[field] = json!(window[field].as_i64().unwrap() - 8 * 86400);
+            }
+        }
+        let bytes = serde_json::to_vec(&template).unwrap();
+        let mut policy = short_policy();
+        // Include the first M1 candle of the 07:10 MSK M10 close and the full
+        // candidate day. Age 14 calendar days is not a 14*24-hour fetch span.
+        policy.bars_start_utc = "2026-09-14T04:00:00Z".into();
+        policy.bars_end_utc = "2026-09-28T20:50:00Z".into();
+        assert!(
+            finam_gateway::Stage8bP1fO2MaterializedSourceV1::validate_template_profile(&bytes)
+                .is_ok()
+        );
+        validate_template_policy(&bytes, &policy).unwrap();
+    }
+
+    #[test]
+    fn policy_ranges_are_versioned_without_relaxing_legacy_limits() {
+        let mut legacy: MaterializationPolicyV1 = serde_json::from_slice(include_bytes!(
+            "../../../../docs/stage-8/stage8b-p1f-o2-materialization-policy.json"
+        ))
+        .unwrap();
+        let start = canonical_time(&legacy.bars_start_utc).unwrap();
+        for (days, valid) in [
+            (0, false),
+            (14, false),
+            (179, false),
+            (180, true),
+            (400, true),
+            (401, false),
+        ] {
+            legacy.bars_end_utc =
+                (start + chrono::Duration::days(days)).to_rfc3339_opts(SecondsFormat::Secs, true);
+            assert_eq!(validate_policy(&legacy).is_ok(), valid, "legacy {days}");
+        }
+        let mut policy = short_policy();
+        let start = canonical_time(&policy.bars_start_utc).unwrap();
+        for (seconds, valid) in [
+            (-1, false),
+            (0, false),
+            (1, true),
+            (14 * 86400, true),
+            (14 * 86400 + 1, true),
+            (14 * 86400 + 16 * 3600 + 50 * 60, true),
+            (15 * 86400, true),
+            (15 * 86400 + 1, false),
+            (180 * 86400, false),
+        ] {
+            policy.bars_end_utc = (start + chrono::Duration::seconds(seconds))
+                .to_rfc3339_opts(SecondsFormat::Secs, true);
+            assert_eq!(validate_policy(&policy).is_ok(), valid, "short {seconds}");
+        }
+    }
+
+    #[test]
+    fn policy_and_template_require_exact_schema_profile_pairing() {
+        let legacy: MaterializationPolicyV1 = serde_json::from_slice(include_bytes!(
+            "../../../../docs/stage-8/stage8b-p1f-o2-materialization-policy.json"
+        ))
+        .unwrap();
+        let legacy_template =
+            include_bytes!("../../../../docs/stage-8/stage8b-p1f-o2-source-template.json");
+        let short_template = serde_json::to_vec(&short_template()).unwrap();
+        let mut short = short_policy();
+        assert!(validate_template_policy(legacy_template, &legacy).is_ok());
+        assert!(validate_template_policy(&short_template, &short).is_ok());
+        assert!(validate_template_policy(&short_template, &legacy).is_err());
+        assert!(validate_template_policy(legacy_template, &short).is_err());
+        short.runtime_profile_id = Some("foreign-profile".into());
+        assert!(validate_policy(&short).is_err());
+        short = short_policy();
+        short.runtime_profile_sha256 = Some(
+            runtime_durable_service::Stage8bP1RuntimeProfileKind::V1
+                .profile_sha256()
+                .into(),
+        );
+        assert!(validate_policy(&short).is_err());
+        short.runtime_profile_id = Some(
+            runtime_durable_service::Stage8bP1RuntimeProfileKind::V1
+                .profile_id()
+                .into(),
+        );
+        assert!(validate_policy(&short).is_err());
+        short = short_policy();
+        short.runtime_profile_sha256 = Some("ff".repeat(32));
+        assert!(validate_policy(&short).is_err());
+        short = short_policy();
+        short.runtime_profile_id = None;
+        assert!(validate_policy(&short).is_err());
+        short = short_policy();
+        short.schema_version = 1;
+        assert!(validate_policy(&short).is_err());
+    }
+
+    #[test]
+    fn legacy_policy_does_not_gain_optional_profile_fields() {
+        let bytes =
+            include_bytes!("../../../../docs/stage-8/stage8b-p1f-o2-materialization-policy.json");
+        let mut value: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+        value["runtime_profile_id"] = serde_json::Value::Null;
+        assert!(serde_json::from_value::<MaterializationPolicyV1>(value.clone()).is_err());
+        value["runtime_profile_id"] =
+            json!(runtime_durable_service::Stage8bP1RuntimeProfileKind::V1.profile_id());
+        assert!(validate_policy(&serde_json::from_value(value).unwrap()).is_err());
+    }
+
+    #[test]
+    fn short_policy_cannot_retain_a_legacy_source() {
+        let (staged, _, now) = fixture();
+        let policy = short_policy();
+        let error = validate_retained_bytes(
+            &serde_json::to_vec(&staged).unwrap(),
+            &staged.manifest_sha256,
+            &policy,
+            ACCOUNT,
+            now,
+        )
+        .err()
+        .unwrap();
+        assert_eq!(
+            error,
+            "source schema/profile does not match materialization policy"
+        );
+    }
+
     fn fixture() -> (
         StagedMaterializationV1,
         MaterializationPolicyV1,
@@ -412,6 +710,8 @@ mod tests {
             venue_symbol: broker_finam::STAGE8B_P1F_O2_VENUE_SYMBOL.into(),
             bars_start_utc: "2026-01-01T00:00:00Z".into(),
             bars_end_utc: "2026-07-15T00:00:00Z".into(),
+            runtime_profile_id: None,
+            runtime_profile_sha256: None,
         };
         (staged, policy, now)
     }

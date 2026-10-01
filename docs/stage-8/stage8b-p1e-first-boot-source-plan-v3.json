@@ -1,0 +1,40 @@
+{
+  "schema_version": 3,
+  "domain": "moex.stage8b.p1e.first-boot-source-plan.v3",
+  "plan_id": "imoexf-baseline07-bo-only-no-riskgate-first-boot-v3",
+  "wire_schema_version": 3,
+  "wire_domain": "moex.stage8b.p1e.first-boot-source-bundle.v3",
+  "runtime_profile_id": "imoexf-baseline07-bo-only-no-riskgate-paper-v2",
+  "history": {
+    "complete_prior_sessions": 4,
+    "maximum_age_calendar_days": 14,
+    "coverage_authority": "config-bound-explicit-session-windows-v1",
+    "first_complete_close_msk": "07:10:00",
+    "last_complete_close_msk": "23:50:00",
+    "weekend_sessions_allowed": false,
+    "candidate_session_full_windows_required": true,
+    "current_session_prefix": "exact-declared-closes-before-candidate",
+    "candidate_must_belong_to_declared_window": true,
+    "gaps": "explicit-reviewed-calendar-windows-only",
+    "trusted_producer_calendar_correctness_checked_by_consumer": false,
+    "historical_order_emission_allowed": false
+  },
+  "riskgate": {
+    "source_mode": "disabled-bo-only-v1",
+    "state_generation": "disabled-v1",
+    "session_observations": [],
+    "history_sha256_binding_required": true,
+    "empty_observations_sha256_binding_required": true,
+    "high180_rebuild_allowed": false,
+    "external_ledger_or_seed_allowed": false
+  },
+  "broker_truth_maximum_age_seconds": 300,
+  "candidate_maximum_age_seconds": 900,
+  "candidate_required_intent_count": 0,
+  "candidate_required_request_count": 0,
+  "candidate_required_callback_count": 1,
+  "legacy_wire_v2": "unchanged-validation-with-exact-legacy-profile-only",
+  "cross_profile_restore_allowed": false,
+  "operational_activation_authorized": false,
+  "finam_order_writes_authorized": false
+}

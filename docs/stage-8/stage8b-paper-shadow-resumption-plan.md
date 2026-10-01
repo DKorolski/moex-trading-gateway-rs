@@ -1,6 +1,28 @@
 # Stage 8B paper-shadow resumption plan
 
-Status: active operational plan, 2026-09-02.
+Status: original plan dated 2026-09-02; current-direction addendum 2026-09-30.
+
+## Current-direction addendum — 2026-09-30
+
+The owner confirms that current ALOR systems do not use riskgate. Follow the
+[no-riskgate / short-warmup ADR](../adr/adr-stage8b-bo-only-no-riskgate-short-warmup.md)
+and [model reconciliation / source plan](stage8b-p1f-bo-only-handoff-alignment-2026-09-30.md).
+The immediate target remains baseline07 BO-only paper, without mandatory
+High180 shadow accounting, lb120 seed or ledger reconstruction. Paper/shadow
+strategy observation is still required; it is not High180 shadow accounting.
+The four-session IMOEXF warmup reference is model-specific, not a global limit
+for other models. Candidate09 remains separate; no-riskgate does not disable
+USDRUBF MR logic.
+
+The installed FINAM binary still has the legacy 121/120-session dependency;
+the [additive correction](stage8b-p1f-no-riskgate-source-correction.md) is implemented
+and independently SOURCE ACCEPTED at `2f46491`, not installed. The
+[authority closure](stage8b-p1f-no-riskgate-governance-closure.md) and fresh CI
+are the next boundary. Latest retained O2
+ended Failed generation 1 / sequence 4, before bootstrap; its evidence is
+prepared, not independently accepted. See [current status](../current-status.md)
+for accepted milestones and operational gates. The September 2 milestones and
+permissions below are historical context, not fresh deployment authorization.
 
 ## Outcome
 
@@ -85,7 +107,9 @@ For several sessions compare:
 - paper intents and ALOR live command shape;
 - paper ACK/order/trade/position lifecycle;
 - restart and gap recovery;
-- riskgate ledger/state.
+- explicit no-riskgate profile/readiness for the current target. Riskgate
+  ledger/state comparison applies only to a separately selected riskgate-enabled
+  model, not to baseline07 BO-only admission or paper-session acceptance.
 
 ## Pre-live-micro return gate
 

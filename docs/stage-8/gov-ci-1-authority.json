@@ -54,7 +54,7 @@
     "stage8b_s_authorized": false
   },
   "governance_control_plane_manifest": {
-    "aggregate_sha256": "0500f91b8d6bf03a204f9f5afd43c2acfb5955c862bace98312adcfd4b02cafc",
+    "aggregate_sha256": "6f3bb0e8fc66ea5a761b140901c58aa7e49487ea9744bc2b4e92522132fa2fc5",
     "entries": {
       ".github/workflows/ci.yml": {
         "mode": "100644",
@@ -68,13 +68,13 @@
       },
       "docs/current-status.md": {
         "mode": "100644",
-        "sha256": "86b423053a64c089d217d300349c6aa4dd235939f2c7067eee4c029bc8888d3a",
-        "size": 144042
+        "sha256": "24041bd2ef6d5ae66ff1e303f5ee522b7d297006b0b7dac5d484daa6585bd304",
+        "size": 148041
       },
       "docs/roadmap.md": {
         "mode": "100644",
-        "sha256": "64c87a66b24de0fedfa2a219516dae880251aab21b5db6a9b8353e2b36f93397",
-        "size": 33954
+        "sha256": "4741d80502d784ac88fb173fef8423ab24418a2ab1a018664ff86aeb16034c53",
+        "size": 36293
       },
       "docs/stage-5/stage5f-authority-rotation.json": {
         "mode": "100644",
@@ -176,8 +176,8 @@
   },
   "negative_cases": 45,
   "production_code_manifest": {
-    "aggregate_sha256": "49d0e9cc0c6ae329537a465a46bde0d5a1a37231d10ce84aedd1c4b533e53677",
-    "content_sha256": "ad3fbfb70b85f75a174dc43454899a78b10cb019b887b757c8d06f4936d7f562",
+    "aggregate_sha256": "386d8e14f3e8721dac032a505dd3b5e03b4790272bafe81b9364b3dbe9e8da06",
+    "content_sha256": "8b08cb2d37039af497246677e22930e410d205137f6015085fd5024557d35c79",
     "entries": {
       "Cargo.lock": {
         "mode": "100644",
@@ -416,8 +416,8 @@
       },
       "crates/finam-gateway/src/bin/stage8b-p1f-o2-materializer.rs": {
         "mode": "100644",
-        "sha256": "de37f41f6be6fa93f6303c083420c964619288fa94c2838219d7c8191ae468a2",
-        "size": 19348
+        "sha256": "38aef08dcb707e193c1067de4f7f1a9c3ec5805b77588ea34cbcbf818b6cb798",
+        "size": 32494
       },
       "crates/finam-gateway/src/bin/stage8b-r2a6-source-adapter.rs": {
         "mode": "100644",
@@ -571,8 +571,8 @@
       },
       "crates/finam-gateway/src/stage8b_p1f_o2_materializer.rs": {
         "mode": "100644",
-        "sha256": "8d2f22bcd6c64d424ecf1d3757c1a5bca01b6bbdb9aec24e45d7e5ad19460145",
-        "size": 60374
+        "sha256": "0cd1c184c6029b20d7b41bf940a5311ac0deeacee1f603e0220dfaac05802184",
+        "size": 96152
       },
       "crates/finam-gateway/src/stage8b_r2a7_source_adapter.rs": {
         "mode": "100644",
@@ -616,8 +616,8 @@
       },
       "crates/runtime-durable-service/src/lib.rs": {
         "mode": "100644",
-        "sha256": "7211600e92dba2d1bb7a1a98f8f7a879ff832c066b31e108d579ba623f4a82f1",
-        "size": 70382
+        "sha256": "068604d369d74389d3f967d2b103a6202b6fee6a4655ebae702776c2a978819b",
+        "size": 70723
       },
       "crates/runtime-durable-service/src/recovery.rs": {
         "mode": "100644",
@@ -651,23 +651,28 @@
       },
       "crates/runtime-durable-service/src/stage8b_p1_supervisor.rs": {
         "mode": "100644",
-        "sha256": "0200064b8f72cc88fbca8c5911f19ba4d9385d2733a78ebd924d88d9b014bb98",
-        "size": 114469
+        "sha256": "cb97b6a9eb86fee1a11f953a11085951b363e53a705ab63f110b144aea752ae4",
+        "size": 135886
       },
       "crates/runtime-durable-service/src/stage8b_p1e_first_boot_source.rs": {
         "mode": "100644",
-        "sha256": "d603fbb73f0fd90c217e60ea6419a8d53776b78c5fe33944c31ebd803ab65156",
-        "size": 151962
+        "sha256": "44818911b4628699505c9659036717f638d4dca19bf8552a35793af0f95044aa",
+        "size": 159009
       },
       "crates/runtime-durable-service/src/stage8b_p1e_first_boot_transaction.rs": {
         "mode": "100644",
-        "sha256": "0aec375d127cab576e05b523d782aa5b19c3561d1296adb918d5705fc6519956",
-        "size": 132363
+        "sha256": "3b81c211d50ca0d1c306975f1b5cc57c389c9b03fa32c31660cd755f31ce6a9a",
+        "size": 133254
+      },
+      "crates/runtime-durable-service/src/stage8b_p1e_no_riskgate_tests.rs": {
+        "mode": "100644",
+        "sha256": "dee3207d4168ee09b9fa6ecb9685e18d6f9bb5942844e231d654a15df9b064d1",
+        "size": 14752
       },
       "crates/runtime-durable-service/src/stage8b_p1e_process.rs": {
         "mode": "100644",
-        "sha256": "8dde914df13bf9be634da719bc09ff74d22d49d75b7fd7849f5664cbc3b7cadd",
-        "size": 570670
+        "sha256": "cf7a17cc3ce65d1be4ff1e2a242d9f3f1b873f49450f5a2fc5e4113cc3498ed3",
+        "size": 582531
       },
       "crates/runtime-durable-service/src/stage8b_p1e_schedule_source.rs": {
         "mode": "100644",
@@ -756,8 +761,8 @@
       },
       "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs": {
         "mode": "100644",
-        "sha256": "acda087c308d7dc435aa2bf724039e569876dbe0caec4068e5d46be55a29db91",
-        "size": 340604
+        "sha256": "ab3b4015ef164015ef5570f3c5f8827714f8a14c54231fca4f6c064b0f1ecca1",
+        "size": 364089
       },
       "crates/strategy-runtime-core/src/lib.rs": {
         "mode": "100644",
@@ -776,8 +781,8 @@
       },
       "crates/strategy-runtime-core/src/stage5d_persistence.rs": {
         "mode": "100644",
-        "sha256": "464b47d7755a0aa1c50904cdc9afb0faf2aa9aaa1b30cf250e924d4808f2d473",
-        "size": 909190
+        "sha256": "48716b7c6ece7ce78d15708dd07549953fb7ac0649a3c49dd63407463c8cedd4",
+        "size": 915930
       },
       "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": {
         "mode": "100644",
@@ -886,8 +891,8 @@
       },
       "crates/strategy-runtime-core/src/stage8b_p1e_first_boot.rs": {
         "mode": "100644",
-        "sha256": "256ca2682139e3a7f6fe6c03169bf3e2caad5e7789da4184df258c49e0ef1aec",
-        "size": 24677
+        "sha256": "aba828cbcfcba4036db4dbd0bcd2f93ba548bee25b84b235f6cf4e79fde9721a",
+        "size": 44447
       },
       "crates/strategy-runtime-core/tests/high180_profile_binding.rs": {
         "mode": "100644",
@@ -910,7 +915,7 @@
         "size": 6212
       }
     },
-    "file_count": 146
+    "file_count": 147
   },
   "requirements": {
     "accepted_stage8a5_immutable_replay_required": true,

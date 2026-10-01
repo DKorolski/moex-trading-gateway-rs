@@ -27,16 +27,48 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Current as of 2026-09-29: O2 installation `60bc482` and the subsequent bounded
-failure evidence are accepted; **O2 HOLD**, old claim still ACTIVE at the retained
-post-deadline observation. The bounded-failure source correction is independently
-SOURCE ACCEPTED at `590304a`. The immediate slice is the
-[authority/recovery package](stage-8/stage8b-p1f-o2-terminal-recovery-package.md).
-Order: authority + fresh CI → artifact provenance and narrow recovery delivery
-review → explicitly authorized terminal recovery of old claim → exact receipt
-reread → separately authorized new bounded O2 → O3/O4 paper sessions and ALOR
-comparison. No history deletion, deadline extension, new claim over ACTIVE,
-FINAM execution or runtime-live is permitted by the source correction.
+Current as of 2026-09-30: successor artifact/update `3923c5c` and its installation
+evidence are independently accepted. A subsequent authorized bounded O2 failed
+before bootstrap on a missing April 10 M1. Its retained terminal frontier is
+**FAILED, generation 1 / sequence 4**; accepted Expired/2 history is preserved.
+The latest attempt's evidence is prepared, not independently accepted; these are
+retained observations, not a fresh VPS inspection. **O2 remains HOLD.**
+
+The owner confirms current ALOR models do not use riskgate. The accepted slice is
+the [BO-only no-riskgate / short-warmup source correction](stage-8/stage8b-p1f-bo-only-handoff-alignment-2026-09-30.md)
+under the [scoped ADR](adr/adr-stage8b-bo-only-no-riskgate-short-warmup.md), not
+another retry of the installed 121/120-session High180 contract. The
+[source implementation](stage-8/stage8b-p1f-no-riskgate-source-correction.md) is
+independently SOURCE ACCEPTED at `2f46491a4f63249f64676306d5f9c3445818f4f9`;
+installed binaries and accepted historical artifacts are unchanged. The next
+boundary is the [narrow authority closure](stage-8/stage8b-p1f-no-riskgate-governance-closure.md),
+with accepted `7c80d70` build fix and a correct `3992fc7` authority delta. The
+[test-only correction](stage-8/stage8b-p1f-nrg01-harness-correction.md) at
+`ca16bf5ab8debe875925421f0d0ee4de0f769525` and its full local qualification are
+independently accepted; **P1-NRG01 CLOSED**, its HOLD lifted on that correction.
+Fresh required GitHub `rust`/`redis-smoke` precede one history-preserving merge
+of the completed no-riskgate block. Runtime semantics are unchanged by the
+test-harness correction; no additional source redesign is required.
+
+2026-10-01: required CI passed for PR #11/c8fe58b (run `36765599251`). A new P2
+thread blocked merge: calendar session age 14 was inconsistent with a 14*24h
+fetch cap. The owner authorized a [two-file materializer correction](stage-8/stage8b-p1f-short-history-range-correction.md)
+and boundary tests in that same PR, without changing four-session warmup or
+strategy semantics. Narrow source review and fresh CI remain pending for it.
+
+Owner-approved working cadence (2026-09-30): commit finished local changes,
+push working branches for preservation, and review meaningful functional
+boundaries. Merge accepted blocks before they become artifact/install baselines,
+not every review or documentation update separately. Required CI/repository rules
+remain unchanged. Preparation may proceed during CI; baseline-dependent build
+and operational actions still wait for their required gates and permissions.
+
+Order: accepted source + short-warmup/parity/restart evidence → scoped authority
+closure and fresh required CI → exact replacement artifact → separately authorized installation preserving
+terminal history → separately authorized bounded O2 → O3/O4 paper windows and
+ALOR comparison of the same model → separately accepted live micro. No history
+deletion, deadline extension, new genesis, FINAM order writes or runtime-live is
+permitted by this documentation update. Macro-stage numbering is unchanged.
 
 ### Historical entry and accepted dependencies
 
