@@ -1,6 +1,7 @@
 # Sparse M10 — source acceptance and narrow authority closure
 
-Date: 2026-10-03. Source ACCEPTED; closure qualification/review pending.
+Date: 2026-10-03. Source ACCEPTED; local closure checker and 45/45 negatives PASS.
+Closure/artifact independent review and fresh GitHub checks remain separate.
 
 Accepted source: `d63c378a51899a4d407dddc732896e89ccc51b43`.
 Tree: `aff81bbb27b0247ea603ef97d868edd6246590ac`.

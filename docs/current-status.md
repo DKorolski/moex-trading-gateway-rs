@@ -8,9 +8,13 @@ in the bounded sparse-M10 source boundary. The immutable source ZIP exists and
 its SHA-256 is `30b1dccaf53f3e82fe29b062c83dec13c2605e9de212a47609499a9c4e16ff0d`.
 See [review](stage-8/reviews/REVIEW_d63c378_SPARSE_M10_RU.txt) and
 [authority/artifact follow-up](stage-8/stage8b-p1f-sparse-m10-authority-closure.md).
-The next local slice refreshes authority inventories without changing accepted
-Rust/Cargo, legacy policies or CI. Fresh CI and a sparse-selected binary artifact
-remain to be qualified. O2 HOLD; no installation or execution authorized.
+Authority inventories were refreshed at `4668b42` without changing accepted
+Rust/Cargo, legacy policies or CI: local checker and 45/45 negatives PASS.
+The [sparse-selected artifact](stage-8/stage8b-p1f-o2-sparse-artifact.md) has a
+completed Linux/amd64 offline release build and release-library/exact-ELF
+qualification. Final postseal gate results accompany the immutable package;
+fresh GitHub CI and independent artifact/closure acceptance remain separate.
+O2 HOLD; no installation or execution authorized.
 The following dated progress notes describe the pre-review source work, not
 the current acceptance verdict.
 
