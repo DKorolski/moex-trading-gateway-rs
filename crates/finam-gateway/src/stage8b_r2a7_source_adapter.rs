@@ -2335,6 +2335,7 @@ mod tests {
             expires_at: now + Duration::seconds(MAX_CURRENT_SOURCE_TTL_SECONDS),
             runtime_profile_id: RUNTIME_PROFILE_ID.to_owned(),
             operational_identity: Stage6dOperationalIdentityConfig {
+                market_data_policy_sha256: None,
                 broker_id: "finam".to_owned(),
                 strategy_instance_id: "stage8b-r2a8-r1-test".to_owned(),
                 deployment_id: "stage8b-r2a8-r1-test".to_owned(),

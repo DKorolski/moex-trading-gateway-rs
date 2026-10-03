@@ -61,6 +61,21 @@ pub const STAGE8B_P1E_FIRST_BOOT_PROVENANCE_SCHEMA_VERSION: u16 = 1;
 pub const STAGE6D_INTEGRATION_FINGERPRINT_SCHEMA_VERSION: u16 = 3;
 pub const STAGE6E_ACCEPTED_FRESH_TRUTH_SCHEMA_VERSION: u16 = 2;
 pub const STAGE8B_P1_REQUEST_ACCEPTED_BINDING_SCHEMA_VERSION: u16 = 1;
+/// Explicit source-plan policy selected by schema-2 P1 bootstrap. None retains
+/// the old identity bytes and does not authorize observed/sparse provenance.
+pub const STAGE8B_P1_OBSERVED_SOURCE_POLICY_SHA256: &str =
+    "8f3cac0b35529301ef2ea056a2e1ab00db0aa5e955786b8141cf1ef701d1e61d";
+
+fn p1_semantic_policy_matches(
+    identity: &Stage6dOperationalIdentityConfig,
+    bar: &crate::Stage5cAcceptedSemanticBar,
+) -> bool {
+    match identity.market_data_policy_sha256.as_deref() {
+        None => !bar.uses_closed_rest_observed_m1(),
+        Some(STAGE8B_P1_OBSERVED_SOURCE_POLICY_SHA256) => bar.uses_closed_rest_observed_m1(),
+        Some(_) => false,
+    }
+}
 
 const STAGE6D_RESTART_COMMITMENT_DOMAIN: &str = "moex.stage6d.authenticated-restart-frontier.v1";
 const STAGE6D_RESTART_COMMITMENT_V2_DOMAIN: &str = "moex.stage6d.restart-commitment.v2";
@@ -73,6 +88,9 @@ const STAGE8B_P1_REQUEST_ACCEPTED_BINDING_DOMAIN: &str =
     "moex.stage8b.p1.prepublication-request-accepted.v1";
 
 static STAGE6E_PROCESS_GENERATION_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+mod p1_journal_source;
+pub use p1_journal_source::Stage8bP1JournalAheadSourceCheck;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -315,6 +333,10 @@ pub struct Stage6dFirstBootConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Stage6dOperationalIdentityConfig {
+    /// Optional explicit source-policy contract. Absent for legacy identities;
+    /// omission preserves their exact serialized bytes and durable root digest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub market_data_policy_sha256: Option<String>,
     pub broker_id: String,
     pub strategy_instance_id: String,
     pub deployment_id: String,
@@ -3848,7 +3870,8 @@ pub fn apply_stage8b_p1_semantic_transition(
         .authenticated_operational_identity()
         .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?;
     let operational_identity_sha256 = stage6d_operational_identity_sha256(operational_identity)?;
-    if source.seal_generation == 0
+    if !p1_semantic_policy_matches(operational_identity, &accepted_bar)
+        || source.seal_generation == 0
         || Stage6Sha256Digest::parse(source.seal_commitment_sha256.clone()).is_err()
         || source.stage6_checkpoint_sha256
             != recovered.authenticated_checkpoint().checkpoint_sha256()
@@ -4018,7 +4041,8 @@ pub fn apply_stage8b_p1d3_semantic_transition(
         .authenticated_operational_identity()
         .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?;
     let operational_identity_sha256 = stage6d_operational_identity_sha256(operational_identity)?;
-    if source.seal_generation == 0
+    if !p1_semantic_policy_matches(operational_identity, &accepted_bar)
+        || source.seal_generation == 0
         || Stage6Sha256Digest::parse(source.seal_commitment_sha256.clone()).is_err()
         || source.stage6_checkpoint_sha256
             != recovered.authenticated_checkpoint().checkpoint_sha256()
@@ -7351,6 +7375,29 @@ fn stage8b_p1_request_accepted_source_evidence(
         .canonical_command_sha256
         .as_deref()
         .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    stage8b_p1_request_accepted_source_evidence_parts(
+        source,
+        &Stage5gP1SemanticBindingInput {
+            operational_identity_sha256: projection.operational_identity_sha256.clone(),
+            m10_redis_id: projection.m10_redis_id.clone(),
+            m10_semantic_id_sha256: projection.m10_semantic_id_sha256.clone(),
+            m10_payload_sha256: projection.m10_payload_sha256.clone(),
+        },
+        &projection.semantic_batch_id_sha256,
+        request_id,
+        command_sha256,
+        expected_record_id,
+    )
+}
+
+fn stage8b_p1_request_accepted_source_evidence_parts(
+    source: &Stage6Stage8bP1SealSourceV1,
+    binding: &Stage5gP1SemanticBindingInput,
+    semantic_batch_id_sha256: &str,
+    request_id: StrategyRequestId,
+    command_sha256: &str,
+    expected_record_id: &Stage6JournalRecordId,
+) -> Result<Stage6Sha256Digest, Stage6dLiveCoreError> {
     let bytes = serde_json::to_vec(&Stage8bP1RequestAcceptedBindingV1 {
         schema_version: STAGE8B_P1_REQUEST_ACCEPTED_BINDING_SCHEMA_VERSION,
         domain: STAGE8B_P1_REQUEST_ACCEPTED_BINDING_DOMAIN,
@@ -7359,10 +7406,10 @@ fn stage8b_p1_request_accepted_source_evidence(
         source_stage6_checkpoint_sha256: &source.stage6_checkpoint_sha256,
         source_stage6_frontier_sha256: &source.stage6_frontier_sha256,
         operational_identity_sha256: &source.operational_identity_sha256,
-        m10_redis_id: &projection.m10_redis_id,
-        m10_semantic_id_sha256: &projection.m10_semantic_id_sha256,
-        m10_payload_sha256: &projection.m10_payload_sha256,
-        semantic_batch_id_sha256: &projection.semantic_batch_id_sha256,
+        m10_redis_id: &binding.m10_redis_id,
+        m10_semantic_id_sha256: &binding.m10_semantic_id_sha256,
+        m10_payload_sha256: &binding.m10_payload_sha256,
+        semantic_batch_id_sha256,
         strategy_request_id: request_id,
         canonical_command_sha256: command_sha256,
         expected_request_accepted_record_id: expected_record_id.as_str(),
@@ -11849,6 +11896,10 @@ fn validate_operational_identity_config(
         || config.deployment_generation == 0
         || !canonical_token(&config.gateway_instance_id)
         || config.market_data_generation == 0
+        || config
+            .market_data_policy_sha256
+            .as_ref()
+            .is_some_and(|policy| Stage6Sha256Digest::parse(policy.clone()).is_err())
         || config.command_consumer_generation == 0
         || Stage6Sha256Digest::parse(config.instrument_map_fingerprint_sha256.clone()).is_err()
         || decode_fixed_hex::<32>(&config.stage8a4_writer_issuer_public_key_hex).is_err()
@@ -12023,6 +12074,7 @@ mod tests {
 
     fn operational_config() -> Stage6dOperationalIdentityConfig {
         Stage6dOperationalIdentityConfig {
+            market_data_policy_sha256: None,
             broker_id: "finam-paper".to_string(),
             strategy_instance_id: "hybrid-imoexf-stage6d".to_string(),
             deployment_id: "stage6d-paper".to_string(),
@@ -12034,6 +12086,36 @@ mod tests {
             stage8a4_writer_issuer_public_key_hex:
                 "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a".to_string(),
         }
+    }
+
+    #[test]
+    fn stage6d_optional_market_policy_preserves_legacy_identity_bytes() {
+        // Literal pre-extension wire, not regenerated by the new serializer.
+        let legacy = concat!(
+            "{\"broker_id\":\"finam-paper\",\"strategy_instance_id\":\"hybrid-imoexf-stage6d\",",
+            "\"deployment_id\":\"stage6d-paper\",\"deployment_generation\":1,",
+            "\"gateway_instance_id\":\"paper-gateway-stage6d\",",
+            "\"instrument_map_fingerprint_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",",
+            "\"market_data_generation\":1,\"command_consumer_generation\":1,",
+            "\"stage8a4_writer_issuer_public_key_hex\":\"d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a\"}"
+        );
+        let mut config = operational_config();
+        assert_eq!(serde_json::to_vec(&config).unwrap(), legacy.as_bytes());
+        assert_eq!(
+            serde_json::from_str::<Stage6dOperationalIdentityConfig>(legacy).unwrap(),
+            config
+        );
+        let old = stage6d_operational_identity_sha256(&config).unwrap();
+        assert_eq!(old.as_str(), sha256_hex(legacy.as_bytes()));
+        config.market_data_policy_sha256 = Some("cd".repeat(32));
+        assert_ne!(stage6d_operational_identity_sha256(&config).unwrap(), old);
+        let roundtrip = serde_json::from_slice::<Stage6dOperationalIdentityConfig>(
+            &serde_json::to_vec(&config).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(roundtrip, config);
+        config.market_data_policy_sha256 = Some("not-a-sha256".into());
+        assert!(stage6d_operational_identity_sha256(&config).is_err());
     }
 
     fn recovered() -> Stage6dDurableRuntimeRecovered {

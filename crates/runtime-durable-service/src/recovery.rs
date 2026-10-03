@@ -181,6 +181,7 @@ pub fn stage8a4_i3_production_test_setup_in(
     .expect("Stage8A4 fixture dispatch record");
     let journal_records = [accepted, dispatch];
     let operational_identity = Stage6dOperationalIdentityConfig {
+        market_data_policy_sha256: None,
         broker_id: "paper".to_string(),
         strategy_instance_id: "hybrid-imoexf".to_string(),
         deployment_id: "stage8a4-i3-production-test".to_string(),
@@ -330,6 +331,7 @@ pub fn stage8b_r2a6_cancel_production_test_setup_in(
     journal_records.extend([accepted, dispatch]);
 
     let operational_identity = Stage6dOperationalIdentityConfig {
+        market_data_policy_sha256: None,
         broker_id: "paper".to_string(),
         strategy_instance_id: "hybrid-imoexf".to_string(),
         deployment_id: "stage8b-r2a6-cancel-production-test".to_string(),
@@ -1463,6 +1465,7 @@ pub struct P1SemanticPrepublicationPending {
     storage: Stage7bWritableDurableAuthority,
     committed_s0: Stage7bRecoverySealV1,
     candidate: Stage6Stage8bP1JournalAheadCandidate,
+    source_check: Option<strategy_runtime_core::Stage8bP1JournalAheadSourceCheck>,
     fresh_runtime: HybridIntradayRuntimeStrategy,
     operational_identity: Stage6dOperationalIdentityConfig,
 }
@@ -3191,6 +3194,12 @@ impl P1SemanticPrepublicationPending {
         self.committed_s0.operational_identity_sha256()
     }
 
+    pub(crate) fn matches_source_probe(&self, binding: &Stage5gP1SemanticBindingInput) -> bool {
+        self.source_check
+            .as_ref()
+            .is_some_and(|check| check.matches(binding))
+    }
+
     pub(crate) fn complete_with_exact_semantic_input(
         self,
         accepted_bar: Stage5cAcceptedSemanticBar,
@@ -4759,11 +4768,43 @@ impl Stage7bRecoveryReadyOwner {
                     committed_seal.stage6_checkpoint(),
                 )?;
                 if candidate.as_ref().is_some_and(stage8b_p1_candidate_scope) {
+                    let candidate = candidate.expect("candidate checked above");
+                    let source_check = if identity.market_data_policy_sha256.as_deref()
+                        == Some(strategy_runtime_core::STAGE8B_P1_OBSERVED_SOURCE_POLICY_SHA256)
+                    {
+                        Some(
+                            candidate.bind_source_check(
+                                &committed_seal.stage6d_authenticated_restart_package,
+                                commitment_key,
+                                Stage6Stage8bP1SealSourceV1 {
+                                    seal_generation: committed_seal.seal_generation(),
+                                    seal_commitment_sha256: committed_seal
+                                        .seal_commitment_sha256()
+                                        .into(),
+                                    stage6_checkpoint_sha256: committed_seal
+                                        .stage6_checkpoint()
+                                        .checkpoint_sha256()
+                                        .into(),
+                                    stage6_frontier_sha256: stage6_frontier_fingerprint_sha256(
+                                        committed_seal.stage6_checkpoint().frontier(),
+                                    )?
+                                    .as_str()
+                                    .into(),
+                                    operational_identity_sha256: committed_seal
+                                        .operational_identity_sha256()
+                                        .into(),
+                                },
+                            )?,
+                        )
+                    } else {
+                        None
+                    };
                     return Ok(Stage7bRestartOutcome::P1SemanticPrepublicationPending(
                         Box::new(P1SemanticPrepublicationPending {
                             storage,
                             committed_s0: committed_seal,
-                            candidate: candidate.expect("candidate checked above"),
+                            candidate,
+                            source_check,
                             fresh_runtime,
                             operational_identity: identity,
                         }),
@@ -8235,6 +8276,7 @@ mod tests {
 
     fn identity() -> Stage6dOperationalIdentityConfig {
         Stage6dOperationalIdentityConfig {
+            market_data_policy_sha256: None,
             broker_id: "paper".to_string(),
             strategy_instance_id: "hybrid-imoexf".to_string(),
             deployment_id: "stage7b-c-test".to_string(),

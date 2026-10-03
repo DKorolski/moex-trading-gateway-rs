@@ -24,6 +24,7 @@ use zeroize::Zeroizing;
 
 const O2_POLICY_PATH: &str = "/etc/moex-finam-p1-paper/o2/materialization-policy.json";
 const O2_CONFIG_TEMPLATE_PATH: &str = "/etc/moex-finam-p1-paper/o2/supervisor.template.json";
+const O2_SOURCE_TEMPLATE_PATH: &str = "/etc/moex-finam-p1-paper/o2/source-template.json";
 const O2_STAGING_ROOT: &str = "/var/lib/moex-finam-p1-paper-o2-staging";
 const O2_MAX_STAGED_BYTES: u64 = 32 * 1024 * 1024;
 const O2_PUBLIC_KEY_PATH: &str = "/etc/moex-finam-p1-paper/o2/authority-public-key.hex";
@@ -178,47 +179,6 @@ fn guardian_materialize_fixed() -> Result<(), String> {
     let manifest = stage8b_p1f_o2_active_manifest_sha256_v1().map_err(|error| error.to_string())?;
     let package_path = Path::new(O2_STAGING_ROOT).join(format!("{manifest}.json"));
     let package_bytes = read_root_owned(&package_path, O2_MAX_STAGED_BYTES, 0o400)?;
-    let package: serde_json::Value =
-        serde_json::from_slice(&package_bytes).map_err(|_| "invalid staged package")?;
-    if package
-        .get("schema_version")
-        .and_then(serde_json::Value::as_u64)
-        != Some(1)
-        || package.get("domain").and_then(serde_json::Value::as_str)
-            != Some("stage8b-p1f-o2-staged-materialization-v1")
-        || package
-            .get("manifest_sha256")
-            .and_then(serde_json::Value::as_str)
-            != Some(manifest.as_str())
-    {
-        return Err("staged package authority binding is invalid".into());
-    }
-    let source = package
-        .get("exact_source_json")
-        .and_then(serde_json::Value::as_str)
-        .ok_or("staged package source is missing")?;
-    let source_sha256 = package
-        .get("source_bundle_sha256")
-        .and_then(serde_json::Value::as_str)
-        .ok_or("staged package source hash is missing")?;
-    if source_sha256 != sha256_hex(source.as_bytes())
-        || package
-            .get("evidence")
-            .and_then(serde_json::Value::as_object)
-            .and_then(|evidence| evidence.get("source_bundle_sha256"))
-            .and_then(serde_json::Value::as_str)
-            != Some(source_sha256)
-    {
-        return Err("staged package source hash is invalid".into());
-    }
-    let source_value: serde_json::Value =
-        serde_json::from_str(source).map_err(|_| "staged source is invalid JSON")?;
-    let checked_at = source_value
-        .get("broker_truth")
-        .and_then(serde_json::Value::as_object)
-        .and_then(|truth| truth.get("checked_at_utc"))
-        .and_then(serde_json::Value::as_str)
-        .ok_or("staged broker-truth timestamp is missing")?;
     let policy = read_root_owned(
         Path::new(O2_POLICY_PATH),
         STAGE8B_P1F_MAX_AUTHORITY_BYTES,
@@ -229,13 +189,26 @@ fn guardian_materialize_fixed() -> Result<(), String> {
         STAGE8B_P1F_MAX_AUTHORITY_BYTES,
         0o440,
     )?;
+    let source_template = read_root_owned(
+        Path::new(O2_SOURCE_TEMPLATE_PATH),
+        runtime_durable_service::STAGE8B_P1E_FIRST_BOOT_SOURCE_MAX_BYTES,
+        0o440,
+    )?;
+    let checked = runtime_durable_service::check_stage8b_p1f_staged_source(
+        &package_bytes,
+        &manifest,
+        &policy,
+        &template,
+        &source_template,
+        Utc::now(),
+    )?;
     let receipt = open_store()?
         .materialize_o2(
             &manifest,
             &policy,
             &template,
-            source.as_bytes(),
-            checked_at,
+            checked.source_bytes(),
+            checked.broker_truth_checked_at_utc(),
             Utc::now(),
         )
         .map_err(|error| error.to_string())?;

@@ -5,6 +5,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+pub mod observed;
+
 use broker_core::event::Bar;
 use broker_core::{BarAggregationAction, CanonicalBarAggregator, Market, MarketDataSourceKind};
 use broker_finam::{

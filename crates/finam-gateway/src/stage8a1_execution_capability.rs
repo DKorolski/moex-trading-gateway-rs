@@ -4821,7 +4821,6 @@ pub(crate) mod tests {
     use chrono::{Duration, TimeZone};
     use rust_decimal::Decimal;
     use std::collections::HashSet;
-    use std::sync::atomic::{AtomicU64, Ordering};
     use uuid::Uuid;
 
     const FP: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -5194,13 +5193,13 @@ pub(crate) mod tests {
         assert!(!nonces.insert("nonce-unique"));
     }
 
-    static ISSUER_TEST_DIR: AtomicU64 = AtomicU64::new(1);
-
     fn issuer_root() -> PathBuf {
+        // PID + a reset counter can collide with a retained directory after
+        // the OS reuses a PID on a later test run. Do not touch old evidence.
         let root = std::env::temp_dir().join(format!(
             "stage8a1-r2-issuer-{}-{}",
             std::process::id(),
-            ISSUER_TEST_DIR.fetch_add(1, Ordering::SeqCst)
+            Uuid::new_v4()
         ));
         fs::create_dir(&root).unwrap();
         root

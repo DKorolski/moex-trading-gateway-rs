@@ -27,6 +27,12 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
+2026-10-02 addendum: [sparse-M10 source correction](stage-8/stage8b-p1f-sparse-m10-correction-progress.md)
+is the current local work; O2 remains HOLD. [WS and operational parity checks](stage-8/stage8b-operational-market-data-parity-checklist.md)
+remain in the existing read-only O4 / multi-session paper path before live-micro
+consideration. No macro-stage is added, renumbered or newly authorized.
+The dated paragraphs below retain the preceding accepted lineage.
+
 Current as of 2026-09-30: successor artifact/update `3923c5c` and its installation
 evidence are independently accepted. A subsequent authorized bounded O2 failed
 before bootstrap on a missing April 10 M1. Its retained terminal frontier is

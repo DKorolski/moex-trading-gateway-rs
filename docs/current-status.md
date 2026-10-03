@@ -1,6 +1,61 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-10-01.
+Status date: 2026-10-03.
+
+2026-10-02 local update: the [sparse-M10 correction](stage-8/stage8b-p1f-sparse-m10-correction-progress.md)
+is in progress on `stage8b-sparse-m10-correction`, not source-accepted or deployed.
+Local rolling-receipt retention, a synthetic V4/paper ACK/truth/XACK/restart
+witness, and explicit sparse selection in the fixed materializer are implemented.
+Protected materialization policy V3 selects source V4 and retained raw snapshot
+cross-validation; old policy V1/V2 paths remain strict. No deployed policy changed.
+The fixed process now passes its sealed initial source context through verify-only
+S05. Exact-ID recovery can resolve an older retained receipt before reclaim;
+synthetic ACK/truth restart tests reject missing/corrupt/swapped receipts without
+repeating effects. Fresh-source discovery from Redis hashes remains forbidden.
+The fixed operator now consumes staged V2 under explicit protected sparse policy;
+guardian selects the bootstrap-bound V4 parser and retains its transactional
+write/recovery path. Legacy staged V1 remains strict. Raw FINAM admission stays
+inside the fixed materializer, not the durable runtime. Real-History staged
+admission and synthetic guardian interruption/replay are locally tested. The
+existing cross-crate linked witness now also passes with 404 real History M10
+(18 sparse), explicit synthetic current-session controls, fixed producers, one
+paper command, durable truth, XACK and clean readmission. Producer restart reads
+both receipts from disk; post-truth readmission discards the rolling pair and
+resolves the old receipt from sealed exact-M10 evidence. Four changed/lost/added
+overlap controls reject before state or Redis advancement. This is a bounded
+library witness, not an installed fixed-process or SIGKILL run. Journal-ahead recovery now
+binds the Redis source tuple to protected RequestAccepted evidence and authenticated
+S0 before retained-receipt lookup/XAUTOCLAIM; callback/S1 remain post-permit.
+Local tests reject missing/corrupt receipts, rehashed alternate source, copied
+hashes and changed tuples without PEL-owner/delivery, journal or seal mutation.
+The preset shutdown latch prevents callback/S1; successful replay does not append
+a second RequestAccepted. This is clean recovery evidence, not a SIGKILL run.
+2026-10-03: an explicit bounded Published-pair handoff now reaches verified S05
+before owner acquisition. The producer requires both Published states, adjacent
+sequence and valid phase lineage. S05 checks initial-source overlap and rereads
+both exact Redis entries before installing either; failure leaves no partial
+admission. Only these two new canonical payloads are admitted, with no initial
+bucket rebinding or disk/hash discovery. The real-History linked witness uses
+this S05 path before Market processing and schedule-committed restart. Sealed
+recovery remains separate and still requires retained evidence. This is an
+in-process source interface, not an operational polling/WS or fixed-CLI input;
+the installed daemon has not gained automatic rolling-source admission.
+The typed `execute_stage8b_p1e_observed_run_v1` now shares normal fixed config,
+credential/seal validation, signal supervision and owner startup. Its pre-S06
+helper performs S05 and exact two-entry admission under the shutdown latch.
+The linked witness executes that helper. Missing/changed sources reject;
+preset and in-flight stops return no session, claim, callback or XACK. A caller
+must supply the independently admitted Published pair; there is no new CLI,
+filesystem search, operational source registry or automatic polling channel.
+The `published-window` scope contains prior results; the `full` source gate
+is required for review of the current tree, with pinned authority drift reported
+separately (no authority pins refreshed).
+Local gate logs and exact source inventory
+are under `reports/stage8b-sparse-m10-local/`; no immutable final ZIP yet.
+O2 remains HOLD. [WS / operational parity tracking](stage-8/stage8b-operational-market-data-parity-checklist.md)
+is explicitly retained for existing O4 and later paper-session gates; local
+historical replay does not close these checks. No VPS/P0/DB0/terminal-history
+change or new phase execution is authorized by this status update.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous

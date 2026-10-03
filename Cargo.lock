@@ -1987,6 +1987,7 @@ name = "strategy-runtime-core"
 version = "0.1.0"
 dependencies = [
  "broker-core",
+ "broker-finam",
  "chrono",
  "csv",
  "ed25519-dalek",

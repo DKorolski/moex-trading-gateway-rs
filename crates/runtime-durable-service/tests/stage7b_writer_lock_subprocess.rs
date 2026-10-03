@@ -19,6 +19,7 @@ use strategy_runtime_core::{
 
 fn identity() -> Stage6dOperationalIdentityConfig {
     Stage6dOperationalIdentityConfig {
+        market_data_policy_sha256: None,
         broker_id: "paper".to_string(),
         strategy_instance_id: "hybrid-imoexf".to_string(),
         deployment_id: "stage7b-subprocess".to_string(),

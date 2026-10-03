@@ -44,6 +44,10 @@ pub const STAGE8B_P1_FIRST_BOOT_CONFIRMATION: &str = "CREATE_NEW_STAGE8B_P1_DURA
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Stage8bP1BootstrapConfig {
+    /// Schema 2 binds the observed source plan to the operational identity.
+    /// Schema 1 must leave this absent and retains its strict legacy meaning.
+    #[serde(default)]
+    pub market_data_policy_sha256: Option<String>,
     pub schema_version: u16,
     pub broker_id: String,
     pub strategy_id: String,
@@ -105,6 +109,23 @@ impl Stage8bP1ValidatedBootstrapConfig {
 
     pub(crate) fn operational_identity(&self) -> &Stage6dOperationalIdentityConfig {
         &self.operational_identity
+    }
+
+    pub(crate) fn observed_source_policy(&self) -> bool {
+        self.operational_identity.market_data_policy_sha256.as_deref()
+            == Some(crate::stage8b_p1e_first_boot_source::observed::STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V4_SHA256)
+    }
+
+    pub(crate) fn first_boot_source_plan_sha256(&self) -> Option<&'static str> {
+        if self.observed_source_policy() {
+            Some(crate::stage8b_p1e_first_boot_source::observed::STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V4_SHA256)
+        } else {
+            crate::Stage8bP1RuntimeProfileKind::from_fingerprint(
+                self.runtime_config_fingerprint_sha256(),
+            )
+            .ok()
+            .map(crate::stage8b_p1e_first_boot_source::first_boot_source_plan_sha256)
+        }
     }
 
     pub(crate) fn durable_parent(&self) -> &Path {
@@ -293,7 +314,15 @@ pub fn stage8b_p1_redis_namespace() -> Stage8bP1RedisNamespace {
 pub fn validate_stage8b_p1_bootstrap_config(
     config: Stage8bP1BootstrapConfig,
 ) -> Result<Stage8bP1ValidatedBootstrapConfig, Stage8bP1BootstrapError> {
-    if config.schema_version != STAGE8B_P1_BOOTSTRAP_CONFIG_SCHEMA_VERSION
+    let source_policy_valid = match (config.schema_version, config.market_data_policy_sha256.as_deref()) {
+        (STAGE8B_P1_BOOTSTRAP_CONFIG_SCHEMA_VERSION, None) => true,
+        (2, Some(crate::stage8b_p1e_first_boot_source::observed::STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V4_SHA256)) => {
+            crate::Stage8bP1RuntimeProfileKind::from_fingerprint(&config.runtime_config_fingerprint_sha256)
+                .is_ok_and(|profile| profile.no_riskgate())
+        }
+        _ => false,
+    };
+    if !source_policy_valid
         || config.broker_id != STAGE8B_P1_BROKER_ID
         || config.strategy_id != STAGE8B_P1_STRATEGY_ID
         || config.internal_symbol != STAGE8B_P1_INTERNAL_SYMBOL
@@ -310,6 +339,7 @@ pub fn validate_stage8b_p1_bootstrap_config(
     }
     let durable_parent = validate_durable_parent(&config.durable_parent)?;
     let operational_identity = Stage6dOperationalIdentityConfig {
+        market_data_policy_sha256: config.market_data_policy_sha256,
         broker_id: config.broker_id,
         strategy_instance_id: config.strategy_id,
         deployment_id: config.deployment_id,
@@ -697,6 +727,7 @@ mod tests {
 
     fn config(parent: PathBuf) -> Stage8bP1BootstrapConfig {
         Stage8bP1BootstrapConfig {
+            market_data_policy_sha256: None,
             schema_version: STAGE8B_P1_BOOTSTRAP_CONFIG_SCHEMA_VERSION,
             broker_id: STAGE8B_P1_BROKER_ID.to_string(),
             strategy_id: STAGE8B_P1_STRATEGY_ID.to_string(),

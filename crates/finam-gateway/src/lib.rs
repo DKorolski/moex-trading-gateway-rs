@@ -70,6 +70,11 @@ pub use stage8b_p1e_schedule_publisher::{
     Stage8bP1eSchedulePublisherPhaseV1, Stage8bP1eSchedulePublisherStateV1,
     Stage8bP1eScheduleSigner, Stage8bP1eScheduleStreamWriter, Stage8bP1fSchedulePublisherRedisV1,
 };
+pub use stage8b_p1f_fixed_producers::observed::{
+    observed_published_window as stage8b_p1f_observed_published_window,
+    prepare_stage8b_p1f_observed_m10, publish_stage8b_p1f_observed_m10, Stage8bP1fObservedM10Input,
+    Stage8bP1fObservedM10Lineage, Stage8bP1fObservedM10Outcome, Stage8bP1fObservedM10State,
+};
 pub use stage8b_p1f_fixed_producers::{
     authorize_stage8b_p1f_first_m10, load_stage8b_p1f_m10_producer_state,
     mark_stage8b_p1f_m10_published, persist_stage8b_p1f_m10_producer_state,
@@ -80,6 +85,10 @@ pub use stage8b_p1f_fixed_producers::{
     Stage8bP1fM10PrepareOutcomeV1, Stage8bP1fM10ProducerLineageV1, Stage8bP1fM10ProducerPhaseV1,
     Stage8bP1fM10ProducerStateV1, Stage8bP1fM10PublicationPortV1, Stage8bP1fO3ScheduleInputV1,
     Stage8bP1fProducerErrorV1, Stage8bP1fProducerPhaseV1,
+};
+pub use stage8b_p1f_o2_materializer::observed::{
+    Stage8bP1fObservedCollectedSource, Stage8bP1fObservedM10Error,
+    Stage8bP1fObservedM10Materialization, Stage8bP1fObservedM10Plan,
 };
 pub use stage8b_p1f_o2_materializer::{
     collect_stage8b_p1f_o2_source_v1, materialize_stage8b_p1f_o2_source_v1,
