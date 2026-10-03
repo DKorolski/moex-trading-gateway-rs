@@ -2,6 +2,18 @@
 
 Status date: 2026-10-03.
 
+2026-10-03 acceptance update (supersedes the local-progress notes below):
+`d63c378a51899a4d407dddc732896e89ccc51b43` is independently **SOURCE ACCEPTED**
+in the bounded sparse-M10 source boundary. The immutable source ZIP exists and
+its SHA-256 is `30b1dccaf53f3e82fe29b062c83dec13c2605e9de212a47609499a9c4e16ff0d`.
+See [review](stage-8/reviews/REVIEW_d63c378_SPARSE_M10_RU.txt) and
+[authority/artifact follow-up](stage-8/stage8b-p1f-sparse-m10-authority-closure.md).
+The next local slice refreshes authority inventories without changing accepted
+Rust/Cargo, legacy policies or CI. Fresh CI and a sparse-selected binary artifact
+remain to be qualified. O2 HOLD; no installation or execution authorized.
+The following dated progress notes describe the pre-review source work, not
+the current acceptance verdict.
+
 2026-10-02 local update: the [sparse-M10 correction](stage-8/stage8b-p1f-sparse-m10-correction-progress.md)
 is in progress on `stage8b-sparse-m10-correction`, not source-accepted or deployed.
 Local rolling-receipt retention, a synthetic V4/paper ACK/truth/XACK/restart
