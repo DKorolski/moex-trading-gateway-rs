@@ -11,6 +11,12 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
+#[path = "stage8b-p1f-o2-materializer/observed.rs"]
+mod observed;
+#[cfg(test)]
+#[path = "stage8b-p1f-o2-materializer/observed_tests.rs"]
+mod observed_tests;
+
 const POLICY_PATH: &str = "/etc/moex-finam-p1-paper/o2/materialization-policy.json";
 const SOURCE_TEMPLATE_PATH: &str = "/etc/moex-finam-p1-paper/o2/source-template.json";
 const TOKEN_PATH: &str =
@@ -24,7 +30,7 @@ const MAX_STAGED_BYTES: u64 = 32 * 1024 * 1024;
 const MIN_BARS_RANGE_DAYS: i64 = 180;
 const MAX_BARS_RANGE_DAYS: i64 = 400;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MaterializationPolicyV1 {
     schema_version: u16,
@@ -36,10 +42,30 @@ struct MaterializationPolicyV1 {
     bars_end_utc: String,
     // Absent for the immutable V1 policy. V2 binds the reviewed short profile
     // explicitly; a present null is not an absent legacy field.
-    #[serde(default, deserialize_with = "present_profile_field")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_profile_field"
+    )]
     runtime_profile_id: Option<String>,
-    #[serde(default, deserialize_with = "present_profile_field")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_profile_field"
+    )]
     runtime_profile_sha256: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_profile_field"
+    )]
+    market_data_policy_sha256: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_profile_field"
+    )]
+    operational_identity_sha256: Option<String>,
 }
 
 fn present_profile_field<'de, D: serde::Deserializer<'de>>(
@@ -57,6 +83,12 @@ struct StagedMaterializationV1 {
     source_bundle_sha256: String,
     exact_source_json: String,
     evidence: Stage8bP1fO2MaterializationEvidenceV1,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "observed::present_input"
+    )]
+    observed_input: Option<observed::RetainedObservedInput>,
 }
 
 #[derive(Debug, Serialize)]
@@ -118,7 +150,13 @@ fn run() -> Result<MaterializerResultV1, String> {
             .map_err(|error| error.to_string())?;
     let output_path = staging_path(&manifest_sha256)?;
     if output_path.exists() {
-        return validate_existing(&output_path, &manifest_sha256, &policy, &account_id);
+        return validate_existing(
+            &output_path,
+            &manifest_sha256,
+            &policy,
+            &account_id,
+            &template_bytes,
+        );
     }
     validate_staging_root()?;
     let token_bytes = Zeroizing::new(read_protected(
@@ -129,18 +167,42 @@ fn run() -> Result<MaterializerResultV1, String> {
     let token_text = read_single_line_secret(&token_bytes, "FINAM token")?;
     let token = AccessToken::new(token_text.to_string());
     let trusted_now = Utc::now();
-    let materialized = tokio::runtime::Builder::new_current_thread()
+    let observed_plan = if policy.schema_version == 3 {
+        Some(observed::plan(&policy, &template_bytes, trusted_now)?)
+    } else {
+        None
+    };
+    let (materialized, observed_input) = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|error| error.to_string())?
-        .block_on(collect_stage8b_p1f_o2_source_v1(
-            &account_id,
-            &token,
-            &template_bytes,
-            &policy.bars_start_utc,
-            &policy.bars_end_utc,
-            trusted_now,
-        ))
+        .block_on(async {
+            if let Some(plan) = observed_plan {
+                let collected = plan
+                    .collect_first_boot_source(&account_id, &token, &template_bytes)
+                    .await?;
+                Ok((
+                    collected.source,
+                    Some(observed::RetainedObservedInput {
+                        template_json: String::from_utf8(template_bytes.clone()).map_err(|_| {
+                            finam_gateway::Stage8bP1fO2MaterializerErrorV1::Template
+                        })?,
+                        snapshot: collected.snapshot,
+                    }),
+                ))
+            } else {
+                collect_stage8b_p1f_o2_source_v1(
+                    &account_id,
+                    &token,
+                    &template_bytes,
+                    &policy.bars_start_utc,
+                    &policy.bars_end_utc,
+                    trusted_now,
+                )
+                .await
+                .map(|source| (source, None))
+            }
+        })
         .map_err(|error| {
             error.diagnostic_json(
                 &manifest_sha256,
@@ -155,14 +217,31 @@ fn run() -> Result<MaterializerResultV1, String> {
     let exact_source_json = String::from_utf8(materialized.exact_source_bytes)
         .map_err(|_| "materialized source is not UTF-8 JSON")?;
     let staged = StagedMaterializationV1 {
-        schema_version: 1,
-        domain: "stage8b-p1f-o2-staged-materialization-v1".into(),
+        schema_version: if observed_input.is_some() { 2 } else { 1 },
+        domain: if observed_input.is_some() {
+            "stage8b-p1f-o2-staged-materialization-v2"
+        } else {
+            "stage8b-p1f-o2-staged-materialization-v1"
+        }
+        .into(),
         manifest_sha256: manifest_sha256.clone(),
         source_bundle_sha256: source_bundle_sha256.clone(),
         exact_source_json,
         evidence: materialized.evidence,
+        observed_input,
     };
     let staged_bytes = serde_json::to_vec(&staged).map_err(|error| error.to_string())?;
+    if staged_bytes.len() as u64 > MAX_STAGED_BYTES {
+        return Err("staged package exceeds retained input limit".into());
+    }
+    // Validate the same replay contract before publishing the first package.
+    validate_retained_bytes(
+        &staged_bytes,
+        &manifest_sha256,
+        &policy,
+        &account_id,
+        Utc::now(),
+    )?;
     collection_lock
         .validate_before_publication()
         .map_err(|error| error.to_string())?;
@@ -182,8 +261,21 @@ fn validate_existing(
     manifest_sha256: &str,
     policy: &MaterializationPolicyV1,
     account_id: &str,
+    template_bytes: &[u8],
 ) -> Result<MaterializerResultV1, String> {
     let bytes = read_protected(path, MAX_STAGED_BYTES, false)?;
+    if policy.schema_version == 3 {
+        let staged: StagedMaterializationV1 =
+            serde_json::from_slice(&bytes).map_err(|_| "invalid retained staged package")?;
+        if staged
+            .observed_input
+            .as_ref()
+            .map(|input| input.template_json.as_bytes())
+            != Some(template_bytes)
+        {
+            return Err("retained calendar template differs from protected input".into());
+        }
+    }
     validate_retained_bytes(&bytes, manifest_sha256, policy, account_id, Utc::now())
 }
 
@@ -195,10 +287,20 @@ fn validate_retained_bytes(
     trusted_now: DateTime<Utc>,
 ) -> Result<MaterializerResultV1, String> {
     validate_policy(policy)?;
+    if bytes.is_empty() || bytes.len() as u64 > MAX_STAGED_BYTES {
+        return Err("invalid retained staged package size".into());
+    }
     let staged: StagedMaterializationV1 =
         serde_json::from_slice(bytes).map_err(|_| "invalid retained staged package")?;
-    if staged.schema_version != 1
-        || staged.domain != "stage8b-p1f-o2-staged-materialization-v1"
+    let observed = policy.schema_version == 3;
+    if staged.schema_version != if observed { 2 } else { 1 }
+        || staged.domain
+            != if observed {
+                "stage8b-p1f-o2-staged-materialization-v2"
+            } else {
+                "stage8b-p1f-o2-staged-materialization-v1"
+            }
+        || staged.observed_input.is_some() != observed
         || staged.manifest_sha256 != manifest_sha256
         || staged.source_bundle_sha256 != sha256_hex(staged.exact_source_json.as_bytes())
         || staged.evidence.source_bundle_sha256 != staged.source_bundle_sha256
@@ -214,13 +316,17 @@ fn validate_retained_bytes(
         .get("operational_identity_sha256")
         .and_then(serde_json::Value::as_str)
         .ok_or("retained source identity is missing")?;
-    runtime_durable_service::validate_stage8b_p1e_first_boot_source_bytes_v1(
-        staged.exact_source_json.as_bytes(),
-        identity,
-        &policy.account_alias,
-        trusted_now,
-    )
-    .map_err(|_| "retained source no longer satisfies fresh admission")?;
+    if observed {
+        observed::validate_retained(&staged, policy, account_id, trusted_now)?;
+    } else {
+        runtime_durable_service::validate_stage8b_p1e_first_boot_source_bytes_v1(
+            staged.exact_source_json.as_bytes(),
+            identity,
+            &policy.account_alias,
+            trusted_now,
+        )
+        .map_err(|_| "retained source no longer satisfies fresh admission")?;
+    }
     Ok(MaterializerResultV1 {
         schema_version: 1,
         domain: "stage8b-p1f-o2-materializer-result-v1",
@@ -233,6 +339,7 @@ fn validate_retained_bytes(
 
 fn validate_policy(policy: &MaterializationPolicyV1) -> Result<(), String> {
     let profile = policy_profile(policy)?;
+    observed::validate_policy_binding(policy)?;
     if policy.venue_symbol != broker_finam::STAGE8B_P1F_O2_VENUE_SYMBOL
         || policy.account_alias != finam_gateway::STAGE8B_P1F_O2_ACCOUNT_ALIAS
         || !valid_sha256(&policy.account_id_sha256)
@@ -242,7 +349,12 @@ fn validate_policy(policy: &MaterializationPolicyV1) -> Result<(), String> {
     let start = canonical_time(&policy.bars_start_utc)?;
     let end = canonical_time(&policy.bars_end_utc)?;
     let range = end.signed_duration_since(start);
-    let valid_range = if profile.no_riskgate() {
+    let valid_range = if policy.schema_version == 3 {
+        range > chrono::Duration::zero()
+            && range <= chrono::Duration::days(7)
+            && start.timestamp() % 60 == 0
+            && end.timestamp() % 60 == 0
+    } else if profile.no_riskgate() {
         finam_gateway::Stage8bP1fO2MaterializedSourceV1::validate_bars_interval(profile, start, end)
             .is_ok()
     } else {
@@ -268,7 +380,8 @@ fn policy_profile(
             )
             .map_err(|_| "legacy policy profile is invalid".into())
         }
-        (2, "stage8b-p1f-o2-materialization-policy-v2") => {
+        (2, "stage8b-p1f-o2-materialization-policy-v2")
+        | (3, "stage8b-p1f-o2-materialization-policy-v3") => {
             let profile = Stage8bP1RuntimeProfileKind::from_identity(
                 policy
                     .runtime_profile_id
@@ -294,7 +407,12 @@ fn validate_source_profile_pairing(
     policy: &MaterializationPolicyV1,
 ) -> Result<(), String> {
     let profile = policy_profile(policy)?;
-    let (schema, domain) = if profile.no_riskgate() {
+    let (schema, domain) = if policy.schema_version == 3 {
+        (
+            4,
+            runtime_durable_service::STAGE8B_P1E_FIRST_BOOT_SOURCE_V4_DOMAIN,
+        )
+    } else if profile.no_riskgate() {
         (3, "moex.stage8b.p1e.first-boot-source-bundle.v3")
     } else {
         (2, "moex.stage8b.p1e.first-boot-source-bundle.v2")
@@ -316,7 +434,11 @@ fn validate_template_policy(
     finam_gateway::Stage8bP1fO2MaterializedSourceV1::validate_template_profile(template_bytes)
         .map_err(|_| "source template preflight rejected")?;
     let source = serde_json::from_slice(template_bytes).map_err(|_| "invalid source template")?;
-    validate_source_profile_pairing(&source, policy)
+    if policy.schema_version == 3 {
+        observed::validate_template(&source, policy)
+    } else {
+        validate_source_profile_pairing(&source, policy)
+    }
 }
 
 fn read_single_line_secret(bytes: &[u8], label: &str) -> Result<String, String> {
@@ -450,7 +572,7 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    const ACCOUNT: &str = "ACC_TEST_0001";
+    pub(super) const ACCOUNT: &str = "ACC_TEST_0001";
 
     #[test]
     fn documented_no_riskgate_examples_pass_read_only_preflight_at_frozen_time() {
@@ -497,7 +619,7 @@ mod tests {
         );
     }
 
-    fn short_policy() -> MaterializationPolicyV1 {
+    pub(super) fn short_policy() -> MaterializationPolicyV1 {
         let profile = runtime_durable_service::Stage8bP1RuntimeProfileKind::V2;
         MaterializationPolicyV1 {
             schema_version: 2,
@@ -509,10 +631,12 @@ mod tests {
             bars_end_utc: "2026-09-28T07:00:00Z".into(),
             runtime_profile_id: Some(profile.profile_id().into()),
             runtime_profile_sha256: Some(profile.profile_sha256().into()),
+            market_data_policy_sha256: None,
+            operational_identity_sha256: None,
         }
     }
 
-    fn short_template() -> serde_json::Value {
+    pub(super) fn short_template() -> serde_json::Value {
         let mut template: serde_json::Value = serde_json::from_slice(include_bytes!(
             "../../../../docs/stage-8/stage8b-p1f-o2-source-template.json"
         ))
@@ -669,7 +793,7 @@ mod tests {
         );
     }
 
-    fn fixture() -> (
+    pub(super) fn fixture() -> (
         StagedMaterializationV1,
         MaterializationPolicyV1,
         DateTime<Utc>,
@@ -687,6 +811,7 @@ mod tests {
             manifest_sha256: "a".repeat(64),
             source_bundle_sha256: source_hash.clone(),
             exact_source_json: source_json,
+            observed_input: None,
             evidence: serde_json::from_value(json!({
                 "schema_version": 1,
                 "domain": "stage8b-p1f-o2-materialization-evidence-v1",
@@ -712,6 +837,8 @@ mod tests {
             bars_end_utc: "2026-07-15T00:00:00Z".into(),
             runtime_profile_id: None,
             runtime_profile_sha256: None,
+            market_data_policy_sha256: None,
+            operational_identity_sha256: None,
         };
         (staged, policy, now)
     }

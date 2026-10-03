@@ -1,0 +1,95 @@
+Независимый source review — Stage 8B-P1-f / sparse M10
+Дата: 2026-10-03
+
+ВЕРДИКТ: SOURCE ACCEPT в заявленной bounded source-границе.
+Блокирующих P1/P2 по рассмотренной коррекции не обнаружено.
+Операционный O2 остаётся HOLD. Это заключение разрешает подготовку следующего artifact, но не установку, запуск O2, paper-сервиса или FINAM execution.
+
+Review target:
+  commit: d63c378a51899a4d407dddc732896e89ccc51b43
+  parent: eb1a974d884196f9620f3db2cced3a4ad0991921
+  tree: aff81bbb27b0247ea603ef97d868edd6246590ac
+  ZIP: moex-trading-project-d63c378-sparse-m10-source-review.zip
+  SHA-256: 30b1dccaf53f3e82fe29b062c83dec13c2605e9de212a47609499a9c4e16ff0d
+
+Заключение относится к этим байтам. Прежнее требование ровно десяти M1 заменено явным контрактом принятого закрытого REST-снимка. Пустой M10 не принимается; пропущенные минуты не заполняются вымышленными свечами. Сама по себе sparse-сетка не доказывает отсутствие сделок в пропущенные минуты.
+
+1. Что проверено независимо
+
+Пересчитан SHA-256 архива, проверены CRC, inventory, отсутствие duplicates/symlinks/unsafe paths. Автономный --verify завершился exit 0: 2614 members, 2588 tracked blobs, восстановлен заявленный Git tree и проверена привязка commit к parent/tree. Проверены хеши retained evidence и исходников, на которых выполнен full gate.
+
+Учтена явно описанная packaging-only дельта scripts/make_stage8b_sparse_m10_handoff.py. Упаковщик после полного gate изменён; Rust, Cargo, tests, fixtures и остальные входы gate совпадают с сохранённым inventory. Проверка текущего архива выполнена уже текущим упаковщиком. Это не выдаётся за повторный запуск Rust после упаковки.
+
+Автономная проверка пяти diagnostic fixtures завершилась PASS 5/5. Независимым Python-пересчётом из raw FINAM M1 и raw ALOR native M10 подтверждены:
+  • 404 M10;
+  • все 18 sparse-бакетов совпадают с ALOR;
+  • четыре исходных расхождения OHLCV сохранены;
+  • входы всех 404 строк retained replay соответствуют пересчитанным данным;
+  • в сохранённых trace две разницы состояния, ноль разниц intents/request IDs и три одинаковых модельных раунда;
+  • хеши общего warmup и runtime profile соответствуют приложенным файлам.
+
+Здесь нет cargo/rustc. Rust suites и Clippy самостоятельно не перезапускались. Их исходники, способы вызова, selection и сохранённые полные логи рассмотрены; перечисленные ниже Rust-результаты являются evidence разработчика, привязанным к source inventory. Новый запуск Rust-модели не подменялся чтением готового JSON.
+
+2. Source-граница, принятая этим review
+
+Closed REST admission. В broker-finam/src/sparse_m10.rs план диапазона задаётся до получения данных; проверяются точные parts/ranges, GET route, symbol/timeframe, status, completion, длина/хеш тела, декодирование и время наблюдения. Guarded HTTP adapter ограничивает чтение тела до его полного накопления. Учитывается точная правая граница: строка с timestamp=end не входит в [start,end). Другие выходы за диапазон и конфликтующие дубликаты отклоняются. Потерянная часть ответа не может уменьшить независимо заданный план.
+
+Агрегация. broker-core/src/observed_m1.rs хранит полный нормализованный inventory M1 и связь с raw snapshot. M10 заново вычисляется из всех фактически имеющихся минут внутри фиксированного интервала: open первой, high/low extrema, close последней, сумма volume. Отсутствие первой/последней минуты не сдвигает nominal open/close. Пустой интервал отклоняется. Нет fallback к более старому удобному плотному candidate.
+
+History и first boot. Stage8bP1fObservedM10Plan выбирает History и candidate по calendar authority; оба получаются из одного принятого снимка. Source V4 повторно проверяет OHLCV History/candidate по полному receipt. Schema-2 bootstrap связывает observed policy с operational identity. Source plan, bundle и provenance проходят через V5/restart; historical recovery не становится свежим admission. Модельная метка candle-start и close-bound canonical identity остаются раздельными.
+
+Canonical и legacy. Canonical V2 содержит policy, receipt/snapshot hashes, диапазон источника, minute inventory и bitmap. Контекстный parser заново строит точные canonical bytes из независимо связанного receipt; просто пересчитать хеш укороченного списка недостаточно. Legacy V1 и source V2/V3 не переопределяются как sparse. Старые identity без нового optional policy сохраняют прежнюю сериализацию; новая policy меняет operational identity/root. Для observed provenance aggregation_complete=true относится к принятому source, а gap_absence_proven остаётся false.
+
+Producer/recovery. Observed producer использует отдельный high-water V2 и прежний Prepared → publication/reread → Published. Полный receipt сохраняется до Prepared/publication. При продвижении источника конфликт цен, объёма или minute inventory в overlap отклоняется. Для sealed recovery receipt разрешается через точные durable M10 bindings. Journal-ahead использует source-evidence из защищённого RequestAccepted плюс authenticated S0; Redis envelope остаётся только непроверенным probe до сопоставления и полного canonical readmission.
+
+Bounded startup. PublishedWindow передаёт ровно два явно принятых источника и две exact canonical записи. Shared startup проверяет initial binding, reread обоих Redis entries и shutdown latch перед S06. Ошибка второй записи не даёт частично принятого окна. Fresh context нельзя получить сканированием receipt-файлов или из самозаявленного Redis hash.
+
+Эти выводы основаны на чтении production source и связанных tests, в частности:
+  crates/broker-finam/src/sparse_m10.rs
+  crates/broker-finam/src/o2_readonly/observed.rs
+  crates/finam-gateway/src/stage8b_p1f_o2_materializer/observed.rs и observed/*
+  crates/finam-gateway/src/bin/stage8b-p1f-o2-materializer/observed.rs
+  crates/runtime-durable-service/src/stage8b_p1f_staged_source.rs
+  crates/runtime-durable-service/src/stage8b_p1e_first_boot_source/observed.rs
+  crates/runtime-durable-service/src/stage8b_p1_semantic/observed.rs и observed/*
+  crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs
+  crates/finam-gateway/src/stage8b_p1f_fixed_producers/observed.rs
+  crates/strategy-runtime-core/src/stage6d_live_core/p1_journal_source.rs
+  crates/runtime-durable-service/src/stage8b_p1e_process.rs
+
+3. Что доказывают тесты и replay
+
+Retained full gate содержит 16 команд с exit 0. По логам: broker-core 413; broker-finam 97; strategy-runtime-core 1300 плюс integration targets; finam-gateway 501 passed / 2 ignored; materializer binary 14; durable library 361 passed / 15 ignored; отдельный feature-enabled process subset 71 passed / 7 ignored; doctests 61 + 69. Workspace all-targets/all-features strict Clippy имеет отдельный сохранённый лог и exit 0. Authority check exit 1 отдельно раскрыт как ожидаемый drift до source acceptance, а не скрыт внутри PASS.
+
+Negative controls в source tests покрывают missing-last/single/empty bucket, invalid data, future/stale receipts, truncate/decode, range/parts, conflict, rehashed subset, legacy/policy mismatch, изменённый overlap, отсутствующие/испорченные receipts, journal-ahead и прерванное admission окна. Это исполняемые Rust-проверки в retained evidence; их прохождение не было независимо воспроизведено в текущей среде.
+
+Связанный witness использует все 404 реальные History M10, включая 18 sparse, затем явно synthetic current-session controls с семью M1. Он проходит materializer/source V4 → first boot → fixed producer → verify-only S05/shared startup → paper command → signed schedule V4 → controlled restart → ACK/truth → XACK-last → readmission AlreadyAcknowledged. Сохранены одна команда, два M10, нулевой final PEL, high-water sequence 2. Это library/in-process proof, не установленный daemon и не новый OS SIGKILL proof. В частности, свежий PublishedWindow удерживается в памяти на промежуточном restart; восстановление receipts с диска и post-truth readmission без окна проверяются отдельно.
+
+Replay сравнивает BO-only/no-riskgate на общем прогреве из четырёх завершённых freeze-сессий. Четыре различающихся dense-бара: 28.09 07:00, 29.09 07:00, 29.09 17:10, 30.09 17:00 MSK. Две разницы state касаются current_day_close/last_bar_close, затем сходятся. Три одинаковых раунда — модельная симуляция с тем же соглашением о fill по текущему close. Это отдельный четырёхдневный результат; он не равен прежнему freeze proof 38/38 и не доказывает исполнительную parity.
+
+4. Ограничения ACCEPT
+
+Принят код sparse admission, first boot и bounded continuation. Не приняты как доказанные:
+  • реальная своевременная REST/WS-доставка нового профиля;
+  • автоматическое непрерывное получение и admission следующих receipts установленным процессом;
+  • восстановление утраченного свежего PublishedWindow без внешнего accepted input;
+  • новый sparse process-level SIGKILL witness;
+  • paper session acceptance или FINAM live execution.
+
+Документация корректно раскрывает эти ограничения. Для ближайшего O2 one-shot bootstrap они не требуют нового общего framework. Однако установку обычного CLI run нельзя впоследствии назвать доказанным непрерывным sparse feed: в текущей границе передача свежего окна — typed in-process seam.
+
+Порог freshness, successful closed response и полный приём transport body являются проверяемыми частями контракта. Они не способны самостоятельно обнаружить незаявленную потерю строк на стороне провайдера. До operational допуска необходимо сохранить согласованную семантику доверия закрытому REST-снимку. Историческое совпадение ALOR/FINAM не следует переименовывать в доказательство «торгов не было».
+
+5. Уточнённое задание на остаток в облегчённом варианте
+
+Следующий шаг — узкая authority-привязка к принятому source, обычный CI и новый O2 artifact с согласованными binary/config/source-policy identities. Artifact должен выбирать observed materialization policy V3, bootstrap schema 2 и source V4; это необходимо проверить до передачи на установку. Не использовать старый strict artifact под новой вывеской и не менять значения legacy policy.
+
+Далее — прежний installation/evidence маршрут с сохранением control history и существующих terminal receipts. Новый deployment identity не даёт права стирать FAILED/1/6 или автоматически мигрировать старый root. После приёмки соответствующих материалов — отдельно разрешённый один bounded O2 со свежим календарём и источником.
+
+Для этой попытки достаточно показать конкретную цепочку: завершённый REST snapshot → выбранные History/candidate → успешный materialize/bootstrap → корректное terminal завершение. При ошибке нужен точный stage/reason и безопасный cleanup; O2 не повторять автоматически. Не добавлять новую систему доказательства каждой отсутствующей минуты, ALOR-зависимость production, источник ticks или отдельный долгий paper-проект.
+
+Для следующих O3/O4 оставить в уже существующем checklist фактический путь доставки свежих sparse receipts, WS readiness/reconnect, дубликаты, freshness, REST/live overlap и EOD. Перед первым paper-окном показать, каким конкретно accepted путём следующие M10 попадают в установленный runtime. Это должен быть минимальный законченный путь; дополнять его универсальным registry/IPC/poller без выявленной необходимости не требуется.
+
+Цель не меняется: несколько ограниченных paper-сессий для сравнения модельных решений и операционной механики с ALOR, затем самостоятельная приёмка FINAM live micro soak. Текущий SOURCE ACCEPT закрывает локальную sparse-коррекцию и не заменяет эти операционные результаты.
+
+VPS, Redis, FINAM, ключи, production files, ветки и main в ходе данного review не изменялись. Исправления в исходный пакет reviewer не вносил.

@@ -33,6 +33,9 @@ use crate::{
     STAGE8B_P1_VENUE_SYMBOL,
 };
 
+pub mod observed;
+use observed::{FirstBootObservedSourceV4, SourceAggregationPolicy};
+
 #[cfg(test)]
 use crate::Stage8bP1RuntimeProfileV1;
 #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
@@ -94,6 +97,7 @@ pub enum Stage8bP1eFirstBootSourceError {
 /// Authenticated source observations. The type is intentionally linear and
 /// non-serializable; later F01-F16 composition must consume it by value.
 pub struct Stage8bP1eValidatedFirstBootSourceV1 {
+    observed_receipt: Option<broker_core::observed_m1::ObservedM1Receipt>,
     runtime_profile: Stage8bP1RuntimeProfileKind,
     source_bundle_sha256: String,
     source_bundle_generation: u64,
@@ -124,6 +128,7 @@ pub struct Stage8bP1ePreparedFirstBootV1 {
 /// already-existing V5 first-boot transaction.  It is crate-private so the
 /// ordinary first-boot source loader cannot opt out of freshness.
 pub(crate) struct Stage8bP1eHistoricalSourceBindingV5 {
+    pub(crate) source_plan_sha256: String,
     pub(crate) operational_identity_sha256: String,
     pub(crate) runtime_config_fingerprint_sha256: String,
     pub(crate) source_bundle_sha256: String,
@@ -217,12 +222,12 @@ pub(crate) fn stage8b_p1f_ie_prepare_materialized_o2_v1(
         crate::STAGE8B_P1_FIRST_BOOT_CONFIRMATION,
     )
     .map_err(|_| Stage8bP1eFirstBootBuildError::Composition)?;
-    let source = parse_stage8b_p1e_first_boot_source_v1(
+    let source = parse_bootstrap_bound_source(
         source_bytes,
         supervisor.first_boot_source_bundle_sha256(),
-        &identity,
-        supervisor.bootstrap().account_id().as_str(),
+        supervisor.bootstrap(),
         trusted_now,
+        FirstBootTruthPolicy::FreshAdmission,
     )?;
     let (bootstrap, runtime) = supervisor.into_first_boot_parts();
     let prepared = prepare_stage8b_p1_first_boot_source_v1(bootstrap, runtime, source)?;
@@ -286,11 +291,10 @@ fn prepare_stage8b_p1_historical_recovery_source_from_bytes_v1(
     {
         return Err(Stage8bP1eFirstBootBuildError::Source);
     }
-    let source = parse_stage8b_p1e_first_boot_source_with_policy_v1(
+    let source = parse_bootstrap_bound_source(
         bytes,
         &binding.source_bundle_sha256,
-        bootstrap.operational_identity_sha256(),
-        bootstrap.account_id().as_str(),
+        &bootstrap,
         trusted_now,
         FirstBootTruthPolicy::HistoricalRecovery,
     )?;
@@ -306,6 +310,9 @@ fn prepare_stage8b_p1_first_boot_source_v1(
     source: Stage8bP1eValidatedFirstBootSourceV1,
 ) -> Result<Stage8bP1ePreparedFirstBootV1, Stage8bP1eFirstBootBuildError> {
     let operational_identity_sha256 = bootstrap.operational_identity_sha256().to_string();
+    if bootstrap.first_boot_source_plan_sha256() != Some(source.source_plan_sha256()) {
+        return Err(Stage8bP1eFirstBootBuildError::Source);
+    }
     let (fresh_runtime, fresh_fingerprint) = source.runtime_profile.build_hybrid_runtime()?;
     if fresh_fingerprint != bootstrap.runtime_config_fingerprint_sha256()
         || runtime.stage5c_config_fingerprint() != fresh_fingerprint
@@ -318,7 +325,7 @@ fn prepare_stage8b_p1_first_boot_source_v1(
         bootstrap.runtime_config_fingerprint_sha256().to_string(),
         source.source_bundle_sha256.clone(),
         source.source_bundle_generation,
-        first_boot_source_plan_sha256(source.runtime_profile).to_string(),
+        source.source_plan_sha256().to_string(),
         source.history_bars_sha256.clone(),
         source.riskgate_session_observations_sha256.clone(),
         source.candidate_semantic_id_sha256.clone(),
@@ -336,22 +343,29 @@ fn prepare_stage8b_p1_first_boot_source_v1(
             },
         )
         .collect();
-    let composition = strategy_runtime_core::build_stage8b_p1_first_boot_composition_v1(
-        strategy_runtime_core::Stage8bP1eFirstBootCompositionInputV1 {
-            runtime,
-            fresh_runtime,
-            account_id: bootstrap.account_id().clone(),
-            operational_identity_sha256,
-            captured_at: source.captured_at,
-            broker_truth_checked_at: source.broker_truth_checked_at,
-            history_bars_sha256: source.history_bars_sha256,
-            riskgate_session_observations_sha256: source.riskgate_session_observations_sha256,
-            validated_candidate_semantic_id_sha256: source.candidate_semantic_id_sha256,
-            history_bars,
-            riskgate_observations,
-            candidate: core_bar_input(&source.candidate),
-        },
-    )
+    let input = strategy_runtime_core::Stage8bP1eFirstBootCompositionInputV1 {
+        runtime,
+        fresh_runtime,
+        account_id: bootstrap.account_id().clone(),
+        operational_identity_sha256,
+        captured_at: source.captured_at,
+        broker_truth_checked_at: source.broker_truth_checked_at,
+        history_bars_sha256: source.history_bars_sha256,
+        riskgate_session_observations_sha256: source.riskgate_session_observations_sha256,
+        validated_candidate_semantic_id_sha256: source.candidate_semantic_id_sha256,
+        history_bars,
+        riskgate_observations,
+        candidate: core_bar_input(&source.candidate),
+    };
+    let composition = if let Some(receipt) = &source.observed_receipt {
+        strategy_runtime_core::build_stage8b_p1_observed_first_boot_composition(
+            input,
+            receipt,
+            receipt.sha256(),
+        )
+    } else {
+        strategy_runtime_core::build_stage8b_p1_first_boot_composition_v1(input)
+    }
     .map_err(|_| Stage8bP1eFirstBootBuildError::Composition)?;
     let (source, export_input, fresh_runtime) = composition.into_parts();
     Ok(Stage8bP1ePreparedFirstBootV1 {
@@ -378,6 +392,7 @@ fn historical_binding_matches_source(
     source: &Stage8bP1eValidatedFirstBootSourceV1,
 ) -> bool {
     source.source_bundle_sha256 == binding.source_bundle_sha256
+        && source.source_plan_sha256() == binding.source_plan_sha256
         && source.source_bundle_generation == binding.source_bundle_generation
         && source.history_bars_sha256 == binding.history_bars_sha256
         && source.riskgate_session_observations_sha256
@@ -399,6 +414,18 @@ fn core_bar_input(
 }
 
 impl Stage8bP1eValidatedFirstBootSourceV1 {
+    pub fn source_plan_sha256(&self) -> &str {
+        if self.observed_receipt.is_some() {
+            observed::STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V4_SHA256
+        } else {
+            first_boot_source_plan_sha256(self.runtime_profile)
+        }
+    }
+
+    pub fn observed_receipt(&self) -> Option<&broker_core::observed_m1::ObservedM1Receipt> {
+        self.observed_receipt.as_ref()
+    }
+
     pub fn runtime_profile(&self) -> Stage8bP1RuntimeProfileKind {
         self.runtime_profile
     }
@@ -478,6 +505,8 @@ pub struct Stage8bP1eRiskGateObservationV1 {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FirstBootSourceDocumentV1 {
+    #[serde(default)]
+    observed_source: Option<FirstBootObservedSourceV4>,
     schema_version: u16,
     domain: String,
     operational_identity_sha256: String,
@@ -605,12 +634,12 @@ pub fn load_stage8b_p1e_first_boot_source_v1(
     let path = Path::new(STAGE8B_P1E_FIRST_BOOT_SOURCE_PATH);
     let expected_gid = service_group_gid()?;
     let bytes = read_protected_first_boot_source(path, 0, expected_gid, || {})?;
-    let source = parse_stage8b_p1e_first_boot_source_v1(
+    let source = parse_bootstrap_bound_source(
         &bytes,
         supervisor.first_boot_source_bundle_sha256(),
-        supervisor.bootstrap().operational_identity_sha256(),
-        supervisor.bootstrap().account_id().as_str(),
+        supervisor.bootstrap(),
         trusted_now,
+        FirstBootTruthPolicy::FreshAdmission,
     )?;
     if source.runtime_profile != supervisor.runtime_profile() {
         return Err(Stage8bP1eFirstBootSourceError::IdentityMismatch);
@@ -746,6 +775,69 @@ fn parse_stage8b_p1e_first_boot_source_with_policy_v1(
     trusted_now: DateTime<Utc>,
     truth_policy: FirstBootTruthPolicy,
 ) -> Result<Stage8bP1eValidatedFirstBootSourceV1, Stage8bP1eFirstBootSourceError> {
+    parse_first_boot_source(
+        bytes,
+        expected_source_bundle_sha256,
+        expected_operational_identity_sha256,
+        expected_account_id,
+        trusted_now,
+        truth_policy,
+        SourceAggregationPolicy::StrictLegacy,
+    )
+}
+
+pub(crate) fn parse_fresh_bootstrap_bound_source(
+    bytes: &[u8],
+    expected_source_bundle_sha256: &str,
+    bootstrap: &Stage8bP1ValidatedBootstrapConfig,
+    trusted_now: DateTime<Utc>,
+) -> Result<Stage8bP1eValidatedFirstBootSourceV1, Stage8bP1eFirstBootSourceError> {
+    parse_bootstrap_bound_source(
+        bytes,
+        expected_source_bundle_sha256,
+        bootstrap,
+        trusted_now,
+        FirstBootTruthPolicy::FreshAdmission,
+    )
+}
+
+fn parse_bootstrap_bound_source(
+    bytes: &[u8],
+    expected_source_bundle_sha256: &str,
+    bootstrap: &Stage8bP1ValidatedBootstrapConfig,
+    trusted_now: DateTime<Utc>,
+    truth_policy: FirstBootTruthPolicy,
+) -> Result<Stage8bP1eValidatedFirstBootSourceV1, Stage8bP1eFirstBootSourceError> {
+    // Select from validated deployment identity, never from the incoming wire.
+    let policy = if bootstrap.observed_source_policy() {
+        SourceAggregationPolicy::ObservedV4
+    } else {
+        SourceAggregationPolicy::StrictLegacy
+    };
+    let source = parse_first_boot_source(
+        bytes,
+        expected_source_bundle_sha256,
+        bootstrap.operational_identity_sha256(),
+        bootstrap.account_id().as_str(),
+        trusted_now,
+        truth_policy,
+        policy,
+    )?;
+    if bootstrap.first_boot_source_plan_sha256() != Some(source.source_plan_sha256()) {
+        return Err(Stage8bP1eFirstBootSourceError::IdentityMismatch);
+    }
+    Ok(source)
+}
+
+fn parse_first_boot_source(
+    bytes: &[u8],
+    expected_source_bundle_sha256: &str,
+    expected_operational_identity_sha256: &str,
+    expected_account_id: &str,
+    trusted_now: DateTime<Utc>,
+    truth_policy: FirstBootTruthPolicy,
+    aggregation_policy: SourceAggregationPolicy,
+) -> Result<Stage8bP1eValidatedFirstBootSourceV1, Stage8bP1eFirstBootSourceError> {
     if bytes.len() as u64 > STAGE8B_P1E_FIRST_BOOT_SOURCE_MAX_BYTES {
         return Err(Stage8bP1eFirstBootSourceError::SourceTooLarge);
     }
@@ -757,6 +849,11 @@ fn parse_stage8b_p1e_first_boot_source_with_policy_v1(
     }
 
     let value = parse_json_without_duplicates(bytes)?;
+    if (aggregation_policy == SourceAggregationPolicy::ObservedV4)
+        != value.get("observed_source").is_some()
+    {
+        return Err(Stage8bP1eFirstBootSourceError::InvalidSchema);
+    }
     let history_hash = canonical_member_sha256(&value, "history_bars")?;
     let observations_hash = value
         .get("riskgate_history")
@@ -779,7 +876,12 @@ fn parse_stage8b_p1e_first_boot_source_with_policy_v1(
     let runtime_profile =
         Stage8bP1RuntimeProfileKind::from_sha256(&document.runtime_profile_sha256)
             .map_err(|_| Stage8bP1eFirstBootSourceError::IdentityMismatch)?;
-    let (schema_version, domain) = if runtime_profile.no_riskgate() {
+    let (schema_version, domain) = if aggregation_policy == SourceAggregationPolicy::ObservedV4 {
+        if !runtime_profile.no_riskgate() {
+            return Err(Stage8bP1eFirstBootSourceError::IdentityMismatch);
+        }
+        (4, observed::STAGE8B_P1E_FIRST_BOOT_SOURCE_V4_DOMAIN)
+    } else if runtime_profile.no_riskgate() {
         (3, STAGE8B_P1E_FIRST_BOOT_SOURCE_V3_DOMAIN)
     } else {
         (
@@ -818,11 +920,17 @@ fn parse_stage8b_p1e_first_boot_source_with_policy_v1(
         return Err(Stage8bP1eFirstBootSourceError::InvalidBrokerTruth);
     }
 
-    if document.history_provenance.source_mode != "finam_derived_m1_to_m10"
+    let observed_receipt = observed::validate_receipt(&document, aggregation_policy, captured_at)?;
+    let (expected_mode, expected_gap_absence) = if observed_receipt.is_some() {
+        (broker_core::observed_m1::OBSERVED_M1_POLICY_V1, false)
+    } else {
+        ("finam_derived_m1_to_m10", true)
+    };
+    if document.history_provenance.source_mode != expected_mode
         || document.history_provenance.source_timeframe_sec != 60
         || document.history_provenance.target_timeframe_sec != 600
         || !document.history_provenance.aggregation_complete
-        || !document.history_provenance.gap_absence_proven
+        || document.history_provenance.gap_absence_proven != expected_gap_absence
         || document.history_bars.is_empty()
         || history_hash != document.riskgate_history.history_bars_sha256
         || document.history_coverage.source_mode != "config-bound-explicit-session-windows-v1"
@@ -849,6 +957,10 @@ fn parse_stage8b_p1e_first_boot_source_with_policy_v1(
             "history",
         )
         .ok_or(Stage8bP1eFirstBootSourceError::InvalidHistory)?;
+        if let Some(receipt) = &observed_receipt {
+            observed::validate_derived_bar(receipt, &bar)
+                .map_err(|_| Stage8bP1eFirstBootSourceError::InvalidHistory)?;
+        }
         if history_bars
             .last()
             .is_some_and(|prior: &Stage8bP1eFirstBootBarV1| {
@@ -969,24 +1081,34 @@ fn parse_stage8b_p1e_first_boot_source_with_policy_v1(
     {
         return Err(Stage8bP1eFirstBootSourceError::InvalidCandidate);
     }
-    let canonical_candidate =
-        crate::build_stage8b_p1_canonical_m10(crate::Stage8bP1CanonicalM10BuildInput {
-            operational_identity_sha256: expected_operational_identity_sha256.to_string(),
-            open_ts_utc_ms: document.candidate.open_ts_utc_ms,
-            close_ts_utc_ms: document.candidate.close_ts_utc_ms,
-            open: document.candidate.open.clone(),
-            high: document.candidate.high.clone(),
-            low: document.candidate.low.clone(),
-            close: document.candidate.close.clone(),
-            volume: document.candidate.volume.clone(),
-            source_m1: document.candidate.source_m1,
-        })
-        .map_err(|_| Stage8bP1eFirstBootSourceError::InvalidCandidate)?;
-    let validated_candidate = crate::parse_stage8b_p1_canonical_m10(
-        &canonical_candidate,
-        expected_operational_identity_sha256,
-    )
-    .map_err(|_| Stage8bP1eFirstBootSourceError::InvalidCandidate)?;
+    let validated_candidate = if let Some(receipt) = &observed_receipt {
+        observed::validate_candidate(
+            receipt,
+            &document.candidate,
+            &candidate,
+            &history_bars,
+            expected_operational_identity_sha256,
+        )?
+    } else {
+        let canonical_candidate =
+            crate::build_stage8b_p1_canonical_m10(crate::Stage8bP1CanonicalM10BuildInput {
+                operational_identity_sha256: expected_operational_identity_sha256.to_string(),
+                open_ts_utc_ms: document.candidate.open_ts_utc_ms,
+                close_ts_utc_ms: document.candidate.close_ts_utc_ms,
+                open: document.candidate.open.clone(),
+                high: document.candidate.high.clone(),
+                low: document.candidate.low.clone(),
+                close: document.candidate.close.clone(),
+                volume: document.candidate.volume.clone(),
+                source_m1: document.candidate.source_m1,
+            })
+            .map_err(|_| Stage8bP1eFirstBootSourceError::InvalidCandidate)?;
+        crate::parse_stage8b_p1_canonical_m10(
+            &canonical_candidate,
+            expected_operational_identity_sha256,
+        )
+        .map_err(|_| Stage8bP1eFirstBootSourceError::InvalidCandidate)?
+    };
     if document.candidate.redis_id != validated_candidate.redis_id()
         || document.candidate.semantic_id_sha256 != validated_candidate.semantic_id_sha256()
         || document.candidate.payload_sha256 != validated_candidate.payload_sha256()
@@ -995,6 +1117,7 @@ fn parse_stage8b_p1e_first_boot_source_with_policy_v1(
     }
 
     Ok(Stage8bP1eValidatedFirstBootSourceV1 {
+        observed_receipt,
         runtime_profile,
         source_bundle_sha256: actual_source_bundle_sha256,
         source_bundle_generation: document.source_bundle_generation,
@@ -1616,7 +1739,7 @@ pub(crate) fn stage8b_p1f_ie_first_boot_source_fixture_v1(
 
 #[cfg(test)]
 #[path = "stage8b_p1e_no_riskgate_tests.rs"]
-mod no_riskgate_tests;
+pub(crate) mod no_riskgate_tests;
 
 #[cfg(test)]
 pub(crate) mod tests {
@@ -1903,6 +2026,7 @@ pub(crate) mod tests {
         runtime_config_fingerprint_sha256: String,
     ) -> crate::Stage8bP1BootstrapConfig {
         crate::Stage8bP1BootstrapConfig {
+            market_data_policy_sha256: None,
             schema_version: crate::STAGE8B_P1_BOOTSTRAP_CONFIG_SCHEMA_VERSION,
             broker_id: crate::STAGE8B_P1_BROKER_ID.to_string(),
             strategy_id: crate::STAGE8B_P1_STRATEGY_ID.to_string(),

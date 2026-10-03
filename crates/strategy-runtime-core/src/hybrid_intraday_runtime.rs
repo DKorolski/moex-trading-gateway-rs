@@ -3666,6 +3666,7 @@ pub(crate) enum Stage5gR2caR2PositionApplyError {
 #[cfg(test)]
 #[allow(clippy::items_after_test_module)]
 mod tests {
+    mod sparse_parity;
     use super::*;
     use crate::{StrategyCtx, TradeMode};
 

@@ -556,6 +556,7 @@ where
         || provenance.operational_identity_sha256() != config.operational_identity_sha256()
         || provenance.runtime_config_fingerprint_sha256()
             != config.runtime_config_fingerprint_sha256()
+        || config.first_boot_source_plan_sha256() != Some(provenance.source_plan_sha256())
     {
         return Err(Stage8bP1eFirstBootTransactionError::RecoverySelectorMismatch);
     }
@@ -938,6 +939,7 @@ where
         || provenance.operational_identity_sha256() != config.operational_identity_sha256()
         || provenance.runtime_config_fingerprint_sha256()
             != config.runtime_config_fingerprint_sha256()
+        || config.first_boot_source_plan_sha256() != Some(provenance.source_plan_sha256())
     {
         return Err(Stage8bP1eFirstBootTransactionError::InvalidAuthority);
     }
@@ -1261,8 +1263,8 @@ fn marker_profile_matches_config(
     Stage8bP1RuntimeProfileKind::from_fingerprint(config.runtime_config_fingerprint_sha256())
         .is_ok_and(|profile| {
             marker.runtime_profile_sha256 == profile.profile_sha256()
-                && marker.source_plan_sha256
-                    == crate::stage8b_p1e_first_boot_source::first_boot_source_plan_sha256(profile)
+                && config.first_boot_source_plan_sha256()
+                    == Some(marker.source_plan_sha256.as_str())
         })
 }
 
@@ -1286,7 +1288,7 @@ fn read_expected_durable_recovery_marker(
     Ok(marker)
 }
 
-fn historical_source_binding_v5(
+pub(crate) fn historical_source_binding_v5(
     config: &Stage8bP1ValidatedBootstrapConfig,
     selector: &Stage8bP1ePreSealRecoverySelectorV5,
     commitment_key: &Stage5gLifecycleCommitmentKey,
@@ -1327,6 +1329,7 @@ fn historical_source_binding_v5(
         }
     }
     Ok(Stage8bP1eHistoricalSourceBindingV5 {
+        source_plan_sha256: authority.source_plan_sha256.clone(),
         operational_identity_sha256: authority.operational_identity_sha256.clone(),
         runtime_config_fingerprint_sha256: authority.runtime_config_fingerprint_sha256.clone(),
         source_bundle_sha256: authority.source_bundle_sha256.clone(),

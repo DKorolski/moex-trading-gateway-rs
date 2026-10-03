@@ -1126,6 +1126,7 @@ pub enum Stage8bP1RedisSemanticError {
 }
 
 struct Stage8bP1RedisBackend {
+    observed_binding: Option<super::observed::ObservedM10Context>,
     connection: ConnectionManager,
     namespace: Stage8bP1RedisNamespace,
     config: Stage8bP1RedisConfig,
@@ -1178,6 +1179,34 @@ pub async fn attach_stage8b_p1_redis(
     Ok(Stage8bP1RedisSemanticCompositionTransport { backend })
 }
 
+/// Explicit bounded-source attachment. The caller must restore the binding
+/// from independent retained evidence before attaching; Redis cannot supply it.
+/// One handle has one immutable policy/source. Missing or out-of-range evidence
+/// fails closed; this is not automatic V1 migration or receipt rotation.
+pub async fn attach_stage8b_p1_observed_redis(
+    redis_url: &str,
+    config: Stage8bP1RedisConfig,
+    binding: super::observed::Stage8bP1ObservedM10Binding,
+) -> Result<Stage8bP1RedisSemanticCompositionTransport, Stage8bP1RedisSemanticError> {
+    let mut backend = open_backend(redis_url, config).await?;
+    backend.observed_binding = Some(super::observed::ObservedM10Context::Single(binding));
+    backend.verify_groups().await?;
+    Ok(Stage8bP1RedisSemanticCompositionTransport { backend })
+}
+
+/// Bounded predecessor/successor attachment. Both receipts must have been
+/// restored independently; source selection cannot rotate existing bindings.
+pub async fn attach_stage8b_p1_observed_redis_pair(
+    redis_url: &str,
+    config: Stage8bP1RedisConfig,
+    pair: super::observed::Stage8bP1ObservedM10WindowPair,
+) -> Result<Stage8bP1RedisSemanticCompositionTransport, Stage8bP1RedisSemanticError> {
+    let mut backend = open_backend(redis_url, config).await?;
+    backend.observed_binding = Some(super::observed::ObservedM10Context::Pair(pair));
+    backend.verify_groups().await?;
+    Ok(Stage8bP1RedisSemanticCompositionTransport { backend })
+}
+
 async fn open_backend(
     redis_url: &str,
     config: Stage8bP1RedisConfig,
@@ -1186,6 +1215,7 @@ async fn open_backend(
     let client = redis::Client::open(redis_url)?;
     let connection = ConnectionManager::new(client).await?;
     Ok(Stage8bP1RedisBackend {
+        observed_binding: None,
         connection,
         namespace: stage8b_p1_redis_namespace(),
         config,
@@ -1196,6 +1226,17 @@ async fn open_backend(
     })
 }
 
+pub(crate) async fn attach_stage8b_p1_observed_recovery_redis(
+    redis_url: &str,
+    config: Stage8bP1RedisConfig,
+    context: super::observed::Stage8bP1ObservedRecoveryContext,
+) -> Result<Stage8bP1RedisSemanticCompositionTransport, Stage8bP1RedisSemanticError> {
+    let mut backend = open_backend(redis_url, config).await?;
+    backend.observed_binding = Some(super::observed::ObservedM10Context::Recovery(context));
+    backend.verify_groups().await?;
+    Ok(Stage8bP1RedisSemanticCompositionTransport { backend })
+}
+
 /// Linear transport handle. It exposes no raw Redis connection, arbitrary
 /// namespace, XACK, command publication or provider method.
 pub struct Stage8bP1RedisSemanticCompositionTransport {
@@ -1203,6 +1244,37 @@ pub struct Stage8bP1RedisSemanticCompositionTransport {
 }
 
 impl Stage8bP1RedisSemanticCompositionTransport {
+    /// Called only by the verified S05 session before transferring the transport
+    /// to an owner. Reread is read-only; failures never install a partial window.
+    pub(crate) async fn admit_observed_published_window(
+        &mut self,
+        input: super::observed::Stage8bP1ObservedPublishedWindow,
+    ) -> Result<(), Stage8bP1RedisSemanticError> {
+        use super::observed::ObservedM10Context;
+        let Some(ObservedM10Context::Recovery(context)) = &self.backend.observed_binding else {
+            return Err(super::Stage8bP1CanonicalM10Error::IdentityMismatch.into());
+        };
+        context.validate_fresh_window(&input)?;
+        for (id, bytes) in input.entries() {
+            let retained = self.backend.exact_stream_entry(id).await?;
+            if retained.as_deref().map(str::as_bytes) != Some(bytes.as_slice()) {
+                return Err(super::Stage8bP1CanonicalM10Error::DigestMismatch.into());
+            }
+        }
+        let Some(ObservedM10Context::Recovery(context)) = &mut self.backend.observed_binding else {
+            return Err(super::Stage8bP1CanonicalM10Error::IdentityMismatch.into());
+        };
+        context.admit_fresh_window(input)?;
+        Ok(())
+    }
+
+    pub(crate) fn parse_bound_m10(
+        &self,
+        bytes: &[u8],
+        expected_identity: &str,
+    ) -> Result<super::Stage8bP1ValidatedCanonicalM10, super::Stage8bP1CanonicalM10Error> {
+        self.backend.parse_bound_m10(bytes, expected_identity)
+    }
     pub(crate) fn install_stage8b_p1f_supervisor_audit_v1(
         &mut self,
         audit: Stage8bP1fRedisCommandAuditHandleV1,
@@ -1241,8 +1313,7 @@ impl Stage8bP1RedisSemanticCompositionTransport {
         canonical_bytes: &[u8],
         expected_operational_identity_sha256: &str,
     ) -> Result<(), Stage8bP1RedisSemanticError> {
-        let parsed =
-            parse_stage8b_p1_canonical_m10(canonical_bytes, expected_operational_identity_sha256)?;
+        let parsed = self.parse_bound_m10(canonical_bytes, expected_operational_identity_sha256)?;
         if parsed.redis_id() != redis_id {
             return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
         }
@@ -5170,7 +5241,14 @@ pub async fn acquire_stage8b_p1_journal_ahead_with_redis(
     pending: P1SemanticPrepublicationPending,
     mut transport: Stage8bP1RedisSemanticCompositionTransport,
 ) -> Result<Stage8bP1ePostAcquisitionOwnerV1, Stage8bP1RedisSemanticError> {
-    let pending_m10 = transport.backend.reclaim_single_pending().await?;
+    let pending_m10 = if transport.backend.observed_binding.is_some() {
+        transport
+            .backend
+            .reclaim_journal_ahead_observed(&pending)
+            .await?
+    } else {
+        transport.backend.reclaim_single_pending().await?
+    };
     Ok(post_acquisition_owner(
         Stage8bP1ePostAcquisitionRouteV1::JournalAhead {
             pending: Box::new(pending),
@@ -6310,6 +6388,17 @@ pub async fn resume_stage8b_p1d3_semantic_with_redis(
 }
 
 impl Stage8bP1RedisBackend {
+    fn parse_bound_m10(
+        &self,
+        bytes: &[u8],
+        expected_identity: &str,
+    ) -> Result<super::Stage8bP1ValidatedCanonicalM10, super::Stage8bP1CanonicalM10Error> {
+        match &self.observed_binding {
+            Some(binding) => binding.parse_exact(bytes, expected_identity),
+            None => parse_stage8b_p1_canonical_m10(bytes, expected_identity),
+        }
+    }
+
     fn record_p1f_supervisor_audit(
         &self,
         operation: Stage8bP1fRedisSourceOperationV1,
@@ -6397,8 +6486,7 @@ impl Stage8bP1RedisBackend {
         if !self.groups_verified {
             return Err(Stage8bP1RedisSemanticError::GroupMissing);
         }
-        let m10 =
-            parse_stage8b_p1_canonical_m10(canonical_bytes, expected_operational_identity_sha256)?;
+        let m10 = self.parse_bound_m10(canonical_bytes, expected_operational_identity_sha256)?;
         let payload = std::str::from_utf8(m10.canonical_bytes())
             .map_err(|_| Stage8bP1RedisSemanticError::InvalidRedisReply)?;
         let result: redis::RedisResult<String> = redis::cmd("EVAL")
@@ -6555,7 +6643,7 @@ impl Stage8bP1RedisBackend {
         if entries.next().is_some() {
             return Err(Stage8bP1RedisSemanticError::InvalidRedisReply);
         }
-        delivery_from_entry(entry).map(Some)
+        delivery_from_entry(entry, self.observed_binding.as_ref()).map(Some)
     }
 
     async fn read_next_fresh(
@@ -6582,7 +6670,7 @@ impl Stage8bP1RedisBackend {
         if entries.next().is_some() {
             return Err(Stage8bP1RedisSemanticError::InvalidRedisReply);
         }
-        delivery_from_entry(entry)
+        delivery_from_entry(entry, self.observed_binding.as_ref())
     }
 
     async fn reclaim_single_pending(
@@ -6596,6 +6684,35 @@ impl Stage8bP1RedisBackend {
         self.reclaim_exact_id(&expected).await
     }
 
+    async fn reclaim_journal_ahead_observed(
+        &mut self,
+        durable: &P1SemanticPrepublicationPending,
+    ) -> Result<Stage8bP1PendingM10Delivery, Stage8bP1RedisSemanticError> {
+        let pending = self.pending_entries("-", "+", 2).await?;
+        if pending.ids.len() != 1 {
+            return Err(Stage8bP1RedisSemanticError::ExactPendingEntryMissing);
+        }
+        let redis_id = &pending.ids[0].id;
+        let payload = self
+            .exact_stream_entry(redis_id)
+            .await?
+            .ok_or(Stage8bP1RedisSemanticError::ExactPendingEntryMissing)?;
+        let probe = super::observed::journal_source_probe(payload.as_bytes())?;
+        if probe.m10_redis_id != *redis_id || !durable.matches_source_probe(&probe) {
+            return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
+        }
+        // The tuple is now bound to protected RequestAccepted + authenticated
+        // S0, not to a self-reported Redis digest. This performs retained-source
+        // + complete canonical validation BEFORE XAUTOCLAIM, then validates
+        // the claimed reply again. Full semantic replay still follows permit.
+        self.reclaim_exact_binding(
+            redis_id,
+            &probe.m10_semantic_id_sha256,
+            &probe.m10_payload_sha256,
+        )
+        .await
+    }
+
     async fn reclaim_exact_evidence(
         &mut self,
         evidence: &Stage6Stage8bP1SemanticCommitEvidenceV1,
@@ -6606,17 +6723,12 @@ impl Stage8bP1RedisBackend {
         {
             return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
         }
-        let pending = self.pending_entries("-", "+", 2).await?;
-        if pending.ids.len() != 1 || pending.ids[0].id != evidence.m10_redis_id {
-            return Err(Stage8bP1RedisSemanticError::ExactPendingEntryMissing);
-        }
-        let delivery = self.reclaim_exact_id(&evidence.m10_redis_id).await?;
-        if delivery.semantic_id_sha256() != evidence.m10_semantic_id_sha256
-            || delivery.payload_sha256() != evidence.m10_payload_sha256
-        {
-            return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
-        }
-        Ok(delivery)
+        self.reclaim_exact_binding(
+            &evidence.m10_redis_id,
+            &evidence.m10_semantic_id_sha256,
+            &evidence.m10_payload_sha256,
+        )
+        .await
     }
 
     async fn reclaim_exact_binding(
@@ -6629,7 +6741,21 @@ impl Stage8bP1RedisBackend {
         if pending.ids.len() != 1 || pending.ids[0].id != redis_id {
             return Err(Stage8bP1RedisSemanticError::ExactPendingEntryMissing);
         }
-        let delivery = self.reclaim_exact_id(redis_id).await?;
+        // Only recovery callers supply this triplet, from their authenticated
+        // durable owner. Resolve bytes before any XAUTOCLAIM mutation. Fresh
+        // reads and Ready scans never enter the retained-receipt resolver.
+        let recovered_binding = if let Some(context) = &self.observed_binding {
+            let identity = context.operational_identity_sha256().to_string();
+            let exact = self
+                .exact_delivery_for_binding(redis_id, semantic_id_sha256, payload_sha256, &identity)
+                .await?;
+            exact.observed_binding
+        } else {
+            None
+        };
+        let delivery = self
+            .reclaim_exact_id_with_binding(redis_id, recovered_binding)
+            .await?;
         if delivery.semantic_id_sha256() != semantic_id_sha256
             || delivery.payload_sha256() != payload_sha256
             || delivery.redis_id() != redis_id
@@ -6650,10 +6776,18 @@ impl Stage8bP1RedisBackend {
             .exact_stream_entry(redis_id)
             .await?
             .ok_or(Stage8bP1RedisSemanticError::ExactPendingEntryMissing)?;
-        let validated = parse_stage8b_p1_canonical_m10(
-            payload.as_bytes(),
-            expected_operational_identity_sha256,
-        )?;
+        let validated = match &self.observed_binding {
+            Some(context) => context.parse_sealed_exact(
+                payload.as_bytes(),
+                expected_operational_identity_sha256,
+                redis_id,
+                semantic_id_sha256,
+                payload_sha256,
+            )?,
+            None => {
+                self.parse_bound_m10(payload.as_bytes(), expected_operational_identity_sha256)?
+            }
+        };
         if validated.redis_id() != redis_id
             || validated.semantic_id_sha256() != semantic_id_sha256
             || validated.payload_sha256() != payload_sha256
@@ -6662,6 +6796,7 @@ impl Stage8bP1RedisBackend {
         }
         let semantic_m10_identity = validated.semantic_m10_identity();
         Ok(Stage8bP1PendingM10Delivery {
+            observed_binding: validated.observed_binding,
             redis_id: redis_id.to_string(),
             semantic_id_sha256: semantic_id_sha256.to_string(),
             payload_sha256: payload_sha256.to_string(),
@@ -6674,12 +6809,23 @@ impl Stage8bP1RedisBackend {
         &mut self,
         expected_id: &str,
     ) -> Result<Stage8bP1PendingM10Delivery, Stage8bP1RedisSemanticError> {
+        self.reclaim_exact_id_with_binding(expected_id, None).await
+    }
+
+    async fn reclaim_exact_id_with_binding(
+        &mut self,
+        expected_id: &str,
+        binding: Option<super::observed::Stage8bP1ObservedM10Binding>,
+    ) -> Result<Stage8bP1PendingM10Delivery, Stage8bP1RedisSemanticError> {
         // Recovery routes do not pass through the Ready acquisition wrappers.
         // Audit the shared exact-reclaim execution point so every pending or
         // committed continuation records the real XAUTOCLAIM result once.
         // Ready wrappers call `try_reclaim_exact_id` directly and retain their
         // existing aggregate acquisition record, avoiding duplicate entries.
-        let result = match self.try_reclaim_exact_id(expected_id).await {
+        let result = match self
+            .try_reclaim_exact_id_with_binding(expected_id, binding)
+            .await
+        {
             Ok(Some(delivery)) => Ok(delivery),
             Ok(None) => Err(Stage8bP1RedisSemanticError::ExactPendingEntryMissing),
             Err(error) => Err(error),
@@ -6702,6 +6848,16 @@ impl Stage8bP1RedisBackend {
         &mut self,
         expected_id: &str,
     ) -> Result<Option<Stage8bP1PendingM10Delivery>, Stage8bP1RedisSemanticError> {
+        self.try_reclaim_exact_id_with_binding(expected_id, None)
+            .await
+    }
+
+    async fn try_reclaim_exact_id_with_binding(
+        &mut self,
+        expected_id: &str,
+        binding: Option<super::observed::Stage8bP1ObservedM10Binding>,
+    ) -> Result<Option<Stage8bP1PendingM10Delivery>, Stage8bP1RedisSemanticError> {
+        let recovered_context = binding.map(super::observed::ObservedM10Context::Single);
         for _ in 0..self.config.max_claim_pages {
             let start = self.claim_cursor.clone();
             #[cfg(test)]
@@ -6719,7 +6875,13 @@ impl Stage8bP1RedisBackend {
             self.claim_cursor = reply.next_stream_id;
             for entry in reply.claimed {
                 if entry.id == expected_id {
-                    return delivery_from_entry(entry).map(Some);
+                    return delivery_from_entry(
+                        entry,
+                        recovered_context
+                            .as_ref()
+                            .or(self.observed_binding.as_ref()),
+                    )
+                    .map(Some);
                 }
             }
             if self.claim_cursor == "0-0" || self.claim_cursor == start {
@@ -6735,27 +6897,13 @@ impl Stage8bP1RedisBackend {
         evidence: &Stage6Stage8bP1SemanticCommitEvidenceV1,
         expected_operational_identity_sha256: &str,
     ) -> Result<Stage8bP1PendingM10Delivery, Stage8bP1RedisSemanticError> {
-        let payload = self
-            .exact_stream_entry(&evidence.m10_redis_id)
-            .await?
-            .ok_or(Stage8bP1RedisSemanticError::ExactPendingEntryMissing)?;
-        let validated = parse_stage8b_p1_canonical_m10(
-            payload.as_bytes(),
+        self.exact_delivery_for_binding(
+            &evidence.m10_redis_id,
+            &evidence.m10_semantic_id_sha256,
+            &evidence.m10_payload_sha256,
             expected_operational_identity_sha256,
-        )?;
-        if validated.semantic_id_sha256() != evidence.m10_semantic_id_sha256
-            || validated.payload_sha256() != evidence.m10_payload_sha256
-        {
-            return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
-        }
-        let semantic_m10_identity = validated.semantic_m10_identity();
-        Ok(Stage8bP1PendingM10Delivery {
-            redis_id: evidence.m10_redis_id.clone(),
-            semantic_id_sha256: evidence.m10_semantic_id_sha256.clone(),
-            payload_sha256: evidence.m10_payload_sha256.clone(),
-            canonical_bytes: payload.into_bytes(),
-            semantic_m10_identity,
-        })
+        )
+        .await
     }
 
     async fn acknowledge_exact(
@@ -7433,7 +7581,7 @@ impl Stage8bP1RedisBackend {
                 .exact_stream_entry(predecessor_redis_id)
                 .await?
                 .ok_or(Stage8bP1RedisSemanticError::ExactPendingEntryMissing)?;
-            let predecessor = parse_stage8b_p1_canonical_m10(
+            let predecessor = self.parse_bound_m10(
                 predecessor_payload.as_bytes(),
                 expected_operational_identity_sha256,
             )?;
@@ -7448,10 +7596,8 @@ impl Stage8bP1RedisBackend {
         let payload = first
             .get::<String>("payload")
             .ok_or(Stage8bP1RedisSemanticError::InvalidRedisReply)?;
-        let validated = parse_stage8b_p1_canonical_m10(
-            payload.as_bytes(),
-            expected_operational_identity_sha256,
-        )?;
+        let validated =
+            self.parse_bound_m10(payload.as_bytes(), expected_operational_identity_sha256)?;
         if validated.redis_id() != expected_id {
             return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
         }
@@ -7485,6 +7631,7 @@ impl Stage8bP1RedisBackend {
 
 fn delivery_from_entry(
     entry: StreamId,
+    binding: Option<&super::observed::ObservedM10Context>,
 ) -> Result<Stage8bP1PendingM10Delivery, Stage8bP1RedisSemanticError> {
     if entry.map.len() != 1 {
         return Err(Stage8bP1RedisSemanticError::InvalidRedisReply);
@@ -7492,7 +7639,12 @@ fn delivery_from_entry(
     let payload = entry
         .get::<String>("payload")
         .ok_or(Stage8bP1RedisSemanticError::InvalidRedisReply)?;
-    let validated = parse_stage8b_p1_canonical_m10_without_identity(payload.as_bytes())?;
+    let validated = match binding {
+        Some(binding) => {
+            binding.parse_exact(payload.as_bytes(), binding.operational_identity_sha256())?
+        }
+        None => parse_stage8b_p1_canonical_m10_without_identity(payload.as_bytes())?,
+    };
     if validated.redis_id() != entry.id {
         return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
     }
@@ -7503,6 +7655,7 @@ fn delivery_from_entry(
         payload_sha256: validated.payload_sha256().to_string(),
         canonical_bytes: payload.into_bytes(),
         semantic_m10_identity,
+        observed_binding: validated.observed_binding,
     })
 }
 
@@ -7676,6 +7829,7 @@ pub(crate) async fn stage8b_p1f_ie_commit_plain_market_v4_only(
 
 #[cfg(test)]
 pub(crate) mod tests {
+    mod observed;
     use super::*;
     use crate::stage8b_p1_bootstrap::{
         authorize_stage8b_p1_first_boot, first_boot_stage8b_p1, restart_stage8b_p1,
@@ -8256,6 +8410,7 @@ pub(crate) mod tests {
         runtime_config_fingerprint_sha256: String,
     ) -> Stage8bP1BootstrapConfig {
         Stage8bP1BootstrapConfig {
+            market_data_policy_sha256: None,
             schema_version: STAGE8B_P1_BOOTSTRAP_CONFIG_SCHEMA_VERSION,
             broker_id: STAGE8B_P1_BROKER_ID.to_string(),
             strategy_id: crate::STAGE8B_P1_STRATEGY_ID.to_string(),

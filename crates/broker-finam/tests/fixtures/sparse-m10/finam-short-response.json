@@ -1,0 +1,537 @@
+{
+ "symbol": "IMOEXF@RTSX",
+ "bars": [
+  {
+   "timestamp": "2026-09-28T19:30:00Z",
+   "open": {
+    "value": "2246.5"
+   },
+   "high": {
+    "value": "2246.5"
+   },
+   "low": {
+    "value": "2246.5"
+   },
+   "close": {
+    "value": "2246.5"
+   },
+   "volume": {
+    "value": "7.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:31:00Z",
+   "open": {
+    "value": "2247.0"
+   },
+   "high": {
+    "value": "2247.0"
+   },
+   "low": {
+    "value": "2246.5"
+   },
+   "close": {
+    "value": "2247.0"
+   },
+   "volume": {
+    "value": "289.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:32:00Z",
+   "open": {
+    "value": "2246.5"
+   },
+   "high": {
+    "value": "2247.0"
+   },
+   "low": {
+    "value": "2246.5"
+   },
+   "close": {
+    "value": "2246.5"
+   },
+   "volume": {
+    "value": "402.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:33:00Z",
+   "open": {
+    "value": "2246.0"
+   },
+   "high": {
+    "value": "2247.0"
+   },
+   "low": {
+    "value": "2246.0"
+   },
+   "close": {
+    "value": "2247.0"
+   },
+   "volume": {
+    "value": "336.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:34:00Z",
+   "open": {
+    "value": "2246.5"
+   },
+   "high": {
+    "value": "2247.5"
+   },
+   "low": {
+    "value": "2246.5"
+   },
+   "close": {
+    "value": "2246.5"
+   },
+   "volume": {
+    "value": "1395.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:35:00Z",
+   "open": {
+    "value": "2246.5"
+   },
+   "high": {
+    "value": "2247.0"
+   },
+   "low": {
+    "value": "2246.5"
+   },
+   "close": {
+    "value": "2246.5"
+   },
+   "volume": {
+    "value": "37.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:36:00Z",
+   "open": {
+    "value": "2246.5"
+   },
+   "high": {
+    "value": "2246.5"
+   },
+   "low": {
+    "value": "2246.5"
+   },
+   "close": {
+    "value": "2246.5"
+   },
+   "volume": {
+    "value": "158.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:37:00Z",
+   "open": {
+    "value": "2246.5"
+   },
+   "high": {
+    "value": "2246.5"
+   },
+   "low": {
+    "value": "2246.0"
+   },
+   "close": {
+    "value": "2246.0"
+   },
+   "volume": {
+    "value": "76.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:38:00Z",
+   "open": {
+    "value": "2246.0"
+   },
+   "high": {
+    "value": "2246.5"
+   },
+   "low": {
+    "value": "2246.0"
+   },
+   "close": {
+    "value": "2246.0"
+   },
+   "volume": {
+    "value": "45.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:39:00Z",
+   "open": {
+    "value": "2246.0"
+   },
+   "high": {
+    "value": "2246.0"
+   },
+   "low": {
+    "value": "2245.5"
+   },
+   "close": {
+    "value": "2246.0"
+   },
+   "volume": {
+    "value": "189.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:40:00Z",
+   "open": {
+    "value": "2246.0"
+   },
+   "high": {
+    "value": "2246.5"
+   },
+   "low": {
+    "value": "2246.0"
+   },
+   "close": {
+    "value": "2246.0"
+   },
+   "volume": {
+    "value": "227.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:44:00Z",
+   "open": {
+    "value": "2247.0"
+   },
+   "high": {
+    "value": "2247.0"
+   },
+   "low": {
+    "value": "2246.5"
+   },
+   "close": {
+    "value": "2246.5"
+   },
+   "volume": {
+    "value": "19.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:45:00Z",
+   "open": {
+    "value": "2246.5"
+   },
+   "high": {
+    "value": "2247.0"
+   },
+   "low": {
+    "value": "2246.5"
+   },
+   "close": {
+    "value": "2247.0"
+   },
+   "volume": {
+    "value": "16.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:46:00Z",
+   "open": {
+    "value": "2247.0"
+   },
+   "high": {
+    "value": "2247.0"
+   },
+   "low": {
+    "value": "2246.5"
+   },
+   "close": {
+    "value": "2246.5"
+   },
+   "volume": {
+    "value": "233.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:47:00Z",
+   "open": {
+    "value": "2247.5"
+   },
+   "high": {
+    "value": "2247.5"
+   },
+   "low": {
+    "value": "2246.5"
+   },
+   "close": {
+    "value": "2246.5"
+   },
+   "volume": {
+    "value": "32.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:48:00Z",
+   "open": {
+    "value": "2246.5"
+   },
+   "high": {
+    "value": "2247.0"
+   },
+   "low": {
+    "value": "2246.5"
+   },
+   "close": {
+    "value": "2246.5"
+   },
+   "volume": {
+    "value": "11.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:49:00Z",
+   "open": {
+    "value": "2247.0"
+   },
+   "high": {
+    "value": "2247.0"
+   },
+   "low": {
+    "value": "2247.0"
+   },
+   "close": {
+    "value": "2247.0"
+   },
+   "volume": {
+    "value": "16.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:50:00Z",
+   "open": {
+    "value": "2247.0"
+   },
+   "high": {
+    "value": "2247.0"
+   },
+   "low": {
+    "value": "2246.0"
+   },
+   "close": {
+    "value": "2246.0"
+   },
+   "volume": {
+    "value": "139.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:51:00Z",
+   "open": {
+    "value": "2246.0"
+   },
+   "high": {
+    "value": "2246.0"
+   },
+   "low": {
+    "value": "2246.0"
+   },
+   "close": {
+    "value": "2246.0"
+   },
+   "volume": {
+    "value": "47.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:52:00Z",
+   "open": {
+    "value": "2246.0"
+   },
+   "high": {
+    "value": "2246.5"
+   },
+   "low": {
+    "value": "2246.0"
+   },
+   "close": {
+    "value": "2246.5"
+   },
+   "volume": {
+    "value": "9.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:53:00Z",
+   "open": {
+    "value": "2246.0"
+   },
+   "high": {
+    "value": "2246.0"
+   },
+   "low": {
+    "value": "2245.5"
+   },
+   "close": {
+    "value": "2246.0"
+   },
+   "volume": {
+    "value": "865.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:54:00Z",
+   "open": {
+    "value": "2245.5"
+   },
+   "high": {
+    "value": "2245.5"
+   },
+   "low": {
+    "value": "2245.0"
+   },
+   "close": {
+    "value": "2245.0"
+   },
+   "volume": {
+    "value": "614.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:55:00Z",
+   "open": {
+    "value": "2245.0"
+   },
+   "high": {
+    "value": "2246.0"
+   },
+   "low": {
+    "value": "2245.0"
+   },
+   "close": {
+    "value": "2246.0"
+   },
+   "volume": {
+    "value": "80.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:56:00Z",
+   "open": {
+    "value": "2246.0"
+   },
+   "high": {
+    "value": "2246.5"
+   },
+   "low": {
+    "value": "2245.5"
+   },
+   "close": {
+    "value": "2246.0"
+   },
+   "volume": {
+    "value": "423.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:57:00Z",
+   "open": {
+    "value": "2245.5"
+   },
+   "high": {
+    "value": "2246.5"
+   },
+   "low": {
+    "value": "2245.5"
+   },
+   "close": {
+    "value": "2246.5"
+   },
+   "volume": {
+    "value": "21.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:58:00Z",
+   "open": {
+    "value": "2246.5"
+   },
+   "high": {
+    "value": "2246.5"
+   },
+   "low": {
+    "value": "2246.5"
+   },
+   "close": {
+    "value": "2246.5"
+   },
+   "volume": {
+    "value": "2.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T19:59:00Z",
+   "open": {
+    "value": "2246.0"
+   },
+   "high": {
+    "value": "2246.0"
+   },
+   "low": {
+    "value": "2246.0"
+   },
+   "close": {
+    "value": "2246.0"
+   },
+   "volume": {
+    "value": "20.0"
+   },
+   "is_data_snapshot": false
+  },
+  {
+   "timestamp": "2026-09-28T20:00:00Z",
+   "open": {
+    "value": "2246.5"
+   },
+   "high": {
+    "value": "2247.0"
+   },
+   "low": {
+    "value": "2246.0"
+   },
+   "close": {
+    "value": "2246.5"
+   },
+   "volume": {
+    "value": "656.0"
+   },
+   "is_data_snapshot": false
+  }
+ ]
+}

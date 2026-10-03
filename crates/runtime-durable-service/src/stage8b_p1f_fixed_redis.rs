@@ -664,6 +664,48 @@ impl Stage8bP1fM10FeederRedisV1 {
         Self::connect_at(redis_url, config, Stage8bP1fRedisRoleV1::FinamBarsFeeder).await
     }
 
+    /// Closed REST source path; never selected by a V2 message in Redis.
+    pub async fn connect_observed_synthetic(
+        redis_url: &str,
+        config: Stage8bP1RedisConfig,
+        binding: crate::Stage8bP1ObservedM10Binding,
+    ) -> Result<Self, Stage8bP1fRedisRoleErrorV1> {
+        validate_production_db15_endpoint(redis_url)?;
+        Self::connect_with_binding_at(
+            redis_url,
+            config,
+            Stage8bP1fRedisRoleV1::SyntheticM10Feeder,
+            Some(binding),
+        )
+        .await
+    }
+
+    pub async fn connect_observed_finam_bars(
+        redis_url: &str,
+        config: Stage8bP1RedisConfig,
+        binding: crate::Stage8bP1ObservedM10Binding,
+    ) -> Result<Self, Stage8bP1fRedisRoleErrorV1> {
+        validate_production_db15_endpoint(redis_url)?;
+        Self::connect_with_binding_at(
+            redis_url,
+            config,
+            Stage8bP1fRedisRoleV1::FinamBarsFeeder,
+            Some(binding),
+        )
+        .await
+    }
+
+    #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
+    #[doc(hidden)]
+    pub async fn connect_observed_local_evidence(
+        redis_url: &str,
+        config: Stage8bP1RedisConfig,
+        binding: crate::Stage8bP1ObservedM10Binding,
+        role: Stage8bP1fRedisRoleV1,
+    ) -> Result<Self, Stage8bP1fRedisRoleErrorV1> {
+        Self::connect_with_binding_at(redis_url, config, role, Some(binding)).await
+    }
+
     /// Local-only constructor used by retained artifact fixtures. Production
     /// callers remain restricted to the two fixed loopback DB15 endpoints.
     #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
@@ -680,8 +722,29 @@ impl Stage8bP1fM10FeederRedisV1 {
         config: Stage8bP1RedisConfig,
         role: Stage8bP1fRedisRoleV1,
     ) -> Result<Self, Stage8bP1fRedisRoleErrorV1> {
+        Self::connect_with_binding_at(redis_url, config, role, None).await
+    }
+
+    async fn connect_with_binding_at(
+        redis_url: &str,
+        config: Stage8bP1RedisConfig,
+        role: Stage8bP1fRedisRoleV1,
+        binding: Option<crate::Stage8bP1ObservedM10Binding>,
+    ) -> Result<Self, Stage8bP1fRedisRoleErrorV1> {
         authorize_stage8b_p1f_redis_operation(role, Stage8bP1fRedisSourceOperationV1::M10Publish)?;
-        let transport = attach_stage8b_p1_redis(redis_url, config).await?;
+        let transport = match binding {
+            Some(binding)
+                if matches!(
+                    role,
+                    Stage8bP1fRedisRoleV1::FinamBarsFeeder
+                        | Stage8bP1fRedisRoleV1::SyntheticM10Feeder
+                ) =>
+            {
+                crate::attach_stage8b_p1_observed_redis(redis_url, config, binding).await?
+            }
+            Some(_) => return Err(Stage8bP1fRedisRoleErrorV1::PublicationConflict),
+            None => attach_stage8b_p1_redis(redis_url, config).await?,
+        };
         let mut audit = Stage8bP1fRedisCommandAuditV1::default();
         // Feeder attachment invokes the pinned read-only namespace verifier,
         // but it is setup evidence rather than an M10 publication event.
@@ -722,10 +785,10 @@ impl Stage8bP1fM10FeederRedisV1 {
             canonical_bytes,
             expected_operational_identity_sha256,
         );
-        let parsed = match crate::parse_stage8b_p1_canonical_m10(
-            canonical_bytes,
-            expected_operational_identity_sha256,
-        ) {
+        let parsed = match self
+            .transport
+            .parse_bound_m10(canonical_bytes, expected_operational_identity_sha256)
+        {
             Ok(value) => value,
             Err(_) => {
                 self.audit.record(

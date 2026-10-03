@@ -2,6 +2,15 @@
 
 Status: original plan dated 2026-09-02; current-direction addendum 2026-09-30.
 
+## Current local work — 2026-10-02
+
+The accepted ALOR/FINAM diagnostic authorizes the [sparse-M10 source correction](stage8b-p1f-sparse-m10-correction-progress.md),
+not operational activation. O2 remains HOLD. The owner explicitly retained
+[WS subscriptions and operational market-data parity checks](stage8b-operational-market-data-parity-checklist.md)
+for existing O4 / later paper-session comparison. Historical model replay must
+not be treated as proof of WS continuity, delivery timeliness or EOD behavior.
+The dated deployment/state descriptions below are lineage, not fresh status.
+
 ## Current-direction addendum — 2026-09-30
 
 The owner confirms that current ALOR systems do not use riskgate. Follow the

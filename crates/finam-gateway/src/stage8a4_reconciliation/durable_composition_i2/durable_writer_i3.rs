@@ -1702,6 +1702,7 @@ mod tests {
             strategy_runtime_core::Stage7bTestExtraStage6History::None,
         );
         let operational_identity = strategy_runtime_core::Stage6dOperationalIdentityConfig {
+            market_data_policy_sha256: None,
             broker_id: "paper".to_string(),
             strategy_instance_id: "hybrid-imoexf".to_string(),
             deployment_id: "stage8a4-i3-production-test".to_string(),

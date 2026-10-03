@@ -27,6 +27,12 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
+2026-10-02 addendum: [sparse-M10 source correction](stage-8/stage8b-p1f-sparse-m10-correction-progress.md)
+is the current local work; O2 remains HOLD. [WS and operational parity checks](stage-8/stage8b-operational-market-data-parity-checklist.md)
+remain in the existing read-only O4 / multi-session paper path before live-micro
+consideration. No macro-stage is added, renumbered or newly authorized.
+The dated paragraphs below retain the preceding accepted lineage.
+
 Current as of 2026-09-30: successor artifact/update `3923c5c` and its installation
 evidence are independently accepted. A subsequent authorized bounded O2 failed
 before bootstrap on a missing April 10 M1. Its retained terminal frontier is
@@ -46,7 +52,7 @@ with accepted `7c80d70` build fix and a correct `3992fc7` authority delta. The
 [test-only correction](stage-8/stage8b-p1f-nrg01-harness-correction.md) at
 `ca16bf5ab8debe875925421f0d0ee4de0f769525` and its full local qualification are
 independently accepted; **P1-NRG01 CLOSED**, its HOLD lifted on that correction.
-Fresh required GitHub `rust`/`redis-smoke` precede one history-preserving merge
+Fresh required GitHub `rust`/`redis-smoke` passed before one history-preserving merge
 of the completed no-riskgate block. Runtime semantics are unchanged by the
 test-harness correction; no additional source redesign is required.
 
@@ -54,7 +60,21 @@ test-harness correction; no additional source redesign is required.
 thread blocked merge: calendar session age 14 was inconsistent with a 14*24h
 fetch cap. The owner authorized a [two-file materializer correction](stage-8/stage8b-p1f-short-history-range-correction.md)
 and boundary tests in that same PR, without changing four-session warmup or
-strategy semantics. Narrow source review and fresh CI remain pending for it.
+strategy semantics. The correction `8e7a647` is independently SOURCE ACCEPTED;
+fresh CI run `36869369875` passed both required jobs and the finding was closed.
+PR #11 normal merge `ca1e5da7ea41eec219bce1cfe2bdf4b8d63d9029` is the exact
+compiled baseline for the [offline no-riskgate artifact](stage-8/stage8b-p1f-o2-no-riskgate-artifact-preparation.md).
+The artifact's fixture inputs are not an operational calendar/identity or an
+installation authorization. Preserve Failed/4 and earlier Expired/2 evidence;
+installation and bounded O2 remain separate gates. No extra roadmap stage.
+
+No-riskgate binary artifact `64f1fd5` is independently BINARY ARTIFACT ACCEPTED.
+Current work is the [non-activating installation package](stage-8/stage8b-p1f-o2-no-riskgate-installation.md)
+using those exact three ELFs, V2 profile / V3 source plan, eight replacement
+slots and the retained FAILED/1/4 predecessor. Its proposed 2026-10-02 calendar
+must be rebound if the execution window is missed. Package acceptance precedes
+separate installation permission/evidence and then bounded O2 permission. No
+authority issuance, deployment or FINAM/Redis call occurs in local preparation.
 
 Owner-approved working cadence (2026-09-30): commit finished local changes,
 push working branches for preservation, and review meaningful functional

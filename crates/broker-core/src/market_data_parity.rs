@@ -35,6 +35,9 @@ pub enum Stage3StrategyBarSourceMode {
     FinamDerivedM1ToM10,
     FinamNativeM10,
     RawFinamM1,
+    /// Closed REST source admitted under the explicit observed-M1 policy.
+    /// Completeness refers to the source response, NOT to minute-grid density.
+    FinamClosedRestObservedM1ToM10,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,6 +50,7 @@ pub enum Stage3StrategyInputRejectReason {
     SourceTimeframeMismatch { expected_sec: u32, actual_sec: u32 },
     AggregationIncomplete,
     GapAbsenceNotProven,
+    MisleadingObservedGapClaim,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,6 +63,16 @@ pub struct Stage3StrategyBarProvenance {
 }
 
 impl Stage3StrategyBarProvenance {
+    pub fn finam_closed_rest_observed_m1_to_m10() -> Self {
+        Self {
+            source_mode: Stage3StrategyBarSourceMode::FinamClosedRestObservedM1ToM10,
+            source_timeframe_sec: Some(60),
+            target_timeframe_sec: 600,
+            aggregation_complete: true,
+            gap_absence_proven: false,
+        }
+    }
+
     pub fn alor_native_m10_oracle() -> Self {
         Self {
             source_mode: Stage3StrategyBarSourceMode::AlorNativeBarsGetAndSubscribeTf600,
@@ -129,6 +143,7 @@ pub fn evaluate_stage3_strategy_input_gate(
         Stage3StrategyBarSourceMode::AlorNativeBarsGetAndSubscribeTf600
             | Stage3StrategyBarSourceMode::AlorStandDerivedM1ToM10
             | Stage3StrategyBarSourceMode::FinamDerivedM1ToM10
+            | Stage3StrategyBarSourceMode::FinamClosedRestObservedM1ToM10
     ) {
         return reject(Stage3StrategyInputRejectReason::SourceModeNotAllowed);
     }
@@ -148,7 +163,11 @@ pub fn evaluate_stage3_strategy_input_gate(
         });
     }
 
-    if provenance.source_mode == Stage3StrategyBarSourceMode::FinamDerivedM1ToM10 {
+    if matches!(
+        provenance.source_mode,
+        Stage3StrategyBarSourceMode::FinamDerivedM1ToM10
+            | Stage3StrategyBarSourceMode::FinamClosedRestObservedM1ToM10
+    ) {
         if provenance.source_timeframe_sec != Some(60) {
             return reject(Stage3StrategyInputRejectReason::SourceTimeframeMismatch {
                 expected_sec: 60,
@@ -158,8 +177,15 @@ pub fn evaluate_stage3_strategy_input_gate(
         if !provenance.aggregation_complete {
             return reject(Stage3StrategyInputRejectReason::AggregationIncomplete);
         }
-        if !provenance.gap_absence_proven {
+        if provenance.source_mode == Stage3StrategyBarSourceMode::FinamDerivedM1ToM10
+            && !provenance.gap_absence_proven
+        {
             return reject(Stage3StrategyInputRejectReason::GapAbsenceNotProven);
+        }
+        if provenance.source_mode == Stage3StrategyBarSourceMode::FinamClosedRestObservedM1ToM10
+            && provenance.gap_absence_proven
+        {
+            return reject(Stage3StrategyInputRejectReason::MisleadingObservedGapClaim);
         }
     }
 

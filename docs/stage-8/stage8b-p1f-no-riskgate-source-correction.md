@@ -15,7 +15,8 @@ This is additive profile selection, not a relaxation of the old profile.
 The table records accepted 2f46491. Its elapsed 14-day fetch cap has a calendar
 boundary defect addressed by the separately authorized [P2 successor](stage8b-p1f-short-history-range-correction.md):
 transport envelope <=15 days, while session age <=14 and four prior sessions
-remain unchanged. That successor is review-pending, not part of the old acceptance.
+remain unchanged. That successor was separately SOURCE ACCEPTED at `8e7a647`;
+it is not retrospectively part of the old acceptance.
 
 | Boundary | Retained legacy | Explicit no-riskgate successor |
 |---|---|---|

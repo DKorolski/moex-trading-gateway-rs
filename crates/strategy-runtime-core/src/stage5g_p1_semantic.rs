@@ -814,7 +814,7 @@ pub(crate) fn p1_prepublication_restart_slot(
     )
 }
 
-fn semantic_batch_id_sha256(
+pub(crate) fn semantic_batch_id_sha256(
     operational_identity_sha256: &str,
     m10_semantic_id_sha256: &str,
     m10_payload_sha256: &str,
