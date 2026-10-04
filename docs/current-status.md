@@ -1,6 +1,18 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-10-03.
+Status date: 2026-10-04.
+
+2026-10-04: sparse artifact `823fd35` independently ARTIFACT / GOVERNANCE ACCEPTED;
+exact-head CI run 37139561774 completed `rust` + `redis-smoke` successfully.
+PR #12 merged at `2bc3e49b2951e9bd977e7e6627df0361f5e57a75` (same reviewed tree).
+The [sparse installation successor](stage-8/stage8b-p1f-o2-sparse-installation.md)
+is a non-activating package review candidate, retaining FAILED/1/6 and receipts
+2/4/6. Eight replacement slots, unchanged accepted ELF bytes, policy V3,
+bootstrap schema 2, emitted source V4; candidate calendar 2026-10-05.
+Local evidence accompanies the immutable package; it is not installation or
+operational acceptance. O2 HOLD. No VPS/Redis/FINAM access, signing, installation,
+root migration or phase activation in this slice. WS/freshness/EOD remain O3/O4.
+The dated notes below are historical and superseded where applicable.
 
 2026-10-03 acceptance update (supersedes the local-progress notes below):
 `d63c378a51899a4d407dddc732896e89ccc51b43` is independently **SOURCE ACCEPTED**
