@@ -18,7 +18,7 @@ fn main() {
     let bootstrap: d::Stage8bP1BootstrapConfig =
         serde_json::from_value(supervisor["bootstrap"].clone()).unwrap();
     fs::create_dir_all(&bootstrap.durable_parent).unwrap();
-    let validated = d::validate_stage8b_p1_bootstrap_config(bootstrap.clone()).unwrap();
+    let validated = d::validate_stage8b_p1_bootstrap_config(bootstrap).unwrap();
     let identity = validated.operational_identity_sha256();
     assert_eq!(template["operational_identity_sha256"], identity);
     let policy = read("materialization-policy.json");
@@ -76,7 +76,8 @@ fn main() {
     ] {
         assert!(Stage8bP1fObservedM10Plan::from_calendar_template(&source, identity, now).is_err());
     }
-    let mut old = bootstrap;
+    let mut old: d::Stage8bP1BootstrapConfig =
+        serde_json::from_value(supervisor["bootstrap"].clone()).unwrap();
     old.schema_version = 1;
     old.market_data_policy_sha256 = None;
     let strict = d::validate_stage8b_p1_bootstrap_config(old).unwrap();

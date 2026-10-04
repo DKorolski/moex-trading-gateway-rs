@@ -64,14 +64,20 @@ def gate(package, build, output):
     for binary in info['binaries']:
         require(sha((package/'payload'/binary['name']).read_bytes()) == binary['sha256'] == sha((build/'target/release'/binary['name']).read_bytes()), 'ELF mismatch')
     deps = build/'target/release/deps'
+    with prep.pinned_zip(package/'binary-artifact.zip', prep.ARTIFACT_SHA) as z:
+        accepted_rlibs = json.loads(z.read(artifact.P+'qualification/result.json'))['rlib_sha256']
     externs = []
+    linked_rlibs = {}
     for name in ('runtime_durable_service', 'finam_gateway', 'serde_json', 'chrono'):
         choices = list(deps.glob(f'lib{name}-*.rlib'))
         require(len(choices) == 1, 'ambiguous accepted dependency')
+        digest = sha(choices[0].read_bytes())
+        require(accepted_rlibs.get(choices[0].name) == digest, 'accepted release rlib mismatch')
+        linked_rlibs[choices[0].name] = digest
         externs += ['--extern', name + '=/deps/' + choices[0].name]
     amd = docker + ['--platform', 'linux/amd64']
     run(amd + mount(deps, '/deps') + mount(ROOT/'scripts/fixtures/stage8b-o2-sparse-install-probe.rs', '/probe.rs') +
-        mount(output, '/proof', False) + [artifact.source.IMAGE, 'rustc', '--edition=2021', '/probe.rs', '-L', 'dependency=/deps',
+        mount(output, '/proof', False) + [artifact.source.IMAGE, 'rustc', '--edition=2021', '-D', 'warnings', '/probe.rs', '-L', 'dependency=/deps',
                                        *externs, '-o', '/proof/input-probe'])
     run(amd + mount(output, '/proof') + mount(package, '/package') + [artifact.source.IMAGE, '/proof/input-probe'])
     run(amd + mount(package, '/package') + mount(package/'payload', '/payload') + mount(build/'source/deploy/stage8b-p1e', '/units') +
@@ -83,6 +89,7 @@ def gate(package, build, output):
     require(clean_ref() == ref and before == bounded.inventory(), 'source changed')
     require(inputs == {p.relative_to(package).as_posix(): sha(p.read_bytes()) for p in package.rglob('*') if p.is_file()}, 'inputs changed')
     summary = dict(source_ref=ref, gate_passed=True, commands=records, planned_commands=12, input_sha256=inputs,
+                   linked_rlib_sha256=linked_rlibs,
                    vps_contact=False, execution_authorized=False, installation_performed=False,
                    filesystem_tests=14, injected_frontiers=16, prepared_negatives=18, authority_negatives=45,
                    systemd_observations='mocked in native ARM Linux filesystem fixtures; no target execution',
