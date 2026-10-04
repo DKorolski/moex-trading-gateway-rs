@@ -138,6 +138,71 @@ pub enum Stage8bP1eFirstBootCompositionError {
 pub fn build_stage8b_p1_first_boot_composition_v1(
     input: Stage8bP1eFirstBootCompositionInputV1,
 ) -> Result<Stage8bP1eFirstBootCompositionV1, Stage8bP1eFirstBootCompositionError> {
+    build_first_boot_composition(
+        input,
+        Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete(),
+    )
+}
+
+/// Additive observed-M1 path. The durable caller authenticates the entire
+/// receipt before invoking this pure composition; no legacy profile or source
+/// interpretation changes. Every supplied aggregate is rechecked before any
+/// callback, not inferred from a provenance flag.
+pub fn build_stage8b_p1_observed_first_boot_composition(
+    input: Stage8bP1eFirstBootCompositionInputV1,
+    receipt: &broker_core::observed_m1::ObservedM1Receipt,
+    expected_receipt_sha256: &str,
+) -> Result<Stage8bP1eFirstBootCompositionV1, Stage8bP1eFirstBootCompositionError> {
+    if receipt.sha256() != expected_receipt_sha256
+        || receipt.instrument() != &instrument_id()
+        || receipt.received_at() > input.captured_at
+        || !input.runtime.stage8b_p1_bo_only_riskgate_disabled()
+        || receipt.bars().iter().any(|bar| {
+            [bar.open, bar.high, bar.low, bar.close]
+                .iter()
+                .any(|price| *price % Decimal::new(5, 1) != Decimal::ZERO)
+        })
+    {
+        return Err(Stage8bP1eFirstBootCompositionError::Identity);
+    }
+    for bar in input
+        .history_bars
+        .iter()
+        .chain(std::iter::once(&input.candidate))
+    {
+        let open = bar
+            .close_time_utc
+            .checked_sub(600)
+            .and_then(|t| DateTime::from_timestamp(t, 0))
+            .ok_or(Stage8bP1eFirstBootCompositionError::History)?;
+        let expected = receipt
+            .bucket(open)
+            .map_err(|_| Stage8bP1eFirstBootCompositionError::History)?
+            .bar;
+        if [&bar.open, &bar.high, &bar.low, &bar.close, &bar.volume]
+            .into_iter()
+            .zip([
+                expected.open,
+                expected.high,
+                expected.low,
+                expected.close,
+                expected.volume,
+            ])
+            .any(|(supplied, expected)| supplied != &expected.normalize().to_string())
+        {
+            return Err(Stage8bP1eFirstBootCompositionError::History);
+        }
+    }
+    build_first_boot_composition(
+        input,
+        Stage3StrategyBarProvenance::finam_closed_rest_observed_m1_to_m10(),
+    )
+}
+
+fn build_first_boot_composition(
+    input: Stage8bP1eFirstBootCompositionInputV1,
+    provenance: Stage3StrategyBarProvenance,
+) -> Result<Stage8bP1eFirstBootCompositionV1, Stage8bP1eFirstBootCompositionError> {
     if input.account_id.as_str().is_empty()
         || !is_sha256_hex(&input.operational_identity_sha256)
         || !is_sha256_hex(&input.history_bars_sha256)
@@ -247,7 +312,7 @@ pub fn build_stage8b_p1_first_boot_composition_v1(
         .collect::<Result<Vec<_>, _>>()?;
     let accepted_history = crate::accept_stage5c_history_batch(Stage5cHistoryBatchInput {
         bars: history_events,
-        provenance: Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete(),
+        provenance: provenance.clone(),
     })
     .and_then(|history| history.with_strategy_model_bar_start_labels())
     .map_err(|_| Stage8bP1eFirstBootCompositionError::History)?;
@@ -368,7 +433,7 @@ pub fn build_stage8b_p1_first_boot_composition_v1(
     }
     let accepted_candidate = crate::accept_stage5c_semantic_bar(Stage5cSemanticBarInput {
         bar: candidate_event,
-        provenance: Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete(),
+        provenance,
         tick_size: 0.5,
     })
     .map_err(|_| Stage8bP1eFirstBootCompositionError::Candidate)?

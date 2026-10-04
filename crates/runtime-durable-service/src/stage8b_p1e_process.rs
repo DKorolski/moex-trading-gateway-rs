@@ -100,7 +100,9 @@ use crate::{
     STAGE8B_P1E_FIRST_BOOT_RECOVERY_CONFIRMATION, STAGE8B_P1E_SUPERVISOR_CONFIG_PATH,
 };
 
+#[cfg(test)]
 use crate::stage8b_p1_supervisor::attach_stage8b_p1e_verified_redis_with_audit;
+use crate::stage8b_p1_supervisor::attach_stage8b_p1e_verified_redis_with_source_context;
 use crate::stage8b_p1f_fixed_redis::run_stage8b_p1f_resource_monitor_v1;
 
 use crate::stage8b_p1e_first_boot_transaction::next_stage8b_p1e_bootstrap_attempt_generation_v5;
@@ -4505,6 +4507,23 @@ pub async fn execute_stage8b_p1e_process_command_v1(
     .await
 }
 
+/// Fixed-path, in-process composition with one independently admitted producer
+/// window. This is not a CLI/file/Redis source-discovery channel. The caller must
+/// retain the typed Published handoff; loss of that input grants no fresh-source
+/// authority on restart. Sealed recovery continues to use its own exact receipts.
+/// Config, boot identity, credential, seal, signals and S06 are the normal `run`
+/// boundaries. Legacy profiles cannot use this additive entrypoint.
+pub async fn execute_stage8b_p1e_observed_run_v1(
+    window: crate::Stage8bP1ObservedPublishedWindow,
+) -> Result<Stage8bP1eProcessSuccessV1, Stage8bP1eProcessErrorV1> {
+    let supervisor = load_validated_supervisor(
+        Path::new(STAGE8B_P1E_SUPERVISOR_CONFIG_PATH),
+        Path::new(STAGE8B_P1E_BOOT_ID_PATH),
+        0,
+    )?;
+    execute_run_with_observed_window(supervisor, Utc::now(), Some(window)).await
+}
+
 async fn execute_with_boundaries(
     command: Stage8bP1eProcessCommandV1,
     config_path: &Path,
@@ -5193,6 +5212,17 @@ async fn execute_run(
     supervisor: Stage8bP1eValidatedSupervisorConfigV1,
     trusted_now: DateTime<Utc>,
 ) -> Result<Stage8bP1eProcessSuccessV1, Stage8bP1eProcessErrorV1> {
+    execute_run_with_observed_window(supervisor, trusted_now, None).await
+}
+
+async fn execute_run_with_observed_window(
+    supervisor: Stage8bP1eValidatedSupervisorConfigV1,
+    trusted_now: DateTime<Utc>,
+    window: Option<crate::Stage8bP1ObservedPublishedWindow>,
+) -> Result<Stage8bP1eProcessSuccessV1, Stage8bP1eProcessErrorV1> {
+    if window.is_some() && !supervisor.bootstrap().observed_source_policy() {
+        return Err(Stage8bP1eProcessErrorV1::Config);
+    }
     // Register and actively supervise both Unix signals before spawning the
     // production startup path. The coordinator/latch and its single grace
     // deadline therefore cover credential load, V5 admission, Redis attach,
@@ -5213,6 +5243,7 @@ async fn execute_run(
         trusted_now,
         latch,
         p1f_audit.clone(),
+        window,
     ));
     let result = supervise_stage8b_p1e_owner_task_v1(
         owner,
@@ -5231,6 +5262,7 @@ async fn run_stage8b_p1e_production_owner_v1(
     trusted_now: DateTime<Utc>,
     latch: Arc<Stage8bP1eShutdownLatchV1>,
     p1f_audit: Stage8bP1fRedisCommandAuditHandleV1,
+    window: Option<crate::Stage8bP1ObservedPublishedWindow>,
 ) -> Result<Stage8bP1eOwnerTaskBoundaryV1, Stage8bP1eProcessErrorV1> {
     stage8b_p1e_process_startup_test_barrier_v1("before-admission", &latch).await;
     if latch.intent().is_some() {
@@ -5264,7 +5296,11 @@ async fn run_stage8b_p1e_production_owner_v1(
     let deployment_generation = supervisor.bootstrap().deployment_generation();
     let runtime_config_fingerprint_sha256 =
         supervisor.runtime_config_fingerprint_sha256().to_string();
+    let source_bundle_sha256 = supervisor.first_boot_source_bundle_sha256().to_string();
     let (bootstrap, runtime, attach_plan, settings) = supervisor.into_run_parts();
+    let observed_config = bootstrap
+        .observed_source_policy()
+        .then(|| bootstrap.duplicate_for_internal_classification());
     let restart = admit_stage8b_p1e_ordinary_run_v1(bootstrap, &commitment_key, runtime)
         .map_err(|_| Stage8bP1eProcessErrorV1::DurableRestart)?;
     let (last_semantic_bar_ts_utc, last_canonical_ack_ts_utc) = restart
@@ -5278,6 +5314,19 @@ async fn run_stage8b_p1e_production_owner_v1(
         drop(restart);
         return Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop);
     }
+    let source_context = observed_config
+        .as_ref()
+        .map(|config| {
+            crate::stage8b_p1e_first_boot_source::observed::restore_fixed_observed_context(
+                &restart,
+                config,
+                &source_bundle_sha256,
+                &commitment_key,
+                trusted_now,
+            )
+        })
+        .transpose()
+        .map_err(|_| Stage8bP1eProcessErrorV1::DurableRestart)?;
     let attachable = match stage8b_p1e_route_pre_redis_restart_v1(restart) {
         Stage8bP1ePreRedisRestartV1::Attachable(attachable) => attachable,
         Stage8bP1ePreRedisRestartV1::Blocked(_) => {
@@ -5296,15 +5345,17 @@ async fn run_stage8b_p1e_production_owner_v1(
         drop(attachable);
         return Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop);
     }
-    let mut session = match await_stage8b_p1e_startup_operation_v1(
-        "inflight-redis-attach",
-        attach_stage8b_p1e_verified_redis_with_audit(&attach_plan, p1f_audit.clone()),
+    let mut session = match attach_stage8b_p1e_startup_sources_v1(
+        &attach_plan,
+        p1f_audit.clone(),
+        source_context,
+        window,
         &latch,
     )
-    .await
+    .await?
     {
-        Stage8bP1eStartupAwaitV1::Completed(result) => result.map_err(map_redis_attach_error)?,
-        Stage8bP1eStartupAwaitV1::ShutdownRequested => {
+        Some(session) => session,
+        None => {
             drop(attachable);
             return Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop);
         }
@@ -5497,6 +5548,57 @@ async fn run_stage8b_p1e_production_owner_v1(
         .await
     };
     settle_stage8b_p1e_production_telemetry_v1(owner_result, telemetry_succeeded, latch.as_ref())
+}
+
+/// Shared pre-S06 startup boundary. `None` means a latched stop, never Ready.
+/// Both Redis verification and exact window admission are interruptible. This
+/// function cannot claim a source, call the strategy, persist a seal or XACK.
+pub(crate) async fn attach_stage8b_p1e_startup_sources_v1(
+    plan: &crate::Stage8bP1eRedisAttachPlanV1,
+    audit: Stage8bP1fRedisCommandAuditHandleV1,
+    context: Option<crate::stage8b_p1_semantic::observed::Stage8bP1ObservedRecoveryContext>,
+    window: Option<crate::Stage8bP1ObservedPublishedWindow>,
+    latch: &Stage8bP1eShutdownLatchV1,
+) -> Result<Option<crate::Stage8bP1eVerifiedRedisSessionV1>, Stage8bP1eProcessErrorV1> {
+    if latch.intent().is_some() {
+        return Ok(None);
+    }
+    if let Some(window) = &window {
+        // Refuse a missing/foreign initial authority before opening Redis.
+        context
+            .as_ref()
+            .ok_or(Stage8bP1eProcessErrorV1::Config)?
+            .validate_fresh_window(window)
+            .map_err(|_| Stage8bP1eProcessErrorV1::RedisAttach)?;
+    }
+    let mut session = match await_stage8b_p1e_startup_operation_v1(
+        "inflight-redis-attach",
+        attach_stage8b_p1e_verified_redis_with_source_context(plan, audit, context),
+        latch,
+    )
+    .await
+    {
+        Stage8bP1eStartupAwaitV1::Completed(result) => result.map_err(map_redis_attach_error)?,
+        Stage8bP1eStartupAwaitV1::ShutdownRequested => return Ok(None),
+    };
+    if latch.intent().is_some() {
+        return Ok(None);
+    }
+    if let Some(window) = window {
+        match await_stage8b_p1e_startup_operation_v1(
+            "inflight-observed-window",
+            session.admit_observed_published_window(window),
+            latch,
+        )
+        .await
+        {
+            Stage8bP1eStartupAwaitV1::Completed(result) => {
+                result.map_err(|_| Stage8bP1eProcessErrorV1::RedisAttach)?;
+            }
+            Stage8bP1eStartupAwaitV1::ShutdownRequested => return Ok(None),
+        }
+    }
+    Ok(latch.intent().is_none().then_some(session))
 }
 
 fn emit_stage8b_p1f_audit_snapshot_v1(audit: &Stage8bP1fRedisCommandAuditHandleV1) {
@@ -6124,6 +6226,68 @@ fn stage8b_p1f_ie_bootstrap(
 pub async fn stage8b_p1f_ie_run_linked_composition_v1(
     input: Stage8bP1fIeCompositionInputV1,
 ) -> Result<Stage8bP1fIeCompositionEvidenceV1, String> {
+    stage8b_p1f_ie_run_linked_composition(input, None).await
+}
+
+/// Same isolated witness with two independently admitted sparse receipts.
+/// This is feature-gated test composition, not an operational input override.
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+pub async fn stage8b_p1f_ie_run_observed_composition_v4(
+    input: Stage8bP1fIeCompositionInputV1,
+    sources: crate::Stage8bP1ObservedPublishedWindow,
+) -> Result<Stage8bP1fIeCompositionEvidenceV1, String> {
+    stage8b_p1f_ie_run_linked_composition(input, Some(sources)).await
+}
+
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+async fn stage8b_p1f_ie_attach_sources(
+    input: &Stage8bP1fIeCompositionInputV1,
+    supervisor_bytes: &[u8],
+    source_bytes: &[u8],
+    key: &Stage5gLifecycleCommitmentKey,
+    restart: &Stage7bRestartOutcome,
+    sources: &Option<crate::Stage8bP1ObservedPublishedWindow>,
+    now: DateTime<Utc>,
+) -> Result<crate::Stage8bP1RedisSemanticCompositionTransport, String> {
+    if let Some(window) = sources {
+        let bootstrap = stage8b_p1f_ie_bootstrap(supervisor_bytes)?;
+        let initial = restart
+            .restore_stage8b_p1_observed_source_binding(
+                &bootstrap,
+                source_bytes,
+                &input.expected_source_sha256,
+                key,
+                now,
+            )
+            .map_err(|e| format!("restore initial binding before S05: {e}"))?;
+        let context = crate::stage8b_p1_semantic::observed::Stage8bP1ObservedRecoveryContext::new(
+            initial, &bootstrap,
+        )
+        .map_err(|e| format!("bind initial recovery context: {e}"))?;
+        let config = crate::parse_stage8b_p1e_supervisor_config_v1(supervisor_bytes)
+            .map_err(|e| format!("parse S05 config: {e}"))?;
+        let session = crate::stage8b_p1_supervisor::stage8b_p1e_test_observed_window_session(
+            config,
+            &input.redis_url,
+            context,
+            window.clone(),
+        )
+        .await?;
+        Ok(session.into_parts().0)
+    } else {
+        let mut config = crate::Stage8bP1RedisConfig::paper_default_auto();
+        config.claim_idle_ms = 1;
+        crate::attach_stage8b_p1_redis(&input.redis_url, config)
+            .await
+            .map_err(|e| format!("attach linked source context: {e}"))
+    }
+}
+
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+async fn stage8b_p1f_ie_run_linked_composition(
+    input: Stage8bP1fIeCompositionInputV1,
+    sources: Option<crate::Stage8bP1ObservedPublishedWindow>,
+) -> Result<Stage8bP1fIeCompositionEvidenceV1, String> {
     let supervisor_bytes = fs::read(&input.supervisor_path)
         .map_err(|error| format!("read materialized supervisor: {error}"))?;
     let source_bytes = fs::read(&input.source_path)
@@ -6134,6 +6298,13 @@ pub async fn stage8b_p1f_ie_run_linked_composition_v1(
         || source_sha256 != input.expected_source_sha256
     {
         return Err("materialized O2 bytes do not match parent evidence".into());
+    }
+    let raw = crate::parse_stage8b_p1e_supervisor_config_v1(&supervisor_bytes)
+        .map_err(|error| format!("parse linked config: {error}"))?;
+    let profile = crate::validate_stage8b_p1e_supervisor_config_v1(raw, [0x1e; 16])
+        .map_err(|error| format!("validate linked config: {error}"))?;
+    if profile.bootstrap().observed_source_policy() != sources.is_some() {
+        return Err("linked source policy/context mismatch".into());
     }
 
     let trusted_first_boot = DateTime::<Utc>::from_timestamp_millis(
@@ -6174,9 +6345,10 @@ pub async fn stage8b_p1f_ie_run_linked_composition_v1(
         .map_err(|error| format!("first boot transaction: {error}"))?;
     drop(adopted);
 
-    let (fresh_runtime, runtime_config_fingerprint_sha256) =
-        crate::Stage8bP1RuntimeProfileV1::build_hybrid_runtime()
-            .map_err(|error| format!("build runtime profile: {error}"))?;
+    let (fresh_runtime, runtime_config_fingerprint_sha256) = profile
+        .runtime_profile_kind()
+        .build_hybrid_runtime()
+        .map_err(|error| format!("build runtime profile: {error}"))?;
     if runtime_config_fingerprint_sha256 != input.expected_runtime_config_fingerprint_sha256 {
         return Err("runtime fingerprint drifted from O2 materialization".into());
     }
@@ -6186,13 +6358,27 @@ pub async fn stage8b_p1f_ie_run_linked_composition_v1(
         fresh_runtime.clone(),
     )
     .map_err(|error| format!("first ordinary admission: {error}"))?;
+    let transport = stage8b_p1f_ie_attach_sources(
+        &input,
+        &supervisor_bytes,
+        &source_bytes,
+        &commitment_key,
+        &first_admission,
+        &sources,
+        trusted_first_boot,
+    )
+    .await?;
     let Stage7bRestartOutcome::Ready(owner) = first_admission else {
         return Err("fresh O2 root did not admit as Ready".into());
     };
     let expected_decision_close = owner
         .stage8b_p1e_test_continuation_checkpoint_ts_utc_ms()
         .ok_or("fresh O2 owner has no continuation checkpoint")?
-        .checked_add(11_400_000)
+        .checked_add(if sources.is_some() {
+            600_000
+        } else {
+            11_400_000
+        })
         .ok_or("linked decision timestamp overflow")?;
     if input.decision_redis_id != format!("{expected_decision_close}-0") {
         return Err(format!(
@@ -6201,11 +6387,6 @@ pub async fn stage8b_p1f_ie_run_linked_composition_v1(
         ));
     }
 
-    let mut reclaim = crate::Stage8bP1RedisConfig::paper_default_auto();
-    reclaim.claim_idle_ms = 1;
-    let transport = crate::attach_stage8b_p1_redis(&input.redis_url, reclaim)
-        .await
-        .map_err(|error| format!("attach producer Redis: {error}"))?;
     let outcome = Stage8bP1RedisSemanticCompositionOwner::new(*owner, transport)
         .process_next(&commitment_key)
         .await
@@ -6287,17 +6468,22 @@ pub async fn stage8b_p1f_ie_run_linked_composition_v1(
         key_valid_until,
     )
     .map_err(|error| format!("V4 readmission: {error}"))?;
+    let transport = stage8b_p1f_ie_attach_sources(
+        &input,
+        &supervisor_bytes,
+        &source_bytes,
+        &commitment_key,
+        &restart,
+        &sources,
+        trusted_schedule,
+    )
+    .await?;
     let Stage7bRestartOutcome::P1eScheduleBindingCommitted(committed) = restart else {
         return Err("linked V4 was not retained for exact continuation".into());
     };
     if committed.receipt() != &v4_receipt {
         return Err("linked V4 receipt changed across restart".into());
     }
-    let mut restart_reclaim = crate::Stage8bP1RedisConfig::paper_default_auto();
-    restart_reclaim.claim_idle_ms = 1;
-    let transport = crate::attach_stage8b_p1_redis(&input.redis_url, restart_reclaim)
-        .await
-        .map_err(|error| format!("reattach linked Redis: {error}"))?;
     let crate::Stage8bP1eRecoveredMarketScheduleOutcomeV1::FeedbackAckCommitted {
         owner: ack, ..
     } = crate::resume_stage8b_p1e_committed_market_with_redis(
@@ -6344,15 +6530,44 @@ pub async fn stage8b_p1f_ie_run_linked_composition_v1(
         key_valid_until,
     )
     .map_err(|error| format!("truth readmission: {error}"))?;
+    // The rolling pair was fresh admission authority, not restart authority.
+    // Discard it. At S_truth recover the original source from the authenticated
+    // seal, then use the exact sealed M10 triplet to resolve the old receipt.
+    // This exercises production disk recovery rather than cloning test context
+    // across every restart. It grants no fresh-source discovery from Redis.
+    let transport = if sources.is_some() {
+        drop(sources);
+        let bootstrap = stage8b_p1f_ie_bootstrap(&supervisor_bytes)?;
+        let initial = readmission
+            .restore_stage8b_p1_observed_source_binding(
+                &bootstrap,
+                &source_bytes,
+                &source_sha256,
+                &commitment_key,
+                trusted_schedule,
+            )
+            .map_err(|error| format!("restore sealed initial source: {error}"))?;
+        let context = crate::stage8b_p1_semantic::observed::Stage8bP1ObservedRecoveryContext::new(
+            initial, &bootstrap,
+        )
+        .map_err(|error| format!("restore sealed source context: {error}"))?;
+        crate::stage8b_p1_semantic::attach_stage8b_p1_observed_recovery_redis(
+            &input.redis_url,
+            crate::Stage8bP1RedisConfig::paper_default_auto(),
+            context,
+        )
+        .await
+    } else {
+        crate::attach_stage8b_p1_redis(
+            &input.redis_url,
+            crate::Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+    }
+    .map_err(|error| format!("attach readmission Redis: {error}"))?;
     let Stage7bRestartOutcome::P1d2TruthCommitted(truth) = readmission else {
         return Err("truth readmission did not retain the exact P1-d2 frontier".into());
     };
-    let transport = crate::attach_stage8b_p1_redis(
-        &input.redis_url,
-        crate::Stage8bP1RedisConfig::paper_default_auto(),
-    )
-    .await
-    .map_err(|error| format!("attach readmission Redis: {error}"))?;
     let acquired = acquire_stage8b_p1d2_truth_with_redis(*truth, transport)
         .await
         .map_err(|error| format!("acquire retained truth: {error}"))?;
@@ -9599,6 +9814,7 @@ mod tests {
         runtime_config_fingerprint_sha256: String,
     ) -> crate::Stage8bP1BootstrapConfig {
         crate::Stage8bP1BootstrapConfig {
+            market_data_policy_sha256: None,
             schema_version: crate::STAGE8B_P1_BOOTSTRAP_CONFIG_SCHEMA_VERSION,
             broker_id: crate::STAGE8B_P1_BROKER_ID.to_string(),
             strategy_id: crate::STAGE8B_P1_STRATEGY_ID.to_string(),
@@ -9748,6 +9964,7 @@ mod tests {
     ) -> strategy_runtime_core::Stage6dOperationalIdentityConfig {
         let config = bootstrap_config(parent, runtime_config_fingerprint_sha256);
         strategy_runtime_core::Stage6dOperationalIdentityConfig {
+            market_data_policy_sha256: config.market_data_policy_sha256,
             broker_id: config.broker_id,
             strategy_instance_id: config.strategy_id,
             deployment_id: config.deployment_id,

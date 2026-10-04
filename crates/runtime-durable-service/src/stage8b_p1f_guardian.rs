@@ -1755,11 +1755,10 @@ impl Stage8bP1fAuthorityStoreV1 {
         let validated = crate::validate_stage8b_p1e_supervisor_config_v1(parsed, [0u8; 16])
             .map_err(|_| Stage8bP1fAuthorityErrorV1::InvalidDocument)?;
         let validated_source =
-            crate::stage8b_p1e_first_boot_source::parse_stage8b_p1e_first_boot_source_v1(
+            crate::stage8b_p1e_first_boot_source::parse_fresh_bootstrap_bound_source(
                 source_bytes,
                 &source_sha256,
-                validated.bootstrap().operational_identity_sha256(),
-                validated.bootstrap().account_id().as_str(),
+                validated.bootstrap(),
                 trusted_now,
             )
             .map_err(|_| Stage8bP1fAuthorityErrorV1::InvalidDocument)?;
@@ -4051,6 +4050,7 @@ impl Stage8bP1fIeLinkedFixtureV1 {
             crate::Stage8bP1RuntimeProfileV1::build_hybrid_runtime()
                 .map_err(|_| Stage8bP1fAuthorityErrorV1::InvalidDocument)?;
         let bootstrap = crate::Stage8bP1BootstrapConfig {
+            market_data_policy_sha256: None,
             schema_version: 1,
             broker_id: crate::STAGE8B_P1_BROKER_ID.into(),
             strategy_id: crate::STAGE8B_P1_STRATEGY_ID.into(),
@@ -5516,17 +5516,22 @@ mod tests {
 
     #[test]
     fn o2_materialization_finalizes_only_source_hash_and_replays_exactly() {
-        o2_materialization_case(None);
+        o2_materialization_case(None, false);
+    }
+
+    #[test]
+    fn observed_o2_materialization_selects_v4_and_recovers_the_same_transaction() {
+        o2_materialization_case(None, true);
     }
 
     #[test]
     fn o2_cleanup_ready_stopping_pending_stopping_and_foreign_receipt() {
         for frontier in 0..4 {
-            o2_materialization_case(Some(frontier));
+            o2_materialization_case(Some(frontier), false);
         }
     }
 
-    fn o2_materialization_case(cleanup_frontier: Option<u8>) {
+    fn o2_materialization_case(cleanup_frontier: Option<u8>, observed: bool) {
         let mut setup = Setup::new();
         let config_root = setup.root.with_extension("config");
         let bootstrap_dir = config_root.join("bootstrap");
@@ -5543,10 +5548,16 @@ mod tests {
         fs::set_permissions(&config_root, fs::Permissions::from_mode(0o750)).unwrap();
         fs::set_permissions(&bootstrap_dir, fs::Permissions::from_mode(0o750)).unwrap();
         let durable_parent = fs::canonicalize(&durable_parent).unwrap();
-        let (_, runtime_fingerprint) =
-            crate::Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
+        let profile = if observed {
+            crate::Stage8bP1RuntimeProfileKind::V2
+        } else {
+            crate::Stage8bP1RuntimeProfileKind::V1
+        };
+        let (_, runtime_fingerprint) = profile.build_hybrid_runtime().unwrap();
         let bootstrap = crate::Stage8bP1BootstrapConfig {
-            schema_version: 1,
+            market_data_policy_sha256: observed
+                .then(|| crate::STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V4_SHA256.into()),
+            schema_version: if observed { 2 } else { 1 },
             broker_id: crate::STAGE8B_P1_BROKER_ID.into(),
             strategy_id: crate::STAGE8B_P1_STRATEGY_ID.into(),
             account_id: "ACC_TEST_0001".into(),
@@ -5570,21 +5581,28 @@ mod tests {
         let operational = validated_bootstrap
             .operational_identity_sha256()
             .to_string();
-        let (source, trusted_now, _, _) =
-            crate::stage8b_p1e_first_boot_source::tests::fixture_for_binding(
-                &operational,
-                "ACC_TEST_0001",
-            );
+        let (source, trusted_now) = if observed {
+            let (value, now) =
+                crate::stage8b_p1e_first_boot_source::observed::tests::fixture(&operational);
+            (serde_json::to_vec(&value).unwrap(), now)
+        } else {
+            let (bytes, now, _, _) =
+                crate::stage8b_p1e_first_boot_source::tests::fixture_for_binding(
+                    &operational,
+                    "ACC_TEST_0001",
+                );
+            (bytes, now)
+        };
         setup.now = trusted_now;
         let source_value: Value = serde_json::from_slice(&source).unwrap();
         let checked_at = source_value["broker_truth"]["checked_at_utc"]
             .as_str()
             .unwrap()
             .to_string();
-        let template = canonical_json(&serde_json::json!({
+        let mut template = serde_json::json!({
             "schema_version": 1,
-            "runtime_profile_id": crate::STAGE8B_P1E_RUNTIME_PROFILE_ID,
-            "runtime_profile_sha256": crate::STAGE8B_P1E_RUNTIME_PROFILE_SHA256,
+            "runtime_profile_id": profile.profile_id(),
+            "runtime_profile_sha256": profile.profile_sha256(),
             "first_boot_source_bundle_sha256": STAGE8B_P1F_SOURCE_SHA256_TEMPLATE_SENTINEL,
             "schedule_registry_version": "imoexf-v1",
             "schedule_registry_identity_sha256": "6".repeat(64),
@@ -5615,7 +5633,13 @@ mod tests {
                 "stage8a4_writer_issuer_public_key_hex": "8".repeat(64),
                 "durable_parent": durable_parent
             }
-        })).unwrap();
+        });
+        if observed {
+            template["bootstrap"]["schema_version"] = serde_json::json!(2);
+            template["bootstrap"]["market_data_policy_sha256"] =
+                serde_json::json!(crate::STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V4_SHA256);
+        }
+        let template = canonical_json(&template).unwrap();
         let policy = canonical_json(&serde_json::json!({
             "mode": "read-only-finam-get",
             "redis_attached": false,
@@ -5641,6 +5665,48 @@ mod tests {
             .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
             .unwrap();
         let manifest_sha256 = sha256_hex(&phase);
+        if observed {
+            // A self-consistent V4 source cannot cross a legacy template, and
+            // a changed identity/receipt cannot be installed under this phase.
+            let before = setup.store.inspect().unwrap();
+            for field in ["operational_identity_sha256", "observed_source"] {
+                let mut wrong: Value = serde_json::from_slice(&source).unwrap();
+                wrong[field] = serde_json::json!("invalid");
+                assert!(setup
+                    .store
+                    .materialize_o2_at(
+                        &config_root,
+                        &manifest_sha256,
+                        &policy,
+                        &template,
+                        &serde_json::to_vec(&wrong).unwrap(),
+                        &checked_at,
+                        trusted_now
+                    )
+                    .is_err());
+            }
+            let mut legacy: Value = serde_json::from_slice(&template).unwrap();
+            legacy["bootstrap"]["schema_version"] = serde_json::json!(1);
+            legacy["bootstrap"]
+                .as_object_mut()
+                .unwrap()
+                .remove("market_data_policy_sha256");
+            assert!(setup
+                .store
+                .materialize_o2_at(
+                    &config_root,
+                    &manifest_sha256,
+                    &policy,
+                    &canonical_json(&legacy).unwrap(),
+                    &source,
+                    &checked_at,
+                    trusted_now
+                )
+                .is_err());
+            assert_eq!(setup.store.inspect().unwrap(), before);
+            assert!(!config_root.join("supervisor.json").exists());
+            assert_eq!(fs::read_dir(&bootstrap_dir).unwrap().count(), 0);
+        }
         P1F_TEST_FAULT_POINT.store(4, AtomicOrdering::SeqCst);
         assert_eq!(
             setup

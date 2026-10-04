@@ -1,0 +1,37 @@
+{
+  "automatic_retries": 0,
+  "body_received_at_utc": "2026-10-02T05:09:49.731717+00:00",
+  "bytes": 7978,
+  "end_time": "2026-09-28T20:00:00Z",
+  "headers_received_at_utc": "2026-10-02T05:09:49.731638+00:00",
+  "host": "api.finam.ru",
+  "http_status": 200,
+  "label": "short",
+  "method": "GET",
+  "path": "/v1/instruments/IMOEXF@RTSX/bars",
+  "query": [
+    [
+      "timeframe",
+      "TIME_FRAME_M1"
+    ],
+    [
+      "interval.start_time",
+      "2026-09-28T19:30:00Z"
+    ],
+    [
+      "interval.end_time",
+      "2026-09-28T20:00:00Z"
+    ]
+  ],
+  "raw_bar_count": 28,
+  "redirects_followed": 0,
+  "request_sha256": "3e9130d1e15a79c7b3fe09633b006c6a63cba6f44204cd09edb50a182e9e615c",
+  "request_started_at_utc": "2026-10-02T05:09:49.668945+00:00",
+  "response_sha256": "d2e7d6b57a47ab921e42904a967a80aa86854e359c35b32aaa095831298b2ea9",
+  "response_symbol": "IMOEXF@RTSX",
+  "start_time": "2026-09-28T19:30:00Z",
+  "symbol": "IMOEXF@RTSX",
+  "timeframe": "TIME_FRAME_M1",
+  "timeout_seconds": 30,
+  "url": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars?timeframe=TIME_FRAME_M1&interval.start_time=2026-09-28T19%3A30%3A00Z&interval.end_time=2026-09-28T20%3A00%3A00Z"
+}

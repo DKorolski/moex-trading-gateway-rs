@@ -146,6 +146,7 @@ pub struct Stage8bP1eValidatedSupervisorConfigV1 {
 /// bootstrap authority and runtime have moved into authenticated restart.
 /// It has no namespace initialization or repair capability.
 pub struct Stage8bP1eRedisAttachPlanV1 {
+    observed_source_policy: bool,
     redis_url: String,
     redis_deployment_manifest_sha256: String,
     redis_config: Stage8bP1RedisConfig,
@@ -247,6 +248,7 @@ impl Stage8bP1eValidatedSupervisorConfigV1 {
         Stage8bP1eRunSettingsV1,
     ) {
         let attach_plan = Stage8bP1eRedisAttachPlanV1 {
+            observed_source_policy: self.bootstrap.observed_source_policy(),
             redis_url: self.redis_url,
             redis_deployment_manifest_sha256: self.redis_deployment_manifest_sha256,
             redis_config: self.redis_config,
@@ -357,6 +359,16 @@ pub struct Stage8bP1eVerifiedRedisSessionV1 {
 }
 
 impl Stage8bP1eVerifiedRedisSessionV1 {
+    /// Explicit bounded handoff from an independently admitted fixed producer.
+    /// Available only before S06 consumes this session. No latest-file lookup,
+    /// source polling, claims, callbacks, persistence or Redis writes occur here.
+    pub async fn admit_observed_published_window(
+        &mut self,
+        input: crate::Stage8bP1ObservedPublishedWindow,
+    ) -> Result<(), crate::Stage8bP1RedisSemanticError> {
+        self.transport.admit_observed_published_window(input).await
+    }
+
     pub fn redis_audit(&self) -> Stage8bP1fRedisCommandAuditHandleV1 {
         self.control.audit.clone()
     }
@@ -642,7 +654,16 @@ pub(crate) async fn attach_stage8b_p1e_verified_redis_with_audit(
     plan: &Stage8bP1eRedisAttachPlanV1,
     audit: Stage8bP1fRedisCommandAuditHandleV1,
 ) -> Result<Stage8bP1eVerifiedRedisSessionV1, Stage8bP1eRedisControlError> {
-    let result = attach_stage8b_p1e_verified_redis_with_audit_inner(plan, audit.clone()).await;
+    attach_stage8b_p1e_verified_redis_with_source_context(plan, audit, None).await
+}
+
+pub(crate) async fn attach_stage8b_p1e_verified_redis_with_source_context(
+    plan: &Stage8bP1eRedisAttachPlanV1,
+    audit: Stage8bP1fRedisCommandAuditHandleV1,
+    context: Option<crate::stage8b_p1_semantic::observed::Stage8bP1ObservedRecoveryContext>,
+) -> Result<Stage8bP1eVerifiedRedisSessionV1, Stage8bP1eRedisControlError> {
+    let result =
+        attach_stage8b_p1e_verified_redis_with_audit_inner(plan, audit.clone(), context).await;
     audit
         .record(
             Stage8bP1fRedisRoleV1::Supervisor,
@@ -662,7 +683,15 @@ pub(crate) async fn attach_stage8b_p1e_verified_redis_with_audit(
 async fn attach_stage8b_p1e_verified_redis_with_audit_inner(
     plan: &Stage8bP1eRedisAttachPlanV1,
     audit: Stage8bP1fRedisCommandAuditHandleV1,
+    context: Option<crate::stage8b_p1_semantic::observed::Stage8bP1ObservedRecoveryContext>,
 ) -> Result<Stage8bP1eVerifiedRedisSessionV1, Stage8bP1eRedisControlError> {
+    if plan.observed_source_policy != context.is_some()
+        || context.as_ref().is_some_and(|context| {
+            context.operational_identity_sha256() != plan.operational_identity_sha256
+        })
+    {
+        return Err(Stage8bP1eRedisControlError::ManifestMismatch);
+    }
     let client = redis::Client::open(plan.redis_url.as_str())
         .map_err(|_| Stage8bP1eRedisControlError::Redis)?;
     let mut connection = redis_operation(ConnectionManager::new(client)).await?;
@@ -721,7 +750,19 @@ async fn attach_stage8b_p1e_verified_redis_with_audit_inner(
 
     let mut transport = tokio::time::timeout(
         StdDuration::from_millis(STAGE8B_P1E_REDIS_OPERATION_TIMEOUT_MS),
-        attach_stage8b_p1_redis(&plan.redis_url, plan.redis_config.clone()),
+        async {
+            match context {
+                Some(context) => {
+                    crate::stage8b_p1_semantic::attach_stage8b_p1_observed_recovery_redis(
+                        &plan.redis_url,
+                        plan.redis_config.clone(),
+                        context,
+                    )
+                    .await
+                }
+                None => attach_stage8b_p1_redis(&plan.redis_url, plan.redis_config.clone()).await,
+            }
+        },
     )
     .await
     .map_err(|_| Stage8bP1eRedisControlError::OperationTimeout)?
@@ -799,7 +840,7 @@ fn manifest_key(name: &str, groups: &[&str]) -> Stage8bP1eRedisManifestKeyV1 {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
 fn stage8b_p1e_test_manifest_for_plan_v1(
     plan: &Stage8bP1eRedisAttachPlanV1,
 ) -> Stage8bP1eRedisDeploymentManifestV1 {
@@ -848,13 +889,14 @@ fn stage8b_p1e_test_manifest_for_plan_v1(
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
 fn stage8b_p1e_test_attach_plan_v1(
     validated: &Stage8bP1eValidatedSupervisorConfigV1,
     redis_url: &str,
     redis_deployment_manifest_sha256: &str,
 ) -> Stage8bP1eRedisAttachPlanV1 {
     Stage8bP1eRedisAttachPlanV1 {
+        observed_source_policy: validated.bootstrap.observed_source_policy(),
         redis_url: redis_url.to_string(),
         redis_deployment_manifest_sha256: redis_deployment_manifest_sha256.to_string(),
         redis_config: validated.redis_config.clone(),
@@ -872,8 +914,8 @@ fn stage8b_p1e_test_attach_plan_v1(
 /// Test-only provisioning for a production-composition process witness. The
 /// returned hash is consumed by a separately spawned child; the child itself
 /// receives only the normal verify-only validated supervisor capability.
-#[cfg(test)]
-pub(crate) async fn stage8b_p1e_test_provision_production_redis_v1(
+#[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
+pub async fn stage8b_p1e_test_provision_production_redis_v1(
     mut config: Stage8bP1eSupervisorConfigV1,
     boot_id: [u8; 16],
     redis_url: &str,
@@ -940,6 +982,32 @@ pub(crate) fn stage8b_p1e_test_validated_production_supervisor_v1(
         validate_stage8b_p1e_supervisor_config_v1(config, boot_id).expect("test supervisor config");
     validated.redis_url = redis_url.to_string();
     validated
+}
+
+/// Isolated cross-crate witness: only the test Redis address/claim idle differ.
+/// The production manifest, group, policy and source-context checks still run.
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+pub(crate) async fn stage8b_p1e_test_observed_window_session(
+    config: Stage8bP1eSupervisorConfigV1,
+    redis_url: &str,
+    context: crate::stage8b_p1_semantic::observed::Stage8bP1ObservedRecoveryContext,
+    window: crate::Stage8bP1ObservedPublishedWindow,
+) -> Result<Stage8bP1eVerifiedRedisSessionV1, String> {
+    let hash = config.redis_deployment_manifest_sha256.clone();
+    let validated = validate_stage8b_p1e_supervisor_config_v1(config, [0x1e; 16])
+        .map_err(|e| format!("validate observed window config: {e}"))?;
+    let mut plan = stage8b_p1e_test_attach_plan_v1(&validated, redis_url, &hash);
+    plan.redis_config.claim_idle_ms = 1;
+    crate::stage8b_p1e_process::attach_stage8b_p1e_startup_sources_v1(
+        &plan,
+        Default::default(),
+        Some(context),
+        Some(window),
+        &crate::Stage8bP1eShutdownLatchV1::default(),
+    )
+    .await
+    .map_err(|e| format!("shared observed startup: {e}"))?
+    .ok_or_else(|| "unexpected observed startup shutdown".to_string())
 }
 
 async fn redis_operation<T, F>(operation: F) -> Result<T, Stage8bP1eRedisControlError>
@@ -2252,6 +2320,7 @@ fn is_sha256_hex(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    mod observed_window;
     use std::{
         fs,
         net::TcpListener,
@@ -2385,6 +2454,7 @@ mod tests {
             health_interval_ms: 5_000,
             shutdown_grace_ms: 30_000,
             bootstrap: Stage8bP1BootstrapConfig {
+                market_data_policy_sha256: None,
                 schema_version: 1,
                 broker_id: STAGE8B_P1_BROKER_ID.to_string(),
                 strategy_id: STAGE8B_P1_STRATEGY_ID.to_string(),
@@ -2413,6 +2483,162 @@ mod tests {
         fs::create_dir(&path).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
         path.canonicalize().unwrap()
+    }
+
+    #[tokio::test]
+    async fn observed_supervisor_verify_only_attach_requires_exact_context_and_manifest() {
+        use crate::stage8b_p1_semantic::observed::Stage8bP1ObservedRecoveryContext;
+        use crate::stage8b_p1e_first_boot_source::observed::tests::fixture;
+        use broker_core::observed_m1::ObservedM1Receipt;
+
+        let redis = RedisServer::start().await;
+        let parent = durable_parent();
+        let config = || {
+            let mut config = supervisor_config(parent.clone());
+            let profile = Stage8bP1RuntimeProfileKind::V2;
+            config.runtime_profile_id = profile.profile_id().into();
+            config.runtime_profile_sha256 = profile.profile_sha256().into();
+            config.bootstrap.runtime_config_fingerprint_sha256 =
+                profile.build_hybrid_runtime().unwrap().1;
+            config.bootstrap.schema_version = 2;
+            config.bootstrap.market_data_policy_sha256 =
+                Some(strategy_runtime_core::STAGE8B_P1_OBSERVED_SOURCE_POLICY_SHA256.into());
+            config
+        };
+        let hash =
+            stage8b_p1e_test_provision_production_redis_v1(config(), [0x19; 16], &redis.url).await;
+        let validated = stage8b_p1e_test_validated_production_supervisor_v1(
+            config(),
+            [0x19; 16],
+            &redis.url,
+            &hash,
+        );
+        let (bootstrap, _, mut plan, _) = validated.into_run_parts();
+        assert!(plan.observed_source_policy);
+        let op = bootstrap.operational_identity_sha256();
+        let (value, now) = fixture(op);
+        let bytes = serde_json::to_vec(&value).unwrap();
+        let source = crate::validate_stage8b_p1e_observed_first_boot_source_v4(
+            &bytes,
+            &sha256_hex(&bytes),
+            op,
+            "ACC_TEST_0001",
+            now,
+        )
+        .unwrap();
+        let receipt = source.observed_receipt().unwrap();
+        let binding = crate::Stage8bP1ObservedM10Binding::new(
+            op,
+            ObservedM1Receipt::restore(receipt.retained_bytes(), receipt.sha256()).unwrap(),
+            receipt.sha256(),
+        )
+        .unwrap();
+        let context =
+            || Stage8bP1ObservedRecoveryContext::new(binding.clone(), &bootstrap).unwrap();
+
+        // Fail before network access: even an invalid URL must not supersede
+        // the policy/identity refusal with a connection or parsing error.
+        let actual_url = plan.redis_url.clone();
+        plan.redis_url = "not-a-redis-url".into();
+        assert!(matches!(
+            attach_stage8b_p1e_verified_redis(&plan).await,
+            Err(Stage8bP1eRedisControlError::ManifestMismatch)
+        ));
+        plan.observed_source_policy = false;
+        assert!(matches!(
+            attach_stage8b_p1e_verified_redis_with_source_context(
+                &plan,
+                Default::default(),
+                Some(context())
+            )
+            .await,
+            Err(Stage8bP1eRedisControlError::ManifestMismatch)
+        ));
+        plan.observed_source_policy = true;
+        plan.operational_identity_sha256 = "ee".repeat(32);
+        assert!(matches!(
+            attach_stage8b_p1e_verified_redis_with_source_context(
+                &plan,
+                Default::default(),
+                Some(context())
+            )
+            .await,
+            Err(Stage8bP1eRedisControlError::ManifestMismatch)
+        ));
+        plan.operational_identity_sha256 = op.into();
+        plan.redis_url = actual_url;
+
+        let mut connection = redis.connection().await;
+        let before: u64 = redis::cmd("DBSIZE")
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let original: Vec<u8> = redis::cmd("GET")
+            .arg(STAGE8B_P1E_DEPLOYMENT_MANIFEST_KEY)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let session = attach_stage8b_p1e_verified_redis_with_source_context(
+            &plan,
+            Default::default(),
+            Some(context()),
+        )
+        .await
+        .unwrap();
+        drop(session);
+        assert_eq!(
+            redis::cmd("DBSIZE")
+                .query_async::<u64>(&mut connection)
+                .await
+                .unwrap(),
+            before
+        );
+        assert_eq!(
+            redis::cmd("GET")
+                .arg(STAGE8B_P1E_DEPLOYMENT_MANIFEST_KEY)
+                .query_async::<Vec<u8>>(&mut connection)
+                .await
+                .unwrap(),
+            original
+        );
+
+        // Supplying a valid receipt must not bypass the old manifest or exact
+        // group checks. The verifier must not recreate the missing group.
+        plan.redis_deployment_manifest_sha256 = "ff".repeat(32);
+        assert!(matches!(
+            attach_stage8b_p1e_verified_redis_with_source_context(
+                &plan,
+                Default::default(),
+                Some(context())
+            )
+            .await,
+            Err(Stage8bP1eRedisControlError::ManifestMismatch)
+        ));
+        plan.redis_deployment_manifest_sha256 = hash;
+        let _: i64 = redis::cmd("XGROUP")
+            .arg("DESTROY")
+            .arg(&plan.namespace.canonical_m10_stream)
+            .arg(&plan.namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert!(matches!(
+            attach_stage8b_p1e_verified_redis_with_source_context(
+                &plan,
+                Default::default(),
+                Some(context())
+            )
+            .await,
+            Err(Stage8bP1eRedisControlError::GroupMismatch)
+        ));
+        let groups: StreamInfoGroupsReply = redis::cmd("XINFO")
+            .arg("GROUPS")
+            .arg(&plan.namespace.canonical_m10_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert!(groups.groups.is_empty());
+        fs::remove_dir(parent).unwrap();
     }
 
     #[test]

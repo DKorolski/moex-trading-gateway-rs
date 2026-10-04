@@ -424,10 +424,11 @@ pub use stage6d_live_core::{
     Stage6ePaperFreshBrokerTruthInput, Stage7aPaperAdmission, Stage7aPaperAdmissionDecision,
     Stage7aPaperCommandContext, Stage7aPaperHoldReason, Stage7aPaperPolicyRejection,
     Stage7bFinalizedRequestFacts, Stage8a4CompletedTransitionFacts,
-    Stage8bP1eAuthenticatedRestartPackageV2Audit, Stage8bP1eFirstBootProvenanceV1,
-    STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION, STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION_V2,
+    Stage8bP1JournalAheadSourceCheck, Stage8bP1eAuthenticatedRestartPackageV2Audit,
+    Stage8bP1eFirstBootProvenanceV1, STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION,
+    STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION_V2,
     STAGE6D_INTEGRATION_FINGERPRINT_SCHEMA_VERSION, STAGE6E_ACCEPTED_FRESH_TRUTH_SCHEMA_VERSION,
-    STAGE8B_P1E_FIRST_BOOT_PROVENANCE_SCHEMA_VERSION,
+    STAGE8B_P1E_FIRST_BOOT_PROVENANCE_SCHEMA_VERSION, STAGE8B_P1_OBSERVED_SOURCE_POLICY_SHA256,
     STAGE8B_P1_REQUEST_ACCEPTED_BINDING_SCHEMA_VERSION,
 };
 #[cfg(feature = "stage5g-artifact-fixtures")]
@@ -754,10 +755,10 @@ pub use stage8b_p1d4_generated_market::{
     Stage8bP1d4GeneratedMarketPackageState,
 };
 pub use stage8b_p1e_first_boot::{
-    build_stage8b_p1_first_boot_composition_v1, rebuild_stage8b_p1e_riskgate_observations_v1,
-    Stage8bP1eFirstBootBarInputV1, Stage8bP1eFirstBootCompositionError,
-    Stage8bP1eFirstBootCompositionInputV1, Stage8bP1eFirstBootCompositionV1,
-    Stage8bP1eRiskGateObservationInputV1,
+    build_stage8b_p1_first_boot_composition_v1, build_stage8b_p1_observed_first_boot_composition,
+    rebuild_stage8b_p1e_riskgate_observations_v1, Stage8bP1eFirstBootBarInputV1,
+    Stage8bP1eFirstBootCompositionError, Stage8bP1eFirstBootCompositionInputV1,
+    Stage8bP1eFirstBootCompositionV1, Stage8bP1eRiskGateObservationInputV1,
 };
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: lib-stage5d-exports
 pub use stage5d_persistence::{

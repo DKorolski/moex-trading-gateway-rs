@@ -17,7 +17,11 @@ fn fixture(hour: u32, minute: u32) -> (Value, DateTime<Utc>) {
     fixture_for_identity(hour, minute, &"1".repeat(64))
 }
 
-fn fixture_for_identity(hour: u32, minute: u32, identity: &str) -> (Value, DateTime<Utc>) {
+pub(crate) fn fixture_for_identity(
+    hour: u32,
+    minute: u32,
+    identity: &str,
+) -> (Value, DateTime<Utc>) {
     let (bytes, _, _, _) = tests::fixture_for_binding(identity, "ACC_TEST_0001");
     let mut value: Value = serde_json::from_slice(&bytes).unwrap();
     let candidate_close = Utc.with_ymd_and_hms(2026, 9, 28, hour, minute, 0).unwrap();

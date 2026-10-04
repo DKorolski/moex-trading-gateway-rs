@@ -35,3 +35,6 @@ zeroize.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
+
+[dev-dependencies]
+broker-finam = { path = "../broker-finam" }

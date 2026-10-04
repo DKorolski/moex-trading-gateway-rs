@@ -32,7 +32,9 @@ use crate::stage8b_p1_bootstrap::{
     STAGE8B_P1_TICK_SIZE, STAGE8B_P1_VENUE_SYMBOL,
 };
 
+pub mod observed;
 mod redis;
+pub(crate) use redis::attach_stage8b_p1_observed_recovery_redis;
 
 #[cfg(test)]
 pub(crate) use redis::{
@@ -99,7 +101,8 @@ pub use redis::{
     acquire_stage8b_p1d4_order_pending_with_redis, acquire_stage8b_p1d4_pre_ack_with_redis,
     acquire_stage8b_p1d4_pre_finalization_with_redis,
     acquire_stage8b_p1d4_prepublication_with_redis, acquire_stage8b_p1d4_truth_with_redis,
-    acquire_stage8b_p1e_ready_pending_with_redis, attach_stage8b_p1_redis,
+    acquire_stage8b_p1e_ready_pending_with_redis, attach_stage8b_p1_observed_redis,
+    attach_stage8b_p1_observed_redis_pair, attach_stage8b_p1_redis,
     decide_stage8b_p1e_post_acquisition_latch, initialize_stage8b_p1_redis_namespace,
     poll_stage8b_p1e_ready_fresh_with_redis, resolve_stage8b_p1_zero_intent_ack_with_redis,
     resume_stage8b_p1_journal_ahead_with_redis, resume_stage8b_p1_prepublication_with_redis,
@@ -220,11 +223,28 @@ struct Stage8bP1CanonicalM10EnvelopeV1 {
 /// publication authority. The original canonical bytes are retained so an
 /// exact Redis-ID duplicate can be compared without normalization ambiguity.
 pub struct Stage8bP1ValidatedCanonicalM10 {
+    // Common field projection. For observed V2 this is never serialized as
+    // V1: canonical_bytes retains the exact contextual V2 envelope.
     envelope: Stage8bP1CanonicalM10EnvelopeV1,
     canonical_bytes: Vec<u8>,
+    source_policy: CanonicalM10SourcePolicy,
+    observed_binding: Option<observed::Stage8bP1ObservedM10Binding>,
+}
+
+#[derive(Clone, Copy)]
+enum CanonicalM10SourcePolicy {
+    StrictV1,
+    ObservedV2,
 }
 
 impl Stage8bP1ValidatedCanonicalM10 {
+    pub fn source_policy(&self) -> &'static str {
+        match self.source_policy {
+            CanonicalM10SourcePolicy::StrictV1 => "finam_derived_m1_to_m10_complete",
+            CanonicalM10SourcePolicy::ObservedV2 => broker_core::observed_m1::OBSERVED_M1_POLICY_V1,
+        }
+    }
+
     pub fn redis_id(&self) -> &str {
         &self.envelope.redis_id
     }
@@ -269,7 +289,7 @@ impl Stage8bP1ValidatedCanonicalM10 {
             timeframe_sec: self.envelope.payload.timeframe_sec,
             open_ts_utc_ms: self.envelope.payload.open_ts_utc_ms,
             close_ts_utc_ms: self.envelope.payload.close_ts_utc_ms,
-            source_kind: "finam_derived_m1_to_m10_complete".to_string(),
+            source_kind: self.source_policy().to_string(),
         }
     }
 
@@ -323,6 +343,14 @@ impl Stage8bP1ValidatedCanonicalM10 {
         self,
     ) -> Result<Stage5cAcceptedSemanticBar, Stage8bP1CanonicalM10Error> {
         let model_bar_label_utc_ms = self.strategy_model_bar_label_utc_ms();
+        let provenance = match self.source_policy {
+            CanonicalM10SourcePolicy::StrictV1 => {
+                Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete()
+            }
+            CanonicalM10SourcePolicy::ObservedV2 => {
+                Stage3StrategyBarProvenance::finam_closed_rest_observed_m1_to_m10()
+            }
+        };
         let payload = self.envelope.payload;
         let parse = |value: &str| {
             value
@@ -346,7 +374,7 @@ impl Stage8bP1ValidatedCanonicalM10 {
         };
         accept_stage5c_semantic_bar(Stage5cSemanticBarInput {
             bar,
-            provenance: Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete(),
+            provenance,
             tick_size: STAGE8B_P1_TICK_SIZE
                 .parse::<f64>()
                 .expect("fixed P1 tick is valid"),
@@ -453,6 +481,8 @@ pub fn parse_stage8b_p1_canonical_m10(
     Ok(Stage8bP1ValidatedCanonicalM10 {
         envelope,
         canonical_bytes,
+        source_policy: CanonicalM10SourcePolicy::StrictV1,
+        observed_binding: None,
     })
 }
 
@@ -519,7 +549,7 @@ fn canonical_decimal(value: &str) -> Result<Decimal, Stage8bP1CanonicalM10Error>
     Ok(parsed)
 }
 
-fn p1_instrument() -> InstrumentId {
+pub(crate) fn p1_instrument() -> InstrumentId {
     InstrumentId {
         symbol: STAGE8B_P1_INTERNAL_SYMBOL.to_string(),
         venue_symbol: Some(STAGE8B_P1_VENUE_SYMBOL.to_string()),
@@ -568,6 +598,7 @@ pub enum Stage8bP1LocalM10Error {
 }
 
 struct Stage8bP1LocalM10Entry {
+    observed_binding: Option<observed::Stage8bP1ObservedM10Binding>,
     canonical_bytes: Vec<u8>,
     semantic_id_sha256: String,
     payload_sha256: String,
@@ -602,6 +633,7 @@ pub struct Stage8bP1LocalM10Stream {
 /// Opaque, linear delivery. It intentionally implements no Clone, serde or
 /// public constructor and grants no XACK method by itself.
 pub struct Stage8bP1PendingM10Delivery {
+    observed_binding: Option<observed::Stage8bP1ObservedM10Binding>,
     redis_id: String,
     semantic_id_sha256: String,
     payload_sha256: String,
@@ -626,7 +658,15 @@ impl Stage8bP1PendingM10Delivery {
         &self,
         expected_operational_identity_sha256: &str,
     ) -> Result<Stage8bP1ValidatedCanonicalM10, Stage8bP1CanonicalM10Error> {
-        parse_stage8b_p1_canonical_m10(&self.canonical_bytes, expected_operational_identity_sha256)
+        match &self.observed_binding {
+            Some(binding) => {
+                binding.parse_exact(&self.canonical_bytes, expected_operational_identity_sha256)
+            }
+            None => parse_stage8b_p1_canonical_m10(
+                &self.canonical_bytes,
+                expected_operational_identity_sha256,
+            ),
+        }
     }
 }
 
@@ -689,6 +729,7 @@ impl Stage8bP1LocalM10Stream {
         self.entries.insert(
             redis_id.clone(),
             Stage8bP1LocalM10Entry {
+                observed_binding: m10.observed_binding,
                 canonical_bytes: m10.canonical_bytes,
                 semantic_id_sha256: m10.envelope.m10_semantic_id_sha256,
                 payload_sha256: m10.envelope.m10_payload_sha256,
@@ -715,6 +756,7 @@ impl Stage8bP1LocalM10Stream {
         }
         self.pending.insert(redis_id.clone());
         Ok(Stage8bP1PendingM10Delivery {
+            observed_binding: entry.observed_binding.clone(),
             redis_id,
             semantic_id_sha256: entry.semantic_id_sha256.clone(),
             payload_sha256: entry.payload_sha256.clone(),
@@ -744,6 +786,7 @@ impl Stage8bP1LocalM10Stream {
             return Err(Stage8bP1LocalM10Error::DeliveryAuthorityMismatch);
         }
         Ok(Stage8bP1PendingM10Delivery {
+            observed_binding: entry.observed_binding.clone(),
             redis_id: redis_id.to_string(),
             semantic_id_sha256: entry.semantic_id_sha256.clone(),
             payload_sha256: entry.payload_sha256.clone(),
@@ -803,6 +846,7 @@ impl Stage8bP1LocalM10Stream {
         };
         Ok((
             Stage8bP1PendingM10Delivery {
+                observed_binding: entry.observed_binding.clone(),
                 redis_id: redis_id.clone(),
                 semantic_id_sha256: entry.semantic_id_sha256.clone(),
                 payload_sha256: entry.payload_sha256.clone(),
@@ -1202,6 +1246,7 @@ mod tests {
         runtime_config_fingerprint_sha256: String,
     ) -> Stage8bP1BootstrapConfig {
         Stage8bP1BootstrapConfig {
+            market_data_policy_sha256: None,
             schema_version: STAGE8B_P1_BOOTSTRAP_CONFIG_SCHEMA_VERSION,
             broker_id: STAGE8B_P1_BROKER_ID.to_string(),
             strategy_id: STAGE8B_P1_STRATEGY_ID.to_string(),

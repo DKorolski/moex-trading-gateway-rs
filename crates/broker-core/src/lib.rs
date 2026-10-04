@@ -18,6 +18,7 @@ pub mod market_data_lifecycle;
 pub mod market_data_parity;
 pub mod market_data_recovery;
 pub mod observability;
+pub mod observed_m1;
 pub mod operational_config;
 pub mod operational_snapshot;
 pub mod order;

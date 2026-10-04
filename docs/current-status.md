@@ -1,6 +1,77 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-10-01.
+Status date: 2026-10-03.
+
+2026-10-03 acceptance update (supersedes the local-progress notes below):
+`d63c378a51899a4d407dddc732896e89ccc51b43` is independently **SOURCE ACCEPTED**
+in the bounded sparse-M10 source boundary. The immutable source ZIP exists and
+its SHA-256 is `30b1dccaf53f3e82fe29b062c83dec13c2605e9de212a47609499a9c4e16ff0d`.
+See [review](stage-8/reviews/REVIEW_d63c378_SPARSE_M10_RU.txt) and
+[authority/artifact follow-up](stage-8/stage8b-p1f-sparse-m10-authority-closure.md).
+Authority inventories were refreshed at `4668b42` without changing accepted
+Rust/Cargo, legacy policies or CI: local checker and 45/45 negatives PASS.
+The [sparse-selected artifact](stage-8/stage8b-p1f-o2-sparse-artifact.md) has a
+completed Linux/amd64 offline release build and release-library/exact-ELF
+qualification. Final postseal gate results accompany the immutable package;
+fresh GitHub CI and independent artifact/closure acceptance remain separate.
+O2 HOLD; no installation or execution authorized.
+The following dated progress notes describe the pre-review source work, not
+the current acceptance verdict.
+
+2026-10-02 local update: the [sparse-M10 correction](stage-8/stage8b-p1f-sparse-m10-correction-progress.md)
+is in progress on `stage8b-sparse-m10-correction`, not source-accepted or deployed.
+Local rolling-receipt retention, a synthetic V4/paper ACK/truth/XACK/restart
+witness, and explicit sparse selection in the fixed materializer are implemented.
+Protected materialization policy V3 selects source V4 and retained raw snapshot
+cross-validation; old policy V1/V2 paths remain strict. No deployed policy changed.
+The fixed process now passes its sealed initial source context through verify-only
+S05. Exact-ID recovery can resolve an older retained receipt before reclaim;
+synthetic ACK/truth restart tests reject missing/corrupt/swapped receipts without
+repeating effects. Fresh-source discovery from Redis hashes remains forbidden.
+The fixed operator now consumes staged V2 under explicit protected sparse policy;
+guardian selects the bootstrap-bound V4 parser and retains its transactional
+write/recovery path. Legacy staged V1 remains strict. Raw FINAM admission stays
+inside the fixed materializer, not the durable runtime. Real-History staged
+admission and synthetic guardian interruption/replay are locally tested. The
+existing cross-crate linked witness now also passes with 404 real History M10
+(18 sparse), explicit synthetic current-session controls, fixed producers, one
+paper command, durable truth, XACK and clean readmission. Producer restart reads
+both receipts from disk; post-truth readmission discards the rolling pair and
+resolves the old receipt from sealed exact-M10 evidence. Four changed/lost/added
+overlap controls reject before state or Redis advancement. This is a bounded
+library witness, not an installed fixed-process or SIGKILL run. Journal-ahead recovery now
+binds the Redis source tuple to protected RequestAccepted evidence and authenticated
+S0 before retained-receipt lookup/XAUTOCLAIM; callback/S1 remain post-permit.
+Local tests reject missing/corrupt receipts, rehashed alternate source, copied
+hashes and changed tuples without PEL-owner/delivery, journal or seal mutation.
+The preset shutdown latch prevents callback/S1; successful replay does not append
+a second RequestAccepted. This is clean recovery evidence, not a SIGKILL run.
+2026-10-03: an explicit bounded Published-pair handoff now reaches verified S05
+before owner acquisition. The producer requires both Published states, adjacent
+sequence and valid phase lineage. S05 checks initial-source overlap and rereads
+both exact Redis entries before installing either; failure leaves no partial
+admission. Only these two new canonical payloads are admitted, with no initial
+bucket rebinding or disk/hash discovery. The real-History linked witness uses
+this S05 path before Market processing and schedule-committed restart. Sealed
+recovery remains separate and still requires retained evidence. This is an
+in-process source interface, not an operational polling/WS or fixed-CLI input;
+the installed daemon has not gained automatic rolling-source admission.
+The typed `execute_stage8b_p1e_observed_run_v1` now shares normal fixed config,
+credential/seal validation, signal supervision and owner startup. Its pre-S06
+helper performs S05 and exact two-entry admission under the shutdown latch.
+The linked witness executes that helper. Missing/changed sources reject;
+preset and in-flight stops return no session, claim, callback or XACK. A caller
+must supply the independently admitted Published pair; there is no new CLI,
+filesystem search, operational source registry or automatic polling channel.
+The `published-window` scope contains prior results; the `full` source gate
+is required for review of the current tree, with pinned authority drift reported
+separately (no authority pins refreshed).
+Local gate logs and exact source inventory
+are under `reports/stage8b-sparse-m10-local/`; no immutable final ZIP yet.
+O2 remains HOLD. [WS / operational parity tracking](stage-8/stage8b-operational-market-data-parity-checklist.md)
+is explicitly retained for existing O4 and later paper-session gates; local
+historical replay does not close these checks. No VPS/P0/DB0/terminal-history
+change or new phase execution is authorized by this status update.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -37,8 +108,8 @@ The [test-only cleanup correction](stage-8/stage8b-p1f-nrg01-harness-correction.
 has accepted exact-tree qualification: complete durable all-features 388 passed,
 default process 42 passed, exact witness 3/3, authority negatives 45/45, fmt and
 canonical Clippy PASS; production semantics are unchanged. Fresh required GitHub
-`rust` and `redis-smoke` still precede one history-preserving merge of this
-completed block. Exact artifact replacement, installation and O2 execution remain
+`rust` and `redis-smoke` passed before the history-preserving merge of this
+completed block (see the October 1 update below). Exact artifact replacement, installation and O2 execution remain
 separate gates. The retained
 2148 tests and 38/38 frozen model rounds are source evidence, not FINAM live fills.
 
@@ -47,8 +118,26 @@ in run `36765599251`, but merge was blocked by a new P2 calendar/fetch-range
 finding. The owner authorized the [narrow range correction](stage-8/stage8b-p1f-short-history-range-correction.md)
 in the same PR: calendar age remains 14 days / four prior sessions; policy and
 collector share a positive <=15-day transport envelope for intraday coverage.
-This new source delta is a review candidate and requires fresh CI; earlier
-acceptances remain intact. No merge, installation or activation is claimed.
+The correction `8e7a6472e8b90ccd98d8dca134f09e7fd77c6bdb` is independently
+**SOURCE ACCEPTED** in `FINAM_8e7a647_CALENDAR_RANGE_REVIEW_2026-10-01.md`
+(SHA-256 `a4f025e8b084f494e2b85c243d79ca765fcaa98d044332d647972dd97f651d25`).
+Fresh CI run `36869369875` passed both required jobs and the corrected discussion
+was resolved normally. PR #11 merged as `ca1e5da7ea41eec219bce1cfe2bdf4b8d63d9029`;
+its tree equals the accepted source. Local and origin main were synchronized.
+The [offline no-riskgate artifact preparation](stage-8/stage8b-p1f-o2-no-riskgate-artifact-preparation.md)
+uses that exact build ref. It does not install files, issue operational inputs,
+activate a phase or reopen source semantics. Prior acceptance remains intact.
+
+The no-riskgate binary artifact at `64f1fd5d00993c01a3109a2f89c990466ac2f781`
+is independently **BINARY ARTIFACT ACCEPTED** (review SHA-256
+`3366ed7127ca0404d6f96614868c149d132552c999a976859fe2df7d640d8477`).
+The owner authorized local preparation of the [non-activating installation
+package](stage-8/stage8b-p1f-o2-no-riskgate-installation.md): eight exact payload
+replacements, expected FAILED/1/4, retained genesis installation ID and all
+terminal history. Calendar candidate is 2026-10-02, four prior sessions from
+2026-09-28 through 2026-10-01; it is not an execution appointment. The package
+requires independent review and separate installation/phase/O2 permissions.
+No VPS inspection, installation or fresh operational PASS is claimed.
 
 The [narrow O2 recovery source correction](stage-8/stage8b-p1f-o2-recovery-source-correction.md)
 is independently SOURCE ACCEPTED at `5b8f878833dbf71fa7614152a4a5fb03cbf40b65`.
@@ -95,9 +184,8 @@ These are retained observations, not a fresh VPS inspection. Evidence ZIP
 `527d20dbc23079d9151f6868c81cab135b2db5c53fac2dce24fce64a83cac2d7`, is prepared;
 independent acceptance of this attempt is pending. **O2 remains HOLD.**
 
-Next: complete narrow authority closure review and fresh CI, then the exact
-no-riskgate artifact/update and separate operational
-gates. Do not retry the old long-history contract or loosen required recent-bar
+Next: review the exact no-riskgate installation package, then separate operational
+gates with fresh preflight and calendar/freshness checks. Do not retry the old long-history contract or loosen required recent-bar
 quality checks. No new recovery framework is required.
 
 ### Earlier accepted milestones (historical boundaries)

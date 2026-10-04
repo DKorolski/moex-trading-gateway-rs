@@ -15,6 +15,7 @@ pub mod instrument_registry;
 pub mod mapper;
 pub mod o2_readonly;
 pub mod order_request;
+pub mod sparse_m10;
 pub mod ws;
 pub use dto::*;
 pub use instrument_registry::*;

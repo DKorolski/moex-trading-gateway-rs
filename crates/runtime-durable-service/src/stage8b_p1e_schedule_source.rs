@@ -1366,6 +1366,7 @@ pub(crate) mod tests {
         runtime_config_fingerprint_sha256: String,
     ) -> crate::Stage8bP1BootstrapConfig {
         crate::Stage8bP1BootstrapConfig {
+            market_data_policy_sha256: None,
             schema_version: crate::STAGE8B_P1_BOOTSTRAP_CONFIG_SCHEMA_VERSION,
             broker_id: crate::STAGE8B_P1_BROKER_ID.to_string(),
             strategy_id: crate::STAGE8B_P1_STRATEGY_ID.to_string(),
@@ -2640,6 +2641,7 @@ pub(crate) mod tests {
             setup.fresh_runtime.stage5c_config_fingerprint(),
         );
         let identity = strategy_runtime_core::Stage6dOperationalIdentityConfig {
+            market_data_policy_sha256: config.market_data_policy_sha256,
             broker_id: config.broker_id,
             strategy_instance_id: config.strategy_id,
             deployment_id: config.deployment_id,

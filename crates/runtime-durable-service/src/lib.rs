@@ -288,6 +288,7 @@ mod stage8b_p1f_fixed_redis;
 mod stage8b_p1f_guardian;
 mod stage8b_p1f_local_supervision;
 mod stage8b_p1f_o2_systemd;
+mod stage8b_p1f_staged_source;
 
 pub use recovery::{
     spawn_stage7b_supervised_task, P1SemanticPrepublicationPending, P1SemanticZeroIntentAckPending,
@@ -341,6 +342,11 @@ pub use stage8b_p1_bootstrap::{
     STAGE8B_P1_REDIS_HASH_TAG, STAGE8B_P1_STAGE7B_CONSUMER_GROUP, STAGE8B_P1_STRATEGY_ID,
     STAGE8B_P1_TICK_SIZE, STAGE8B_P1_VENUE_SYMBOL,
 };
+pub use stage8b_p1_semantic::observed::{
+    build_stage8b_p1_observed_canonical_m10, parse_stage8b_p1_observed_canonical_m10,
+    Stage8bP1ObservedM10Binding, Stage8bP1ObservedM10WindowPair, Stage8bP1ObservedPublishedWindow,
+    OBSERVED_CANONICAL_M10_DOMAIN,
+};
 pub use stage8b_p1_semantic::{
     acquire_stage8b_p1_journal_ahead_with_redis, acquire_stage8b_p1_prepublication_with_redis,
     acquire_stage8b_p1_zero_intent_ack_with_redis, acquire_stage8b_p1d2_ack_with_redis,
@@ -354,10 +360,11 @@ pub use stage8b_p1_semantic::{
     acquire_stage8b_p1d4_order_pending_with_redis, acquire_stage8b_p1d4_pre_ack_with_redis,
     acquire_stage8b_p1d4_pre_finalization_with_redis,
     acquire_stage8b_p1d4_prepublication_with_redis, acquire_stage8b_p1d4_truth_with_redis,
-    acquire_stage8b_p1e_ready_pending_with_redis, attach_stage8b_p1_redis,
-    build_stage8b_p1_canonical_m10, decide_stage8b_p1e_post_acquisition_latch,
-    initialize_stage8b_p1_redis_namespace, parse_stage8b_p1_canonical_m10,
-    poll_stage8b_p1e_ready_fresh_with_redis, resolve_stage8b_p1_zero_intent_ack_with_local_m10,
+    acquire_stage8b_p1e_ready_pending_with_redis, attach_stage8b_p1_observed_redis,
+    attach_stage8b_p1_observed_redis_pair, attach_stage8b_p1_redis, build_stage8b_p1_canonical_m10,
+    decide_stage8b_p1e_post_acquisition_latch, initialize_stage8b_p1_redis_namespace,
+    parse_stage8b_p1_canonical_m10, poll_stage8b_p1e_ready_fresh_with_redis,
+    resolve_stage8b_p1_zero_intent_ack_with_local_m10,
     resolve_stage8b_p1_zero_intent_ack_with_redis, resume_stage8b_p1_journal_ahead_with_local_m10,
     resume_stage8b_p1_journal_ahead_with_redis, resume_stage8b_p1_prepublication_with_redis,
     resume_stage8b_p1d2_ack_with_redis, resume_stage8b_p1d2_pre_ack_with_redis,
@@ -415,6 +422,8 @@ pub use stage8b_p1_semantic::{
     STAGE8B_P1_CANONICAL_M10_MESSAGE_TYPE, STAGE8B_P1_CANONICAL_M10_SCHEMA_VERSION,
     STAGE8B_P1_LOCAL_M10_MIN_RETENTION,
 };
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+pub use stage8b_p1_supervisor::stage8b_p1e_test_provision_production_redis_v1;
 pub use stage8b_p1_supervisor::{
     attach_stage8b_p1e_verified_redis, parse_stage8b_p1e_supervisor_config_v1,
     stage8b_p1e_classify_restart_v1, stage8b_p1e_readiness_v1, stage8b_p1e_redact_account_id,
@@ -441,6 +450,10 @@ pub use stage8b_p1_supervisor::{
     STAGE8B_P1E_STALE_CONSUMER_INVENTORY_MAX, STAGE8B_P1E_SUPERVISOR_CONFIG_PATH,
     STAGE8B_P1E_SUPERVISOR_CONFIG_SCHEMA_VERSION, STAGE8B_P1E_SYSTEMD_STOP_TIMEOUT_MS,
     STAGE8B_P1E_TELEMETRY_CONTRACT_SHA256, STAGE8B_P1E_TELEMETRY_RETENTION,
+};
+pub use stage8b_p1e_first_boot_source::observed::{
+    validate_stage8b_p1e_observed_first_boot_source_v4, STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V4,
+    STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V4_SHA256, STAGE8B_P1E_FIRST_BOOT_SOURCE_V4_DOMAIN,
 };
 pub use stage8b_p1e_first_boot_source::{
     build_stage8b_p1_first_boot_source_v1, load_stage8b_p1e_first_boot_source_v1,
@@ -481,16 +494,17 @@ pub use stage8b_p1e_process::{
     advance_stage8b_p1e_supported_schedule_bounded_v1,
     advance_stage8b_p1e_supported_schedule_once_v1, continue_stage8b_p1e_recovery_once_v1,
     drain_stage8b_p1e_recovery_lifecycle_v1, drain_stage8b_p1e_schedule_free_recovery_v1,
-    execute_stage8b_p1e_process_command_v1, latch_stage8b_p1e_startup_owner_v1,
-    parse_stage8b_p1e_process_command_v1, poll_stage8b_p1e_ready_once_v1,
-    recheck_stage8b_p1e_recovery_step_latch_v1, run_stage8b_p1e_owner_loop_v1,
-    run_stage8b_p1e_schedule_free_owner_loop_v1, run_stage8b_p1e_startup_owner_loop_v1,
-    stage8b_p1e_route_pre_redis_restart_v1, Stage8bP1eAttachableRestartV1,
-    Stage8bP1eBlockedRestartV1, Stage8bP1eBoundedScheduleCycleOutcomeV1,
-    Stage8bP1eCancelScheduleAdvanceOutcomeV1, Stage8bP1eCommittedCancelResolvedV1,
-    Stage8bP1eCommittedCancelRestartRequiredV1, Stage8bP1eCommittedDayExpiryResolvedV1,
-    Stage8bP1eCommittedScheduleStartupV1, Stage8bP1eContinuingStartupV1,
-    Stage8bP1eDayExpiryScheduleAdvanceOutcomeV1, Stage8bP1eGeneratedMarketScheduleAdvanceOutcomeV1,
+    execute_stage8b_p1e_observed_run_v1, execute_stage8b_p1e_process_command_v1,
+    latch_stage8b_p1e_startup_owner_v1, parse_stage8b_p1e_process_command_v1,
+    poll_stage8b_p1e_ready_once_v1, recheck_stage8b_p1e_recovery_step_latch_v1,
+    run_stage8b_p1e_owner_loop_v1, run_stage8b_p1e_schedule_free_owner_loop_v1,
+    run_stage8b_p1e_startup_owner_loop_v1, stage8b_p1e_route_pre_redis_restart_v1,
+    Stage8bP1eAttachableRestartV1, Stage8bP1eBlockedRestartV1,
+    Stage8bP1eBoundedScheduleCycleOutcomeV1, Stage8bP1eCancelScheduleAdvanceOutcomeV1,
+    Stage8bP1eCommittedCancelResolvedV1, Stage8bP1eCommittedCancelRestartRequiredV1,
+    Stage8bP1eCommittedDayExpiryResolvedV1, Stage8bP1eCommittedScheduleStartupV1,
+    Stage8bP1eContinuingStartupV1, Stage8bP1eDayExpiryScheduleAdvanceOutcomeV1,
+    Stage8bP1eGeneratedMarketScheduleAdvanceOutcomeV1,
     Stage8bP1eInitialLimitScheduleAdvanceOutcomeV1, Stage8bP1eLimitScheduleStartupV1,
     Stage8bP1eMarketScheduleAdvanceOutcomeV1, Stage8bP1eOwnerLoopOutcomeV1,
     Stage8bP1ePendingNotClaimableStartupV1, Stage8bP1ePreRedisRestartV1,
@@ -512,8 +526,8 @@ pub use stage8b_p1e_process::{
 #[cfg(feature = "stage8b-p1-test-fixtures")]
 #[doc(hidden)]
 pub use stage8b_p1e_process::{
-    stage8b_p1f_ie_run_linked_composition_v1, Stage8bP1fIeCompositionEvidenceV1,
-    Stage8bP1fIeCompositionInputV1,
+    stage8b_p1f_ie_run_linked_composition_v1, stage8b_p1f_ie_run_observed_composition_v4,
+    Stage8bP1fIeCompositionEvidenceV1, Stage8bP1fIeCompositionInputV1,
 };
 pub use stage8b_p1e_schedule_source::{
     bind_stage8b_p1e_cancel_schedule, bind_stage8b_p1e_day_expiry_schedule,
@@ -580,6 +594,9 @@ pub use stage8b_p1f_o2_systemd::{
     Stage8bP1fO2CollectionLockV1, Stage8bP1fO2ReadOnlyEvidenceV1, Stage8bP1fO2RunnerErrorV1,
     Stage8bP1fO2RunnerResultV1, Stage8bP1fO2UnitEvidenceV1, STAGE8B_P1F_O2_ACTIVE_MANIFEST_PATH,
     STAGE8B_P1F_O2_RUNNER_BINARY_PATH, STAGE8B_P1F_O2_RUNNER_UNIT,
+};
+pub use stage8b_p1f_staged_source::{
+    check_stage8b_p1f_staged_source, Stage8bP1fCheckedStagedSource,
 };
 
 use std::{
@@ -1234,6 +1251,7 @@ mod tests {
 
     fn identity() -> Stage6dOperationalIdentityConfig {
         Stage6dOperationalIdentityConfig {
+            market_data_policy_sha256: None,
             broker_id: "paper".to_string(),
             strategy_instance_id: "hybrid-imoexf".to_string(),
             deployment_id: "stage7b-test".to_string(),

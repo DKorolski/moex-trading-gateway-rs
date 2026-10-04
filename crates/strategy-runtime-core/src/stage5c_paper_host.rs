@@ -1033,6 +1033,7 @@ fn stage5e_b3c_stage3_source_mode_code(
         broker_core::Stage3StrategyBarSourceMode::FinamDerivedM1ToM10 => 3,
         broker_core::Stage3StrategyBarSourceMode::FinamNativeM10 => 4,
         broker_core::Stage3StrategyBarSourceMode::RawFinamM1 => 5,
+        broker_core::Stage3StrategyBarSourceMode::FinamClosedRestObservedM1ToM10 => 6,
     }
 }
 
@@ -2841,6 +2842,13 @@ pub struct Stage5cAcceptedSemanticBar {
     // STAGE5D-ADDITIVE-BRIDGE-END: stage5e-b3c-semantic-identity-fields
 }
 impl Stage5cAcceptedSemanticBar {
+    pub(crate) fn uses_closed_rest_observed_m1(&self) -> bool {
+        self.stage3_provenance_identity
+            == stage5e_b3c_stage3_provenance_identity(
+                &broker_core::Stage3StrategyBarProvenance::finam_closed_rest_observed_m1_to_m10(),
+            )
+    }
+
     /// Binds the strategy-only candle label without changing the accepted
     /// close-bound bar, its semantic identity, or its persistence ordering.
     pub fn with_strategy_model_bar_label_utc(
@@ -4449,6 +4457,7 @@ fn stage8b_p1_restore_recovery_receipt(
         3 => broker_core::Stage3StrategyBarSourceMode::FinamDerivedM1ToM10,
         4 => broker_core::Stage3StrategyBarSourceMode::FinamNativeM10,
         5 => broker_core::Stage3StrategyBarSourceMode::RawFinamM1,
+        6 => broker_core::Stage3StrategyBarSourceMode::FinamClosedRestObservedM1ToM10,
         _ => return Err(()),
     };
     let processed_bars =
@@ -12673,6 +12682,43 @@ mod bootstrap_notification_tests {
             }),
             Err(Stage5cHistoryWarmupError::Stage3ProvenanceRejected)
         ));
+    }
+
+    #[test]
+    fn observed_m1_provenance_is_explicit_and_does_not_relax_legacy_gap_rule() {
+        let close_ts = 1_790_848_800;
+        let provenance =
+            broker_core::Stage3StrategyBarProvenance::finam_closed_rest_observed_m1_to_m10();
+        let accepted = accept_stage5c_history_batch(Stage5cHistoryBatchInput {
+            bars: vec![history_bar(close_ts)],
+            provenance: provenance.clone(),
+        });
+        assert!(accepted.is_ok());
+        assert_eq!(
+            stage5e_b3c_stage3_source_mode_code(provenance.source_mode),
+            6
+        );
+        let dense = broker_core::Stage3StrategyBarProvenance::finam_derived_m1_to_m10_complete();
+        assert_eq!(stage5e_b3c_stage3_source_mode_code(dense.source_mode), 3);
+        assert_ne!(
+            stage5e_b3c_stage3_provenance_identity(&provenance),
+            stage5e_b3c_stage3_provenance_identity(&dense)
+        );
+        let mut claimed_no_gaps = provenance.clone();
+        claimed_no_gaps.gap_absence_proven = true;
+        let mut incomplete = provenance.clone();
+        incomplete.aggregation_complete = false;
+        let mut wrong_tf = provenance;
+        wrong_tf.source_timeframe_sec = Some(300);
+        let mut legacy_gap = dense;
+        legacy_gap.gap_absence_proven = false;
+        for provenance in [claimed_no_gaps, incomplete, wrong_tf, legacy_gap] {
+            assert!(accept_stage5c_history_batch(Stage5cHistoryBatchInput {
+                bars: vec![history_bar(close_ts)],
+                provenance,
+            })
+            .is_err());
+        }
     }
 
     #[test]

@@ -1,0 +1,11 @@
+{
+  "source_compact_archive_sha256": "5ada885a1b087b2cc74775a1c51a0f8bd6231d69f654ead364f53485f1ce6993",
+  "synthetic": false,
+  "files": {
+    "finam-short-response.json": "d2e7d6b57a47ab921e42904a967a80aa86854e359c35b32aaa095831298b2ea9",
+    "finam-short-response-meta.json": "c90b4e9338754d842cd18c725a9a3e2840d81546a2de4b04b9d5d56df1870e66",
+    "finam-long-response.json": "8dac45b26cb1e07f11bf73f7b2032abfc6a4362aae4a2a7e297401f7dced7383",
+    "finam-long-response-meta.json": "591906ccde78e9d78a4f5e5bd292565bc10199fc44280704af5f31f91da73d40",
+    "alor-native-m10.jsonl": "54d75e8e7e92390257cc84f14cc7700b480795ebc957952e524fdb65d72bc632"
+  }
+}

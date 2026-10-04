@@ -400,6 +400,67 @@ enum Stage6DurableCommandPayloadV1 {
 }
 
 impl Stage6DurableCommandSnapshotV1 {
+    /// Read-only source-evidence reconstruction, not an executable command
+    /// export. Recheck the complete durable identity before hashing the exact
+    /// broker-neutral wire form used at RequestAccepted.
+    pub(crate) fn canonical_broker_command_sha256(
+        &self,
+        identity: &Stage6DurableRequestIdentityV1,
+    ) -> Result<Stage6Sha256Digest, Stage6DurableIdentityError> {
+        self.validate_intrinsic()?;
+        let command = match &self.payload {
+            Stage6DurableCommandPayloadV1::Place {
+                request_id,
+                durable_client_order_id,
+                account_id,
+                instrument,
+                side,
+                order_type,
+                quantity,
+                limit_price,
+                time_in_force,
+                ttl_ms,
+                created_ts,
+                attribution,
+            } => BrokerCommand::PlaceOrder(PlaceOrder {
+                request_id: *request_id,
+                created_ts: *created_ts,
+                ttl_ms: *ttl_ms,
+                account_id: account_id.clone(),
+                client_order_id: durable_client_order_id.clone(),
+                instrument: instrument.clone(),
+                side: *side,
+                order_type: *order_type,
+                qty: *quantity,
+                limit_price: *limit_price,
+                time_in_force: *time_in_force,
+                comment: Some(attribution.internal_comment().to_string()),
+            }),
+            Stage6DurableCommandPayloadV1::Cancel {
+                request_id,
+                account_id,
+                target_broker_order_id,
+                target_order_client_order_id,
+                ttl_ms,
+                created_ts,
+                ..
+            } => BrokerCommand::CancelOrder(CancelOrder {
+                request_id: *request_id,
+                created_ts: *created_ts,
+                ttl_ms: *ttl_ms,
+                account_id: account_id.clone(),
+                order_id: target_broker_order_id.clone(),
+                client_order_id: target_order_client_order_id.clone(),
+            }),
+        };
+        if !self.matches_broker_command(identity, &command) {
+            return Err(Stage6DurableIdentityError::RequestIdentityMismatch);
+        }
+        let bytes = serde_json::to_vec(&command)
+            .map_err(|_| Stage6DurableIdentityError::NonCanonicalEncoding)?;
+        Ok(Stage6Sha256Digest::of(&bytes))
+    }
+
     /// Proves that this immutable snapshot is the exact broker-neutral
     /// command accepted for `identity`.  Recovery callers use this instead of
     /// reinterpreting a subset of the serialized fields.
@@ -1585,6 +1646,54 @@ mod tests {
                 .action(),
             Stage6DurableActionKind::Place
         );
+    }
+
+    #[test]
+    fn durable_source_probe_reconstructs_exact_broker_command_hash_not_journal_payload() {
+        let mut commands = vec![
+            BrokerCommand::PlaceOrder(place(OrderType::Market)),
+            BrokerCommand::PlaceOrder(place(OrderType::Limit)),
+        ];
+        let (cancel, cancel_attribution) = cancel("CANCEL");
+        commands.push(BrokerCommand::CancelOrder(cancel.clone()));
+        for command in commands {
+            let (identity, snapshot) = match &command {
+                BrokerCommand::PlaceOrder(place) => {
+                    let identity =
+                        Stage6DurableRequestIdentityV1::from_place(place, attribution("ENTRY"))
+                            .unwrap();
+                    let snapshot =
+                        Stage6DurableCommandSnapshotV1::from_place(&identity, place).unwrap();
+                    (identity, snapshot)
+                }
+                BrokerCommand::CancelOrder(cancel) => {
+                    let identity = Stage6DurableRequestIdentityV1::from_cancel(
+                        cancel,
+                        instrument(),
+                        cancel_attribution.clone(),
+                    )
+                    .unwrap();
+                    let snapshot =
+                        Stage6DurableCommandSnapshotV1::from_cancel(&identity, cancel).unwrap();
+                    (identity, snapshot)
+                }
+            };
+            assert_eq!(
+                snapshot.canonical_broker_command_sha256(&identity).unwrap(),
+                Stage6Sha256Digest::of(&serde_json::to_vec(&command).unwrap())
+            );
+            assert_ne!(
+                snapshot.canonical_broker_command_sha256(&identity).unwrap(),
+                Stage6Sha256Digest::of(&serde_json::to_vec(&snapshot).unwrap())
+            );
+            let mut foreign_place = place(OrderType::Market);
+            foreign_place.request_id = request(999);
+            foreign_place.client_order_id = ClientOrderId::from_strategy_request(request(999));
+            let foreign =
+                Stage6DurableRequestIdentityV1::from_place(&foreign_place, attribution("ENTRY"))
+                    .unwrap();
+            assert!(snapshot.canonical_broker_command_sha256(&foreign).is_err());
+        }
     }
 
     #[test]

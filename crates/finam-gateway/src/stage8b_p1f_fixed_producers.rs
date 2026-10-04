@@ -32,6 +32,7 @@ use crate::stage8b_p1e_schedule_publisher::{
 };
 
 const M10_STATE_DOMAIN: &str = "moex.stage8b.p1f.fixed-m10-producer-state.v1";
+pub mod observed;
 const O3_FIXTURE_DOMAIN: &str = "moex.stage8b.p1f.o3-synthetic-fixture.v1";
 const M1_SEMANTIC_DOMAIN: &str = "moex.stage8b.p1f.exact-m1.v1";
 const M1_BATCH_DOMAIN: &str = "moex.stage8b.p1f.exact-m1-batch.v1";
@@ -192,9 +193,20 @@ impl Stage8bP1fM10ProducerStateV1 {
     }
 
     fn validate(&self) -> Result<(), Stage8bP1fProducerErrorV1> {
-        if self.schema_version != 1
-            || self.domain != M10_STATE_DOMAIN
-            || self.source_generation != "1"
+        self.validate_with_binding(None)
+    }
+
+    fn validate_with_binding(
+        &self,
+        binding: Option<&runtime_durable_service::Stage8bP1ObservedM10Binding>,
+    ) -> Result<(), Stage8bP1fProducerErrorV1> {
+        let (version, domain, generation) = match binding {
+            Some(_) => (2, observed::STATE_DOMAIN, "2"),
+            None => (1, M10_STATE_DOMAIN, "1"),
+        };
+        if self.schema_version != version
+            || self.domain != domain
+            || self.source_generation != generation
             || !valid_phase_id(&self.phase_id)
             || !valid_nonzero_decimal(&self.publication_sequence)
             || !valid_sha256(&self.operational_identity_sha256)
@@ -216,10 +228,18 @@ impl Stage8bP1fM10ProducerStateV1 {
         if sha256_hex(&exact) != self.canonical_m10_sha256 {
             return Err(Stage8bP1fProducerErrorV1::DurableStateConflict);
         }
-        let parsed = runtime_durable_service::parse_stage8b_p1_canonical_m10(
-            &exact,
-            &self.operational_identity_sha256,
-        )?;
+        let parsed = match binding {
+            Some(binding) => {
+                if self.source_batch_sha256 != binding.source().sha256() {
+                    return Err(Stage8bP1fProducerErrorV1::DurableStateConflict);
+                }
+                binding.parse_exact(&exact, &self.operational_identity_sha256)?
+            }
+            None => runtime_durable_service::parse_stage8b_p1_canonical_m10(
+                &exact,
+                &self.operational_identity_sha256,
+            )?,
+        };
         if parsed.redis_id() != self.canonical_m10_redis_id
             || parsed.semantic_id_sha256() != self.canonical_m10_semantic_id_sha256
             || parsed.payload_sha256() != self.canonical_m10_payload_sha256
@@ -517,6 +537,15 @@ pub fn persist_stage8b_p1f_m10_producer_state(
     state.validate()?;
     let bytes = stage8b_p1e_canonical_json(state)
         .map_err(|_| Stage8bP1fProducerErrorV1::DurableStateConflict)?;
+    persist_m10_bytes(path, &bytes)?;
+    let reread = load_stage8b_p1f_m10_producer_state(path)?;
+    if &reread != state {
+        return Err(Stage8bP1fProducerErrorV1::DurableStateConflict);
+    }
+    Ok(())
+}
+
+fn persist_m10_bytes(path: &Path, bytes: &[u8]) -> Result<(), Stage8bP1fProducerErrorV1> {
     let parent = path
         .parent()
         .ok_or(Stage8bP1fProducerErrorV1::DurableStateConflict)?;
@@ -534,12 +563,11 @@ pub fn persist_stage8b_p1f_m10_producer_state(
         .write(true)
         .mode(0o600)
         .open(&temporary)?;
-    file.write_all(&bytes)?;
+    file.write_all(bytes)?;
     file.sync_all()?;
     fs::rename(&temporary, path)?;
     File::open(parent)?.sync_all()?;
-    let reread = load_stage8b_p1f_m10_producer_state(path)?;
-    if &reread != state {
+    if fs::read(path)? != bytes {
         return Err(Stage8bP1fProducerErrorV1::DurableStateConflict);
     }
     Ok(())
@@ -1015,6 +1043,8 @@ fn decode_lower_hex(value: &str) -> Result<Vec<u8>, Stage8bP1fProducerErrorV1> {
 
 #[cfg(test)]
 mod tests {
+    mod observed;
+    mod observed_linked;
     use std::{
         net::TcpListener,
         process::{Child, Command, Stdio},
