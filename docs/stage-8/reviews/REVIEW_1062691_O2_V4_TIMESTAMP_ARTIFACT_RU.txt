@@ -1,0 +1,189 @@
+Независимый инженерный review: O2 V4 timestamp successor artifact
+Дата: 5 октября 2026 года, MSK
+
+Решение: ARTIFACT / GOVERNANCE ACCEPT.
+Блокирующих замечаний к представленной artifact/packaging-границе не найдено.
+
+Review commit: 1062691ee9694e1827e91cd011a686c3b3ca863c.
+Review tree: dad7c47c7591ce6414e9e802e8518a7c901bc30a.
+Compiled accepted commit: f3b349949802abd5eff80cad6b9e9fc37bc327e1.
+Compiled tree: e9a744c59d43064283620903ea9b79175073efab.
+Source implementation parent: c5545da055ec91035a9ee695dbe6c7c6ad2c67a9.
+
+Основной ZIP: moex-trading-project-1062691-o2-v4-timestamp-artifact.zip.
+Размер: 18 073 817 bytes.
+SHA-256: cb831ede43c4b1379a0e128b9240db4c33cb649de1eb1d8467de5213631ae799.
+Postseal ZIP: 133 718 bytes.
+SHA-256: 32954c90f15a3379b9d972dfba7b9f0c6fe014fcaf59557dd523e469688a5edd.
+
+Принимается согласованный полный binary artifact и его governance binding.
+Пакет имеет статус NOT_INSTALLABLE. Эта приёмка позволяет готовить следующий
+installation package; она не разрешает apply, запуск O2 или trading execution.
+O2 остаётся HOLD.
+
+1. Архивы, source lineage и packaging scope
+
+Независимо проверены SHA-256 обоих архивов, CRC, уникальность и безопасность
+путей. Основной архив содержит 2650 regular members: 2616 tracked files и
+34 generated artifact/evidence files. Postseal архив содержит result.json и
+11 command logs. Duplicates, symlinks, special files и unsafe paths — 0.
+
+Самостоятельно восстановлены Git trees из bytes/modes обоих manifests и
+проверены hashes raw commit-сущностей. Lineage:
+c5545da → f3b3499 → 1062691.
+Compiled manifest содержит 2607 исходных tracked files и byte-for-byte
+соответствует ранее принятому f3b3499, включая build preimages трёх документов.
+
+Дельта packaging commit составляет 12 путей: qualification/packaging tools,
+Rust probe под scripts/fixtures, retained source review, две исходные failure
+logs, artifact document, status/roadmap и authority JSON. Все crates, Cargo
+manifests/Cargo.lock, config, deploy и workflows сохранены относительно f3b3499.
+Rust probe не входит в shipped production crates или binary feature graph.
+
+Authority изменяет только governance control inventory для current-status и
+roadmap. Production fingerprint, остальные control entries, accepted pins,
+path sets, требования CI и closed flags не изменились.
+Production fingerprint:
+e72149de3185542db4683e78f83d8acccce43cddcab20ff328e2c20b693c239e.
+Control fingerprint:
+83d161399527c5efce408fe2d9d61e5f1485345384fd6a20da0be0f0c0c52342.
+
+Retained SOURCE / AUTHORITY ACCEPT report совпадает с ранее выданным review;
+его SHA-256:
+09235ba3ea44b43b0011d8f7dabd051b1e27e8b4d3e2f0258644b9383689a247.
+
+2. Комплект ELF и рецепт сборки
+
+Приняты ровно три ELF:
+
+stage8b-p1f-o2-materializer
+SHA-256: f954bf98fa24c62dfa669eb159b7dc06717fe5edb61587c5404001ed38bdd0a3
+Size: 9 511 624 bytes
+BuildID: 443124d43b019234a1271a16305178b1ef4c4397
+
+stage8b-p1f-o2-operator
+SHA-256: 81e88b129896287e2b6b849043d2dfb09b860ddcd3861d1094f7e76a857b40e7
+Size: 3 768 408 bytes
+BuildID: 7c4eb04186ee29ad7e53d881de94fa0894a8828b
+
+stage8b-p1-paper-supervisor
+SHA-256: b70d1eaf222c747909a907de3af565f601c7a2d4f2c8caaed1b0851d8bcfba1b
+Size: 13 549 928 bytes
+BuildID: 63934c6aefb4836ce9da7f433d069d0b0ab17de6
+
+Хеши, sizes и ELF identity пересчитаны независимо. Все три — Linux x86-64
+64-bit little-endian PIE, interpreter /lib64/ld-linux-x86-64.so.2. Максимальная
+версия требуемых GLIBC symbols — 2.34 для каждого. Это проверка binary identity,
+а не новая native target qualification или утверждение о текущем VPS.
+
+Рецепт наследует ранее принятый pinned Rust image:
+rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922.
+Log сообщает rustc/cargo 1.98.0, host x86_64-unknown-linux-gnu. Сборка всех
+трёх bins выполняется одним cargo build --locked --release, default features;
+offline задаётся CARGO_NET_OFFLINE=true, container network — none. Registry
+cache содержит публичные зависимости, source экспортируется из exact Git ref
+read-only. Mount workstation checkout, credentials, SSH agent, .env, Docker
+socket или operational paths в recipe не предусмотрен.
+
+Окончательный retained build завершился за 3m05s. Build log hash, source commit
+hash и build manifest связаны с тремя payloads. Qualification before/after
+hashes равны payload hashes: release test runs не заменили shipped ELF.
+Default-feature dead-code warnings сохранены; strict all-features Clippy
+проверяется отдельно. Это прежний build recipe, а не изменение CI toolchain.
+
+3. Доказательство исправления V4 в release
+
+Новый standalone probe линкует release rlibs из того же build. В source probe
+проверена последовательность: admitted raw snapshot → production materializer
+assembly → full V4 parser → protected staged consumer. Вход включает 404
+реальных History M10, из них 18 sparse, и явно синтетический seven-M1 candidate.
+Account/orders/params/schedule в probe — fixtures, не live broker observations.
+
+Capture: 2026-10-02T04:10:03.123456789Z.
+Receipt: 2026-10-02T04:10:03.123456788Z.
+Один и тот же source проходит assembly, parser и staged consumer без изменения
+точных bytes/hash. Guardian summary остаётся seconds-only. Rehashed source с
+усечённым capture отклоняется full parser и staged consumer. Никакого clock
+tolerance или переписывания receipt не добавлено.
+
+Проверены исходные assertions probe, hashes deterministic outputs, схемы
+policy V3/bootstrap 2/source V4, operational identity, no-riskgate V2 profile,
+source-bundle hash и linkage manifests/commands. Компонент guardian проверен
+отдельной существующей fixture; единый operational end-to-end run не заявлен.
+
+Actual-ELF smoke выполняет configuration/profile/policy positive controls и
+mixed-schema/identity negative controls. Supervisor принимает schema-2 config;
+materializer с policy V3 доходит до deliberately invalid account boundary и
+останавливается до token/network access. Operator проходит существующие
+custody/no-selector checks. Это не successful FINAM collection или bootstrap.
+
+Дополнительные Linux/amd64 release tests:
+- assembly/typed diagnostic: 2 passed;
+- fixed materializer CLI/staged: 4 passed;
+- V4 parser/legacy/freshness/first-boot/recovery: 8 passed;
+- guardian materialization/pending recovery/exact replay: 1 passed.
+Итого 15 passed, 0 failed, 0 ignored. Проверены selection commands, фактические
+test names, итоговые counts, exit codes и hashes полных логов.
+
+4. Результаты независимых проверок
+
+Повторно выполнены reviewer:
+- artifact checker: PASS;
+- archive negative harness: 22/22 PASS (16 inherited + 6 V4-specific);
+- current-tree authority: PASS, production 172/control 23/workflows 2;
+- authority negative harness: 45/45 PASS;
+- самостоятельная реконструкция обоих Git trees/commit hashes: PASS;
+- source comparison с принятым f3b3499: PASS;
+- пересчёт трёх ELF hashes/architecture/metadata: PASS;
+- hashes всех 33 generated entries descriptor: PASS;
+- postseal source inventory exact review tree: PASS, 2616 entries;
+- postseal archive binding и 11/11 command/log hashes: PASS.
+
+V4-specific archive mutations redigest descriptor и проверяют категории отказа:
+missing Linux evidence, missing guardian, invalid test command, disabled
+fractional probe, ELF-after drift и включённую сеть. Positive pristine archive
+проходит тем же checker. Исторические build/check tools не изменены.
+
+Retained postseal evidence подтверждает 11/11 commands, включая fmt и строгий
+offline workspace all-targets/all-features Clippy; все exit codes 0, deadline
+exceeded false, source_and_archive_unchanged true. Прежние 152 source tests
+не считаются новым full workspace run.
+
+В reviewer environment нет cargo/rustc/Docker. Linux compilation, release tests,
+ELF smoke, fmt и Clippy здесь не перезапускались: проверены code/recipes и
+retained evidence. Самостоятельно повторены доступные Python gates и binary/
+archive/source checks. Заново GitHub CI, native VPS/systemd runtime и full
+workspace Rust suite этим review не заявляются.
+
+5. Исходные environment failures
+
+Первый CLI qualification run дал 2 passed/2 failed из-за ReadOnlyFilesystem
+в существующих fixture scratch paths. Следующий отказ был OCI mount setup
+при отсутствующих mountpoints; он произошёл до test execution. Оба failures
+сохранены отдельно, с действительными error messages.
+
+Runner создаёт два пустых scratch mountpoints в disposable exported tree и
+монтирует tmpfs по crate/target paths. Exported Git blobs остаются read-only;
+production Rust, tests и assertions не изменялись. Final qualification имеет
+отдельные свежие logs и полный 15/15 PASS. Маскировки failed run не обнаружено.
+
+6. Следующая узкая граница
+
+Разрешена подготовка installation package для всего принятого комплекта с
+обычным текущим CI. Existing review/installation порядок сохраняется; новых
+frameworks, roadmap stages или повторной source-коррекции здесь не требуется.
+
+Installation package должен фиксировать согласованные identities всех трёх
+ELF, актуальный calendar/window и точную old→new inventory. При последующем
+отдельно разрешённом apply сохраняются фактическая terminal history/receipts
+(last recorded FAILED/1/8), genesis и существующая generation. Нельзя смешивать
+новый fractional writer со старым V4 consumer или устанавливать один ELF.
+October 2 fixture calendar — исключительно qualification input.
+
+После installation acceptance — отдельно разрешённая одна bounded O2 попытка,
+с сохранением terminal result и остановкой без автоматических повторов. O2
+успех, свежие бары и причинная связь timestamp bug с VPS отказом этим artifact
+не доказаны. FINAM POST/DELETE, broker dispatch, real orders и runtime-live
+остаются закрытыми. Следующие limited paper/parity O3/O4 окна остаются в
+существующем облегчённом roadmap: несколько сессий с ALOR, затем отдельная
+приёмка FINAM live micro.

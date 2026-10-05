@@ -27,6 +27,13 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
+2026-10-05 artifact acceptance: `1062691` is ARTIFACT / GOVERNANCE ACCEPTED.
+The [installation successor](stage-8/stage8b-p1f-o2-v4-timestamp-installation.md)
+binds all three accepted ELFs, October-6 calendar and actual FAILED/1/8 baseline.
+Next: installation package review/current CI → separately authorized stopped
+installation preserving history and exhausted scheduler → separately authorized
+bounded O2 → existing O3/O4 operational/ALOR parity. No new stage or live surface.
+
 2026-10-05 acceptance follow-up: `f3b3499` is independently SOURCE / AUTHORITY
 ACCEPTED. Prepare the [complete timestamp successor artifact](stage-8/stage8b-p1f-o2-v4-timestamp-artifact.md)
 from its exact tree, then artifact review/ordinary CI, separately permitted

@@ -2,6 +2,20 @@
 
 Status date: 2026-10-05.
 
+2026-10-05 artifact acceptance / installation preparation:
+`1062691` is independently ARTIFACT / GOVERNANCE ACCEPTED in the
+[retained review](stage-8/reviews/REVIEW_1062691_O2_V4_TIMESTAMP_ARTIFACT_RU.txt).
+The [V4 timestamp installation successor](stage-8/stage8b-p1f-o2-v4-timestamp-installation.md)
+is a non-activating package review candidate. All three accepted ELF bytes are
+reused, with October-6 candidate calendar and exact old/new inventory.
+Read-only VPS inventory at 15:48 UTC confirms FAILED/1/8 and the old installed
+manifest; no remote mutation, Redis/FINAM request, signing or run occurred.
+The exhausted October-5 timer/one-use marker and old transaction are preserved;
+only their exact terminal form is admitted by the new installation preflight.
+O2 HOLD. Next: installation review/current CI, separately allowed stopped apply,
+then separately allowed bounded O2. O3/O4 operational parity stays open.
+The earlier artifact-candidate note below is historical.
+
 2026-10-05 source acceptance / artifact follow-up: the [independent review](stage-8/reviews/REVIEW_f3b3499_O2_V4_TIMESTAMP_RU.txt)
 accepts `f3b349949802abd5eff80cad6b9e9fc37bc327e1` as SOURCE / AUTHORITY ACCEPT.
 The [full V4 timestamp successor artifact](stage-8/stage8b-p1f-o2-v4-timestamp-artifact.md)
