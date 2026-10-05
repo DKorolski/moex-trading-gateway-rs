@@ -27,6 +27,14 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
+2026-10-05 acceptance follow-up: `f3b3499` is independently SOURCE / AUTHORITY
+ACCEPTED. Prepare the [complete timestamp successor artifact](stage-8/stage8b-p1f-o2-v4-timestamp-artifact.md)
+from its exact tree, then artifact review/ordinary CI, separately permitted
+installation preserving terminal history, and separately permitted bounded O2.
+No production-code expansion or new roadmap stage; O2 remains HOLD. Existing
+O3/O4 WS, freshness, EOD and multi-session parity checks are not closed by an
+offline artifact. The preceding candidate status below is superseded.
+
 2026-10-05 update: O2 is HOLD after a materializer rejection and cleanup to
 FAILED/1/8, before bootstrap. The
 [V4 timestamp correction](stage-8/stage8b-p1f-o2-v4-timestamp-correction-2026-10-05.md)

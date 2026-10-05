@@ -1,0 +1,164 @@
+Независимый инженерный review O2 V4 timestamp correction
+Дата: 5 октября 2026 года (MSK)
+
+Решение: SOURCE / AUTHORITY ACCEPT.
+Review target: f3b349949802abd5eff80cad6b9e9fc37bc327e1.
+Source implementation: c5545da055ec91035a9ee695dbe6c7c6ad2c67a9.
+Принятый baseline: b8732cc7ddff1322fd569add0d3438844cc090a1.
+Reviewed tree: e9a744c59d43064283620903ea9b79175073efab.
+ZIP SHA-256: 8b7e2097a162af3ddd85694ed56fb508ed3e494a1fed786b0c3cd29f6971b159.
+
+Блокирующих P1/P2 findings по представленной source/authority-дельте не найдено.
+Принимаются исправление V4 observation timestamps, безопасная классификация
+parser errors и inventory-only authority binding. Это решение не означает
+O2 PASS, operational acceptance, разрешение установки или нового запуска.
+
+1. Целостность и граница изменения
+
+Независимо проверены размер ZIP 8 695 037 bytes, SHA-256, CRC, уникальность
+2624 regular members и безопасность путей. В архиве 2607 tracked files и
+17 generated handoff/evidence files; duplicates/symlinks/unsafe paths — 0.
+По bytes/modes source manifest самостоятельно восстановлен Git tree. Проверены
+SHA обеих raw Git commit-сущностей и lineage:
+b8732cc → c5545da → f3b3499. Tree source implementation:
+528c4aa4d63d83da7c860f62cff7143793aa1711.
+
+Baseline ZIP восстановлен для byte comparison; его SHA совпал с ранее принятым:
+d68bfad3a173fd634334b7821eb29445b30ff2ff5a4ec8f4dcf02f24b23f759d.
+Общая дельта: 12 путей. Source commit содержит 7 Rust-файлов, current-status,
+roadmap, узкий correction-документ и handoff script. Authority commit изменяет
+только docs/stage-8/gov-ci-1-authority.json. Из двух его inventories обновлены
+production/control hashes; остальные поля, path sets, accepted pins и closed
+flags сохранены. Самоприёмка в authority не записана.
+
+Не изменились все Cargo manifests/Cargo.lock, 45 файлов strategy-runtime-core,
+10 config-файлов, 38 deploy-файлов и 2 workflows. Изменение guardian.rs находится
+в тестовой fixture; production guardian и terminal-history schema не менялись.
+Соседние WS/scheduler работы не входят в эту дельту.
+
+2. Подтверждённый дефект и корректность исправления
+
+Прежний V4 writer использовал SecondsFormat::Secs. Например, receipt
+05:00:03.100Z и capture 05:00:03.200Z превращались в receipt > captured_at,
+поскольку captured_at сериализовался как 05:00:03Z. Проверка chronology
+правильно отклоняла такой документ; ошибка была в потере точности writer.
+
+Теперь observed/source.rs сохраняет точный trusted_now в captured_at_utc,
+broker_truth.checked_at_utc и materialization evidence посредством UTC AutoSi.
+Receipt bytes/hash и canonical M10 не переписываются. Секундная поблажка,
+округление или ожидание следующей секунды не добавлены.
+
+В durable parser выбор нового формата зависит от уже выбранного
+SourceAggregationPolicy::ObservedV4. Production bootstrap выбирает этот policy
+по validated deployment identity; legacy parser остаётся StrictLegacy.
+Schema/domain/profile/identity/hash проверяются до observation timestamps.
+
+parse_observation_timestamp проверяет точный round trip в UTC AutoSi:
+допустимы целые секунды либо canonical 3/6/9 fractional digits. Неканонические
+offsets, aliases, избыточные нули и leap seconds отклоняются. V2/V3 остаются
+строго seconds-only. Целосекундные ранее допустимые V4 документы поддерживаются.
+
+Сравнения сохраняют DateTime/Duration точность: receipt <= capture <= trusted_now,
+broker-truth <= capture; fresh broker truth имеет прежний максимум 300 s.
+Receipt-age проверяется относительно capture с прежним максимумом 900 s.
+HistoricalRecovery не объявляет историческую truth свежей: он требует исходные
+bundle bytes/hash и authenticated transaction/provenance binding.
+
+3. Реальные пути потребления и recovery
+
+Проверены изменённые tests и вызываемые ими production paths:
+- assembly + retained-source validation на целых секундах, ms/ns, разнице 1 ns
+  и равенстве receipt/capture; отдельно проверена неизменность receipt/M10 bytes;
+- full parser: clock reversal, receipt после capture, broker-truth после capture,
+  границы 300/900 s и отказ на 1 ns сверх границы, неверные wire formats;
+- legacy V2/V3 positive controls и отказ на fractional observation timestamps;
+- fixed materializer CLI, real-history round trip и protected staged consumer
+  с capture .123456789Z и receipt на 1 ns раньше;
+- History/Replay/Stage5G export/restore и V5 transaction с fractional V4;
+- interrupted Prepared write, marker-bound recovery после 30 суток и restart
+  с той же source/receipt/candidate identity;
+- guardian materialization/pending recovery/exact replay с fractional source.
+
+Staged consumer возвращает guardian секундную summary broker-truth timestamp,
+но сохраняет точные source bytes. Guardian повторно вызывает full fresh source
+parser и проверяет соответствие summary точному source. Summary не подменяет
+source и не предоставляет обхода точного freshness check. Production guardian
+или lifecycle расширять ради этой коррекции не требуется.
+
+4. Диагностика
+
+Assembly self-check и validate_retained_source теперь исчерпывающе отображают
+Stage8bP1eFirstBootSourceError в статические reason codes. В эти codes не
+попадают account IDs, token, response body, paths или upstream error strings.
+CollectionProgress и существующая граница JSON <=4096 bytes сохраняются.
+
+Новый тест вызывает настоящий parser rejection при усечённом capture и настоящий
+assembly rejection при неполной history, затем проверяет source_invalid_history,
+canonical_validation, collection progress и отсутствие sensitive strings.
+Это проверка реального error path, а не только сравнение enum constants.
+Она не означает, что любой прежний отказ SourceRejected уже диагностирован.
+
+5. Независимые проверки и ограничения evidence
+
+Повторно выполнены в распакованном дереве:
+- archive verification: PASS;
+- независимая реконструкция обоих Git trees и raw commit hashes: PASS;
+- byte/mode comparison baseline и всех изменённых путей: PASS;
+- current-tree authority: PASS, production 172, control 23, workflows 2;
+- authority negative harness: 45/45 PASS;
+- immutable sparse diagnostic fixture verification: 5/5 PASS;
+- SHA связность generated evidence, logs и source inventory: PASS.
+
+Для authority check восстановлены executable modes из ZIP manifest: обычная
+Python extractall их не сохраняет. Первичный local entry-drift был артефактом
+распаковки; после восстановления исходных modes checker прошёл. Source bytes
+и uploaded ZIP не изменялись.
+
+Полные retained logs exact packaged tree подтверждают:
+gateway library 27 PASS;
+materializer CLI 14 PASS;
+first-boot/source/recovery 47 PASS;
+guardian/staged/unit 64 PASS, 1 ignored helper;
+итого 152 верхнеуровневых tests PASS. Вложенные child invocations повторно
+не посчитаны. Новые timestamp/diagnostic tests присутствуют в selection/logs.
+Также retained fmt, strict offline workspace all-targets/all-features Clippy
+и diff-check имеют exit 0 и проверенные log hashes.
+
+В reviewer environment нет cargo/rustc/Docker. Rust tests, fmt и Clippy здесь
+заново не выполнялись: оценены source, реальные test bodies и retained logs.
+Этот пакет не заявляет full workspace test suite, Linux release qualification
+или GitHub CI. Для узкой correction-границы представленное evidence достаточно;
+будущий полный successor artifact проходит свою существующую qualification.
+
+6. Что не доказано о VPS и барах
+
+Корректность timestamp patch и наличие прежнего дефекта подтверждены. Его связь
+с конкретным operational отказом 5 октября не установлена: exact rejected
+bundle/receipt timestamp не сохранены. Формулировка «причина VPS найдена» была
+бы необоснованной. Проверка этого source package не измеряет текущие FINAM бары,
+DB15, WS continuity или trading parity.
+
+FAILED / generation 1 / sequence 8 указан разработчиком и в documentation как
+последний terminal frontier. В этом review это не отдельная приёмка фактического
+operational evidence. При следующей установке сохраняется фактическая принятая
+terminal history и все receipts; создавать genesis или повторно использовать
+завершённую фазу нельзя.
+
+7. Следующий разрешённый результат и облегчённый scope
+
+Можно готовить полный согласованный successor artifact от принятого source/
+authority tree: materializer, operator и supervisor/runtime consumer. Нельзя
+совмещать новый fractional writer со старыми seconds-only V4 consumers или
+заменять только один ELF. Проверка artifact должна включать production assembly
+→ staged consumer → guardian materialization с fractional V4 и отрицательный
+chronology control; использовать существующие tests/gates.
+
+Далее — installation package/evidence с сохранением terminal history, актуальная
+calendar/window binding, после этого отдельно разрешённая одна bounded O2
+попытка с обязательной остановкой и terminal result. Сам O2 остаётся HOLD до
+успешного выполнения и приёмки. FINAM writes/live не открываются этим решением.
+
+Новые roadmap stages, generic timestamp framework, расширение guardian или
+повторный аудит всей стратегии здесь не нужны. После O2 продолжать существующие
+ограниченные O3/O4 paper/parity окна; цель остаётся несколько отладочных сессий
+против ALOR и затем отдельно принятый FINAM live micro.

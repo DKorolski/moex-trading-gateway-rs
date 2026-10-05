@@ -1,0 +1,3 @@
+docker: Error response from daemon: failed to create task for container: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: error during container init: error mounting "tmpfs" to rootfs at "/src/crates/finam-gateway/target": create mountpoint for /src/crates/finam-gateway/target mount: make mountpoint "/src/crates/finam-gateway/target": mkdirat /var/lib/docker/rootfs/overlayfs/cde8540ff6bc9be1085152492d62cf898f9ec21fd1a316a6e422d9494ed975d1/src/crates/finam-gateway/target: read-only file system
+
+Run 'docker run --help' for more information

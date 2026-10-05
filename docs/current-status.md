@@ -2,6 +2,19 @@
 
 Status date: 2026-10-05.
 
+2026-10-05 source acceptance / artifact follow-up: the [independent review](stage-8/reviews/REVIEW_f3b3499_O2_V4_TIMESTAMP_RU.txt)
+accepts `f3b349949802abd5eff80cad6b9e9fc37bc327e1` as SOURCE / AUTHORITY ACCEPT.
+The [full V4 timestamp successor artifact](stage-8/stage8b-p1f-o2-v4-timestamp-artifact.md)
+is a binary review candidate, not installable or operationally accepted.
+All three ELFs are built from that exact accepted tree; packaging adds no
+production Rust/Cargo/workflow changes. Fractional production assembly/staged-consumer
+qualification and existing Linux release guardian/recovery tests are required.
+O2 remains HOLD; the October 5 failure's exact cause remains unproven. Preserve
+the actual terminal history (last recorded FAILED/1/8) through the later,
+separately permitted installation. No new run, timer, live writes or VPS access.
+Next review is the artifact package; O3/O4 WS/freshness/EOD parity remains open.
+The earlier dated source-candidate note below is historical.
+
 2026-10-05: the authorized one-shot O2 stopped at materializer V4 self-validation
 after five GETs, before bootstrap. Retained terminal frontier: FAILED/1/8;
 the earlier history is preserved. O2 remains HOLD. A timestamp precision defect
