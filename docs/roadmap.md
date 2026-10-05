@@ -27,6 +27,15 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
+2026-10-05 update: O2 is HOLD after a materializer rejection and cleanup to
+FAILED/1/8, before bootstrap. The
+[V4 timestamp correction](stage-8/stage8b-p1f-o2-v4-timestamp-correction-2026-10-05.md)
+is a narrow source/authority review candidate, not a new roadmap stage. Its
+reproduced precision defect is not claimed as the proven cause of the VPS attempt.
+Next: accepted source/authority → full successor artifact → installation retaining
+terminal history → separately authorized bounded O2 → existing O3/O4 paper/parity
+checks. Local P0 WS work stays separate. No FINAM order writes or runtime-live.
+
 2026-10-02 addendum: [sparse-M10 source correction](stage-8/stage8b-p1f-sparse-m10-correction-progress.md)
 is the current local work; O2 remains HOLD. [WS and operational parity checks](stage-8/stage8b-operational-market-data-parity-checklist.md)
 remain in the existing read-only O4 / multi-session paper path before live-micro

@@ -5582,8 +5582,12 @@ mod tests {
             .operational_identity_sha256()
             .to_string();
         let (source, trusted_now) = if observed {
-            let (value, now) =
+            let (mut value, now) =
                 crate::stage8b_p1e_first_boot_source::observed::tests::fixture(&operational);
+            let now = now + chrono::Duration::nanoseconds(123_456_789);
+            value["captured_at_utc"] =
+                serde_json::json!(now.to_rfc3339_opts(SecondsFormat::AutoSi, true));
+            value["broker_truth"]["checked_at_utc"] = value["captured_at_utc"].clone();
             (serde_json::to_vec(&value).unwrap(), now)
         } else {
             let (bytes, now, _, _) =
@@ -5595,10 +5599,17 @@ mod tests {
         };
         setup.now = trusted_now;
         let source_value: Value = serde_json::from_slice(&source).unwrap();
-        let checked_at = source_value["broker_truth"]["checked_at_utc"]
-            .as_str()
+        // Same conservative projection supplied by the staged-source consumer.
+        // The source bundle itself keeps exact V4 observation timestamps.
+        let checked_at = canonical_timestamp(
+            DateTime::parse_from_rfc3339(
+                source_value["broker_truth"]["checked_at_utc"]
+                    .as_str()
+                    .unwrap(),
+            )
             .unwrap()
-            .to_string();
+            .with_timezone(&Utc),
+        );
         let mut template = serde_json::json!({
             "schema_version": 1,
             "runtime_profile_id": profile.profile_id(),

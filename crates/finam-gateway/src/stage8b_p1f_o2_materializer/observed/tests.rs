@@ -392,15 +392,134 @@ fn source_v4(
 }
 
 #[test]
+fn observed_v4_assembly_preserves_subsecond_receipt_chronology() {
+    let template = template();
+    for (received, captured) in [
+        ("2026-10-02T05:00:03Z", "2026-10-02T05:00:03Z"),
+        ("2026-10-02T05:00:02.900Z", "2026-10-02T05:00:03Z"),
+        ("2026-10-02T05:00:03.100Z", "2026-10-02T05:00:03.200Z"),
+        (
+            "2026-10-02T05:00:03.123456788Z",
+            "2026-10-02T05:00:03.123456789Z",
+        ),
+        (
+            "2026-10-02T05:00:03.123456789Z",
+            "2026-10-02T05:00:03.123456789Z",
+        ),
+    ] {
+        let now = time(captured);
+        let plan = plan(&template, now).unwrap();
+        let mut raw = mixed_evidence(&plan, &[0, 4, 9]);
+        raw.parts[0].received_at = time(received);
+        let materialized = plan.materialize(raw, now).unwrap();
+        let receipt = materialized.snapshot().receipt();
+        let canonical_before = materialized.candidate_canonical_bytes().unwrap();
+        let output = source_v4(&materialized, &template, now, 0)
+            .unwrap_or_else(|error| panic!("received={received}, captured={captured}: {error:?}"));
+        let source: Value = serde_json::from_slice(&output.exact_source_bytes).unwrap();
+        assert_eq!(source["captured_at_utc"], captured);
+        assert_eq!(source["broker_truth"]["checked_at_utc"], captured);
+        assert_eq!(output.evidence.captured_at_utc, captured);
+        assert_eq!(receipt.received_at(), time(received));
+        assert_eq!(
+            source["observed_source"]["receipt_sha256"],
+            receipt.sha256()
+        );
+        assert_eq!(
+            source["observed_source"]["receipt"]
+                .as_str()
+                .unwrap()
+                .as_bytes(),
+            receipt.retained_bytes()
+        );
+        assert_eq!(
+            materialized.candidate_canonical_bytes().unwrap(),
+            canonical_before
+        );
+        materialized
+            .validate_retained_source(
+                &serde_json::to_vec(&template).unwrap(),
+                &output.exact_source_bytes,
+                &output.evidence,
+                "ACC_TEST_0001",
+                now,
+            )
+            .unwrap();
+    }
+}
+
+#[test]
+fn observed_v4_parser_failure_keeps_typed_safe_diagnostic_and_collection_progress() {
+    let template = template();
+    let now = time("2026-10-02T05:00:03.200Z");
+    let plan = plan(&template, now).unwrap();
+    let mut raw = mixed_evidence(&plan, &[0, 4, 9]);
+    raw.parts[0].received_at = time("2026-10-02T05:00:03.100Z");
+    let mut materialized = plan.materialize(raw, now).unwrap();
+    let output = source_v4(&materialized, &template, now, 0).unwrap();
+    // Replay the former floor-to-seconds defect into a retained source. The
+    // real parser, not a mocked error, must reject it specifically as history.
+    let mut source: Value = serde_json::from_slice(&output.exact_source_bytes).unwrap();
+    source["captured_at_utc"] = json!("2026-10-02T05:00:03Z");
+    source["broker_truth"]["checked_at_utc"] = source["captured_at_utc"].clone();
+    let replay_error = materialized
+        .validate_retained_source(
+            &serde_json::to_vec(&template).unwrap(),
+            &serde_json::to_vec(&source).unwrap(),
+            &output.evidence,
+            "ACC_TEST_0001",
+            now,
+        )
+        .expect_err("receipt later than truncated capture must be rejected");
+    // Also exercise the assembly's parser-error projection, not just replay.
+    materialized.history.pop();
+    let assembly_error = source_v4(&materialized, &template, now, 0)
+        .expect_err("missing history cannot be assembled");
+    for error in [replay_error, assembly_error] {
+        let progress = super::super::CollectionProgress {
+            gets: 5,
+            chunks: 1,
+            last_collected: Some("collection_complete"),
+            chunk: Some((
+                0,
+                plan.request_start().timestamp(),
+                plan.request_end().timestamp(),
+            )),
+            ..Default::default()
+        };
+        let sensitive = "DO_NOT_ECHO_account_token_body";
+        let diagnostic = progress
+            .error(error)
+            .diagnostic_json(sensitive, sensitive, sensitive, sensitive, sensitive, now);
+        assert!(diagnostic.len() <= 4096);
+        assert!(!diagnostic.contains(sensitive));
+        assert!(!diagnostic.contains("ACC_TEST_0001"));
+        let record: Value = serde_json::from_str(&diagnostic).unwrap();
+        assert_eq!(record["failure"]["stage"], "canonical_validation");
+        assert_eq!(record["failure"]["reason_code"], "source_invalid_history");
+        assert_eq!(
+            record["failure"]["last_validated_stage"],
+            "collection_complete"
+        );
+        assert_eq!(record["failure"]["completed_typed_gets"], 5);
+        assert_eq!(record["failure"]["completed_chunks"], 1);
+        assert_eq!(
+            record["failure"]["chunk_end_utc"],
+            plan.request_end().timestamp()
+        );
+    }
+}
+
+#[test]
 fn observed_real_history_wire_v4_first_boot_warmup_and_restore_use_same_receipt() {
     use runtime_durable_service as durable;
     use strategy_runtime_core as core;
     let template = template();
-    let now = time("2026-10-02T05:00:03Z");
+    let now = time("2026-10-02T05:00:03.123456789Z");
     let plan = plan(&template, now).unwrap();
-    let materialized = plan
-        .materialize(mixed_evidence(&plan, &[0, 4, 9]), now)
-        .unwrap();
+    let mut raw = mixed_evidence(&plan, &[0, 4, 9]);
+    raw.parts[0].received_at = now - Duration::nanoseconds(1);
+    let materialized = plan.materialize(raw, now).unwrap();
     let output = source_v4(&materialized, &template, now, 0).unwrap();
     let bytes = &output.exact_source_bytes;
     assert_eq!(output.evidence.schema_version, 2);
@@ -420,6 +539,8 @@ fn observed_real_history_wire_v4_first_boot_warmup_and_restore_use_same_receipt(
         now,
     )
     .unwrap();
+    assert_eq!(admitted.captured_at(), now);
+    assert_eq!(admitted.broker_truth_checked_at(), now);
     assert_eq!(
         admitted.observed_receipt().unwrap().sha256(),
         materialized.snapshot().receipt().sha256()

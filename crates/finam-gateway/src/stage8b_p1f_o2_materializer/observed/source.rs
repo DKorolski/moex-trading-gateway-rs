@@ -2,11 +2,10 @@
 //! order, instrument, schedule and raw-route checks; it never fills sparse V3.
 
 use super::super::{
-    canonical_timestamp, short_history_coverage, validate_flat_target, validate_params,
-    validate_route_observations, validate_schedule, validate_zero_active_orders,
-    Stage8bP1fO2MaterializationEvidenceV1, Stage8bP1fO2MaterializedSourceV1,
-    Stage8bP1fO2MaterializerErrorV1, Stage8bP1fO2RouteEvidenceV1, STAGE8B_P1F_O2_ACCOUNT_ALIAS,
-    STAGE8B_P1F_O2_ACCOUNT_TEMPLATE_SENTINEL,
+    short_history_coverage, validate_flat_target, validate_params, validate_route_observations,
+    validate_schedule, validate_zero_active_orders, Stage8bP1fO2MaterializationEvidenceV1,
+    Stage8bP1fO2MaterializedSourceV1, Stage8bP1fO2MaterializerErrorV1, Stage8bP1fO2RouteEvidenceV1,
+    STAGE8B_P1F_O2_ACCOUNT_ALIAS, STAGE8B_P1F_O2_ACCOUNT_TEMPLATE_SENTINEL,
 };
 use super::*;
 use broker_finam::{
@@ -15,6 +14,36 @@ use broker_finam::{
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+
+// V4 must preserve receipt <= capture <= trusted_now at the original precision.
+// The shared legacy formatter intentionally emits whole seconds; do not use it
+// here or rewrite the exact retained receipt to compensate for truncation.
+fn observation_timestamp(value: DateTime<Utc>) -> String {
+    value.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true)
+}
+
+fn source_validation_error(
+    error: runtime_durable_service::Stage8bP1eFirstBootSourceError,
+) -> Stage8bP1fO2MaterializerErrorV1 {
+    use runtime_durable_service::Stage8bP1eFirstBootSourceError as E;
+    // Exhaustive, static allowlist: never include source JSON, accounts, paths,
+    // HTTP errors or response strings in the public diagnostic.
+    let code = match error {
+        E::InvalidFileBoundary => "source_invalid_file_boundary",
+        E::SourceTooLarge => "source_too_large",
+        E::SourceReadFailed => "source_read_failed",
+        E::SourceHashMismatch => "source_hash_mismatch",
+        E::InvalidJson => "source_invalid_json",
+        E::DuplicateJsonKey => "source_duplicate_json_key",
+        E::InvalidSchema => "source_invalid_schema",
+        E::IdentityMismatch => "source_identity_mismatch",
+        E::InvalidBrokerTruth => "source_invalid_broker_truth",
+        E::InvalidHistory => "source_invalid_history",
+        E::InvalidRiskGateHistory => "source_invalid_riskgate_history",
+        E::InvalidCandidate => "source_invalid_candidate",
+    };
+    Stage8bP1fO2MaterializerErrorV1::detailed("canonical_validation", code)
+}
 
 impl Stage8bP1fObservedM10Materialization {
     /// The caller retains `snapshot().evidence()` exactly once alongside this
@@ -125,9 +154,9 @@ impl Stage8bP1fObservedM10Materialization {
         let history_hash = canonical_value_sha256(&json!(history));
         source["schema_version"] = json!(4);
         source["domain"] = json!(durable::STAGE8B_P1E_FIRST_BOOT_SOURCE_V4_DOMAIN);
-        source["captured_at_utc"] = json!(canonical_timestamp(trusted_now));
+        source["captured_at_utc"] = json!(observation_timestamp(trusted_now));
         source["broker_truth"] = json!({
-            "checked_at_utc":canonical_timestamp(trusted_now), "account_id":STAGE8B_P1F_O2_ACCOUNT_ALIAS,
+            "checked_at_utc":observation_timestamp(trusted_now), "account_id":STAGE8B_P1F_O2_ACCOUNT_ALIAS,
             "instrument":"IMOEXF@RTSX", "target_position_qty":"0", "target_positions_complete":true,
             "target_active_orders_count":0, "account_active_orders_count":0, "active_orders_complete":true,
             "instrument_price_step":"0.5"
@@ -170,13 +199,13 @@ impl Stage8bP1fObservedM10Materialization {
             STAGE8B_P1F_O2_ACCOUNT_ALIAS,
             trusted_now,
         )
-        .map_err(|_| Stage8bP1fO2MaterializerErrorV1::SourceRejected)?;
+        .map_err(source_validation_error)?;
         Ok(Stage8bP1fO2MaterializedSourceV1 {
             exact_source_bytes,
             evidence: Stage8bP1fO2MaterializationEvidenceV1 {
                 schema_version: 2,
                 domain: "stage8b-p1f-o2-observed-materialization-evidence-v2".into(),
-                captured_at_utc: canonical_timestamp(trusted_now),
+                captured_at_utc: observation_timestamp(trusted_now),
                 account_id_sha256: sha256_hex(expected_account_id.as_bytes()),
                 venue_symbol: "IMOEXF@RTSX".into(),
                 target_position_qty: "0".into(),
@@ -222,7 +251,7 @@ impl Stage8bP1fObservedM10Materialization {
             STAGE8B_P1F_O2_ACCOUNT_ALIAS,
             trusted_now,
         )
-        .map_err(|_| invalid())?;
+        .map_err(source_validation_error)?;
         for key in [
             "operational_identity_sha256",
             "runtime_profile_sha256",

@@ -900,9 +900,13 @@ fn parse_first_boot_source(
         return Err(Stage8bP1eFirstBootSourceError::IdentityMismatch);
     }
 
-    let captured_at = parse_canonical_timestamp(&document.captured_at_utc)
+    let parse_observation_time = match aggregation_policy {
+        SourceAggregationPolicy::StrictLegacy => parse_canonical_timestamp,
+        SourceAggregationPolicy::ObservedV4 => observed::parse_observation_timestamp,
+    };
+    let captured_at = parse_observation_time(&document.captured_at_utc)
         .ok_or(Stage8bP1eFirstBootSourceError::InvalidSchema)?;
-    let broker_truth_checked_at = parse_canonical_timestamp(&document.broker_truth.checked_at_utc)
+    let broker_truth_checked_at = parse_observation_time(&document.broker_truth.checked_at_utc)
         .ok_or(Stage8bP1eFirstBootSourceError::InvalidBrokerTruth)?;
     if captured_at > trusted_now
         || broker_truth_checked_at > captured_at

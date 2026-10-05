@@ -1,6 +1,20 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-10-04.
+Status date: 2026-10-05.
+
+2026-10-05: the authorized one-shot O2 stopped at materializer V4 self-validation
+after five GETs, before bootstrap. Retained terminal frontier: FAILED/1/8;
+the earlier history is preserved. O2 remains HOLD. A timestamp precision defect
+is reproduced and corrected locally, but is not proven to be the exact cause of
+that attempt because its rejected bundle was not retained. The
+[narrow source-review candidate](stage-8/stage8b-p1f-o2-v4-timestamp-correction-2026-10-05.md)
+preserves V4 receipt/capture chronology without a clock tolerance. Candidate
+authority rebinding is an inventory-only follow-up, not independent acceptance.
+The immutable package is built from a clean checkout; separate local WS and
+scheduler changes are excluded. No VPS, installation or retry in this slice.
+After source/authority acceptance: rebuild the full consistent artifact, install
+under its own gate retaining FAILED/1/8, then separately authorize bounded O2.
+The dated notes below are historical and superseded where applicable.
 
 2026-10-04: sparse artifact `823fd35` independently ARTIFACT / GOVERNANCE ACCEPTED;
 exact-head CI run 37139561774 completed `rust` + `redis-smoke` successfully.

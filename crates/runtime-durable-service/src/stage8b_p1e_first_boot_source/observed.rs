@@ -19,6 +19,22 @@ pub(super) enum SourceAggregationPolicy {
     ObservedV4,
 }
 
+/// V4 observations retain the clock precision of the REST receipt. Canonical
+/// UTC AutoSi accepts whole seconds or exact millisecond/microsecond/nanosecond
+/// precision; it does not round, allow offsets, or admit leap-second aliases.
+/// M1/M10 boundaries and legacy V2/V3 timestamps keep their existing contracts.
+pub(super) fn parse_observation_timestamp(value: &str) -> Option<DateTime<Utc>> {
+    let parsed = DateTime::parse_from_rfc3339(value)
+        .ok()?
+        .with_timezone(&Utc);
+    if parsed.nanosecond() >= 1_000_000_000
+        || parsed.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true) != value
+    {
+        return None;
+    }
+    Some(parsed)
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct FirstBootObservedSourceV4 {
