@@ -106,6 +106,13 @@ Calendar/ELF probes use network-none Linux/amd64 emulation. This is not fresh
 FINAM collection, native VPS execution or successful O2. No new full Rust suite
 or GitHub Actions success is claimed by these local packaging checks.
 
+Initial packaging gate at `2aaefdd` passed commands 0–6, then stopped before
+linking with `ambiguous accepted dependency`: the accepted release-test run had
+left multiple rlib variants in the same target directory. The successor gate
+selects the exact filenames already retained in the accepted artifact's rlib
+manifest and verifies their hashes. No library rebuild or newest-file fallback;
+the initial partial run is not labelled PASS. Final evidence is a separate run.
+
 The new fixed updater reuses the existing locks, backup/fsync/journal protocol.
 Its own transaction is `o2-v4-timestamp-f3b3499`; historical transaction untouched.
 Preflight checks exact stopped/P0/history/config/durable/staging/schedule/backup

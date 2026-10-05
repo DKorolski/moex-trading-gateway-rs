@@ -70,7 +70,11 @@ def gate(package, build, output):
     externs = []
     linked_rlibs = {}
     for name in ('runtime_durable_service', 'finam_gateway', 'serde_json', 'chrono'):
-        choices = list(deps.glob(f'lib{name}-*.rlib'))
+        # Timestamp release tests left additional dependency variants in target.
+        # Select only the exact filename AND hash retained by the accepted probe.
+        # Never choose the newest file or rebuild a differently configured rlib.
+        choices = [deps / filename for filename in accepted_rlibs
+                   if filename.startswith(f'lib{name}-') and filename.endswith('.rlib')]
         require(len(choices) == 1, 'ambiguous accepted dependency')
         digest = sha(choices[0].read_bytes())
         require(accepted_rlibs.get(choices[0].name) == digest, 'accepted release rlib mismatch')
