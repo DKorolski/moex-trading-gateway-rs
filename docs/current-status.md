@@ -2,6 +2,16 @@
 
 Status date: 2026-10-06.
 
+2026-10-06 acceptance / successor preparation: `f0e880d` is independently
+SOURCE / PACKAGING CORRECTION ACCEPTED; October-6 failure/cleanup evidence is
+also accepted. Fresh read-only inventory confirms actual FAILED/1/10. The
+[canonical-template installation successor](stage-8/stage8b-p1f-o2-template-encoding-installation.md)
+reuses all three accepted ELF bytes, binds four changed slots and an October-7
+candidate calendar, preserving complete history, diagnostic input, both exhausted
+timers and prior transactions. Package review candidate only; no installation,
+phase, timer or retry performed. O2 HOLD; O3/O4 still ahead. Earlier notes below
+describe the preceding local correction candidate.
+
 2026-10-06: bounded O2 reached materializer exit 0, then guardian rejected the
 packaged supervisor template (final LF violates exact canonical JSON). Cleanup
 retained **FAILED/1/10**; P1 stopped, P0 and installed payload unchanged.

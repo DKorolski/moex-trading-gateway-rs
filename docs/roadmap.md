@@ -27,6 +27,13 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
+2026-10-06 acceptance follow-up: `f0e880d` source/packaging correction and the
+FAILED/1/10 result evidence are accepted. Prepare the
+[narrow successor installation package](stage-8/stage8b-p1f-o2-template-encoding-installation.md)
+with unchanged accepted ELFs and an explicit October-7 calendar. Review/current
+CI → separately permitted stopped installation preserving history → separately
+permitted bounded O2. O2 remains HOLD; no new macro-stage or operational authority.
+
 2026-10-06: O2 remains HOLD at retained FAILED/1/10. The
 [template encoding correction](stage-8/stage8b-p1f-o2-template-encoding-correction.md)
 fixes packaging, not runtime semantics. Local accepted-release materialization
