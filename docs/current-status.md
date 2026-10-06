@@ -1,6 +1,17 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-10-05.
+Status date: 2026-10-06.
+
+2026-10-06: bounded O2 reached materializer exit 0, then guardian rejected the
+packaged supervisor template (final LF violates exact canonical JSON). Cleanup
+retained **FAILED/1/10**; P1 stopped, P0 and installed payload unchanged.
+The [narrow packaging correction](stage-8/stage8b-p1f-o2-template-encoding-correction.md)
+passes actual-package regressions and accepted-release offline materialization
+through ReadyForBootstrap, exact reread and idempotent replay. Fixture-only
+authority and historical clock; no operational bootstrap or retry. O2 HOLD.
+Next: correction review, successor package bound to FAILED/1/10 and a fresh
+calendar, separately authorized stopped installation and bounded O2. Existing
+WS/O3/O4 work remains separate. Earlier dated status below is historical.
 
 2026-10-05 artifact acceptance / installation preparation:
 `1062691` is independently ARTIFACT / GOVERNANCE ACCEPTED in the

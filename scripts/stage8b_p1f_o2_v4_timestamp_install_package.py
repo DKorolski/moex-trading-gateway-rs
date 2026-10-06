@@ -104,6 +104,16 @@ def session(date):
     return dict(session_date=date, windows=[dict(first_close_time_utc=ts('04:10:00'), last_close_time_utc=ts('20:50:00'))])
 
 
+def supervisor_template_bytes(value):
+    """Guardian parses this slot as canonical serde_json::Value, without LF.
+
+    Do not change the newline-terminated inventory/policy/history encoding.
+    Exact emitted bytes, including this distinction, belong in hash bindings.
+    """
+    return json.dumps(value, sort_keys=True, separators=(',', ':'),
+                      ensure_ascii=False, allow_nan=False).encode('utf-8')
+
+
 def material(prior, z):
     payload = {name: z.read(artifact.P + 'payload/' + Path(name).name) for name in update.CHANGES[:3]}
     policy = update.strict_json(prior[update.CHANGES[3]])
@@ -120,7 +130,7 @@ def material(prior, z):
     supervisor = update.strict_json(prior[update.CHANGES[5]])
     supervisor['bootstrap'].update(schema_version=2, market_data_policy_sha256=PLAN_SHA)
     for path, value in zip(update.CHANGES[3:6], [policy, source, supervisor]):
-        payload[path] = canonical(value)
+        payload[path] = supervisor_template_bytes(value) if path == update.CHANGES[5] else canonical(value)
     compat = update.strict_json(prior[update.custody.old.MANIFEST])
     compat['binary_sha256'] = sha(payload[update.custody.old.BINARY_PATH])
     for name in compat['managed_payload_sha256']:

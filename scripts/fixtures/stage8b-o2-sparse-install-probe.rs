@@ -15,6 +15,13 @@ fn main() {
     let source = fs::read("/package/payload/source-template.json").unwrap();
     let template: Value = serde_json::from_slice(&source).unwrap();
     let supervisor = read("supervisor.template.json");
+    // The actual packaged bytes must cross the guardian's parse_canonical
+    // boundary, not merely deserialize successfully as a config.
+    assert_eq!(
+        fs::read("/package/payload/supervisor.template.json").unwrap(),
+        serde_json::to_vec(&supervisor).unwrap(),
+        "packaged supervisor template must be canonical serde_json without LF"
+    );
     let bootstrap: d::Stage8bP1BootstrapConfig =
         serde_json::from_value(supervisor["bootstrap"].clone()).unwrap();
     fs::create_dir_all(&bootstrap.durable_parent).unwrap();

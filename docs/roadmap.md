@@ -27,6 +27,14 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
+2026-10-06: O2 remains HOLD at retained FAILED/1/10. The
+[template encoding correction](stage-8/stage8b-p1f-o2-template-encoding-correction.md)
+fixes packaging, not runtime semantics. Local accepted-release materialization
+passes through ReadyForBootstrap under fixture authority only. Next: correction
+review → successor package preserving actual terminal history → separately
+authorized stopped installation and bounded O2 → existing O3/O4 parity. No new
+macro-stage, production ELF rebuild, hot edit or live surface is required.
+
 2026-10-05 artifact acceptance: `1062691` is ARTIFACT / GOVERNANCE ACCEPTED.
 The [installation successor](stage-8/stage8b-p1f-o2-v4-timestamp-installation.md)
 binds all three accepted ELFs, October-6 calendar and actual FAILED/1/8 baseline.
