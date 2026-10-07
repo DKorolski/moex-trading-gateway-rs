@@ -8,9 +8,15 @@ refused pending materialization; observed head **ACTIVE/1/11**, pending sequence
 12, deadline elapsed. P1 stopped, P0/installation preserved, credentials absent.
 The [external-mode source correction](stage-8/stage8b-p1f-o2-external-mode-correction.md)
 adds explicit descriptor permissions for new files and regression witnesses.
-Existing pending files are not repaired. Source review and a separate exact
-expired-pending terminal-recovery contract are required; no VPS mutation/retry,
-authority rebind or deployment in this slice. O2 HOLD, O3/O4 still ahead.
+Prevention source `d866cf992a963fbd76c4532aae14088f6e6046ee` and its exact
+terminal-only implementation contract are independently accepted. The
+[terminal-only implementation](stage-8/stage8b-p1f-o2-materialization-abort.md)
+is now a local source/evidence review candidate. It archives original pending
+and source bytes, commits only EXPIRED/1/12, and guards restart/response loss.
+This result is tested locally, NOT executed on the VPS. Authority rebind,
+native Linux artifact qualification, staged recovery and installation remain
+separate gates. Do not replace the old installation before terminal recovery.
+O2 HOLD, O3/O4 still ahead.
 Earlier dated entries are historical, not the current operational head.
 
 2026-10-06 acceptance / successor preparation: `f0e880d` is independently

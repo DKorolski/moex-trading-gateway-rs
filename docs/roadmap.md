@@ -29,10 +29,12 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 2026-10-07: bounded O2 progressed past source materialization, then failed exact
 external-file permissions. ACTIVE/1/11 with pending sequence 12 is not terminal;
-all P1 units are stopped. Next: [source correction and narrow terminal-recovery
-contract review](stage-8/stage8b-p1f-o2-external-mode-correction.md), implementation
-of the accepted terminal-only recovery, reviewed artifact/stopped installation
-and separately authorized recovery. Only then a new bounded O2. Do not deploy a
+all P1 units were observed stopped. Prevention source `d866cf9` and the narrow
+terminal-recovery contract are accepted. Next: [terminal-only source review](stage-8/stage8b-p1f-o2-materialization-abort.md),
+one authority rebind and native artifact qualification, separately authorized
+staged recovery against the UNCHANGED old installation, review of actual
+EXPIRED/1/12, then normal full successor installation preserving history.
+Only then a separately authorized new bounded O2. Do not deploy a
 prevention-only fix as recovery, reuse expired authority or skip to O3/O4. No
 new macro-stage or broad recovery framework; operational WS/parity remains ahead.
 

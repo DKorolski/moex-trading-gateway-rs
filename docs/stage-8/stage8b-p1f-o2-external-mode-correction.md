@@ -1,6 +1,8 @@
 # O2 external-file custody correction — 7 October 2026
 
-Status: SOURCE REVIEW CANDIDATE. O2 remains HOLD; no deployment or retry.
+Status: SOURCE ACCEPT at `d866cf992a963fbd76c4532aae14088f6e6046ee`.
+Terminal-only contract ACCEPT FOR IMPLEMENTATION (7 October review).
+O2 remains HOLD; no deployment or retry.
 Baseline: `e05b4bfae3971459053ab22149aa88b2b5e9382c`.
 
 ## Observed failure and exact scope
@@ -70,7 +72,10 @@ the one guardian production-file drift is recorded as REBIND PENDING, not PASS.
 
 ## Separate expired-pending terminal recovery proposal
 
-Status: REVIEW REQUIRED; not implemented or operationally authorized here.
+Historical proposal: accepted and concretized by the October-7 review.
+Current implementation/evidence candidate is documented in
+[terminal-only materialization abort](stage8b-p1f-o2-materialization-abort.md).
+No operational recovery is authorized by either source package.
 Changing chmod and retrying the old live path is not this proposal.
 
 Inputs must bind the actual retained frontier, not a caller-selected path:

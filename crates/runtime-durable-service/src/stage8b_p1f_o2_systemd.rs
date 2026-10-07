@@ -1,5 +1,8 @@
 //! Fixed Stage 8B-P1-f O2 bootstrap-unit supervision.
 
+mod terminal_abort;
+pub use terminal_abort::recover_stage8b_p1f_o2_expired_materialization_fixed_v1;
+
 use std::collections::BTreeMap;
 use std::ffi::CString;
 use std::fs::{File, OpenOptions};

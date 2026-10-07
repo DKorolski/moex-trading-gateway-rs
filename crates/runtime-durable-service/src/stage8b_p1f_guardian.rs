@@ -27,6 +27,8 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+pub(crate) mod materialization_abort;
+
 #[cfg(test)]
 use std::sync::atomic::{AtomicU8, Ordering as AtomicOrdering};
 
@@ -1861,6 +1863,7 @@ impl Stage8bP1fAuthorityStoreV1 {
         final_config_bytes: &[u8],
         pending: &PendingMaterializationV1,
     ) -> Result<Stage8bP1fMaterializedSetReceiptV1, Stage8bP1fAuthorityErrorV1> {
+        self.validate_abort_markers(None)?;
         self.validate_directory_at(config_root, 0o750)?;
         let bootstrap = config_root.join("bootstrap");
         self.validate_directory_at(&bootstrap, 0o750)?;
@@ -2351,6 +2354,15 @@ impl Stage8bP1fAuthorityStoreV1 {
         &self,
         pending: &PendingTerminalV1,
     ) -> Result<Stage8bP1fTerminalReceiptV1, Stage8bP1fAuthorityErrorV1> {
+        self.continue_terminal_transaction_inner(pending, None)
+    }
+
+    fn continue_terminal_transaction_inner(
+        &self,
+        pending: &PendingTerminalV1,
+        abort: Option<&materialization_abort::AbortIntent>,
+    ) -> Result<Stage8bP1fTerminalReceiptV1, Stage8bP1fAuthorityErrorV1> {
+        self.validate_abort_markers(abort)?;
         let authority = self.root.join(AUTHORITY_DIRECTORY);
         let head: HistoryHeadV1 =
             self.read_authority_file(&authority.join(HISTORY_HEAD_FILE), 0o440)?;
@@ -2409,13 +2421,19 @@ impl Stage8bP1fAuthorityStoreV1 {
             {
                 return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
             }
-            self.validate_history_with_pending(true, None, Some(pending.authority_sequence))?;
+            self.validate_history_inner(true, None, Some(pending.authority_sequence), abort)?;
             self.write_or_require_exact(&terminal_path, &receipt_bytes, 0o440)?;
+            if abort.is_some() {
+                inject_test_fault(46)?;
+            }
             self.write_or_require_exact(
                 &event_path(&authority, pending.authority_sequence),
                 &event_bytes,
                 0o440,
             )?;
+            if abort.is_some() {
+                inject_test_fault(47)?;
+            }
             let terminal_head = HistoryHeadV1 {
                 schema_version: STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION,
                 domain: "stage8b-p1f-history-head-v1".to_string(),
@@ -2432,10 +2450,18 @@ impl Stage8bP1fAuthorityStoreV1 {
                 &canonical_json(&terminal_head)?,
                 0o440,
             )?;
+            if abort.is_some() {
+                inject_test_fault(48)?;
+            }
         }
         fs::remove_file(authority.join(PENDING_TERMINAL_FILE))?;
         sync_directory(&authority)?;
-        self.validate_history(true)?;
+        if abort.is_some() {
+            inject_test_fault(51)?;
+        }
+        if abort.is_none() {
+            self.validate_history(true)?;
+        }
         Ok(receipt)
     }
 
@@ -2517,6 +2543,16 @@ impl Stage8bP1fAuthorityStoreV1 {
         pending: Option<&PendingClaimV1>,
         trailing_event_sequence: Option<u64>,
     ) -> Result<Stage8bP1fAuthorityInspectionV1, Stage8bP1fAuthorityErrorV1> {
+        self.validate_history_inner(require_activation, pending, trailing_event_sequence, None)
+    }
+
+    fn validate_history_inner(
+        &self,
+        require_activation: bool,
+        pending: Option<&PendingClaimV1>,
+        trailing_event_sequence: Option<u64>,
+        abort: Option<&materialization_abort::AbortIntent>,
+    ) -> Result<Stage8bP1fAuthorityInspectionV1, Stage8bP1fAuthorityErrorV1> {
         self.validate_root_identity()?;
         self.reject_quarantine()?;
         let authority = self.root.join(AUTHORITY_DIRECTORY);
@@ -2526,6 +2562,7 @@ impl Stage8bP1fAuthorityStoreV1 {
         self.validate_directory(&authority)?;
         self.validate_directory(&authority.join(EVENTS_DIRECTORY))?;
         self.validate_directory(&authority.join(MANIFESTS_DIRECTORY))?;
+        self.validate_abort_markers(abort)?;
         let mut present_pending = [
             PENDING_CLAIM_FILE,
             PENDING_STOPPING_FILE,
@@ -2542,6 +2579,9 @@ impl Stage8bP1fAuthorityStoreV1 {
             if path.exists() {
                 present_pending.push((PENDING_MATERIALIZATION_FILE.to_string(), path));
             }
+        }
+        if let Some(intent) = abort {
+            self.substitute_abort_pending(intent, &mut present_pending)?;
         }
         match (pending, trailing_event_sequence) {
             (Some(expected), None) => {
@@ -2561,7 +2601,12 @@ impl Stage8bP1fAuthorityStoreV1 {
                 let bytes = self.read_authority_bytes(&present_pending[0].1, 0o440)?;
                 let value: Value = serde_json::from_slice(&bytes)
                     .map_err(|_| Stage8bP1fAuthorityErrorV1::InvalidDocument)?;
-                if value.get("authority_sequence").and_then(Value::as_u64) != Some(sequence) {
+                let actual_sequence = if present_pending[0].0 == materialization_abort::INTENT {
+                    value["terminal"]["authority_sequence"].as_u64()
+                } else {
+                    value.get("authority_sequence").and_then(Value::as_u64)
+                };
+                if actual_sequence != Some(sequence) {
                     return Err(Stage8bP1fAuthorityErrorV1::PendingRecoveryRequired);
                 }
             }
@@ -2638,7 +2683,9 @@ impl Stage8bP1fAuthorityStoreV1 {
             .map(|value| value.authority_sequence)
             .or(trailing_event_sequence);
         let pending_event_exists = pending_event_sequence
-            .map(|sequence| event_path(&authority, sequence).exists())
+            .map(|sequence| {
+                sequence > head.latest_sequence && event_path(&authority, sequence).exists()
+            })
             .unwrap_or(false);
         let prepared_event_exists = match (pending_event_sequence, present_pending.first()) {
             (Some(sequence), Some((name, path))) => {
@@ -2840,6 +2887,7 @@ impl Stage8bP1fAuthorityStoreV1 {
                 {
                     return Err(Stage8bP1fAuthorityErrorV1::HistoryConflict);
                 }
+                self.validate_abort_terminal(&terminal)?;
                 projected_state = event.state;
                 projected_active = None;
                 projected_deadline = None;
@@ -2948,6 +2996,23 @@ impl Stage8bP1fAuthorityStoreV1 {
         }
         let event: AuthorityEventV1 = self.read_authority_file(&prepared_path, 0o440)?;
         let expected = match pending_name {
+            materialization_abort::INTENT => {
+                let intent: materialization_abort::AbortIntent =
+                    self.read_authority_file(pending_path, 0o440)?;
+                let receipt = intent.receipt();
+                AuthorityEventV1 {
+                    schema_version: 1,
+                    domain: "stage8b-p1f-authority-event-v1".into(),
+                    authority_generation: receipt.authority_generation,
+                    authority_sequence: receipt.authority_sequence,
+                    predecessor_event_sha256: receipt.predecessor_event_sha256.clone(),
+                    event_kind: "PHASE_TERMINAL".into(),
+                    state: receipt.terminal_state,
+                    manifest_sha256: receipt.manifest_sha256.clone(),
+                    receipt_sha256: sha256_hex(&canonical_json(&receipt)?),
+                    recorded_at_utc: receipt.recorded_at_utc.clone(),
+                }
+            }
             PENDING_CLAIM_FILE => {
                 let pending: PendingClaimV1 = self.read_authority_file(pending_path, 0o440)?;
                 let receipt = self.read_claim_receipt(&pending.manifest_sha256)?;
@@ -3438,6 +3503,7 @@ impl Stage8bP1fAuthorityStoreV1 {
         } else {
             self.write_create_new(&temp, bytes, mode)?;
         }
+        inject_test_fault(52)?;
         fs::rename(&temp, path)?;
         sync_directory(parent)?;
         if self.read_authority_bytes(path, mode)? != bytes {
@@ -5549,6 +5615,24 @@ mod tests {
         fault_point: u8,
         expired_pending_only: bool,
     ) {
+        o2_materialization_frontier_inner(
+            cleanup_frontier,
+            observed,
+            fault_point,
+            expired_pending_only,
+            None,
+        );
+    }
+
+    mod abort_tests;
+
+    fn o2_materialization_frontier_inner(
+        cleanup_frontier: Option<u8>,
+        observed: bool,
+        fault_point: u8,
+        expired_pending_only: bool,
+        abort_case: Option<abort_tests::Case>,
+    ) {
         let mut setup = Setup::new();
         let config_root = setup.root.with_extension("config");
         let bootstrap_dir = config_root.join("bootstrap");
@@ -5674,7 +5758,27 @@ mod tests {
             "order_endpoints": false
         }))
         .unwrap();
-        let head = setup.initialize_and_activate();
+        let mut head = setup.initialize_and_activate();
+        if abort_case.is_some() {
+            for _ in 0..5 {
+                let phase = setup.phase(&head, Stage8bP1fPhaseV1::O1Provision);
+                setup
+                    .store
+                    .claim_phase(&phase, &setup.public_key_hex(), "p1f-offline-1", setup.now)
+                    .unwrap();
+                setup
+                    .store
+                    .finish_phase(
+                        &sha256_hex(&phase),
+                        Stage8bP1fPhaseStateV1::Completed,
+                        "fixture-predecessor",
+                        setup.now,
+                    )
+                    .unwrap();
+                head = setup.store.inspect().unwrap();
+            }
+            assert_eq!(head.latest_sequence, 10);
+        }
         let phase = setup.phase_with_hashes(
             &head,
             Stage8bP1fPhaseV1::O2MaterializeBootstrap,
@@ -5821,6 +5925,17 @@ mod tests {
             assert!(!bootstrap_dir
                 .join("stage8b-p1-first-boot-source-v1.json")
                 .exists());
+            if let Some(case) = abort_case {
+                abort_tests::exercise(
+                    case,
+                    &mut setup,
+                    &config_root,
+                    &installation,
+                    &source,
+                    &manifest_sha256,
+                    expired_at,
+                );
+            }
             fs::remove_dir_all(config_root).unwrap();
             fs::remove_dir_all(durable_parent).unwrap();
             return;
