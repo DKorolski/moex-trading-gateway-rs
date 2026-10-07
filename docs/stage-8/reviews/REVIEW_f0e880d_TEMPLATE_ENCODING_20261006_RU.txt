@@ -1,0 +1,196 @@
+Независимый review — Stage 8B-P1-f O2 template encoding
+Дата: 6 октября 2026 года
+
+VERDICT
+
+SOURCE / PACKAGING CORRECTION ACCEPT:
+f0e880d8dc0ef9ccf0b7653c2c83500a08f8edfb
+Parent: 836a2973495b505fac56422308da4a65e921d930
+Git tree: ca5a12169f883d17e01b01b3c6633f3f8effd19b
+
+Принимается узкое исправление упаковки supervisor template, связанный локальный
+release-witness и обновление документальной authority. Блокирующих замечаний
+к этой границе не найдено.
+
+Также принимается evidence неуспешной попытки 6 октября и её штатного terminal
+cleanup до FAILED / generation 1 / sequence 10. Это приёмка результата отказа,
+а не успешного O2-bootstrap. O2 остаётся HOLD до завершения следующей отдельно
+разрешённой попытки. Установка и повтор O2 этим review не разрешаются.
+
+ВХОДНЫЕ ПАКЕТЫ
+
+1. finam-o2-v4-bounded-result-20261006.zip
+   SHA-256: 739abc9778eaa2bc55be58c02991ecb9345d58d58595bc5845ea97e8067ac030
+   49 721 байт, 31 member.
+2. moex-trading-project-f0e880d-o2-template-encoding.zip
+   SHA-256: 883591340936c743df3c7f5ed34eeba3feaa27aef8345573c39fdd51f4e848e9
+   8 641 231 байт, 2 659 members: 2 630 tracked + 29 evidence artifacts.
+
+У обоих ZIP независимо проверены checksum, CRC, уникальность, типы файлов и
+безопасность путей. Duplicates, symlinks и unsafe paths не обнаружены.
+Для correction проверены tracked bytes/modes, raw Git commit, parent и
+реконструкция Git tree. Незавершённые WS-изменения не входят в reviewed tree;
+их наличие отдельно отражено в workspace-status.txt.
+
+ЧТО ФАКТИЧЕСКИ ПРОИЗОШЛО НА VPS
+
+Единственная scheduled O2-попытка началась 07:15 МСК 6 октября.
+Auth завершился HTTP 200. Claim получил sequence 9 в generation 1.
+FINAM materializer завершился exit 0 и записал V4 staged source bundle.
+Следующий guardian-materialize-fixed завершился exit 70 с диагностикой
+"P1-f authority document is invalid". Bootstrap не запускался.
+Cleanup завершился exit 0; terminal reason — o2-materialization-incomplete.
+
+Самостоятельно пересчитана цепочка:
+  принятый head 8 → claim/event 9 → terminal receipt/event/head 10.
+Проверена Ed25519-подпись phase manifest принятым public key, её domain и
+побайтовый payload; пересчитаны receipt hashes и domain-separated event hashes.
+Final head: FAILED/1/10, active_manifest=null, deadline=null.
+
+Manifest SHA-256:
+4f63f7deb78e7e1381769a235948b7038789f417d425e8095b1601ab41d2e88f
+Final logical event/head SHA-256:
+beb359ea89cdf4211f83ad5c3134d0d90412678a03d21c34898bc1b050d7cbe9
+
+Проверены exact digests 29 вложенных evidence-файлов и attempt record.
+Сохранённые 27 предыдущих authority-файлов совпадают с preflight inventory.
+P0 properties и PID сохранены. Четыре P1-related units остановлены: PID=0,
+пустые ControlGroup/Job, inactive/dead. DB15 DBSIZE=0 в последнем наблюдении.
+Временные auth/transient inputs и lifecycle key отсутствуют.
+Однократный timer исчерпан: next realtime отсутствует, Persistent=no, Job пуст.
+
+Неуспешные первоначальные read-only collector calls сохранены в архиве.
+Они не являются дополнительными O2-попытками; успешные последующие наблюдения
+использованы для проверки результата. Не заявляется, что все collector calls
+имели exit 0.
+
+ПРИЧИНА ОТКАЗА ПОДТВЕРЖДЕНА
+
+Установленный supervisor.template.json содержит 1 752 байта, включая final LF.
+Guardian использует parse_canonical<serde_json::Value>: результат
+serde_json::to_vec обязан совпасть с входом byte-exact. Для этого template
+canonical encoding содержит 1 751 байт без final LF. Разбор JSON сам по себе
+успешен, но canonical byte boundary нарушена.
+
+Old template SHA-256:
+04aed2dc5cdf5bdc44d48cf28c91986bd71e266f2965f76200caf796d87e191e
+Corrected template SHA-256:
+2d23f48611a02345dd5c2a6dc7d9a25a8b4c6d5a0cd4db40fabcafde6d8dc2b5
+
+Самостоятельно подтверждено: old_bytes == corrected_bytes + LF; JSON semantic
+content одинаков. Old hash совпадает с signed phase binding. Production code
+проверяет canonical bytes до materialization writes. Связанный release-witness
+с тем же retained staged source проходит реальный guardian materialize_o2 до
+ReadyForBootstrap после исправления encoding.
+
+Предыдущий installation input-probe проверял parseable JSON и пропустил эту
+canonical boundary. Теперь он проверяет именно bytes упакованного файла и
+отклоняет old LF fixture. Для этого дефекта новая архитектура не требуется.
+
+РЕАЛЬНЫЙ ОБЪЁМ КОРРЕКЦИИ
+
+Изменены ровно 10 tracked файлов: документация/authority, packaging script,
+handoff/gate/tests и два test probe. Production crates, Cargo, deploy и CI
+workflows byte/mode-identical принятому parent. Production authority inventory
+и его fingerprint не изменены.
+
+Используется отдельный encoder только для supervisor template. Общий LF-формат
+policy/inventory/history не изменён. В generated historical fixture меняются
+ровно два payload slots: template и installation-o2-v1.json, который связывает
+его actual bytes/hash/size. Policy, source template, compatibility manifest и
+три ELF сохранены.
+
+Три production ELF из принятого artifact 1062691 остаются прежними:
+materializer: f954bf98fa24c62dfa669eb159b7dc06717fe5edb61587c5404001ed38bdd0a3
+operator:     81e88b129896287e2b6b849043d2dfb09b860ddcd3861d1094f7e76a857b40e7
+supervisor:   b70d1eaf222c747909a907de3af565f601c7a2d4f2c8caaed1b0851d8bcfba1b
+
+ПРОВЕРКИ REVIEWER
+
+Независимо повторены:
+• result-package verifier — PASS;
+• correction handoff checker, commit/tree/inventory/log bindings — PASS;
+• 7 packaging regressions against pinned accepted 836a297 ZIP — PASS;
+• 20 prepared-package negative controls — PASS;
+• current-tree authority positive checker — PASS;
+• authority negative harness — 45/45 PASS;
+• сопоставление production delta, template bytes и released dependency hashes;
+• подпись phase, terminal chain, raw nested evidence и preservation checks.
+
+Рассмотрен source реального Rust probe и восемь retained command records.
+Пять linked rlib hashes сверены с qualification принятого artifact 1062691.
+Probe использует принятый release-код f3b3499 и принятый operator ELF; публичный
+fixture seed, fresh disposable authority и явно заданное историческое время.
+Docker network=none; production keys/authority и host production state не
+используются. Отдельно проверены stale-source rejection и LF/CRLF/pretty negatives.
+
+В retained positive witness подтверждены:
+• exact admission сохранённого V4 staged source;
+• ReadyForBootstrap через настоящий guardian materialize_o2;
+• source/config сохранены, exact hashes повторно прочитаны;
+• mode 0440 обоих файлов;
+• replay возвращает тот же receipt без ещё одного history event;
+• durable parent остаётся пустым — bootstrap этим тестом не выполнялся.
+
+Старый LF input-probe ожидаемо завершился exit 101; это положительный результат
+negative control, а не скрытая неуспешная regression.
+
+Ограничение независимого воспроизведения: в reviewer environment отсутствуют
+Rust/Cargo/Docker и raw retained staged input с private account data. Поэтому
+новый Rust integration witness принят по inspected executable assertions,
+hash-pinned accepted release dependencies, связанным retained logs и source
+inspection; он не обозначается как повторно исполненный reviewer. Raw account
+и токены в этот review report не включены.
+
+ЧТО МОЖНО СКАЗАТЬ О БАРАХ
+
+В этой конкретной попытке FINAM materializer успешно принял REST history и
+сформировал V4 source. Диагностика сообщает 10 M1 для candidate M10 с canonical
+Redis ID 1791259800000-0; flat truth: target position 0, target/account orders 0.
+Staged/source hashes совпадают между наблюдениями и linked witness.
+
+Это снимает BarsTruth-блокер для данного snapshot. Отказ 6 октября произошёл
+после обработки баров, на encoding template. Это не доказывает непрерывность
+WS-потока, отсутствие будущих gap/stale данных, все торговые sessions, успешный
+bootstrap или полную Rust–FINAM operational parity. Эти проверки ещё впереди.
+
+МИНИМАЛЬНОЕ ТЗ НА СЛЕДУЮЩИЙ SLICE
+
+Разрешена подготовка одного narrow successor installation package:
+
+1. Взять фактический terminal frontier FAILED/1/10 и свежий read-only inventory.
+   Сохранить generation, genesis/activation, полную history 0–10, claims/receipts,
+   materializer diagnostic evidence, прежние install transactions и exhausted
+   timers. Fresh fixture authority нельзя переносить на VPS.
+
+2. Повторно использовать три exact accepted ELF без production rebuild.
+   Упаковать исправленный template. Обновить installation bindings, actual
+   hashes/sizes, допустимый calendar/window и необходимые policy/source-template
+   зависимости только если дата меняется. Показать точную old→new inventory.
+
+3. Повторить существующий packaging/input-probe на actual emitted bytes;
+   сохранить positive control и LF negative. Manifest/template bindings должны
+   вычисляться из доставляемых файлов. Использовать принятый путь materialization,
+   без второго bootstrap/recovery framework и без изменения стратегии.
+
+4. Historical fixture этого review с FAILED/1/8 не является operational package.
+   Её нельзя применять. Старый staged source допустим для offline regression;
+   новый operational admission требует свежих данных в принятом freshness window.
+
+5. После package acceptance — отдельно разрешённая stopped installation с
+   preservation proof. Затем отдельно разрешённая одна bounded O2-попытка:
+   fresh preflight → single claim → fresh materializer → guardian ReadyForBootstrap
+   → isolated bootstrap → stopped proof → terminal receipt. Автоповторы не нужны.
+
+Successor не должен расширять scope: никакой новой trading/HA/orchestration
+платформы, повторной миграции authority, hot-edit установленного template,
+FINAM writes, broker dispatch или runtime-live. Текущий план соответствует
+облегчённому варианту: пройти O2, затем несколько ограниченных paper sessions
+с сопоставлением ALOR и отдельно принять переход к FINAM live micro.
+
+ТЕКУЩИЙ ROADMAP STATUS
+
+I1 и P1F-I приняты ранее. Сейчас остаёмся в operational P1-f/O2:
+materializer прошёл; canonical template correction принят; успешный isolated
+bootstrap на VPS ещё не доказан. Следующий review — narrow successor package.
+O3/O4 и последующие paper/operational acceptance выполняются после успешного O2.

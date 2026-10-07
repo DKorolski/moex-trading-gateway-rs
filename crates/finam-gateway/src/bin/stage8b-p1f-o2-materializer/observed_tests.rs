@@ -22,7 +22,10 @@ fn fixture_for_identity(
     MaterializationPolicyV1,
     DateTime<Utc>,
 ) {
-    let now = canonical_time("2026-10-02T04:10:03Z").unwrap();
+    // Real clocks retain fractions: exercise the complete fixed CLI and
+    // staged-consumer paths with same-second receipt/assembly, not only secs.
+    let now = canonical_time("2026-10-02T04:10:03Z").unwrap()
+        + chrono::Duration::nanoseconds(123_456_789);
     let mut template = tests::short_template();
     if let Some(identity) = identity {
         template["operational_identity_sha256"] = json!(identity);
@@ -93,7 +96,7 @@ fn fixture_for_identity(
             start: plan.request_start(),
             end: plan.request_end(),
             requested_at: now - chrono::Duration::seconds(2),
-            received_at: now - chrono::Duration::seconds(1),
+            received_at: now - chrono::Duration::nanoseconds(1),
             status: 200,
             transport_complete: true,
             declared_body_bytes: Some(raw_body.len() as u64),
@@ -219,6 +222,14 @@ fn observed_staged_consumer_accepts_real_history_only_with_explicit_protected_co
     };
     let checked = check(&package, &policy, &supervisor, now).unwrap();
     assert_eq!(checked.source_bytes(), staged.exact_source_json.as_bytes());
+    let exact: Value = serde_json::from_slice(checked.source_bytes()).unwrap();
+    assert_eq!(exact["captured_at_utc"], "2026-10-02T04:10:03.123456789Z");
+    assert_eq!(
+        exact["broker_truth"]["checked_at_utc"],
+        exact["captured_at_utc"]
+    );
+    // The separate guardian receipt remains a conservative seconds-only
+    // projection; it must not rewrite the exact source or its hash.
     assert_eq!(
         checked.broker_truth_checked_at_utc(),
         "2026-10-02T04:10:03Z"

@@ -27,6 +27,56 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
+2026-10-07: bounded O2 progressed past source materialization, then failed exact
+external-file permissions. ACTIVE/1/11 with pending sequence 12 is not terminal;
+all P1 units were observed stopped. Prevention source `d866cf9` and the narrow
+terminal-recovery contract are accepted. Terminal-only source `3bfd98a` is now
+SOURCE ACCEPTED. Next: [one authority rebind and full Linux artifact qualification](stage-8/stage8b-p1f-o2-abort-artifact.md), separately authorized
+staged recovery against the UNCHANGED old installation, review of actual
+EXPIRED/1/12, then normal full successor installation preserving history.
+Only then a separately authorized new bounded O2. Do not deploy a
+prevention-only fix as recovery, reuse expired authority or skip to O3/O4. No
+new macro-stage or broad recovery framework; operational WS/parity remains ahead.
+
+2026-10-06 acceptance follow-up: `f0e880d` source/packaging correction and the
+FAILED/1/10 result evidence are accepted. Prepare the
+[narrow successor installation package](stage-8/stage8b-p1f-o2-template-encoding-installation.md)
+with unchanged accepted ELFs and an explicit October-7 calendar. Review/current
+CI → separately permitted stopped installation preserving history → separately
+permitted bounded O2. O2 remains HOLD; no new macro-stage or operational authority.
+
+2026-10-06: O2 remains HOLD at retained FAILED/1/10. The
+[template encoding correction](stage-8/stage8b-p1f-o2-template-encoding-correction.md)
+fixes packaging, not runtime semantics. Local accepted-release materialization
+passes through ReadyForBootstrap under fixture authority only. Next: correction
+review → successor package preserving actual terminal history → separately
+authorized stopped installation and bounded O2 → existing O3/O4 parity. No new
+macro-stage, production ELF rebuild, hot edit or live surface is required.
+
+2026-10-05 artifact acceptance: `1062691` is ARTIFACT / GOVERNANCE ACCEPTED.
+The [installation successor](stage-8/stage8b-p1f-o2-v4-timestamp-installation.md)
+binds all three accepted ELFs, October-6 calendar and actual FAILED/1/8 baseline.
+Next: installation package review/current CI → separately authorized stopped
+installation preserving history and exhausted scheduler → separately authorized
+bounded O2 → existing O3/O4 operational/ALOR parity. No new stage or live surface.
+
+2026-10-05 acceptance follow-up: `f3b3499` is independently SOURCE / AUTHORITY
+ACCEPTED. Prepare the [complete timestamp successor artifact](stage-8/stage8b-p1f-o2-v4-timestamp-artifact.md)
+from its exact tree, then artifact review/ordinary CI, separately permitted
+installation preserving terminal history, and separately permitted bounded O2.
+No production-code expansion or new roadmap stage; O2 remains HOLD. Existing
+O3/O4 WS, freshness, EOD and multi-session parity checks are not closed by an
+offline artifact. The preceding candidate status below is superseded.
+
+2026-10-05 update: O2 is HOLD after a materializer rejection and cleanup to
+FAILED/1/8, before bootstrap. The
+[V4 timestamp correction](stage-8/stage8b-p1f-o2-v4-timestamp-correction-2026-10-05.md)
+is a narrow source/authority review candidate, not a new roadmap stage. Its
+reproduced precision defect is not claimed as the proven cause of the VPS attempt.
+Next: accepted source/authority → full successor artifact → installation retaining
+terminal history → separately authorized bounded O2 → existing O3/O4 paper/parity
+checks. Local P0 WS work stays separate. No FINAM order writes or runtime-live.
+
 2026-10-02 addendum: [sparse-M10 source correction](stage-8/stage8b-p1f-sparse-m10-correction-progress.md)
 is the current local work; O2 remains HOLD. [WS and operational parity checks](stage-8/stage8b-operational-market-data-parity-checklist.md)
 remain in the existing read-only O4 / multi-session paper path before live-micro

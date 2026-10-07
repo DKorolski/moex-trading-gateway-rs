@@ -1,0 +1,1635 @@
+{
+  "payload": {
+    "/etc/moex-finam-p1-paper/o2/authority-public-key.hex": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "b92f0006e6f8571cf4ce13f7cb32d460a4e633228a5015b1d1d2ebfb0261886b",
+      "size": 65,
+      "uid": 0
+    },
+    "/etc/moex-finam-p1-paper/o2/materialization-policy.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "2d8521380851d23bcc900a916fc51089c93000bbbfcec27c5cdcf41ce86b213e",
+      "size": 659,
+      "uid": 0
+    },
+    "/etc/moex-finam-p1-paper/o2/source-template.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "28704ad3ab2b4dafaf95f1fbe2b16a1cefd70c1c8da6390da86a9319aeeefd3e",
+      "size": 1332,
+      "uid": 0
+    },
+    "/etc/moex-finam-p1-paper/o2/supervisor.template.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "2d23f48611a02345dd5c2a6dc7d9a25a8b4c6d5a0cd4db40fabcafde6d8dc2b5",
+      "size": 1751,
+      "uid": 0
+    },
+    "/etc/systemd/system/moex-finam-p1-paper-bootstrap-recover@.service": {
+      "gid": 0,
+      "mode": "0o644",
+      "nlink": 1,
+      "sha256": "022e71072b86487f34b63015cf70bb4a1d0fb1e31006dd783f2fa385668e2987",
+      "size": 1033,
+      "uid": 0
+    },
+    "/etc/systemd/system/moex-finam-p1-paper-bootstrap.service": {
+      "gid": 0,
+      "mode": "0o644",
+      "nlink": 1,
+      "sha256": "f5f6db6e08d45f39fa3976701f78526a55e1485f3398f4140d13eaba1b2bc62b",
+      "size": 1003,
+      "uid": 0
+    },
+    "/etc/systemd/system/moex-finam-p1-paper-o2-bootstrap-runner.service": {
+      "gid": 0,
+      "mode": "0o644",
+      "nlink": 1,
+      "sha256": "545e7ff1667529012eaed2a0793319565c1865d201a204b187597429225c94ff",
+      "size": 1139,
+      "uid": 0
+    },
+    "/etc/systemd/system/moex-finam-p1-paper.service": {
+      "gid": 0,
+      "mode": "0o644",
+      "nlink": 1,
+      "sha256": "7e260e3d46f94dbea93d48aa39d1c16bf8fd6f14aa76cc9be2b197e7ab4f536f",
+      "size": 1206,
+      "uid": 0
+    },
+    "/etc/systemd/system/moex-finam-p1f-o2-materializer.service": {
+      "gid": 0,
+      "mode": "0o644",
+      "nlink": 1,
+      "sha256": "faed24b932ae568283abf4498f9ef34493a2b56b26f22effddecb3d69b9a1b3a",
+      "size": 1470,
+      "uid": 0
+    },
+    "/usr/lib/sysusers.d/moex-finam-p1-paper.conf": {
+      "gid": 0,
+      "mode": "0o644",
+      "nlink": 1,
+      "sha256": "efaa190119271332ed3aedc14b5fd45cdfc216c529e8eff8a7f0a956e6ee9d90",
+      "size": 80,
+      "uid": 0
+    },
+    "/usr/lib/tmpfiles.d/moex-finam-p1-paper.conf": {
+      "gid": 0,
+      "mode": "0o644",
+      "nlink": 1,
+      "sha256": "a9942c2adb779ea8e42e91e6271c9e8e9e4fcc3e919f23fb72243aab4b0379a6",
+      "size": 522,
+      "uid": 0
+    },
+    "/usr/local/libexec/moex/stage8b-p1-paper-supervisor": {
+      "gid": 0,
+      "mode": "0o755",
+      "nlink": 1,
+      "sha256": "b70d1eaf222c747909a907de3af565f601c7a2d4f2c8caaed1b0851d8bcfba1b",
+      "size": 13549928,
+      "uid": 0
+    },
+    "/usr/local/libexec/moex/stage8b-p1f-o2-materializer": {
+      "gid": 0,
+      "mode": "0o755",
+      "nlink": 1,
+      "sha256": "f954bf98fa24c62dfa669eb159b7dc06717fe5edb61587c5404001ed38bdd0a3",
+      "size": 9511624,
+      "uid": 0
+    },
+    "/usr/local/libexec/moex/stage8b-p1f-o2-operator": {
+      "gid": 0,
+      "mode": "0o755",
+      "nlink": 1,
+      "sha256": "81e88b129896287e2b6b849043d2dfb09b860ddcd3861d1094f7e76a857b40e7",
+      "size": 3768408,
+      "uid": 0
+    },
+    "/usr/local/share/moex/stage8b-p1e/installation-v1.json": {
+      "gid": 0,
+      "mode": "0o644",
+      "nlink": 1,
+      "sha256": "d18b48f05f22097522a505ee296b89748e19d86a38a9d5c6ce104029465ffbbf",
+      "size": 1635,
+      "uid": 0
+    },
+    "/usr/local/share/moex/stage8b-p1e/installation-o2-v1.json": {
+      "gid": 0,
+      "mode": "0o644",
+      "nlink": 1,
+      "sha256": "395f9e3e987ce6f5b2c52b6083d1ebc79c71287df72096c6d313ee3e56da32f5",
+      "size": 3920,
+      "uid": 0
+    }
+  },
+  "p0_units": {
+    "moex-finam-paper-runtime.service": {
+      "ActiveState": "active",
+      "ControlGroup": "/system.slice/moex-finam-paper-runtime.service",
+      "ControlPID": "0",
+      "DropInPaths": "",
+      "ExecStart": "{ path=/opt/moex-finam-paper/bin/broker-cli ; argv[]=/opt/moex-finam-paper/bin/broker-cli finam-paper-runtime-consume --config /etc/moex-finam-paper/runtime-unseeded.json --strategy-invocation-shadow --max-iterations 18446744073709551615 --claim-stale-ms 5000 ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }",
+      "FragmentPath": "/etc/systemd/system/moex-finam-paper-runtime.service",
+      "Job": "",
+      "LoadState": "loaded",
+      "MainPID": "589407",
+      "NeedDaemonReload": "no",
+      "SubState": "running"
+    },
+    "moex-finam-paper-ws.service": {
+      "ActiveState": "active",
+      "ControlGroup": "/system.slice/moex-finam-paper-ws.service",
+      "ControlPID": "0",
+      "DropInPaths": "",
+      "ExecStart": "{ path=/opt/moex-finam-paper/bin/broker-cli ; argv[]=/opt/moex-finam-paper/bin/broker-cli finam-ws-shadow-loop --config /etc/moex-finam-paper/ws.json --max-messages 10000 --max-duration-seconds 3600 --reconnect-delay-seconds 5 ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }",
+      "FragmentPath": "/etc/systemd/system/moex-finam-paper-ws.service",
+      "Job": "",
+      "LoadState": "loaded",
+      "MainPID": "208156",
+      "NeedDaemonReload": "no",
+      "SubState": "running"
+    }
+  },
+  "p0_fragments": {
+    "moex-finam-paper-runtime.service": "8f8f2854191887a75317869c8e6ff3c8edd4197c1ae594fa93c0b56fc35585fc",
+    "moex-finam-paper-ws.service": "e61591a064838725a2fc15ee089fb862bd62df97f8995549773f9f3ee65cf1b9"
+  },
+  "trees": {
+    "/var/lib/moex-finam-p1-paper/state": {
+      ".": {
+        "gid": 987,
+        "mode": "0o700",
+        "nlink": 3,
+        "size": 4096,
+        "type": 16384,
+        "uid": 987
+      },
+      ".stage8b-p1-first-boot-quarantine": {
+        "gid": 987,
+        "mode": "0o700",
+        "nlink": 2,
+        "size": 4096,
+        "type": 16384,
+        "uid": 987
+      }
+    },
+    "/root/moex-o2-once-20261005": {
+      ".": {
+        "gid": 0,
+        "mode": "0o700",
+        "nlink": 3,
+        "size": 4096,
+        "type": 16384,
+        "uid": 0
+      },
+      "attempt.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "b99c2efe836aa3024128cbeb3f4b43f279b7e68ca9c9cab035530571d4dd502d",
+        "size": 136,
+        "type": 32768,
+        "uid": 0
+      },
+      "config.json": {
+        "gid": 0,
+        "mode": "0o400",
+        "nlink": 1,
+        "sha256": "c6929ef9b5a45439ac0a9f71f0dc533332c8df74d53ac67c577e1fdc423de918",
+        "size": 871,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence": {
+        "gid": 0,
+        "mode": "0o700",
+        "nlink": 5,
+        "size": 4096,
+        "type": 16384,
+        "uid": 0
+      },
+      "evidence/auth-attempt.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "5f5b81e679fb8c1f0c87968d3af6f73314026db2905b7a6b31551c311950c15f",
+        "size": 97,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/auth-result.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "6b4c8d9f78c7c17b5bd669f990fd2622077f3cc6f149cfead2d7bd17246b425e",
+        "size": 47,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/before-claim-preflight.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "83e853d999bcbe226785691d266370183374c0e5cb5ad1c855961b5907263eb7",
+        "size": 19911,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/claim.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "ebdd2e732daa5483a590e2841b0c1da2fb3ff89f0d7afd12db06386d39268190",
+        "size": 372,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/claim.stderr": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/claim.stdout": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "425fe4f234f59b677aee3d1b1e79918e323becd6f88fb7fa69872ce20f2c4a70",
+        "size": 467,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/cleanup-finished.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "58177185097757903b71fbfa5b3ada28b2e4b6d91e33a16cb7e6b70cb13b2c61",
+        "size": 159,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/credential-intent.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "a38fe05d8437eb468cfab574969601d2c896ed3ef8c72a30837ec84f8e41d618",
+        "size": 83,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/final-authority.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "736cf03a140ef4570a0696ee9735e445d3a7b3f803622db443b5c1362c21e2f7",
+        "size": 368,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/final-authority.stderr": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/final-authority.stdout": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "3917991bff47349ffebb370a81bec125713d8fd03fa51da2a60ef0112722c8d1",
+        "size": 228,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/final-preservation-proof.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "1c2599b44753fa3ee70d7f461ffae9e3a5a6e31ae8b7f74a509f7f434395b8e2",
+        "size": 5435,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/final-unit-evidence.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "b665a78ba60dbe925c209b11661bb6333a165c8ce74e501660beaf723d13c61c",
+        "size": 373,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/final-unit-evidence.stderr": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/final-unit-evidence.stdout": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "ab295d953caa5ce5e456e5ccaeec2dc242f9aa73555e5f79346df96608cc0eed",
+        "size": 301,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/final-wrapper-refresh": {
+        "gid": 0,
+        "mode": "0o700",
+        "nlink": 2,
+        "size": 4096,
+        "type": 16384,
+        "uid": 0
+      },
+      "evidence/final-wrapper-refresh/config.json.before": {
+        "gid": 0,
+        "mode": "0o400",
+        "nlink": 1,
+        "sha256": "b3554da1cf68ee17b127dee73f5f2e0d5112a96013778f7d75e82af6176a6367",
+        "size": 871,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/final-wrapper-refresh/expected.json.before": {
+        "gid": 0,
+        "mode": "0o400",
+        "nlink": 1,
+        "sha256": "e2b3674555138bfc44a41ca1c9866a0be6cbc1cdccf14e4ce0b14a9c78e36bd0",
+        "size": 19690,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/final-wrapper-refresh/runner.py.before": {
+        "gid": 0,
+        "mode": "0o400",
+        "nlink": 1,
+        "sha256": "028f844b34d5824109bbfe2b061586e50a313b6c475d459b11e2b4864d6b516b",
+        "size": 16065,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/fresh-preflight.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "866dc2dff8bcf56e10b0d030be3924d98fe94b5419c9ed258fcf410164263643",
+        "size": 19911,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/materializer.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "657433c34b604426f6f582a2611e37ab3297c0990cbea7212429148c276cb9e2",
+        "size": 360,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/materializer.stderr": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "2da9582308fbc8dea993e8a24dba5b69449ce2068d6b2267da688082a37305a4",
+        "size": 242,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/materializer.stdout": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/p0-manager-rebind": {
+        "gid": 0,
+        "mode": "0o700",
+        "nlink": 2,
+        "size": 4096,
+        "type": 16384,
+        "uid": 0
+      },
+      "evidence/p0-manager-rebind/config.json.before": {
+        "gid": 0,
+        "mode": "0o400",
+        "nlink": 1,
+        "sha256": "419898d2ad01c4c9382f62be5c7487de95926642f9482f1baeb17cc1005a30d1",
+        "size": 871,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/p0-manager-rebind/expected.json.before": {
+        "gid": 0,
+        "mode": "0o400",
+        "nlink": 1,
+        "sha256": "c3494ce94943ae96ac1e031e6999cb5b94f8e8f4f38800838af22700e583d554",
+        "size": 19719,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/p0-manager-rebind/preflight.py.before": {
+        "gid": 0,
+        "mode": "0o400",
+        "nlink": 1,
+        "sha256": "d38b0b65ae3baf5e528a9a925957e0898c06bf25e202636d45ffa52a1c0ca1e5",
+        "size": 105375,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/r1-timer-format": {
+        "gid": 0,
+        "mode": "0o700",
+        "nlink": 2,
+        "size": 4096,
+        "type": 16384,
+        "uid": 0
+      },
+      "evidence/r1-timer-format/config.json.before": {
+        "gid": 0,
+        "mode": "0o400",
+        "nlink": 1,
+        "sha256": "9208c5ad06d8bd7b25c0991792d497d5da697a09f34fd9b82b51288ba983a6de",
+        "size": 871,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/r1-timer-format/runner.py.before": {
+        "gid": 0,
+        "mode": "0o400",
+        "nlink": 1,
+        "sha256": "615b38268aa250ec5e82d5a3c48863e4b313357daa214aa024656319dcb2dfc1",
+        "size": 16043,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/stop-runner.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "0a02ca188e25e925ef8b66778b466f6db8273b3e72553a589b19267ec7294e12",
+        "size": 368,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/stop-runner.stderr": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/stop-runner.stdout": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/terminal-cleanup.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "ac739ed2722c3bc902a4e399eaea74b68b9aa368bf5be6af494af21dab30b5a8",
+        "size": 365,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/terminal-cleanup.stderr": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/terminal-cleanup.stdout": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "1872538273d39de51260e39d53d2649696d72345bce0b1b93a083eaf6636474a",
+        "size": 1300,
+        "type": 32768,
+        "uid": 0
+      },
+      "expected.json": {
+        "gid": 0,
+        "mode": "0o400",
+        "nlink": 1,
+        "sha256": "59dfde6043c443c7d5553fa814ec727c4e090da8a51b408c1e471ea1289f74b6",
+        "size": 19638,
+        "type": 32768,
+        "uid": 0
+      },
+      "moex-finam-p1-o2-once-20261005.service": {
+        "gid": 0,
+        "mode": "0o400",
+        "nlink": 1,
+        "sha256": "56c0ff308be69f81a189a5f5c8c083fee605f87d9c3c10385527f3e43f435b70",
+        "size": 548,
+        "type": 32768,
+        "uid": 0
+      },
+      "moex-finam-p1-o2-once-20261005.timer": {
+        "gid": 0,
+        "mode": "0o400",
+        "nlink": 1,
+        "sha256": "154685cf840155b737db0e6326eb2e6e1d6d1455647594e855357e6cb665bc3c",
+        "size": 215,
+        "type": 32768,
+        "uid": 0
+      },
+      "phase-input-before.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "cc86237428f8e7d6b2353d781624c61597196f0a2c06ef1a5b271907c5349df5",
+        "size": 1142,
+        "type": 32768,
+        "uid": 0
+      },
+      "phase.signed.json": {
+        "gid": 0,
+        "mode": "0o400",
+        "nlink": 1,
+        "sha256": "3aab4674b8d87e8cf4e6ffc69f260db8e5267092d5f31551f3fb586cc5b51adf",
+        "size": 1142,
+        "type": 32768,
+        "uid": 0
+      },
+      "preflight.py": {
+        "gid": 0,
+        "mode": "0o400",
+        "nlink": 1,
+        "sha256": "f4127fde891386e458b212bb6d25d41e28d4aa1780120fba702721ab1b51cdee",
+        "size": 105375,
+        "type": 32768,
+        "uid": 0
+      },
+      "runner.py": {
+        "gid": 0,
+        "mode": "0o400",
+        "nlink": 1,
+        "sha256": "bfd0bfdbbf46c91f19ceda5696e35cf56c2ad1955f2179af76f4b4f5fdb2ae51",
+        "size": 18421,
+        "type": 32768,
+        "uid": 0
+      }
+    },
+    "/root/moex-o2-once-20261006": {
+      ".": {
+        "gid": 0,
+        "mode": "0o700",
+        "nlink": 3,
+        "size": 4096,
+        "type": 16384,
+        "uid": 0
+      },
+      "attempt.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "07145fa7c852963bc1f63e2e35c9ef063813d259e7ab0a8f9a4389ee6a2139be",
+        "size": 136,
+        "type": 32768,
+        "uid": 0
+      },
+      "config.json": {
+        "gid": 0,
+        "mode": "0o400",
+        "nlink": 1,
+        "sha256": "d101965b91a82d4ca1dcb47ea49b5047b1a6a7699a927e63dfdc5eff4f5b9f25",
+        "size": 871,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence": {
+        "gid": 0,
+        "mode": "0o700",
+        "nlink": 3,
+        "size": 4096,
+        "type": 16384,
+        "uid": 0
+      },
+      "evidence/auth-attempt.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "b21a693f76f2f5ff474ab5f1e4e149fc9724ad79a93a22679459877bb0449175",
+        "size": 97,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/auth-result.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "6b4c8d9f78c7c17b5bd669f990fd2622077f3cc6f149cfead2d7bd17246b425e",
+        "size": 47,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/before-claim-preflight.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "10a8fc1379b2fcc431ffa9bb896418b6db2d7ba7514e3770fdddf801f8a1e8f7",
+        "size": 31917,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/claim.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "46eace364c723e6e08bd0f64e9972d162c18cc92b5030f4a0b3595e4a6cf205d",
+        "size": 372,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/claim.stderr": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/claim.stdout": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "b0c0678c96bd25a9558e402d7cbf18eb064e2b295c284547b01496f49ceb7d95",
+        "size": 458,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/cleanup-finished.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "d398002003fd9fae30a96c995253a83d08340774aafd9b7ee20dbe60c81d571f",
+        "size": 159,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/credential-intent.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "3ec2497ff38d0350d780e986dcc23d2e6ef36dd88a57d351c8b25299d46b7209",
+        "size": 83,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/final-authority.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "e91ee2e7cd8d9deca0149a1df690791dd058feb741448ba4460d84de14b28770",
+        "size": 368,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/final-authority.stderr": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/final-authority.stdout": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "2d7af0a200659bbd8bbb9cda115b3aae605b7a7772c317de3c988475e9366bc3",
+        "size": 229,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/final-preservation-proof.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "108d122cfb85d5163d76faa914a04e9ba01dc4a2d778fa327474d910236dd264",
+        "size": 6277,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/final-unit-evidence.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "b57cb1eca9c74f54ef3ae3d829cf41e700efe87a43a28e601af7df8afe34b09e",
+        "size": 373,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/final-unit-evidence.stderr": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/final-unit-evidence.stdout": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "ab295d953caa5ce5e456e5ccaeec2dc242f9aa73555e5f79346df96608cc0eed",
+        "size": 301,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/fresh-preflight.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "ce7261d616ecf01b445c240e6b317569d4903eb99849bd2b57dfa601d12b2442",
+        "size": 31917,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/materialize.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "9384e13ae15848d3236af8793dfe72c7779326aa414ec0d738eec8979d47958b",
+        "size": 379,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/materialize.stderr": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "fe0ed381d4b2a1b90ee7dcab1ba9f2ecea018d9ceb709794f52ab3d1422623fd",
+        "size": 60,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/materialize.stdout": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/materializer.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "3975d36e6353ee2c978818cd4bd86db004ad28ea7935054796d143e0df561311",
+        "size": 360,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/materializer.stderr": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/materializer.stdout": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/metadata-rebind": {
+        "gid": 0,
+        "mode": "0o700",
+        "nlink": 2,
+        "size": 4096,
+        "type": 16384,
+        "uid": 0
+      },
+      "evidence/metadata-rebind/config.json.before": {
+        "gid": 0,
+        "mode": "0o400",
+        "nlink": 1,
+        "sha256": "0d707a33d68bcc09662f3004803457227425e180c3be476497086046244c2270",
+        "size": 871,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/metadata-rebind/expected.json.before": {
+        "gid": 0,
+        "mode": "0o400",
+        "nlink": 1,
+        "sha256": "ae2e2a70af9b88d94513313977247a6f51b783976d2ccbd0a1f8d3f7e4a3c0cb",
+        "size": 32711,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/metadata-rebind/preflight.py.before": {
+        "gid": 0,
+        "mode": "0o400",
+        "nlink": 1,
+        "sha256": "6a43f6f383a70a8fcc920332a4ae0e3329c669c09c884bdd65459b9d9a38ed09",
+        "size": 108939,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/stop-runner.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "3c6da4440bbc623724c9ed7796b15c6fe5575d75a87f1c2d762bad49663d9f5a",
+        "size": 368,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/stop-runner.stderr": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/stop-runner.stdout": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/terminal-cleanup.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "e4c966cca8de5c6e9e2c2ee5d2bef6b8ff6ba3073fdbafca25f3614da89b4a57",
+        "size": 365,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/terminal-cleanup.stderr": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0,
+        "type": 32768,
+        "uid": 0
+      },
+      "evidence/terminal-cleanup.stdout": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "e9867e041493d995ea5bdb8605be73ae5da286cf7fb8055669b434ce1772747b",
+        "size": 1298,
+        "type": 32768,
+        "uid": 0
+      },
+      "expected.json": {
+        "gid": 0,
+        "mode": "0o400",
+        "nlink": 1,
+        "sha256": "184e5ba09f1693a103bc42bd7a595a95056c07cb994078e511f3190ae996f8f6",
+        "size": 32638,
+        "type": 32768,
+        "uid": 0
+      },
+      "moex-finam-p1-o2-once-20261006.service": {
+        "gid": 0,
+        "mode": "0o400",
+        "nlink": 1,
+        "sha256": "c36b8c6b86a386d8684d60019fc6a408041e5849192cb6a75b47426fb59098e0",
+        "size": 544,
+        "type": 32768,
+        "uid": 0
+      },
+      "moex-finam-p1-o2-once-20261006.timer": {
+        "gid": 0,
+        "mode": "0o400",
+        "nlink": 1,
+        "sha256": "a4e5c3a58b914857ee37925ea36879a4e1258c7b6e4f982d2d7ef2afddf80177",
+        "size": 215,
+        "type": 32768,
+        "uid": 0
+      },
+      "phase-input-before.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "3aab4674b8d87e8cf4e6ffc69f260db8e5267092d5f31551f3fb586cc5b51adf",
+        "size": 1142,
+        "type": 32768,
+        "uid": 0
+      },
+      "phase.signed.json": {
+        "gid": 0,
+        "mode": "0o400",
+        "nlink": 1,
+        "sha256": "4f63f7deb78e7e1381769a235948b7038789f417d425e8095b1601ab41d2e88f",
+        "size": 1133,
+        "type": 32768,
+        "uid": 0
+      },
+      "preflight.py": {
+        "gid": 0,
+        "mode": "0o400",
+        "nlink": 1,
+        "sha256": "8b2864f5d732a2d6b2b5542f6fa964f9c3203183e4322fedeb5d69609b9b5dbe",
+        "size": 108918,
+        "type": 32768,
+        "uid": 0
+      },
+      "runner.py": {
+        "gid": 0,
+        "mode": "0o400",
+        "nlink": 1,
+        "sha256": "7ed154845c42205043d6c0aa7ab477d0439e409407f47cf968cf117daa51d7d6",
+        "size": 20957,
+        "type": 32768,
+        "uid": 0
+      }
+    },
+    "/usr/local/share/moex/stage8b-p1e/o2-sparse-4668b42": {
+      ".": {
+        "gid": 0,
+        "mode": "0o700",
+        "nlink": 2,
+        "size": 4096,
+        "type": 16384,
+        "uid": 0
+      },
+      "before-0": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "e9805b7437d61f33bc2144d5c609809ea997094be3b02df21bda8f8667983c73",
+        "size": 8864608,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-1": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "12a679dd44b25cbc571937d16c6333ee20b97a81b6fd706436e0ad25394e7e4c",
+        "size": 3457112,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-2": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "47ec8ab20345f29f1915f297e541f29a554131aa10ae1aadb9559069d769f074",
+        "size": 13162648,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-3": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "2e514d6565729bab057fa1d9639e7c84674de1f3e8c1299a101460e73a451fd0",
+        "size": 467,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-4": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "52bef0df8c1c64564e0902be20368e05a5272b99d4d711a87879a4bff156b538",
+        "size": 1332,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-5": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "bf7ba6efdb60b3f4075bcc75a864335d0165c20d5417dcee05a40ad77dbb17e1",
+        "size": 1657,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-6": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "8070ae86d61c9cbfa051b61a0133eb1adfdf4608a5f960e66f2e1242dace72c2",
+        "size": 1635,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-7": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "5b1ed8cc5553694d836cc0fbf2c5b9855cc46f08da88f7c3ac46e85c7aac1ed2",
+        "size": 3913,
+        "type": 32768,
+        "uid": 0
+      },
+      "journal.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "126531475b4ef4e3fcb6d818549869159d368ae3189cd6e16831712c9533a03b",
+        "size": 212,
+        "type": 32768,
+        "uid": 0
+      }
+    },
+    "/usr/local/share/moex/stage8b-p1e/o2-v4-timestamp-f3b3499": {
+      ".": {
+        "gid": 0,
+        "mode": "0o700",
+        "nlink": 2,
+        "size": 4096,
+        "type": 16384,
+        "uid": 0
+      },
+      "before-0": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "17a94958ab90b4f0deedd2e49b88adfa9d4af7547eb728c5f8f596bc2584309a",
+        "size": 9509112,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-1": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "67311f1c50290d2a99a4af9bdbfa6016a5ab081f907ce4eb6e02e7ce220e5957",
+        "size": 3765304,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-2": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "5940f130f265e5bdfe58be9f19c013b27c27d0518df63843a16fe7dc218b1f9c",
+        "size": 13547480,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-3": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "41d222f8f6e7c3b59f9f261f80d41b5cdee520b37a9f4922f5ceab0a4257bbaf",
+        "size": 659,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-4": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "ec63562b19bca8b88a141b30caa1989ddfa86a52f325bb7761adc9ac1bedd32e",
+        "size": 1332,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-5": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "04aed2dc5cdf5bdc44d48cf28c91986bd71e266f2965f76200caf796d87e191e",
+        "size": 1752,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-6": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "4ae237b2ae27dd0490162e976d5838dcd3cbdb197bc90bcfaf14d26a06b43bf3",
+        "size": 1635,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-7": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "5357fe30f6a43908e7f5fa2ea053b693146d5972a1f108afec59afdcf7bbf9f5",
+        "size": 3908,
+        "type": 32768,
+        "uid": 0
+      },
+      "journal.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "646b0e60432ccf7560e468f45623441d9e31e9bfc4a7ed754d04417db6108e02",
+        "size": 218,
+        "type": 32768,
+        "uid": 0
+      }
+    },
+    "/usr/local/share/moex/stage8b-p1e/o2-replacement-7196aaa": {
+      ".": {
+        "gid": 0,
+        "mode": "0o700",
+        "nlink": 2,
+        "size": 4096,
+        "type": 16384,
+        "uid": 0
+      },
+      "before-0": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "022e71072b86487f34b63015cf70bb4a1d0fb1e31006dd783f2fa385668e2987",
+        "size": 1033,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-1": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "f5f6db6e08d45f39fa3976701f78526a55e1485f3398f4140d13eaba1b2bc62b",
+        "size": 1003,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-2": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "7e260e3d46f94dbea93d48aa39d1c16bf8fd6f14aa76cc9be2b197e7ab4f536f",
+        "size": 1206,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-3": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "efaa190119271332ed3aedc14b5fd45cdfc216c529e8eff8a7f0a956e6ee9d90",
+        "size": 80,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-4": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "aa187d73dab4b526cf3bb100c43a6a971de6d1cafb8ecb7c326064623dd1f519",
+        "size": 407,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-5": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "cee324a4e4f251227a25d4a7b23dda332a94522b45407671982f4fc896614406",
+        "size": 9758464,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-6": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "dab3e1426e40acb5101a8743cce5aac5aec8d3ae54d81fb73ac33c9bb18d464f",
+        "size": 1635,
+        "type": 32768,
+        "uid": 0
+      },
+      "journal.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "d91962d180e04eee5dbbbedcd12c01fb78c21eabd096d42e95961fc7166a44b8",
+        "size": 685,
+        "type": 32768,
+        "uid": 0
+      }
+    },
+    "/usr/local/share/moex/stage8b-p1e/o2-template-encoding-f0e880d": {
+      ".": {
+        "gid": 0,
+        "mode": "0o700",
+        "nlink": 2,
+        "size": 4096,
+        "type": 16384,
+        "uid": 0
+      },
+      "before-0": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "f954bf98fa24c62dfa669eb159b7dc06717fe5edb61587c5404001ed38bdd0a3",
+        "size": 9511624,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-1": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "81e88b129896287e2b6b849043d2dfb09b860ddcd3861d1094f7e76a857b40e7",
+        "size": 3768408,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-2": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "b70d1eaf222c747909a907de3af565f601c7a2d4f2c8caaed1b0851d8bcfba1b",
+        "size": 13549928,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-3": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "1131d213d1bf6750e01a6e413ad11b3bc8cec22247462d964d4375da5efe8b6f",
+        "size": 659,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-4": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "7716321e2bb10ccb7c03c3b78f6ebf604dcdebc84b1ba08d82e5274fe6e63f59",
+        "size": 1332,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-5": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "04aed2dc5cdf5bdc44d48cf28c91986bd71e266f2965f76200caf796d87e191e",
+        "size": 1752,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-6": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "d18b48f05f22097522a505ee296b89748e19d86a38a9d5c6ce104029465ffbbf",
+        "size": 1635,
+        "type": 32768,
+        "uid": 0
+      },
+      "before-7": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "00675c852bc9ea713a96c4019c4771a633e8d4fda630b75ce5972280bb824ed8",
+        "size": 3914,
+        "type": 32768,
+        "uid": 0
+      },
+      "journal.json": {
+        "gid": 0,
+        "mode": "0o600",
+        "nlink": 1,
+        "sha256": "ecb9f201e95107f90afacb26470308726c3ba952c224b170476e2347a2dbb73a",
+        "size": 223,
+        "type": 32768,
+        "uid": 0
+      }
+    }
+  },
+  "retained_authority": {
+    ".execution.lock": {
+      "gid": 0,
+      "mode": "0o600",
+      "nlink": 1,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "type": 32768,
+      "uid": 0
+    },
+    ".guardian.lock": {
+      "gid": 0,
+      "mode": "0o600",
+      "nlink": 1,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/activation-certificate.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "a69714500abd07df3e23447109bf7d911581cec5e0dbfe8b950efe4b40a0e3da",
+      "size": 909,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/events/00000000000000000000.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "e19c9c043e313271ba46c7e7451b226820a32a20766d5f556fd04e0fe0228808",
+      "size": 473,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/events/00000000000000000001.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "c79eeb92c68aea25107768abd0768d9135d1c33fb1fc4f7945e4fa2bcc058675",
+      "size": 460,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/events/00000000000000000002.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "a2c45812fd07e158377958305746bb87c22c8f2638243d7a7102b621fc358639",
+      "size": 462,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/events/00000000000000000003.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "cad6baa62eaa6b3c404390ac8831a96b2cbb79762a3c0bcb0eb12b7d6d0b50d3",
+      "size": 460,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/events/00000000000000000004.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "6d1fd67ea00fcd3ed10eadfe7d40a9ffc2091cccc67acdfc0a24f8b37481835b",
+      "size": 461,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/events/00000000000000000005.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "b261f071935647e2b9f53dd1f759d7c3f669bec9794f54776d10b0a1a5cb5b2f",
+      "size": 460,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/events/00000000000000000006.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "c3dc241e4595b048bbe1d59ca40abfdca63d73b29ff03bd99ab159ae79319d9d",
+      "size": 461,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/events/00000000000000000007.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "8144effa5a4546df6441a90d50b3c31bdc173dab3ae7ba0229cb878ba17ac281",
+      "size": 460,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/events/00000000000000000008.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "4a05a033e0f84cd68d4f33337082c360e515e44f38ecb8d0f8baf1189cd4c8bc",
+      "size": 461,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/events/00000000000000000009.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "6ef11c5e2ff19e1e4dd76f60882c0ded9ec8345d359770df8d11a63232c60876",
+      "size": 460,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/events/00000000000000000010.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "5834b845b326c4ce21e49fa31dae5102ae3695b95aea035446791ff3f3f0536b",
+      "size": 462,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/genesis-manifest.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "ae8f2ca0b08754a8bfc384a7602a637f3416a7dbd4957e47b5a5a13c8e713137",
+      "size": 802,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/genesis-receipt.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "799a1c8863b2f15920520fc0ab4c8b7a0d0d281634a417d47b898b588f5289f1",
+      "size": 559,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/genesis-transaction.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "b7a3c371c46939a22a1c76b7f18321f7ce71a7c26ede385ea71217d6656868f2",
+      "size": 317,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/manifests/01e0d476ffe4794233d844b3337e1f5ffd29045f1ffe05ce6ba27b46e3d1c5ed/claim-receipt.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "594301d70bdd5529c58cd1fbf6d79321afb3a593cc9642c269de307a20bab05b",
+      "size": 464,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/manifests/01e0d476ffe4794233d844b3337e1f5ffd29045f1ffe05ce6ba27b46e3d1c5ed/phase-manifest.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "01e0d476ffe4794233d844b3337e1f5ffd29045f1ffe05ce6ba27b46e3d1c5ed",
+      "size": 1140,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/manifests/01e0d476ffe4794233d844b3337e1f5ffd29045f1ffe05ce6ba27b46e3d1c5ed/terminal-receipt-00000000000000000004.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "14ea14ad0ccbc484612bab780ed6ec2beb491fa11b82197f6086a47182d872d0",
+      "size": 403,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/manifests/3aab4674b8d87e8cf4e6ffc69f260db8e5267092d5f31551f3fb586cc5b51adf/claim-receipt.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "7cbc6eabe2e7d6012d58c9e72aec187e03c653589f10b904978dd0cbedab5399",
+      "size": 466,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/manifests/3aab4674b8d87e8cf4e6ffc69f260db8e5267092d5f31551f3fb586cc5b51adf/phase-manifest.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "3aab4674b8d87e8cf4e6ffc69f260db8e5267092d5f31551f3fb586cc5b51adf",
+      "size": 1142,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/manifests/3aab4674b8d87e8cf4e6ffc69f260db8e5267092d5f31551f3fb586cc5b51adf/terminal-receipt-00000000000000000008.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "395e4f53ca77ac641ec76ee025aff56fe0fce15e273f25e0a3a781a7764f98ab",
+      "size": 403,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/manifests/4f63f7deb78e7e1381769a235948b7038789f417d425e8095b1601ab41d2e88f/claim-receipt.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "40afd9138a39e943e6aa1f75b3f8c65fd4dc8d8aa80ca973c5d90920f47c612b",
+      "size": 457,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/manifests/4f63f7deb78e7e1381769a235948b7038789f417d425e8095b1601ab41d2e88f/phase-manifest.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "4f63f7deb78e7e1381769a235948b7038789f417d425e8095b1601ab41d2e88f",
+      "size": 1133,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/manifests/4f63f7deb78e7e1381769a235948b7038789f417d425e8095b1601ab41d2e88f/terminal-receipt-00000000000000000010.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "1ee8d0b7a30053f672f812d185b66f011ef3de2d964e5a0a1bae3a39070a572f",
+      "size": 404,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/manifests/b8ce96287e82a1268a3617c3e29bf8ec0167014bd216c544011c07b709e3b3b8/claim-receipt.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "bc4a3ca41c6253f762bd0312e9b3470718b1e4ebc3f7771d59642951a6f21822",
+      "size": 454,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/manifests/b8ce96287e82a1268a3617c3e29bf8ec0167014bd216c544011c07b709e3b3b8/phase-manifest.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "b8ce96287e82a1268a3617c3e29bf8ec0167014bd216c544011c07b709e3b3b8",
+      "size": 1130,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/manifests/b8ce96287e82a1268a3617c3e29bf8ec0167014bd216c544011c07b709e3b3b8/terminal-receipt-00000000000000000002.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "334b4163ab4229d38b4aaf7ad0c5fdbed27c1587b9aaacb37aa000de3c9a5f43",
+      "size": 404,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/manifests/cc86237428f8e7d6b2353d781624c61597196f0a2c06ef1a5b271907c5349df5/claim-receipt.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "5a62bdf8eb491cebd3baa6426dabdb85e4f4715b7a3fac358029086117f38733",
+      "size": 466,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/manifests/cc86237428f8e7d6b2353d781624c61597196f0a2c06ef1a5b271907c5349df5/phase-manifest.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "cc86237428f8e7d6b2353d781624c61597196f0a2c06ef1a5b271907c5349df5",
+      "size": 1142,
+      "type": 32768,
+      "uid": 0
+    },
+    "authority/manifests/cc86237428f8e7d6b2353d781624c61597196f0a2c06ef1a5b271907c5349df5/terminal-receipt-00000000000000000006.json": {
+      "gid": 987,
+      "mode": "0o440",
+      "nlink": 1,
+      "sha256": "35f10d533fc7cac4d30237f13b7dadcfce8fcc27520269b5e6b7222e0002152c",
+      "size": 403,
+      "type": 32768,
+      "uid": 0
+    }
+  }
+}

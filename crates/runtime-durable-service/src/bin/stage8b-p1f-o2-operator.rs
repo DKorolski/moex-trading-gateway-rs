@@ -146,6 +146,16 @@ fn run() -> Result<(), String> {
                 .map_err(|error| error.to_string())?;
             print_json(&result)?;
         }
+        [command] if command == "terminal-abort-oct7-fixed" => {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|error| error.to_string())?;
+            let result = runtime.block_on(
+                runtime_durable_service::recover_stage8b_p1f_o2_expired_materialization_fixed_v1()
+            ).map_err(|error| error.to_string())?;
+            print_json(&result)?;
+        }
         [command] if command == "collect-unit-evidence" => {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -172,7 +182,7 @@ fn run() -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "usage: stage8b-p1f-o2-operator <public-key|sign-genesis|sign-activation|sign-phase|prepare-control-root|guardian-init-fixed|guardian-activate-fixed|guardian-claim-fixed|guardian-materialize-fixed|guardian-inspect|runner-fixed|cleanup-fixed|collect-unit-evidence|collect-evidence> ...".into()
+    "usage: stage8b-p1f-o2-operator <public-key|sign-genesis|sign-activation|sign-phase|prepare-control-root|guardian-init-fixed|guardian-activate-fixed|guardian-claim-fixed|guardian-materialize-fixed|guardian-inspect|runner-fixed|cleanup-fixed|terminal-abort-oct7-fixed|collect-unit-evidence|collect-evidence> ...".into()
 }
 
 fn guardian_materialize_fixed() -> Result<(), String> {

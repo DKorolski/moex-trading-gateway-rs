@@ -95,6 +95,145 @@ fn parse(
 }
 
 #[test]
+fn observed_v4_timestamp_canonical_form_is_exact_and_legacy_stays_seconds_only() {
+    for text in [
+        "2026-10-02T05:00:03Z",
+        "2026-10-02T05:00:03.100Z",
+        "2026-10-02T05:00:03.123456Z",
+        "2026-10-02T05:00:03.123456789Z",
+    ] {
+        let parsed = parse_observation_timestamp(text).unwrap();
+        assert_eq!(
+            parsed.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true),
+            text
+        );
+        assert_eq!(
+            super::super::parse_canonical_timestamp(text).is_some(),
+            parsed.nanosecond() == 0,
+        );
+    }
+    for text in [
+        "2026-10-02T05:00:03.1Z",
+        "2026-10-02T05:00:03.000Z",
+        "2026-10-02T05:00:03.1234567891Z",
+        "2026-10-02T05:00:03+00:00",
+        "2026-10-02T08:00:03.100+03:00",
+        "2026-10-02t05:00:03.100z",
+        "2026-10-02T05:00:60Z",
+    ] {
+        assert!(parse_observation_timestamp(text).is_none(), "{text}");
+    }
+
+    let (v3, now) = super::super::no_riskgate_tests::fixture_for_identity(10, 0, &"1".repeat(64));
+    let (v2, v2_now, _, _) =
+        super::super::tests::fixture_for_binding(&"1".repeat(64), "ACC_TEST_0001");
+    for (value, now) in [(v3, now), (serde_json::from_slice(&v2).unwrap(), v2_now)] {
+        let validate = |v: &Value| {
+            let bytes = serde_json::to_vec(v).unwrap();
+            parse_stage8b_p1e_first_boot_source_v1(
+                &bytes,
+                &sha256_hex(&bytes),
+                &"1".repeat(64),
+                "ACC_TEST_0001",
+                now,
+            )
+        };
+        assert!(validate(&value).is_ok());
+        let mut v = value.clone();
+        v["captured_at_utc"] =
+            json!((now - Duration::nanoseconds(1))
+                .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true));
+        assert!(matches!(
+            validate(&v),
+            Err(Stage8bP1eFirstBootSourceError::InvalidSchema)
+        ));
+        let mut v = value;
+        v["broker_truth"]["checked_at_utc"] =
+            json!((now - Duration::nanoseconds(1))
+                .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true));
+        assert!(matches!(
+            validate(&v),
+            Err(Stage8bP1eFirstBootSourceError::InvalidBrokerTruth)
+        ));
+    }
+}
+
+#[test]
+fn observed_v4_subsecond_chronology_and_freshness_stay_fail_closed() {
+    use Stage8bP1eFirstBootSourceError as E;
+    let (mut value, received) = fixture(&"1".repeat(64));
+    let captured = received + Duration::nanoseconds(123_456_789);
+    let wire_time =
+        |v: DateTime<Utc>| json!(v.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true));
+    value["captured_at_utc"] = wire_time(captured);
+    value["broker_truth"]["checked_at_utc"] = wire_time(captured);
+    let admitted = parse(&value, captured).unwrap();
+    assert_eq!(admitted.captured_at(), captured);
+    assert_eq!(admitted.broker_truth_checked_at(), captured);
+    assert_eq!(admitted.observed_receipt().unwrap().received_at(), received);
+    // Neither clock reversal nor receipt/capture inversion gets a 1-second
+    // tolerance; all comparisons must remain exact to one nanosecond.
+    assert!(matches!(
+        parse(&value, captured - Duration::nanoseconds(1)),
+        Err(E::InvalidBrokerTruth)
+    ));
+    let mut v = value.clone();
+    v["broker_truth"]["checked_at_utc"] = wire_time(captured + Duration::nanoseconds(1));
+    assert!(matches!(parse(&v, captured), Err(E::InvalidBrokerTruth)));
+    let mut v = value.clone();
+    v["captured_at_utc"] = wire_time(received - Duration::nanoseconds(1));
+    v["broker_truth"]["checked_at_utc"] = v["captured_at_utc"].clone();
+    assert!(matches!(parse(&v, captured), Err(E::InvalidHistory)));
+    assert!(parse(&value, captured + Duration::seconds(300)).is_ok());
+    assert!(matches!(
+        parse(
+            &value,
+            captured + Duration::seconds(300) + Duration::nanoseconds(1)
+        ),
+        Err(E::InvalidBrokerTruth)
+    ));
+    // Isolate receipt age from the independent 300-second broker-truth limit.
+    let document: FirstBootSourceDocumentV1 = serde_json::from_value(value).unwrap();
+    assert!(validate_receipt(
+        &document,
+        SourceAggregationPolicy::ObservedV4,
+        received + Duration::seconds(900)
+    )
+    .is_ok());
+    assert!(matches!(
+        validate_receipt(
+            &document,
+            SourceAggregationPolicy::ObservedV4,
+            received + Duration::seconds(900) + Duration::nanoseconds(1)
+        ),
+        Err(E::InvalidHistory)
+    ));
+}
+
+#[test]
+fn observed_v4_noncanonical_observation_times_are_rejected_in_full_parser() {
+    let (original, now) = fixture(&"1".repeat(64));
+    for text in [
+        now.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        now.to_rfc3339_opts(chrono::SecondsFormat::Secs, false),
+        "not-a-timestamp".into(),
+    ] {
+        let mut value = original.clone();
+        value["captured_at_utc"] = json!(text);
+        assert!(matches!(
+            parse(&value, now),
+            Err(Stage8bP1eFirstBootSourceError::InvalidSchema)
+        ));
+        let mut value = original.clone();
+        value["broker_truth"]["checked_at_utc"] = json!(text);
+        assert!(matches!(
+            parse(&value, now),
+            Err(Stage8bP1eFirstBootSourceError::InvalidBrokerTruth)
+        ));
+    }
+}
+
+#[test]
 fn observed_v4_source_is_explicit_and_legacy_parser_stays_strict() {
     assert_eq!(
         sha256_hex(STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V4.as_bytes()),
@@ -323,7 +462,10 @@ fn observed_v4_transaction_seal_restart_and_marker_bound_historical_recovery() {
         let config = || observed_bootstrap(&parent, fp.clone());
         let bootstrap = config();
         let op = bootstrap.operational_identity_sha256().to_string();
-        let (value, now) = fixture(&op);
+        let (mut value, now) = fixture(&op);
+        let now = now + Duration::nanoseconds(123_456_789);
+        value["captured_at_utc"] = json!(now.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true));
+        value["broker_truth"]["checked_at_utc"] = value["captured_at_utc"].clone();
         let bytes = serde_json::to_vec(&value).unwrap();
         let bundle_hash = sha256_hex(&bytes);
         let source = parse_bootstrap_bound_source(
@@ -334,6 +476,8 @@ fn observed_v4_transaction_seal_restart_and_marker_bound_historical_recovery() {
             FirstBootTruthPolicy::FreshAdmission,
         )
         .unwrap();
+        assert_eq!(source.captured_at(), now);
+        assert_eq!(source.broker_truth_checked_at(), now);
         let receipt_hash = source.observed_receipt().unwrap().sha256().to_string();
         let candidate_hash = source.candidate_canonical_m10_sha256().to_string();
         let admin = crate::authorize_stage8b_p1_first_boot(
@@ -406,6 +550,8 @@ fn observed_v4_transaction_seal_restart_and_marker_bound_historical_recovery() {
                 FirstBootTruthPolicy::HistoricalRecovery,
             )
             .unwrap();
+            assert_eq!(recovered_source.captured_at(), now);
+            assert_eq!(recovered_source.broker_truth_checked_at(), now);
             assert!(historical_binding_matches_source(
                 &historical,
                 &recovered_source

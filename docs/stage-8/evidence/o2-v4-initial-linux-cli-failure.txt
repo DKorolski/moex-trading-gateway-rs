@@ -1,0 +1,72 @@
+   Compiling serde_core v1.0.228
+   Compiling rustversion v1.0.22
+   Compiling arc-swap v1.9.2
+   Compiling serde v1.0.228
+   Compiling serde_json v1.0.150
+   Compiling uuid v1.23.4
+   Compiling csv v1.4.0
+   Compiling redis v0.27.6
+   Compiling chrono v0.4.45
+   Compiling rust_decimal v1.42.1
+   Compiling serde_urlencoded v0.7.1
+   Compiling reqwest v0.12.24
+   Compiling broker-core v0.1.0 (/src/crates/broker-core)
+   Compiling strategy-runtime-core v0.1.0 (/src/crates/strategy-runtime-core)
+   Compiling broker-finam v0.1.0 (/src/crates/broker-finam)
+   Compiling runtime-command-bridge v0.1.0 (/src/crates/runtime-command-bridge)
+   Compiling runtime-durable-service v0.1.0 (/src/crates/runtime-durable-service)
+   Compiling finam-gateway v0.1.0 (/src/crates/finam-gateway)
+warning: function `publish_stage8b_r2a7_operational_sources_from_owner` is never used
+   --> crates/finam-gateway/src/stage8a1_execution_capability.rs:391:15
+    |
+391 | pub(crate) fn publish_stage8b_r2a7_operational_sources_from_owner(
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `sign_stage8b_r2a8_current_source_commitment` is never used
+    --> crates/finam-gateway/src/stage8a1_execution_capability.rs:1744:19
+     |
+1601 | impl Stage8a1OperationalAuthorityIssuer {
+     | --------------------------------------- method in this implementation
+...
+1744 |     pub(crate) fn sign_stage8b_r2a8_current_source_commitment(
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `attach_stage8b_r2a7_record_provenance` is never used
+    --> crates/finam-gateway/src/stage8a1_execution_capability.rs:4452:4
+     |
+4452 | fn attach_stage8b_r2a7_record_provenance(
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `finam-gateway` (lib) generated 3 warnings
+    Finished `release` profile [optimized] target(s) in 1m 37s
+     Running unittests src/bin/stage8b-p1f-o2-materializer.rs (/target/release/deps/stage8b_p1f_o2_materializer-978d4ea8981592a9)
+
+running 4 tests
+test observed_tests::observed_fixed_materializer_preflight_rejects_wrong_policy_identity_calendar_and_range ... ok
+test observed_tests::observed_fixed_materializer_real_history_roundtrip_preserves_exact_receipt_and_bytes ... FAILED
+test observed_tests::observed_fixed_materializer_retained_mutations_cannot_rehash_raw_or_source_independently ... ok
+test observed_tests::observed_staged_consumer_accepts_real_history_only_with_explicit_protected_config ... FAILED
+
+failures:
+
+---- observed_tests::observed_fixed_materializer_real_history_roundtrip_preserves_exact_receipt_and_bytes stdout ----
+
+thread 'observed_tests::observed_fixed_materializer_real_history_roundtrip_preserves_exact_receipt_and_bytes' (531) panicked at crates/finam-gateway/src/bin/stage8b-p1f-o2-materializer.rs:801:91:
+called `Result::unwrap()` on an `Err` value: Io(ReadOnlyFilesystem)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- observed_tests::observed_staged_consumer_accepts_real_history_only_with_explicit_protected_config stdout ----
+
+thread 'observed_tests::observed_staged_consumer_accepts_real_history_only_with_explicit_protected_config' (533) panicked at crates/finam-gateway/src/bin/stage8b-p1f-o2-materializer.rs:801:91:
+called `Result::unwrap()` on an `Err` value: Io(ReadOnlyFilesystem)
+
+
+failures:
+    observed_tests::observed_fixed_materializer_real_history_roundtrip_preserves_exact_receipt_and_bytes
+    observed_tests::observed_staged_consumer_accepts_real_history_only_with_explicit_protected_config
+
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 10 filtered out; finished in 2.15s
+
+error: test failed, to rerun pass `-p finam-gateway --bin stage8b-p1f-o2-materializer`

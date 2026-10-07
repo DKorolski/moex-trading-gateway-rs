@@ -1,6 +1,99 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-10-03.
+Status date: 2026-10-07.
+
+2026-10-07: installed `e05b4bf` reached materializer exit 0, but O2 stopped
+before bootstrap at external-file custody (create 0440 masked to 0400). Cleanup
+refused pending materialization; observed head **ACTIVE/1/11**, pending sequence
+12, deadline elapsed. P1 stopped, P0/installation preserved, credentials absent.
+The [external-mode source correction](stage-8/stage8b-p1f-o2-external-mode-correction.md)
+adds explicit descriptor permissions for new files and regression witnesses.
+Prevention source `d866cf992a963fbd76c4532aae14088f6e6046ee` and its exact
+terminal-only implementation contract are independently accepted. The
+[terminal-only implementation](stage-8/stage8b-p1f-o2-materialization-abort.md)
+is independently SOURCE ACCEPTED at `3bfd98a`. It archives original pending
+and source bytes, commits only EXPIRED/1/12, and guards restart/response loss.
+This result is tested locally, NOT executed on the VPS. The
+[authority/full Linux artifact preparation](stage-8/stage8b-p1f-o2-abort-artifact.md)
+rebinds accepted source without Rust/Cargo changes and qualifies the three ELFs
+offline. Artifact review, fresh CI and explicit operational authorization remain
+required. Do not replace the old installation before terminal recovery.
+O2 HOLD, O3/O4 still ahead.
+Earlier dated entries are historical, not the current operational head.
+
+2026-10-06 acceptance / successor preparation: `f0e880d` is independently
+SOURCE / PACKAGING CORRECTION ACCEPTED; October-6 failure/cleanup evidence is
+also accepted. Fresh read-only inventory confirms actual FAILED/1/10. The
+[canonical-template installation successor](stage-8/stage8b-p1f-o2-template-encoding-installation.md)
+reuses all three accepted ELF bytes, binds four changed slots and an October-7
+candidate calendar, preserving complete history, diagnostic input, both exhausted
+timers and prior transactions. Package review candidate only; no installation,
+phase, timer or retry performed. O2 HOLD; O3/O4 still ahead. Earlier notes below
+describe the preceding local correction candidate.
+
+2026-10-06: bounded O2 reached materializer exit 0, then guardian rejected the
+packaged supervisor template (final LF violates exact canonical JSON). Cleanup
+retained **FAILED/1/10**; P1 stopped, P0 and installed payload unchanged.
+The [narrow packaging correction](stage-8/stage8b-p1f-o2-template-encoding-correction.md)
+passes actual-package regressions and accepted-release offline materialization
+through ReadyForBootstrap, exact reread and idempotent replay. Fixture-only
+authority and historical clock; no operational bootstrap or retry. O2 HOLD.
+Next: correction review, successor package bound to FAILED/1/10 and a fresh
+calendar, separately authorized stopped installation and bounded O2. Existing
+WS/O3/O4 work remains separate. Earlier dated status below is historical.
+
+2026-10-05 artifact acceptance / installation preparation:
+`1062691` is independently ARTIFACT / GOVERNANCE ACCEPTED in the
+[retained review](stage-8/reviews/REVIEW_1062691_O2_V4_TIMESTAMP_ARTIFACT_RU.txt).
+The [V4 timestamp installation successor](stage-8/stage8b-p1f-o2-v4-timestamp-installation.md)
+is a non-activating package review candidate. All three accepted ELF bytes are
+reused, with October-6 candidate calendar and exact old/new inventory.
+Read-only VPS inventory at 15:48 UTC confirms FAILED/1/8 and the old installed
+manifest; no remote mutation, Redis/FINAM request, signing or run occurred.
+The exhausted October-5 timer/one-use marker and old transaction are preserved;
+only their exact terminal form is admitted by the new installation preflight.
+O2 HOLD. Next: installation review/current CI, separately allowed stopped apply,
+then separately allowed bounded O2. O3/O4 operational parity stays open.
+The earlier artifact-candidate note below is historical.
+
+2026-10-05 source acceptance / artifact follow-up: the [independent review](stage-8/reviews/REVIEW_f3b3499_O2_V4_TIMESTAMP_RU.txt)
+accepts `f3b349949802abd5eff80cad6b9e9fc37bc327e1` as SOURCE / AUTHORITY ACCEPT.
+The [full V4 timestamp successor artifact](stage-8/stage8b-p1f-o2-v4-timestamp-artifact.md)
+is a binary review candidate, not installable or operationally accepted.
+All three ELFs are built from that exact accepted tree; packaging adds no
+production Rust/Cargo/workflow changes. Fractional production assembly/staged-consumer
+qualification and existing Linux release guardian/recovery tests are required.
+O2 remains HOLD; the October 5 failure's exact cause remains unproven. Preserve
+the actual terminal history (last recorded FAILED/1/8) through the later,
+separately permitted installation. No new run, timer, live writes or VPS access.
+Next review is the artifact package; O3/O4 WS/freshness/EOD parity remains open.
+The earlier dated source-candidate note below is historical.
+
+2026-10-05: the authorized one-shot O2 stopped at materializer V4 self-validation
+after five GETs, before bootstrap. Retained terminal frontier: FAILED/1/8;
+the earlier history is preserved. O2 remains HOLD. A timestamp precision defect
+is reproduced and corrected locally, but is not proven to be the exact cause of
+that attempt because its rejected bundle was not retained. The
+[narrow source-review candidate](stage-8/stage8b-p1f-o2-v4-timestamp-correction-2026-10-05.md)
+preserves V4 receipt/capture chronology without a clock tolerance. Candidate
+authority rebinding is an inventory-only follow-up, not independent acceptance.
+The immutable package is built from a clean checkout; separate local WS and
+scheduler changes are excluded. No VPS, installation or retry in this slice.
+After source/authority acceptance: rebuild the full consistent artifact, install
+under its own gate retaining FAILED/1/8, then separately authorize bounded O2.
+The dated notes below are historical and superseded where applicable.
+
+2026-10-04: sparse artifact `823fd35` independently ARTIFACT / GOVERNANCE ACCEPTED;
+exact-head CI run 37139561774 completed `rust` + `redis-smoke` successfully.
+PR #12 merged at `2bc3e49b2951e9bd977e7e6627df0361f5e57a75` (same reviewed tree).
+The [sparse installation successor](stage-8/stage8b-p1f-o2-sparse-installation.md)
+is a non-activating package review candidate, retaining FAILED/1/6 and receipts
+2/4/6. Eight replacement slots, unchanged accepted ELF bytes, policy V3,
+bootstrap schema 2, emitted source V4; candidate calendar 2026-10-05.
+Local evidence accompanies the immutable package; it is not installation or
+operational acceptance. O2 HOLD. No VPS/Redis/FINAM access, signing, installation,
+root migration or phase activation in this slice. WS/freshness/EOD remain O3/O4.
+The dated notes below are historical and superseded where applicable.
 
 2026-10-03 acceptance update (supersedes the local-progress notes below):
 `d63c378a51899a4d407dddc732896e89ccc51b43` is independently **SOURCE ACCEPTED**

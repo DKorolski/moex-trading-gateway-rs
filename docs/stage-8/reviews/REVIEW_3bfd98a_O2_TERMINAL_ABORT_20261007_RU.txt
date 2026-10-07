@@ -1,0 +1,93 @@
+Независимый source review: 3bfd98a — O2 terminal-only abort
+Дата: 7 октября 2026 года.
+
+VERDICT: SOURCE ACCEPT.
+Коммит 3bfd98ab6623c8b339eb56f4d9e28834640e1044 соответствует ранее принятому контракту завершения инцидента 7 октября. Блокирующих P1/P2 замечаний к рассматриваемой source-границе не найдено. Prevention-патч d866cf9 сохранён без изменения.
+
+Это приёмка исходников и связанных локальных evidence. Она открывает authority rebind и обычную native Linux artifact qualification. Это не приёмка восстановления на VPS, не разрешение повторить expired materialization и не закрытие O2. Remote recovery, successor installation и новая bounded O2 выполняются в своих согласованных operational границах.
+
+1. Целостность и scope
+
+ZIP: moex-trading-project-3bfd98a-o2-terminal-abort-review.zip
+Размер: 8 695 677 байт.
+SHA-256: a3b50a83b6763b0f06b379aed4ae91b0049b8e0418ded9a7dad9cd78707be366
+Git tree: 47954e14fdf6cbf574117e095188c716ad6746ba
+Parent: d866cf992a963fbd76c4532aae14088f6e6046ee
+2657 ZIP members; 2645 tracked blobs.
+
+Reviewer пересчитал SHA-256/CRC, проверил отсутствие duplicates/unsafe paths/symlinks/special files, восстановление Git tree из blobs/modes и raw commit SHA-1/parent. Всё совпало.
+
+Точная tracked delta — 13 файлов: семь файлов Rust, включая test module, пять документов/compiled preservation fixture и один source review script. Cargo, workflows, deploy units, стратегия, профиль и market-data validation не менялись. Различия локальных __pycache__ в извлечённых копиях не являются tracked delta.
+
+Production entry point — terminal-abort-oct7-fixed, без аргументов, caller paths, timestamp или replacement pins. Реализован один private guardian extension и fixed operator facade. Нового сервиса, универсального repair/restore API или нового first-boot пути нет.
+
+2. Точный admission и preservation preflight
+
+Production pins соответствуют принятому инциденту:
+  phase: 992be63a6406153eb5bab43d746927df598d59e24df2d113ae12c605752b80b5
+  predecessor event11: 7880c9da6d1ab573bf20fd6b221c0717e35056bbdb12ae318dd298cc82ab89e9
+  pending: 42322f612f1604a053874baeff3b0c99ba53878e8036678c144c9c1bd8eff9b6
+  source: f4c135d7f3fec1a2164c4dfbf0aa9f6f960830acb79373fb9f7450f2763f9952
+  source size: 1 876 641
+  staged: 7135486f3abe51d9233e53e780b8f2db67f29faa8496f935ad023972b376dcbb
+  old installation: 395f9e3e987ce6f5b2c52b6083d1ebc79c71287df72096c6d313ee3e56da32f5
+  generation 1; terminal sequence 12; deadline 2026-10-07T04:25:00Z.
+
+Ed25519 public identity/key-id и signed phase проверяются без чтения приватного signing key. Проверяются claim, полный predecessor history, head ACTIVE/11, exact pending, source/staged bytes, installation/genesis binding и отсутствие опубликованных final source/config, Ready/materialized receipt, owner и конфликтующих event/terminal/frontier files. Нормальная custody остаётся 0440; 0400 допускается только как исходное evidence этого abort.
+
+Compiled preservation JSON SHA-256:
+3fa3808a09223799f9a04b89a48c2e5d78329ebbc8a2a50b4ad33623a5f48c8c.
+
+Reviewer независимо сравнил его с принятым October-7 setup: все 16 installed slots, семь retained trees (131 entry), 32 предшествующих authority files, P0 properties и fragment hashes совпадают. Шестнадцатый slot — installation-o2-v1.json из отдельного installation_manifest_metadata принятого setup; это не неизвестный extra slot.
+
+Facade перечитывает actual file hashes/metadata и exact tree inventory, проверяет неизменность P0 и stopped PID/control PID/job/cgroup четырёх P1 units, затем повторяет preservation/selector перед guardian mutation и после результата. Сохранённые PASS-флаги не используются как admission. Execution lock предшествует guardian lock. Redis query для этой операции не требуется.
+
+3. Transaction, архив и replay
+
+Создаётся immutable abort binding с hashes/bytes/custody исходных файлов и retained parent identities. Выбранные terminal timestamp/sequence фиксируются в create-once/fsynced intent; replay не вычисляет новый decision по текущим часам. reason_code связывает существующую terminal schema с canonical abort binding digest.
+
+Pending и source копируются в fixed aborted evidence текущего manifest: исходные bytes и modes 0440/0400 сохраняются. Source не помещается в authority JSON с лимитом 128 КиБ. Архивирование использует bounded no-follow reads, descriptor-relative exclusive writes, fchmod/fchown, file/directory fsync и exact reread. Это допускает различные filesystems source и control root.
+
+Только после проверки durable archives исходные files потребляются через retained parent descriptors и unlinkat; исходный inode удерживается открытым и проверяется. Рабочий .p1f-next освобождается, поэтому следующий source с новыми bytes не конфликтует со старой ошибкой. Parent substitution, links и foreign/partial archive не исправляются автоматически.
+
+Затем переиспользуется terminal receipt → PHASE_TERMINAL event → head ordering. Единственный committed successor — EXPIRED/1/12; active manifest/deadline очищаются. Ready/O2_MATERIALIZED, промежуточная execution authority или sequence13 для второго terminal decision не создаются.
+
+Private abort continuation распознаёт только свой exact intent/pending/frontier. Ordinary history/admission не получает permissive ignore-pending режима. До completion незавершённый abort блокирует normal inspect/admission/claim/materialization; после completion history проверяет receipt, binding и archive hashes/custody.
+
+Lost-response replay возвращает прежние receipt/event/timestamp/sequence без новых эффектов. Отдельный fixture после завершения допускает future signed claim на sequence13; он не является новым operational O2 или bootstrap witness.
+
+Важная честная граница: частично записанный archive после прерывания оставляет операцию fail-closed и исходный файл сохранённым. Автоматического ремонта такой partial copy нет. Это соответствует принятому контракту; не следует описывать реализацию как универсальное восстановление после любого возможного filesystem failure.
+
+4. Связанные исполняемые evidence
+
+Все восемь retained command records и SHA-256 logs проверены. Фактические результаты:
+  guardian debug: 54 passed, 0 failed, 1 Linux/root probe ignored;
+  guardian release: 54 passed, 0 failed, 1 Linux/root probe ignored;
+  systemd target: 6 passed — два новых preflight tests и четыре inherited tests;
+  doctests: 61 passed;
+  fmt, affected-crate strict all-targets/all-features Clippy и diff-check: exit 0;
+  authority: ожидаемый exit 1 / production file-count drift, REBIND PENDING.
+
+Три новых guardian test functions содержат 15 real-filesystem reopen frontiers, 28 nonmutating initial negatives и partial/archive/parent/completion controls. Начальный fixture проходит production V4 materialization до ACTIVE/11 + pending12 + source0400, затем использует test-signed phase/test hash pins. Это связанный witness той же transaction shape, а не запуск production command с actual private staged source с VPS.
+
+Проверяются prepared/final intent, durable archives, освобождение source/pending, terminal pending/receipt, event-temp/event, head-temp/head, pending removal и completion до ответа. Negative snapshots сравнивают bytes/inode/uid/gid/mode до/после отказа. Corrupted completed archive блокирует normal inspect. Direct runtime-effect audit остаётся нулевым; source call graph не содержит FINAM/Redis, Hybrid Replay или bootstrap invocation.
+
+Ранее принятые umask 0022/0027/0077 checks проходят в debug/release gate; external fchmod prevention unchanged.
+
+Reviewer здесь не имеет Cargo/Rust/Docker toolchain и не перезапускал Rust suites. Independently выполнены archive/tree/commit checks, retained log/hash checks, tracked-delta compare и сверка compiled preservation baseline. Rust results оценены по implementation и сохранённым связанным execution logs.
+
+Controlled durable fault/reopen tests не являются OS SIGKILL witness. Native Linux/root:service qualification ещё не выполнена; её пропуск на Mac объявлен явно. Эти границы не препятствуют SOURCE ACCEPT, но не позволяют заявлять operational readiness.
+
+5. Разрешённый следующий шаг без расширения roadmap
+
+Перепривязать current-tree authority к принятому итоговому source; выполнить штатные authority checks/нужный CI и native Linux qualification того же artifact. Для qualification включить реальный root:service UID/GID, umask0077, archive/consume/replay и отказ неверной custody. Не создавать новый daemon, design-only круг, generic restore layer или повторную большую crash-матрицу 105×2.
+
+Подготовить квалифицированный полный artifact с тремя бинарниками и узкую root-only staging-инструкцию для его recovery operator. Старые installed три ELF и installation manifest до завершения инцидента не заменять: old phase/pending привязаны к SHA 395f9e3e… .
+
+После отдельного operational разрешения — fresh exact preflight и terminal-abort-oct7-fixed против неизменной installation. Приёмка фактического результата должна показать EXPIRED/1/12, прежние archive bytes/modes, original pending/source-temp consumed, один terminal event, точный repeated receipt, P0/P1/preservation и отсутствие bootstrap/network/trading effects.
+
+После такой приёмки — один normal successor installation полного artifact с сохранением истории и свежими calendar/phase bindings; затем отдельно разрешённая bounded O2. Старую expired phase/таймер не перевооружать, materialization не повторять, timestamps/deadline не менять и ручной chmod/rm не использовать.
+
+В предоставленном operational snapshot authority всё ещё ACTIVE/1/11 с pending12. Рассматриваемый commit не менял VPS. O2 остаётся HOLD; баровый stream/WS continuity и исполнительная parity этим review не принимаются. Следующий объём остаётся прежним: завершить O2, необходимые O3/O4 continuity/freshness/WS/EOD проверки, несколько paper-сессий против ALOR, затем отдельно принимаемый FINAM live micro soak.
+
+Reviewer не выполнял SSH, remote mutation, signing, Redis/FINAM requests, installation, recovery, push/merge или новый O2.
