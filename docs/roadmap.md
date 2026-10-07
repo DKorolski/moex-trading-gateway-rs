@@ -27,6 +27,17 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
+2026-10-07 terminal recovery closure: independent OPERATIONAL EVIDENCE ACCEPT
+confirms EXPIRED/1/12, unchanged installed payload/P0 and stopped P1. The incident
+is closed, not O2. Next is the [full accepted-ELF installation successor](stage-8/stage8b-p1f-o2-terminal-successor-installation.md)
+with complete terminal history/archives preserved, then separate installation
+permission/evidence and a separately permitted bounded O2. No extra recovery
+framework, production rebuild or new design-only gate. October-8 candidate
+calendar grants no operational authority; expired dates require explicit rebind.
+After O2: short O3/O4 continuity/freshness/WS/EOD checks, several paper sessions
+compared with ALOR, then separately gated live micro. No FINAM order writes or
+runtime-live are opened here. The dated entries below are historical.
+
 2026-10-07: bounded O2 progressed past source materialization, then failed exact
 external-file permissions. ACTIVE/1/11 with pending sequence 12 is not terminal;
 all P1 units were observed stopped. Prevention source `d866cf9` and the narrow
