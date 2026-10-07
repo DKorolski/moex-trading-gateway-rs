@@ -27,6 +27,15 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
+2026-10-07: bounded O2 progressed past source materialization, then failed exact
+external-file permissions. ACTIVE/1/11 with pending sequence 12 is not terminal;
+all P1 units are stopped. Next: [source correction and narrow terminal-recovery
+contract review](stage-8/stage8b-p1f-o2-external-mode-correction.md), implementation
+of the accepted terminal-only recovery, reviewed artifact/stopped installation
+and separately authorized recovery. Only then a new bounded O2. Do not deploy a
+prevention-only fix as recovery, reuse expired authority or skip to O3/O4. No
+new macro-stage or broad recovery framework; operational WS/parity remains ahead.
+
 2026-10-06 acceptance follow-up: `f0e880d` source/packaging correction and the
 FAILED/1/10 result evidence are accepted. Prepare the
 [narrow successor installation package](stage-8/stage8b-p1f-o2-template-encoding-installation.md)

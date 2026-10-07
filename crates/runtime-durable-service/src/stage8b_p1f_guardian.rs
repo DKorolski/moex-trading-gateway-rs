@@ -3265,6 +3265,12 @@ impl Stage8bP1fAuthorityStoreV1 {
             .mode(0o440)
             .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
             .open(&temporary)?;
+        // OpenOptions creation permissions are masked by the caller's umask.
+        // Establish exact custody on this newly created descriptor before any
+        // bytes, crash frontier or publication. Never repair an existing file.
+        if unsafe { libc::fchmod(file.as_raw_fd(), 0o440) } != 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
         if unsafe { libc::fchown(file.as_raw_fd(), self.expected_uid, self.service_gid) } != 0 {
             return Err(std::io::Error::last_os_error().into());
         }
@@ -4426,6 +4432,8 @@ mod tests {
                 std::process::id()
             ));
             fs::DirBuilder::new().mode(0o750).create(&root).unwrap();
+            // Fixtures model a provisioned root, not umask-dependent mkdir.
+            fs::set_permissions(&root, fs::Permissions::from_mode(0o750)).unwrap();
             let uid = unsafe { libc::geteuid() };
             let gid = unsafe { libc::getegid() };
             let store = Stage8bP1fAuthorityStoreV1::open_at(&root, uid, gid).unwrap();
@@ -5532,6 +5540,15 @@ mod tests {
     }
 
     fn o2_materialization_case(cleanup_frontier: Option<u8>, observed: bool) {
+        o2_materialization_frontier_case(cleanup_frontier, observed, 4, false);
+    }
+
+    fn o2_materialization_frontier_case(
+        cleanup_frontier: Option<u8>,
+        observed: bool,
+        fault_point: u8,
+        expired_pending_only: bool,
+    ) {
         let mut setup = Setup::new();
         let config_root = setup.root.with_extension("config");
         let bootstrap_dir = config_root.join("bootstrap");
@@ -5718,7 +5735,7 @@ mod tests {
             assert!(!config_root.join("supervisor.json").exists());
             assert_eq!(fs::read_dir(&bootstrap_dir).unwrap().count(), 0);
         }
-        P1F_TEST_FAULT_POINT.store(4, AtomicOrdering::SeqCst);
+        P1F_TEST_FAULT_POINT.store(fault_point, AtomicOrdering::SeqCst);
         assert_eq!(
             setup
                 .store
@@ -5734,6 +5751,80 @@ mod tests {
                 .unwrap_err(),
             Stage8bP1fAuthorityErrorV1::Io(ErrorKind::Interrupted)
         );
+        if expired_pending_only {
+            assert_eq!(fault_point, 3);
+            let directory = setup
+                .root
+                .join(AUTHORITY_DIRECTORY)
+                .join(MANIFESTS_DIRECTORY)
+                .join(&manifest_sha256);
+            let pending_path = directory.join(PENDING_MATERIALIZATION_FILE);
+            let head_path = setup.root.join(AUTHORITY_DIRECTORY).join(HISTORY_HEAD_FILE);
+            let temp = bootstrap_dir.join(".stage8b-p1-first-boot-source-v1.json.p1f-next");
+            // Model the exact retained incident (0400), not a repaired temp.
+            fs::set_permissions(&temp, fs::Permissions::from_mode(0o400)).unwrap();
+            let pending_before = fs::read(&pending_path).unwrap();
+            let head_before = fs::read(&head_path).unwrap();
+            let pending: PendingMaterializationV1 = parse_canonical(&pending_before).unwrap();
+            let expired_at = trusted_now + Duration::seconds(1801);
+            assert_eq!(
+                setup
+                    .store
+                    .materialize_o2_at(
+                        &config_root,
+                        &manifest_sha256,
+                        &policy,
+                        &template,
+                        &source,
+                        &checked_at,
+                        expired_at,
+                    )
+                    .unwrap_err(),
+                Stage8bP1fAuthorityErrorV1::InvalidValidityWindow
+            );
+            let result = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(crate::stage8b_p1f_o2_systemd::cleanup_with_store(
+                    &setup.store,
+                    &manifest_sha256,
+                    &config_root,
+                    &installation,
+                    || async {
+                        let (b, m) = o2_cleanup_regression::proofs();
+                        Ok((b, m, false))
+                    },
+                    || expired_at,
+                ));
+            assert!(matches!(
+                result,
+                Err(crate::Stage8bP1fO2RunnerErrorV1::Authority(
+                    Stage8bP1fAuthorityErrorV1::PendingRecoveryRequired
+                ))
+            ));
+            assert_eq!(fs::read(&pending_path).unwrap(), pending_before);
+            assert_eq!(fs::read(&head_path).unwrap(), head_before);
+            assert_eq!(fs::read(&temp).unwrap(), source);
+            assert_eq!(
+                fs::metadata(&temp).unwrap().permissions().mode() & 0o777,
+                0o400
+            );
+            assert!(!directory.join(MATERIALIZED_SET_RECEIPT_FILE).exists());
+            assert!(!directory.join(EXECUTION_OWNER_FILE).exists());
+            assert!(!event_path(
+                &setup.root.join(AUTHORITY_DIRECTORY),
+                pending.authority_sequence
+            )
+            .exists());
+            assert!(!config_root.join("supervisor.json").exists());
+            assert!(!bootstrap_dir
+                .join("stage8b-p1-first-boot-source-v1.json")
+                .exists());
+            fs::remove_dir_all(config_root).unwrap();
+            fs::remove_dir_all(durable_parent).unwrap();
+            return;
+        }
         assert_eq!(
             setup
                 .store
@@ -6444,6 +6535,160 @@ mod tests {
             Stage8bP1fAuthorityErrorV1::HistoryConflict
         );
         fs::remove_dir_all(external_parent).unwrap();
+    }
+
+    #[test]
+    fn o2_external_writer_service_umask_matrix() {
+        const CHILD: &str = "MOEX_O2_EXTERNAL_MODE_TEST_CHILD";
+        if let Some(mask) = std::env::var_os(CHILD) {
+            let mask = match mask.to_str().unwrap() {
+                "0022" => 0o022,
+                "0027" => 0o027,
+                "0077" => 0o077,
+                _ => panic!("unknown child umask"),
+            };
+            // umask is process-global: only this isolated exact-test child
+            // changes it, never the concurrently executing parent test suite.
+            let previous = unsafe { libc::umask(mask) };
+            for point in [3, 4] {
+                o2_materialization_frontier_case(None, true, point, false);
+            }
+            unsafe { libc::umask(previous) };
+            return;
+        }
+        for mask in ["0022", "0027", "0077"] {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "stage8b_p1f_guardian::tests::o2_external_writer_service_umask_matrix",
+                    "--test-threads=1",
+                    "--nocapture",
+                ])
+                .env(CHILD, mask)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "umask {mask}: {}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed; 0 failed"));
+            println!("PASS exact materialization/temp/receipt replay under umask {mask}");
+        }
+    }
+
+    #[test]
+    fn o2_external_writer_rejects_existing_bad_custody_and_conflicts() {
+        use std::os::unix::fs::symlink;
+        let setup = Setup::new();
+        for case in [
+            "mode",
+            "bytes",
+            "oversized",
+            "symlink",
+            "hardlink",
+            "final-mode",
+            "final-bytes",
+        ] {
+            let parent = setup.root.join(case);
+            setup
+                .store
+                .create_authority_directory(&parent, 0o750)
+                .unwrap();
+            let final_path = parent.join("supervisor.json");
+            let temp = parent.join(".supervisor.json.p1f-next");
+            let target = if case.starts_with("final-") {
+                &final_path
+            } else {
+                &temp
+            };
+            let bytes: &[u8] = match case {
+                "bytes" | "final-bytes" => b"conflict",
+                "oversized" => &[b'x'; 65],
+                _ => b"exact",
+            };
+            let backing = parent.join("backing");
+            if case == "symlink" {
+                setup
+                    .store
+                    .write_create_new(&backing, bytes, 0o440)
+                    .unwrap();
+                symlink(&backing, target).unwrap();
+            } else {
+                setup.store.write_create_new(target, bytes, 0o440).unwrap();
+                if matches!(case, "mode" | "final-mode") {
+                    fs::set_permissions(target, fs::Permissions::from_mode(0o400)).unwrap();
+                } else if case == "hardlink" {
+                    fs::hard_link(target, &backing).unwrap();
+                }
+            }
+            let before = fs::symlink_metadata(target).unwrap();
+            let error = setup
+                .store
+                .write_external_or_require_exact(&final_path, b"exact", 64)
+                .unwrap_err();
+            assert_eq!(
+                error,
+                if matches!(case, "bytes" | "final-bytes") {
+                    Stage8bP1fAuthorityErrorV1::HistoryConflict
+                } else {
+                    Stage8bP1fAuthorityErrorV1::InvalidCustody
+                }
+            );
+            let after = fs::symlink_metadata(target).unwrap();
+            assert_eq!(
+                (before.ino(), before.mode(), before.nlink()),
+                (after.ino(), after.mode(), after.nlink())
+            );
+            assert_eq!(fs::read(target).unwrap(), bytes);
+            if !case.starts_with("final-") {
+                assert!(!final_path.exists());
+            }
+        }
+    }
+
+    #[test]
+    fn o2_external_writer_reopen_exact_temp_and_lost_response() {
+        let setup = Setup::new();
+        let parent = setup.root.join("external");
+        setup
+            .store
+            .create_authority_directory(&parent, 0o750)
+            .unwrap();
+        let path = parent.join("supervisor.json");
+        P1F_TEST_FAULT_POINT.store(3, AtomicOrdering::SeqCst);
+        assert_eq!(
+            setup
+                .store
+                .write_external_or_require_exact(&path, b"exact", 64)
+                .unwrap_err(),
+            Stage8bP1fAuthorityErrorV1::Io(ErrorKind::Interrupted)
+        );
+        let temp = parent.join(".supervisor.json.p1f-next");
+        let before = fs::metadata(&temp).unwrap();
+        assert_eq!(before.permissions().mode() & 0o777, 0o440);
+        let reopened = Stage8bP1fAuthorityStoreV1::open_at(
+            &setup.root,
+            setup.store.expected_uid,
+            setup.store.service_gid,
+        )
+        .unwrap();
+        reopened
+            .write_external_or_require_exact(&path, b"exact", 64)
+            .unwrap();
+        assert!(!temp.exists());
+        assert_eq!(fs::metadata(&path).unwrap().ino(), before.ino());
+        reopened
+            .write_external_or_require_exact(&path, b"exact", 64)
+            .unwrap();
+        assert_eq!(fs::metadata(&path).unwrap().ino(), before.ino());
+        assert_eq!(fs::read(&path).unwrap(), b"exact");
+    }
+
+    #[test]
+    fn o2_expired_pending_materialization_remains_closed_and_preserved() {
+        o2_materialization_frontier_case(None, true, 3, true);
     }
 
     #[test]

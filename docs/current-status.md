@@ -1,6 +1,17 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-10-06.
+Status date: 2026-10-07.
+
+2026-10-07: installed `e05b4bf` reached materializer exit 0, but O2 stopped
+before bootstrap at external-file custody (create 0440 masked to 0400). Cleanup
+refused pending materialization; observed head **ACTIVE/1/11**, pending sequence
+12, deadline elapsed. P1 stopped, P0/installation preserved, credentials absent.
+The [external-mode source correction](stage-8/stage8b-p1f-o2-external-mode-correction.md)
+adds explicit descriptor permissions for new files and regression witnesses.
+Existing pending files are not repaired. Source review and a separate exact
+expired-pending terminal-recovery contract are required; no VPS mutation/retry,
+authority rebind or deployment in this slice. O2 HOLD, O3/O4 still ahead.
+Earlier dated entries are historical, not the current operational head.
 
 2026-10-06 acceptance / successor preparation: `f0e880d` is independently
 SOURCE / PACKAGING CORRECTION ACCEPTED; October-6 failure/cleanup evidence is
