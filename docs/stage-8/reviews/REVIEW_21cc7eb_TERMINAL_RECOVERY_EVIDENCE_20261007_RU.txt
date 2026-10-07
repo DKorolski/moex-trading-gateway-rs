@@ -1,0 +1,104 @@
+Независимый review: фактическое O2 terminal recovery через artifact 21cc7eb
+Дата: 7 октября 2026 года.
+
+VERDICT: TERMINAL RECOVERY / OPERATIONAL EVIDENCE ACCEPT.
+
+Рассматриваемая операция принята. Старая зависшая фаза завершена: ACTIVE/1/11 → EXPIRED/1/12. Evidence подтверждает один вызов terminal-abort-oct7-fixed, exit 0, неизменность установки/P0 и остановленное состояние P1. Блокирующих замечаний не найдено.
+
+Это закрытие старого инцидента. O2 остаётся HOLD: успешные materialization/ReadyForBootstrap/bootstrap и поступление баров в новый operational P1 этим review не принимаются. Следующая граница — successor installation с сохранением terminal history; новая bounded O2 требует отдельного разрешения.
+
+1. Пакет и принятый artifact
+
+Архив: moex-o2-terminal-abort-21cc7eb-20261007-evidence.zip
+Размер: 130 882 байта; 46 уникальных файлов.
+SHA-256: 69e245b4b54af5dd5ebebe62d5cfcbf23377bdf8c568104282b2f975ad8329a9
+
+Reviewer пересчитал SHA-256/CRC, проверил paths/modes, отсутствие duplicates/symlinks/special files и все entries inventory.json. Raw source commit соответствует 21cc7eb9530ccc4480bae2a4f8264705a7383c01. Приложенное ARTIFACT/GOVERNANCE ACCEPT побайтно совпадает с ранее выданным заключением.
+
+Artifact ZIP binding:
+ef8efa957222960b6b9cb9c0d75668fd8bc13d9b6d4ab8977270bb8f7a3ca73d
+Staged operator SHA-256:
+7eb49b74ec1a1a1f773fde3881cfc9857bcf8d105e8c9d31ff1d2109f6823fe5
+
+Три records stage/run/post имеют exit 0 и совпадающие raw capture hashes. Staged ELF — ровно принятый operator, 4 218 552 bytes, root:root 0700, nlink=1, в отдельной root-owned 0700 папке. В installed libexec он не помещался.
+
+CI metadata в пакете фиксируют PR #15 с head 21cc7eb, merge 9f3c3293a5b04738b519feee4ee3284bcf856dcf и post-merge run 37625769414: rust/redis-smoke success. Это оценка предоставленного CI snapshot; reviewer не опрашивал GitHub повторно.
+
+2. Фактический вызов и fresh preflight
+
+Команда:
+/root/moex-o2-terminal-abort-21cc7eb-20261007/stage8b-p1f-o2-operator terminal-abort-oct7-fixed
+
+Начало: 2026-10-07T16:21:13.613770Z.
+Завершение: 2026-10-07T16:21:14.377442Z.
+Это 19:21:13–19:21:14 МСК. Exit 0, stderr пуст, invocation_count=1, retries=0.
+
+Fresh preflight снят непосредственно перед вызовом, 16:21:13.591946Z. Captured wrapper проверяет staging custody, hash и размер ELF; existing attempt marker запрещает повторный запуск wrapper. Данные attempt/finished/stdout/stderr согласованы между run и post captures. Reviewer проверил реализацию collectors: команды systemctl show завершаются fail-closed при query error, file reads проверяют no-follow, single link, размер и неизменность metadata. Установка/службы не меняются этими collectors.
+
+Исходное состояние — exact ACTIVE/1/11, phase/pending/source/staged и deadline из принятого incident contract. Installation manifest SHA-256 остаётся:
+395f9e3e987ce6f5b2c52b6083d1ebc79c71287df72096c6d313ee3e56da32f5
+
+Это recovery против неизменной старой installation, а не её предварительное обновление. Runtime Ready/config/credential/owner отсутствовали. Просроченный deadline 2026-10-07T04:25:00Z не продлевался, source timestamps не освежались.
+
+3. Terminal transaction и архивы
+
+Phase SHA-256:
+992be63a6406153eb5bab43d746927df598d59e24df2d113ae12c605752b80b5
+
+Reviewer независимо проверил exact phase digest и Ed25519 signature с принятой public identity. Пересчитаны domain-separated event digests всей цепочки 0..12 и связи claim/pending/intent/receipt/event/head. Generation остаётся 1, terminal sequence — 12; нового event13 нет.
+
+Event12 — PHASE_TERMINAL / EXPIRED, predecessor соответствует принятому event11. В receipt, intent.terminal и event совпадает recorded_at_utc: 2026-10-07T16:21:14Z. Возвращённый terminal_receipt равен сохранённому.
+
+Terminal receipt SHA-256:
+e2fad4ab05c5430217e063bf63e200f0c2adc52cccbbb7c7ca14e87127fa44e0
+Итоговый latest_event_sha256:
+f245a28a65b73dbeeb6e91bc911befe48660db4be985ebe65136bc383d1defac
+Intent SHA-256:
+a4fbd588018d22bda1adb04246232a89d49dcfd91d06779e4b12e7363df924c7
+
+Complete marker равен digest exact intent. Reason suffix пересчитан по canonical binding. Все incident pins, original custody и pending_bytes совпадают с принятым source contract.
+
+Архив pending: 931 bytes, root:987 0440, SHA-256
+42322f612f1604a053874baeff3b0c99ba53878e8036678c144c9c1bd8eff9b6
+Raw pending в пакете побайтно совпадает с intent.binding.pending_bytes.
+
+Архив source: 1 876 641 bytes, root:987 0400, SHA-256
+f4c135d7f3fec1a2164c4dfbf0aa9f6f960830acb79373fb9f7450f2763f9952
+Он сохраняет исходную custody инцидента; chmod «для исправления» не производился.
+
+Source archive не включён в compact evidence из-за приватного содержимого. Его hash/size/custody измерены collector на VPS и совпадают с accepted pins; collector также проверяет byte equality с exact_source_json сохранённого staged bundle. Reviewer проверил этот code path и соответствующие captures, но не пересчитывал private source bytes локально.
+
+После durable archival original pending/source-temp отсутствуют. Head — EXPIRED/1/12, active_manifest_sha256 и deadline_utc равны null. Ready/materialized receipt/execution owner/final source/config отсутствуют.
+
+В control root добавлены ровно шесть файлов: intent, complete, два archives, terminal receipt и event12. Удалён только pending-materialization.json; изменён только history-head.json. Прежние authority files/event bytes сохранены. Это expected transaction delta, не reset control root.
+
+4. Preservation: проверено по значениям, а не по PASS-флагам
+
+Приложенный preservation.json побайтно совпадает с compiled baseline принятого artifact. Reviewer дополнительно сверил все baseline fields для before и after, а не ограничился bundled verifier:
+  16 installed slots — bytes/hash/custody сохранены;
+  7 retained trees / 131 entry — exact inventory и metadata сохранены;
+  32 retained authority entries — сохранены;
+  P0 unit properties/fragments совпадают с baseline; PID 589407 и 208156 прежние;
+  четыре P1 units loaded/inactive/dead, main/control PID=0, jobs отсутствуют, cgroups пусты;
+  старый timer active/elapsed, NextElapse пуст, Persistent=no; не перевооружён;
+  старый scheduling runner failed с PID=0 — сохранённое прежнее состояние.
+
+Rust before_inventory/after_inventory и before_units/after_units равны; сохранённые inventories также согласованы с независимо снятым postflight. Public protocol metadata совпадают с control-tree inventory, hashes и custody. Staged input bundle сохранён. Forbidden/residual paths отсутствуют.
+
+В операции нет bootstrap, Hybrid/runtime callback, FINAM/Redis requests, signing, systemd reload/start/stop или новой установки. Ранее работающий P0 продолжает собственную работу; его обычная сетевая активность не объявляется нулевой. DB0/DB15 не опрашивались collector и не использовались recovery.
+
+5. Повторённые проверки и границы доказательства
+
+Bundled verify.py самостоятельно запущен вне исходного репозитория: PASS, EXPIRED/1/12, один вызов, retries=0. Четыре negative probes отклонены: changed result, repeat invocation, changed installed payload, premature sequence. Дополнительно выполнены независимые baseline/protocol/signature/custody checks, включая поля, которые bundled verifier проверяет не полностью.
+
+Lost-response replay на VPS не выполнялся; lost_response_replay_performed=false указан корректно. Равенство returned/persisted receipt не называется повторным исполнением. Replay/fault-frontier capability уже квалифицирована принятыми source/Linux tests; искусственный второй operational вызов ради этого review не требуется.
+
+Reviewer проверяет предоставленные operational captures и их согласованность с accepted contract. Нового SSH, remote read/mutation, operator invocation, signing, FINAM/Redis request или установки reviewer не выполнял.
+
+6. Следующий шаг в облегчённом roadmap
+
+Старый terminal incident закрыт. Можно готовить один successor installation package полного принятого artifact 21cc7eb: свежая old→new inventory, сохранение head EXPIRED/1/12, events 0..12, receipt/intent/complete/archives и прежней истории. Три уже квалифицированных ELF переиспользовать; повторная сборка без source delta и новый design-only круг не нужны.
+
+Установка — после отдельного operational разрешения, без активации. Старые phase/deadline/timer не перевооружать, generation/history не сбрасывать, archives не удалять. Для новой O2 нужны свежие calendar/phase/source bindings, а не повтор expired materialization.
+
+После приёмки installation evidence — одна отдельно разрешённая bounded O2 попытка. До её успешного materialization/bootstrap O2 остаётся HOLD. Далее остаются необходимые короткие O3/O4 continuity/freshness/WS/EOD проверки, несколько paper-сессий при сравнении с ALOR и отдельная FINAM live micro soak приёмка.

@@ -2,6 +2,20 @@
 
 Status date: 2026-10-07.
 
+2026-10-07 terminal recovery is independently **OPERATIONAL EVIDENCE ACCEPTED**
+in the [retained review](stage-8/reviews/REVIEW_21cc7eb_TERMINAL_RECOVERY_EVIDENCE_20261007_RU.txt).
+One accepted `21cc7eb` operator call closed the old incident at **EXPIRED/1/12**;
+P0 and installed `e05b4bf` stayed unchanged, P1 stopped. Fresh read-only inventory
+at 17:36 UTC confirms the complete accepted control tree, including both archived
+materialization files and original source mode 0400. O2 is still HOLD.
+The [full successor installation package](stage-8/stage8b-p1f-o2-terminal-successor-installation.md)
+reuses all three qualified `21cc7eb` ELF bytes without a rebuild. It is a local
+review candidate only: no installation, phase signing, service action or timer.
+The October-8 calendar is proposed, not an authorized or scheduled attempt.
+Next: package review/current CI → separately permitted stopped installation
+and evidence → separately permitted bounded O2. Existing O3/O4 WS/freshness/EOD
+and multi-session ALOR parity remain ahead. Earlier entries retain history only.
+
 2026-10-07: installed `e05b4bf` reached materializer exit 0, but O2 stopped
 before bootstrap at external-file custody (create 0440 masked to 0400). Cleanup
 refused pending materialization; observed head **ACTIVE/1/11**, pending sequence
