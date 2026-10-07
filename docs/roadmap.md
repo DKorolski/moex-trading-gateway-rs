@@ -30,8 +30,8 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 2026-10-07: bounded O2 progressed past source materialization, then failed exact
 external-file permissions. ACTIVE/1/11 with pending sequence 12 is not terminal;
 all P1 units were observed stopped. Prevention source `d866cf9` and the narrow
-terminal-recovery contract are accepted. Next: [terminal-only source review](stage-8/stage8b-p1f-o2-materialization-abort.md),
-one authority rebind and native artifact qualification, separately authorized
+terminal-recovery contract are accepted. Terminal-only source `3bfd98a` is now
+SOURCE ACCEPTED. Next: [one authority rebind and full Linux artifact qualification](stage-8/stage8b-p1f-o2-abort-artifact.md), separately authorized
 staged recovery against the UNCHANGED old installation, review of actual
 EXPIRED/1/12, then normal full successor installation preserving history.
 Only then a separately authorized new bounded O2. Do not deploy a

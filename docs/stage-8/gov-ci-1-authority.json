@@ -54,7 +54,7 @@
     "stage8b_s_authorized": false
   },
   "governance_control_plane_manifest": {
-    "aggregate_sha256": "22e782106e0b34019f8218be5b8abf3b834d0b750b5b3398c745a6ccba154b88",
+    "aggregate_sha256": "f659e2db72e6cc33c1ec93d37152c5f9292e4468410b10d435cd8b8d0a881af8",
     "entries": {
       ".github/workflows/ci.yml": {
         "mode": "100644",
@@ -68,13 +68,13 @@
       },
       "docs/current-status.md": {
         "mode": "100644",
-        "sha256": "7406cb4192886ee15cc3668ad3da8ba2f6ada2b99485398ae11ae46353a9c8cd",
-        "size": 160071
+        "sha256": "8da7466635b495fce2e136cf5641bbf8279c069c6cccbf8fd44d94c4f894957a",
+        "size": 161416
       },
       "docs/roadmap.md": {
         "mode": "100644",
-        "sha256": "f6f25909019dbd7ed0dc051bea10a6f4d0cbc3c238f3f6ddd5f333c7a60d584f",
-        "size": 40546
+        "sha256": "f6a042906fddd06e97731b94722953e0d93a3fbdef323222c10084944a301256",
+        "size": 41389
       },
       "docs/stage-5/stage5f-authority-rotation.json": {
         "mode": "100644",
@@ -176,8 +176,8 @@
   },
   "negative_cases": 45,
   "production_code_manifest": {
-    "aggregate_sha256": "e72149de3185542db4683e78f83d8acccce43cddcab20ff328e2c20b693c239e",
-    "content_sha256": "444aa8a1932846e8373199193d6c80de1ac2c02e543bb19c5ae2a49694f75b65",
+    "aggregate_sha256": "eca74e73dc43e601da75b0da0d9c246982f11e8339bb75d2fef9a777a4b20f3f",
+    "content_sha256": "8fb8212277af15ed6cb0f985010062de1a970e54e0784d1ec78781c7cf70ca25",
     "entries": {
       "Cargo.lock": {
         "mode": "100644",
@@ -676,13 +676,13 @@
       },
       "crates/runtime-durable-service/src/bin/stage8b-p1f-o2-operator.rs": {
         "mode": "100644",
-        "sha256": "6af5ed59bcafb83b0877f5688aef06ed9ea1b389c4e9048aaedff62d0b8b375d",
-        "size": 16222
+        "sha256": "50b68046cfe82afa17b4d7da5f26f8b94538ac349299d5f2c62882e86f103c83",
+        "size": 16731
       },
       "crates/runtime-durable-service/src/lib.rs": {
         "mode": "100644",
-        "sha256": "719589f9f706566a475a57c2b8de0ede719013364dbb467de144bba998502eba",
-        "size": 71697
+        "sha256": "95005ce82ca66a1bd9fa30d67aaee2cdd3913120cebdb02eb3d9cbd3713b2e7f",
+        "size": 71758
       },
       "crates/runtime-durable-service/src/recovery.rs": {
         "mode": "100644",
@@ -796,8 +796,18 @@
       },
       "crates/runtime-durable-service/src/stage8b_p1f_guardian.rs": {
         "mode": "100644",
-        "sha256": "a38bac843e7829db848f6dc77c9bbfd31b2e7535bc1482727a728cc391abfaa7",
-        "size": 307272
+        "sha256": "664021ad24f5ff00b0718f00046a9bcbea7517a02bfa0b52e6d0648c01f73c7b",
+        "size": 321538
+      },
+      "crates/runtime-durable-service/src/stage8b_p1f_guardian/materialization_abort.rs": {
+        "mode": "100644",
+        "sha256": "bd4ed23215946fbae9dc07ab3daf4cca9073210e79810b485b55b956eaf98663",
+        "size": 37640
+      },
+      "crates/runtime-durable-service/src/stage8b_p1f_guardian/tests/abort_tests.rs": {
+        "mode": "100644",
+        "sha256": "1c20218ab36d53fe5c8ded8975d4b96f4efa28544f701542db3d7010b7b573ae",
+        "size": 15660
       },
       "crates/runtime-durable-service/src/stage8b_p1f_local_supervision.rs": {
         "mode": "100644",
@@ -806,8 +816,13 @@
       },
       "crates/runtime-durable-service/src/stage8b_p1f_o2_systemd.rs": {
         "mode": "100644",
-        "sha256": "5abc46a3551dace5e1d9b57c8844077a11ce5a22311c979578074b96bbd9babb",
-        "size": 39915
+        "sha256": "4385e405ca7c289e5a6d391a7f52e178ab76a9a195c647ca4b6f54a7a16d59e5",
+        "size": 40017
+      },
+      "crates/runtime-durable-service/src/stage8b_p1f_o2_systemd/terminal_abort.rs": {
+        "mode": "100644",
+        "sha256": "59aa53f21361c568619c78367494845e6ab61c9710fd85f746a7be19cf38777e",
+        "size": 13135
       },
       "crates/runtime-durable-service/src/stage8b_p1f_staged_source.rs": {
         "mode": "100644",
@@ -1040,7 +1055,7 @@
         "size": 6212
       }
     },
-    "file_count": 172
+    "file_count": 175
   },
   "requirements": {
     "accepted_stage8a5_immutable_replay_required": true,

@@ -11,11 +11,13 @@ adds explicit descriptor permissions for new files and regression witnesses.
 Prevention source `d866cf992a963fbd76c4532aae14088f6e6046ee` and its exact
 terminal-only implementation contract are independently accepted. The
 [terminal-only implementation](stage-8/stage8b-p1f-o2-materialization-abort.md)
-is now a local source/evidence review candidate. It archives original pending
+is independently SOURCE ACCEPTED at `3bfd98a`. It archives original pending
 and source bytes, commits only EXPIRED/1/12, and guards restart/response loss.
-This result is tested locally, NOT executed on the VPS. Authority rebind,
-native Linux artifact qualification, staged recovery and installation remain
-separate gates. Do not replace the old installation before terminal recovery.
+This result is tested locally, NOT executed on the VPS. The
+[authority/full Linux artifact preparation](stage-8/stage8b-p1f-o2-abort-artifact.md)
+rebinds accepted source without Rust/Cargo changes and qualifies the three ELFs
+offline. Artifact review, fresh CI and explicit operational authorization remain
+required. Do not replace the old installation before terminal recovery.
 O2 HOLD, O3/O4 still ahead.
 Earlier dated entries are historical, not the current operational head.
 
