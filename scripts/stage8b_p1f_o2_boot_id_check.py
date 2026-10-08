@@ -50,6 +50,22 @@ def unit_properties(raw):
     }:raise ValueError('runner conditions drift')
     return dict(config['Service'])
 
+def bootstrap_properties(raw):
+    config=configparser.ConfigParser(interpolation=None,strict=True)
+    config.optionxform=str
+    config.read_string(raw)
+    wanted={k:v for k,v in REQUIRED.items() if k not in (
+        'ExecStopPost','TimeoutStartSec','TimeoutStopSec','KillSignal','FinalKillSignal','KillMode')}
+    wanted.update(User='moex-p1-paper',UMask='0077',
+        LoadCredential='stage8b-p1-lifecycle.key:/etc/moex-finam-p1-paper/credentials/stage8b-p1-lifecycle.key',
+        ExecStart='/usr/local/libexec/moex/stage8b-p1-paper-supervisor bootstrap /etc/moex-finam-p1-paper/supervisor.json CREATE_NEW_STAGE8B_P1_DURABLE_ROOT',
+        ReadWritePaths='/var/lib/moex-finam-p1-paper/state')
+    if set(config.sections())!={'Unit','Service'} or dict(config['Service'])!=wanted:
+        raise ValueError('bootstrap sandbox/command drift')
+    if dict(config['Unit'])!={'Description':'MOEX FINAM Stage 8B P1 paper first boot','After':'local-fs.target'}:
+        raise ValueError('bootstrap conditions drift')
+    return dict(config['Service'])
+
 PROBE=r'''
 import errno,hashlib,json,os,socket,sys,uuid
 from pathlib import Path
@@ -87,7 +103,9 @@ def native_probe(properties):
     for subset in ('pid','all'):
         # Only executable/lifetime differs. This is not the O2 runner and cannot
         # call cleanup, write authority or start the actual bootstrap service.
-        props={k:v for k,v in properties.items() if k not in ('ExecStart','ExecStopPost')}
+        # No lifecycle credential is loaded by the read-only probe. Production
+        # LoadCredential is validated above and is not removed from the unit.
+        props={k:v for k,v in properties.items() if k not in ('ExecStart','ExecStopPost','LoadCredential')}
         props.update(ProcSubset=subset,TimeoutStartSec='15s',TimeoutStopSec='5s')
         args=['systemd-run','--quiet','--wait','--pipe','--collect',
               '--unit=moex-o2-boot-id-probe-'+str(os.getpid())+'-'+subset]

@@ -23,7 +23,9 @@ ProtectKernelModules=yes
 ProtectKernelTunables=yes
 ProtectSystem=strict
 ProtectProc=invisible
-ProcSubset=pid
+# Supervisor config validation reads /proc/sys/kernel/random/boot_id.
+# Kernel tunables remain read-only; network/capability restrictions stay closed.
+ProcSubset=all
 RestrictRealtime=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes

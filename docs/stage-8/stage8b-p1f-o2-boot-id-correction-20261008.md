@@ -67,3 +67,19 @@ by the owner's current request. No expired phase is extended or replayed.
 If any new failure occurs, record it and stop; do not create a retry loop.
 O2 remains HOLD until its actual result is evaluated. O3/O4/continuous paper,
 FINAM order POST/DELETE, broker dispatch, runtime-live and real orders remain closed.
+# Bootstrap-chain completion before the retry
+
+The stopped downstream `moex-finam-p1-paper-bootstrap.service` has the same
+conflict: `load_validated_supervisor()` reads the real boot ID before bootstrap.
+The October-8 failure never reached that unit. Before issuing the successor
+phase, apply the same `ProcSubset=all` correction there, retaining its service
+UID, lifecycle credential, read/write paths and all other hardening. No ELF or
+strategy change is needed. This is a predicted failure prevented before retry,
+not a second failed operational attempt.
+
+Native read probes run both original/corrected proc policies as the production
+service user. They omit `LoadCredential` because no key is needed for a read
+probe; the production credential contract is still checked and unchanged.
+Retain the first runner-only installation transaction; the bootstrap follow-up
+has its own two-file transaction and manifest predecessor. No history reset,
+automatic retry, P0 change, real order or live runtime is authorized.
