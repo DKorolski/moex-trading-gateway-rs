@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "status": "PREPARATION_ONLY_EXECUTABLE_COMPOSITION_PENDING",
+  "source_baseline": "2d67937f5f6d70297e7b461649f45a4a8e75641a",
+  "compiled_source": "09dfecbe931267c5276b8b805d62d5a5a141ad95",
+  "accepted_o2_review_sha256": "8ee83a7b49ed6999ca3700d60b8ce0f3e8a8b6eec60d19ad3dbf86be973cd8b9",
+  "accepted_o2_archive": "moex-trading-project-2d67937-o2-bounded-20261008-2004-evidence.zip",
+  "accepted_o2_archive_sha256": "15b0210cc7e5ecab29e1fc5460559fe46ce21a1e6d13def0d1b591a16fc57a0e",
+  "accepted_installation_archive": "moex-trading-project-2d67937-o2-replay-installation.zip",
+  "accepted_installation_archive_sha256": "9ef3249d3d0322572cb0c8b585b3a73ba8ba18755e0cd50b13c82ea8f0bd6884",
+  "installed_manifest_sha256": "4ab7c2592c5427a0ca7aa1fc455caae0649a9e7652d36ee1d0d5feeeda055fef",
+  "accepted_observation_utc": "2026-10-08T17:14:13.225792+00:00",
+  "predecessor": {
+    "state": "COMPLETED",
+    "authority_generation": 1,
+    "authority_sequence": 26,
+    "event_sha256": "fb4fa038d829f0d21e5f2d8e39b1bd26e05ba4f4186b95dfa6205b41d47933d8"
+  },
+  "retained_root": {
+    "operational_identity_sha256": "fbd9ceb7ee964944e79db559c4e4d5cc7af54578b653ce218e183d01fa1444c3",
+    "profile": "imoexf-baseline07-bo-only-no-riskgate-paper-v2",
+    "marker_phase": "adopted",
+    "marker_generation": 5,
+    "seal_generation": 1,
+    "callback_count": 1,
+    "requests": 0,
+    "journal_frames": 0,
+    "rebootstrap_allowed": false
+  },
+  "limits": {"max_phase_seconds": 1800, "restart_starts": 5, "restart_window_seconds": 600, "stop_grace_seconds": 30, "p1_redis_db": 15},
+  "operational_authorization_issued": false,
+  "operationally_ready": false,
+  "phase_manifest_signed": false,
+  "target_mutation_performed": false,
+  "finam_order_writes_allowed": false,
+  "gaps": [
+    {"id": "O3-G1", "area": "fixed guardian claim / executable inventory", "status": "OPEN"},
+    {"id": "O3-G2", "area": "observed V2 producer-to-owner typed window / restart handoff", "status": "OPEN"},
+    {"id": "O3-G3", "area": "qualified operational signer / producer / DB15 / service composition", "status": "OPEN"}
+  ],
+  "next": ["narrow local executable composition", "artifact/package review", "separately permitted bounded O3", "O3 evidence review", "bounded O4 / WS / ALOR parity", "P1F aggregate acceptance"]
+}

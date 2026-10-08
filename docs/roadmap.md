@@ -27,6 +27,17 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
+2026-10-08 O2 closure: independent **O2 OPERATIONAL ACCEPT**, terminal
+COMPLETED/1/26; one existing adopted root, one Replay callback, zero requests
+and journal frames. See the [bounded O3 preparation](stage-8/stage8b-p1f-o3-preparation.md).
+Reuse accepted lifecycle/restart components; qualify only missing operational
+wiring for the current sparse/no-riskgate profile. Do not recreate the root,
+repeat O2 or claim a fixture as execution on the accepted VPS root. Next:
+O3 synthetic paper/restart evidence → O4 bounded FINAM bars windows with
+WS/freshness/reconnect/REST overlap/EOD and ALOR comparison → P1F-A aggregate.
+O3 execution needs its own reviewed artifact and explicit owner authorization;
+FINAM writes/live micro remain closed. Older dated entries are historical.
+
 2026-10-07 terminal recovery closure: independent OPERATIONAL EVIDENCE ACCEPT
 confirms EXPIRED/1/12, unchanged installed payload/P0 and stopped P1. The incident
 is closed, not O2. Next is the [full accepted-ELF installation successor](stage-8/stage8b-p1f-o2-terminal-successor-installation.md)

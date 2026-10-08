@@ -2,6 +2,21 @@
 
 Status date: 2026-10-08.
 
+2026-10-08, after 20:14 MSK: **O2 OPERATIONAL ACCEPT / CLOSED** in the
+[independent review](stage-8/reviews/REVIEW_2d67937_O2_BOUNDED_20261008_2004_RU.txt).
+Accepted installation `2d67937`, compiled source `09dfecb`; one bounded attempt
+completed at **COMPLETED/1/26**. Existing root is adopted (marker generation 5,
+seal generation 1), Replay callback count 1, requests 0, Stage6 journal frames 0.
+Post-deadline evidence records P1 stopped, P0 unchanged and DB15 empty; it is a
+dated observation, not a fresh operational permit. No O2 repeat/rebootstrap.
+The [O3 preparation package](stage-8/stage8b-p1f-o3-preparation.md) maps existing
+production APIs and local witnesses to the next bounded synthetic/restart slice.
+It explicitly records the missing executable composition for the current
+observed-M10 profile; it is NOT a runnable or accepted operational O3 artifact.
+No remote mutation, signing, service start, push/merge or GitHub CI is included.
+Stage 8B-P1-f remains open: O3 → O4/WS/EOD/ALOR parity → aggregate acceptance.
+Earlier dated entries below are retained history, not the current O2 verdict.
+
 2026-10-08: first-boot Replay correction `09dfecb` is independently
 **SOURCE ACCEPT + ARTIFACT ACCEPT**. The
 [non-activating installation successor](stage-8/stage8b-p1f-o2-replay-installation.md)

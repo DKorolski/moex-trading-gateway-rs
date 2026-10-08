@@ -1,0 +1,164 @@
+НЕЗАВИСИМЫЙ REVIEW — Stage 8B-P1F-O2, 8 октября 2026, 20:04 МСК
+
+ВЕРДИКТ: O2 OPERATIONAL ACCEPT — COMPLETED / generation 1 / sequence 26.
+Блокирующих замечаний в представленной границе не найдено. HOLD снимается
+с этой O2 bootstrap-попытки. Stage 8B-P1-f целиком ещё не закрыт.
+Можно готовить ограниченный O3 synthetic paper/restart package. Фактический
+запуск O3 и последующие O4/live операции этим review не исполняются.
+
+1. Объект и способ проверки
+
+Пакет:
+moex-trading-project-2d67937-o2-bounded-20261008-2004-evidence.zip
+SHA-256:
+15b0210cc7e5ecab29e1fc5460559fe46ce21a1e6d13def0d1b591a16fc57a0e
+91 уникальный member, CRC/checksum/index PASS; unsafe paths, symlinks,
+duplicates и special files отсутствуют.
+
+Принятая installation: 2d67937f5f6d70297e7b461649f45a4a8e75641a.
+Compiled source: 09dfecbe931267c5276b8b805d62d5a5a141ad95.
+Installation manifest:
+4ab7c2592c5427a0ca7aa1fc455caae0649a9e7652d36ee1d0d5feeeda055fef
+Профиль: imoexf-baseline07-bo-only-no-riskgate-paper-v2.
+
+Review выполнен локально по raw observations, содержимому source/config,
+marker/receipt/seal, command records и фактически использованным drivers.
+Пять включённых Rust-модулей побайтно совпали с принятой installation.
+Предыдущее заключение installation evidence также совпало побайтно.
+Self-contained verifier запущен без сети, exit 0. Дополнительно независимо
+пересчитаны подпись phase, цепочка событий, связи durable evidence и M10.
+Сохранённые PASS-флаги не использованы как самостоятельное доказательство.
+Новых обращений reviewer к VPS/FINAM/Redis и operational mutations не было.
+
+2. Свежая phase и единственная попытка
+
+Phase SHA-256:
+9952071a49bb44b4810db41031ce23ccd8009e2f7a1300c72744370a92b5832a
+Её Ed25519 подпись независимо проверена с принятой public identity.
+Окно: 20:04–20:14 МСК. Arm завершён более чем за 15 минут до старта.
+Timer содержит одну календарную дату, Persistent=false; outer service
+Restart=no. Attempt marker создаётся однократно.
+
+Свежий preflight связан с принятой установкой и FAILED / 1 / 23.
+Старые source/config/lifecycle key сохранены в retirement inventory;
+custody/inodes и hashes публичных файлов сверены. Ключ не экспортирован.
+История прежних terminal attempts сохранена.
+
+Наблюдаемая цепочка:
+  sequence 24 — PHASE_CLAIMED, ACTIVE;
+  sequence 25 — O2_MATERIALIZED, ReadyForBootstrap;
+  sequence 26 — PHASE_TERMINAL, COMPLETED / o2-bootstrap-completed.
+Domain-separated hashes событий и predecessor links пересчитаны.
+Claim, materialization, bootstrap и final-authority command records имеют
+exit 0; stdout/stderr hashes привязаны к сохранённым ответам.
+
+Bootstrap принят supervisor в 20:04:04, cleanup завершён в 20:04:05.255.
+ExecStopPost вернул ALREADY_TERMINAL с тем же terminal receipt, retries=0.
+Это штатное terminal replay, повторного bootstrap/claim/root не произошло.
+10 минут — максимальное разрешённое окно, фактическая работа заняла около
+пяти секунд. Десятиминутная торговая paper-сессия этим O2 не доказана.
+
+3. Что доказано по истории и барам
+
+Public source SHA-256:
+f5ec109c50ab8f2dd535ba3e90b5d67116394858daf549246a91ab781229499c
+Независимый пересчёт observed M1 в M10 дал точное совпадение OHLCV для
+482/482 выбранных баров: 481 history M10 и одного candidate.
+Четыре завершённые сессии: 2, 5, 6, 7 октября; затем закрытая часть 8 октября.
+History session windows и переход к соседнему candidate совпадают.
+
+Candidate: 19:50–20:00 МСК, IMOEXF@RTSX, canonical close 20:00 МСК,
+origin=replay. OHLCV: 2311 / 2313.5 / 2309.5 / 2310 / 11186.
+Captured_at: 17:04:03.681259335 UTC; возраст от canonical close — около
+243.681 секунды, в пределах принятого лимита 300 секунд.
+Broker-truth source сообщает complete flat admission и ноль active orders;
+raw account и токен в review-пакет не включены.
+
+Сохранён sparse контракт: aggregation_complete=true,
+gap_absence_proven=false. У 15 выбранных M10 менее 10 исходных M1;
+их OHLCV также совпали с пересчётом. Review не утверждает, что отсутствие
+каждой минуты означает отсутствие сделок. Непрерывный WS, reconnect/overlap,
+дневная исполнительная parity и FINAM/ALOR live comparison остаются впереди.
+
+4. Созданный durable root и нулевые эффекты
+
+Создан ровно один root для operational identity:
+fbd9ceb7ee964944e79db559c4e4d5cc7af54578b653ce218e183d01fa1444c3
+Marker phase=adopted, marker generation 5, bootstrap attempt generation 1.
+Receipt v2, generation 1, adoption predicate v2; restart package v2,
+seal generation 1. Source/config/candidate/history/provenance identities,
+receipt → seal и nested Stage5G hashes согласованы и пересчитаны.
+
+Lifecycle: p1_semantic_ready; authoritative_callback_count=1,
+zero_intent_ready=true. Request count=0, intent count=0, pending_requests=[].
+Recovery обработал 481 history bar. Stage6 journal содержит только штатный
+10-byte header: frame_count=0. Файл существует, записей операций нет.
+
+HMAC без приватного lifecycle key независимо не пересчитывался. Admission
+выполнил принятый supervisor на VPS; public bytes/hashes/identity links
+сверены независимо. Ключ не требуется включать в публичный review.
+Структура restart-ready доказана; обычный operational restart/readmission
+этого root ещё не исполнен в данном O2 и относится к O3.
+
+5. Остановка, сохранность P0 и отсутствие повторов
+
+Финальное read-only наблюдение: 20:14:13.225792 МСК, после deadline.
+Head, receipts, attempt marker, state/control inventories, retirement
+inventory и runtime evidence совпали с успешным наблюдением 20:05:53.
+Для всех P1 execution units: inactive/dead, MainPID=ControlPID=0,
+пустые cgroups/jobs; outer NRestarts=0. Новый timer elapsed, следующая дата
+пустая. Постоянный P1 runtime остановлен. DB15 DBSIZE=0.
+Transient auth/input/credential directories отсутствуют. Persistent lifecycle
+key сохранён для будущего authenticated restart.
+
+P0 runtime PID 762243 и WS PID 208156, executable fingerprints, start ticks
+и unit identities сохранены. P0 active/running. Старые control/history entries
+сохранены; изменения соответствуют только новой phase и созданному root.
+Наблюдения подтверждают состояние до указанного финального snapshot;
+дальнейшее неограниченное отсутствие изменений по ним не заявляется.
+
+6. Два сохранённых nonzero records
+
+install-timer-units exit 1: daemon-reload сбросил историческое отображение
+ExecStart у двух уже остановленных services. По before/after изменены только
+эти два display fields и observation time; argv, unit bytes, PID=0,
+исторические ExecMainStatus 1/66 и production payload не подменены.
+Caller expected/config hash перепривязан узко; subsequent preflight PASS.
+
+result-2004 exit 1: read-only collector ожидал root ownership для state root,
+который штатно service-owned uid/gid 987. Исправлен сборщик evidence;
+финальные stable reads проверяют exact custody 987, modes 0700/0600,
+single-link и отсутствие symlink. Это не отказ/retry самой O2 попытки.
+Оба исходных nonzero records сохранены и не выдаются за exit 0.
+
+15 external command records и embedded responses проверены по bytes/hash.
+Журнал 10 локальных schedule/driver tests сохранён, но отдельный повтор
+этого test suite reviewer не заявляет. Новый Rust build/CI не требовался:
+source/ELF baseline не менялся; их квалификация унаследована от acceptance.
+
+7. Узкая граница следующего O3 в облегчённом плане
+
+O2 закрываем; повторный first boot, ещё один root или новый O2 rewrite
+не нужны. Следующий проверяемый результат — короткая synthetic paper-сессия
+на существующем root и обычном production run с принятыми fixed producers.
+
+Для O3 достаточно связанного evidence, показывающего:
+  • authenticated readmission этого root без второго first-boot Replay;
+  • canonical M10 → callback → paper command/outcome → S_ack → S_truth →
+    XACK-last, с сохранением signed-schedule authority и high-water;
+  • принятые restart frontiers, отсутствие повторной публикации/эффектов
+    и корректный AlreadyAcknowledged после XACK response loss;
+  • bounded stop, сохранность P0 и изоляцию DB15.
+
+Использовать уже принятые route/frontier harnesses. Новые фреймворки,
+универсальный orchestration слой и новый first-boot путь для этой цели
+не требуются. Дополнительную разработку делать только под воспроизводимый
+blocker, возникающий в этой узкой композиции.
+
+После O3 — несколько ограниченных O4 FINAM paper-окон: WS freshness,
+reconnect/REST overlap, session/EOD mechanics и сравнение с frozen ALOR.
+Полная исполнительная parity и live micro acceptance остаются отдельными
+результатами. FINAM order writes, broker dispatch и реальные заявки
+настоящим O2 acceptance не разрешаются.
+
+Итог review: O2 OPERATIONAL ACCEPT; можно переходить к подготовке O3.

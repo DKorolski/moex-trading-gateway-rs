@@ -4,6 +4,11 @@ Status: original plan dated 2026-09-02; current-direction addendum 2026-09-30.
 
 ## Current local work — 2026-10-02
 
+Superseded status, 2026-10-08: O2 is independently OPERATIONAL ACCEPT at
+COMPLETED/1/26, not HOLD. The current next slice is
+[O3 preparation](stage8b-p1f-o3-preparation.md), with no execution authority.
+The October-2 text below records the earlier sparse-correction boundary.
+
 The accepted ALOR/FINAM diagnostic authorizes the [sparse-M10 source correction](stage8b-p1f-sparse-m10-correction-progress.md),
 not operational activation. O2 remains HOLD. The owner explicitly retained
 [WS subscriptions and operational market-data parity checks](stage8b-operational-market-data-parity-checklist.md)
