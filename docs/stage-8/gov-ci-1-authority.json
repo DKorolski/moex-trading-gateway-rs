@@ -176,8 +176,8 @@
   },
   "negative_cases": 45,
   "production_code_manifest": {
-    "aggregate_sha256": "eca74e73dc43e601da75b0da0d9c246982f11e8339bb75d2fef9a777a4b20f3f",
-    "content_sha256": "8fb8212277af15ed6cb0f985010062de1a970e54e0784d1ec78781c7cf70ca25",
+    "aggregate_sha256": "2c66b2d453fa252a0a6303f6054f1507908a526baecfced8e51c5f3e0fe25d9d",
+    "content_sha256": "e0a3c2d5c184819d23a9bebd9340cef466d49c44654f3f0fd6590dadd406faee",
     "entries": {
       "Cargo.lock": {
         "mode": "100644",
@@ -701,8 +701,8 @@
       },
       "crates/runtime-durable-service/src/stage8b_p1_bootstrap.rs": {
         "mode": "100644",
-        "sha256": "9e8b3e0e7889095c8f541575b99ad71f8a92dee6f47b3b22b4633f1759e50ca6",
-        "size": 40061
+        "sha256": "53a851a8a93b6f310353ecf1c238222bd6e5fffe198360fd808c9dc3437b3c93",
+        "size": 43778
       },
       "crates/runtime-durable-service/src/stage8b_p1_semantic.rs": {
         "mode": "100644",
@@ -838,6 +838,11 @@
         "mode": "100644",
         "sha256": "4d95265266c2405acec9a54f27d4f97371c8d3d1865314826ec718d34d94bca4",
         "size": 14151
+      },
+      "crates/runtime-durable-service/tests/stage8b_systemd_credential.rs": {
+        "mode": "100644",
+        "sha256": "b378e4adfce74d930448b4d11138f5d41315cbd20b872035000b3c59cb2bc5dc",
+        "size": 846
       },
       "crates/strategy-runtime-core/Cargo.toml": {
         "mode": "100644",
@@ -1055,7 +1060,7 @@
         "size": 6212
       }
     },
-    "file_count": 175
+    "file_count": 176
   },
   "requirements": {
     "accepted_stage8a5_immutable_replay_required": true,

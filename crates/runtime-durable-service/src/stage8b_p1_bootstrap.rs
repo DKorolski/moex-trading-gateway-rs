@@ -417,7 +417,16 @@ fn load_stage8b_p1_commitment_key_from_directory(
     if !metadata.file_type().is_file()
         || metadata.nlink() != 1
         || metadata.len() != 32
-        || metadata.permissions().mode() & 0o077 != 0
+        || !match metadata.permissions().mode() & 0o7777 {
+            0o400 | 0o600 => true,
+            // systemd may use a POSIX ACL for the service UID. Its read mask
+            // appears as 0440 even though the owning group has no access.
+            // Do not extend this exception to ordinary group-readable files.
+            0o440 if metadata.uid() == 0 && metadata.gid() == 0 => {
+                is_readonly_systemd_credential(&file, directory)
+            }
+            _ => false,
+        }
         || (metadata.uid() != 0 && metadata.uid() != effective_uid)
     {
         return Err(Stage8bP1BootstrapError::InvalidCommitmentCredential);
@@ -430,6 +439,41 @@ fn load_stage8b_p1_commitment_key_from_directory(
     let key = Stage5gLifecycleCommitmentKey::from_secret_bytes(&secret);
     secret.fill(0);
     key.map_err(|_| Stage8bP1BootstrapError::InvalidCommitmentCredential)
+}
+
+fn is_readonly_systemd_credential(file: &File, directory: &Path) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::fd::AsRawFd;
+
+        // The system service manager controls this directory and its ACLs.
+        // Keep the exception local to its protected, read-only credential copy.
+        if directory.parent() != Some(Path::new("/run/credentials")) {
+            return false;
+        }
+        let Ok(metadata) = fs::symlink_metadata(directory) else {
+            return false;
+        };
+        if !metadata.is_dir()
+            || metadata.uid() != 0
+            || metadata.gid() != 0
+            || !matches!(metadata.mode() & 0o7777, 0o500 | 0o510 | 0o550)
+        {
+            return false;
+        }
+        let mut filesystem = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+        // SAFETY: file owns a live FD and the output points to writable storage.
+        if unsafe { libc::fstatvfs(file.as_raw_fd(), filesystem.as_mut_ptr()) } != 0 {
+            return false;
+        }
+        // SAFETY: successful fstatvfs initialized the output structure.
+        unsafe { filesystem.assume_init() }.f_flag & libc::ST_RDONLY != 0
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (file, directory);
+        false
+    }
 }
 
 pub fn first_boot_stage8b_p1(
@@ -867,6 +911,46 @@ mod tests {
         ));
         fs::remove_file(key_path).unwrap();
         fs::remove_file(outside).unwrap();
+        fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
+    fn commitment_credential_modes_and_lengths_remain_restricted() {
+        let directory = temp_directory("credential-metadata");
+        let path = directory.join(STAGE8B_P1_COMMITMENT_CREDENTIAL_FILE);
+        for mode in [
+            0o400, 0o600, 0o440, 0o640, 0o644, 0o660, 0o666, 0o700, 0o4600,
+        ] {
+            fs::write(&path, [0x8b_u8; 32]).unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
+            assert_eq!(
+                load_stage8b_p1_commitment_key_from_directory(&directory).is_ok(),
+                matches!(mode, 0o400 | 0o600),
+                "ordinary file mode {mode:o}"
+            );
+            fs::remove_file(&path).unwrap();
+        }
+        for size in [0, 31, 33, 4096] {
+            fs::write(&path, vec![0x8b_u8; size]).unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o400)).unwrap();
+            assert!(load_stage8b_p1_commitment_key_from_directory(&directory).is_err());
+            fs::remove_file(&path).unwrap();
+        }
+        fs::create_dir(&path).unwrap();
+        assert!(load_stage8b_p1_commitment_key_from_directory(&directory).is_err());
+        fs::remove_dir(&path).unwrap();
+        fs::write(&path, [0x8b_u8; 32]).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o400)).unwrap();
+        let alias = directory.join("hardlink");
+        fs::hard_link(&path, &alias).unwrap();
+        assert!(load_stage8b_p1_commitment_key_from_directory(&directory).is_err());
+        fs::remove_file(alias).unwrap();
+        let alias = directory.with_extension("symlink");
+        symlink(&directory, &alias).unwrap();
+        assert!(load_stage8b_p1_commitment_key_from_directory(&alias).is_err());
+        fs::remove_file(alias).unwrap();
+        assert!(load_stage8b_p1_commitment_key_from_directory(Path::new("relative")).is_err());
+        fs::remove_file(path).unwrap();
         fs::remove_dir(directory).unwrap();
     }
 
