@@ -31,7 +31,9 @@ ProtectKernelModules=yes
 ProtectKernelTunables=yes
 ProtectSystem=strict
 ProtectProc=invisible
-ProcSubset=pid
+# Production guardian reads /proc/sys/kernel/random/boot_id before admission.
+# Keep kernel tunables read-only and all other sandbox restrictions below.
+ProcSubset=all
 RestrictRealtime=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
