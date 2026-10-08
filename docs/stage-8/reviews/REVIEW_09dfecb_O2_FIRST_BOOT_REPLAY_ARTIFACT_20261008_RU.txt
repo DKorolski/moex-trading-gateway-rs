@@ -1,0 +1,84 @@
+Независимый ARTIFACT review — 09dfecb — 8 октября 2026
+
+VERDICT: ARTIFACT ACCEPT.
+Блокирующих замечаний к этому immutable artifact не обнаружено. Принят комплект из трёх ELF с подтверждённой source identity и локальной квалификацией. Installation acceptance, разрешение apply/activation и успешное прохождение O2 этим verdict не предоставляются. O2 остаётся HOLD.
+
+Review target:
+moex-trading-project-09dfecb-o2-first-boot-replay-artifact.zip
+ZIP SHA-256: 9a6fafec0e6dc70f73bbfd973c60303fc37e38c20a2219bb8cc136a07f04aaf9
+Размер: 18 368 247 bytes.
+Accepted/compiled source: 09dfecbe931267c5276b8b805d62d5a5a141ad95
+Git tree: 1a35e27035a15cd52883b2433ae852e26b70b09f
+Source-review ZIP SHA-256: ae1897fbd00bc6b38ef4f43cc3431739542e35078b71afa5e317dc919a74760b
+
+Привязка исходников и состав
+
+2731 уникальный regular member: 2674 tracked source files и 57 generated artifact/evidence files. CRC, checksum, modes, safe paths, generated index и Git reconstruction — PASS. Symlinks, special files и duplicates не обнаружены. Каждый tracked-файл побайтно сравнен с ранее принятым source-пакетом; дельты Rust/Cargo/workflow/deploy отсутствуют. Встроенное source review побайтно совпадает с выданным reviewer заключением. Новый handoff marker корректно обозначает отдельный artifact ZIP.
+
+Все три payload — ELF64 little-endian x86-64:
+
+stage8b-p1f-o2-materializer
+  9 670 872 bytes
+  SHA-256 45bcf423b5cfd8cb71fbc938c1c865de472b26c5c44787e3e2b9c819fb655a6f
+stage8b-p1f-o2-operator
+  4 198 880 bytes
+  SHA-256 592c6f321101648376c41bcb1043e33aaa4a7e19ad02ea2ec3a549fb24225e1b
+stage8b-p1-paper-supervisor
+  13 495 040 bytes
+  SHA-256 8cf872fb4fa395c5b68c95e29b5620dda56f964b82e77d568f5e24177bf6a105
+
+SHA и размеры перепроверены на фактических bytes. Независимый readelf подтверждает architecture и обычные dynamic dependencies libc/libm/libgcc_s/loader; максимальное требование GLIBC_2.34, RPATH/RUNPATH не обнаружены. Соответствие фактическому целевому host остаётся частью свежего installation preflight.
+
+Build provenance и qualification
+
+Сохранённая сборка: read-only Git export принятого REF, Linux/amd64 Docker emulation, закреплённый rust image sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922, rustc 1.98.0; Cargo --locked --offline --release, default features, network none. Три binary targets выбраны явно. Нет включения fixture features, host network, docker.sock или privileged container. Использован публичный Cargo/target cache; source export повторно сверяется после сборки и qualification. Cache reuse честно указан, независимая побайтно воспроизводимая пересборка не заявляется.
+
+Проверены все девять records, реальные полные logs, их SHA-256 и exit/timeout:
+- toolchain;
+- three-ELF release build;
+- normal release libraries;
+- retained probe link;
+- retained-input release proof;
+- exact-three-ELF smoke;
+- три отдельные readelf identity/ABI проверки.
+Все exit 0, timeout=false. Hashes payload до и после qualification совпадают; smoke log содержит hashes именно трёх переданных ELF. Build показывает три существующих dead_code warning в finam-gateway. Это не compilation failure; strict-Clippy в этой artifact-сборке отдельно не заявлен. Принятая source-квалификация наследуется без переобозначения прерванного полного durable suite как PASS. GitHub CI NOT_RUN отражён корректно.
+
+Retained-input proof и его предел
+
+Source SHA-256 22fbcbe9b883ffd9a801b188f32763c8596d3e6134cd70b642f7268006c440ce и config SHA-256 100965eb86c259ab33c94679c55d36bbed1f387def40054c73301c90cb6e8d4b совпадают с принятым exact failure fixture. Historical trusted clock 2026-10-08T12:15:04Z используется только внутри probe. Production CLI clock не изменён.
+
+Probe связан с normal release libraries из принятого source/того же build environment. Он проходит fixed-path source admission, composition, V5 first boot и ordinary restart. Для обоих состояний вызывается реальный adoption-ready predicate: один Replay callback, ноль requests и ноль journal frames. Synthetic commitment key и file custody ограничены disposable container. Это подтверждает устранение обнаруженного Replay-дефекта на release library path.
+
+Три actual ELF отдельно проходят config/admission/rejection smoke с текущим no-riskgate профилем, protected control root и отсутствующими credentials/authority. Изменение старого smoke ограничено test-only profile literal; verifier проверяет его точную дельту. Совместимость supervisor template без завершающего LF сохранена.
+
+Первый boot/restart witness выполнен через release library probe, а не реальный systemd bootstrap этими ELF. Native manager, systemd credentials, новая FINAM materialization, VPS root и непрерывный поток баров этим artifact не доказаны. Это честная достаточная граница artifact qualification; соответствующий operational witness остаётся в следующей однократной O2-попытке.
+
+Что reviewer выполнил независимо
+
+1. Safe extraction, CRC/checksum, inventory, byte comparison accepted source, встроенного review, ELF SHA/размеров и generated artifacts.
+2. Официальный package verifier из распакованного пакета без Git — PASS, включая reconstruction commit/tree и пересчёт old→new inventory.
+3. Положительный validator control и 13/13 negative cases на фактических bytes загруженного ZIP. Generic generated hashes пересчитывались перед negative validation. Для автономного запуска Git-dependent create заменён чтением ZIP; validate_data и логика case mutations сохранены. Отклонены truncated/missing ELF, foreign ref/source/config drift, symlink mode, mixed template, подменённый proof, failed gate, network host, stale terminal/snapshot и ложная installation-ready claim.
+4. Независимый readelf всех трёх ELF.
+5. Локальные запуски exact payload с недопустимой командой: supervisor exit 64, operator exit 70, materializer exit 70. Это проверка запуска и раннего CLI rejection; bootstrap/run/materialization не вызывались.
+
+Rust/Cargo и Docker в reviewer environment отсутствуют. Повторная сборка и retained-input probe здесь не запускались; они проверены по коду и связанным полным build/qualification logs. VPS, FINAM и operational Redis reviewer не затрагивал.
+
+Installation delta — корректная заготовка
+
+Last-observed public snapshot закреплён как FAILED / generation 1 / sequence 23, history event SHA-256 1864813e6375c89b92cb174e01a9fc52e58fc9ce133f117280d46820e7e96bbe. Predecessor outer installation manifest SHA-256 782b651cb5e2cca5a2d4c8a6c611656df67492fc4e113378b056fe252bbe5a9b. Это сохранённое наблюдение, не свежая attestation актуального VPS.
+
+Offline delta содержит ровно три ELF и compatibility installation-v1.json. В compatibility manifest изменены только binary_sha256 и supervisor slot; исторические non-ELF поля сохранены. Фактические unit/template bytes контролирует outer inventory. Остальные 11 public payload slots проверены побайтно по predecessor inventory. Authority public key, policy, templates и units в данном комплекте не меняются.
+
+Outer installation manifest намеренно отложен: он должен сослаться на окончательный artifact SHA, installer и свежий actual target state. Предложение маркировано OFFLINE_DELTA_ONLY_NOT_INSTALLABLE. Команды apply, разрешения установки или активации нет. Это не дефект или повод для нового framework; это обычная оставшаяся привязка installation package.
+
+Остаток работы в облегчённом варианте
+
+После ARTIFACT ACCEPT можно готовить один окончательный non-activating installation package:
+- свежий stopped-target preflight: P0 fingerprints, P1 units/jobs, установленный old inventory, terminal head/history/receipts, custody и runtime dependencies;
+- reuse именно принятых ELF без ненужной пересборки;
+- final outer manifest связан с SHA этого artifact, accepted source и фактическим predecessor;
+- точная old→new inventory, сохранение FAILED/1/23, history, receipts, retained inputs и таймеров; если target изменился, binding останавливается для пересогласования;
+- current calendar/window, согласованные source/supervisor/policy bindings. Старый scaffold датирован 8 октября; при переносе нужен явный rebind, без продления consumed phase или переиспользования старого source;
+- существующие bounded apply/rollback и local filesystem controls достаточны: новые ключи, роли, guardian или recovery framework этой работой не требуются.
+
+Установка — после отдельной приёмки/разрешения installation package. Затем отдельное разрешение на одну свежую bounded O2 phase. Acceptance target этой попытки: fresh materialization → ReadyForBootstrap → authenticated V5 root без заявок → terminal receipt/stopped proof при сохранении P0 и прежней истории. После O2 остаётся ранее согласованный путь коротких paper-сессий с ALOR operational comparison и отдельный FINAM live-micro acceptance.

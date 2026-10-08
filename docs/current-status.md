@@ -2,6 +2,17 @@
 
 Status date: 2026-10-08.
 
+2026-10-08: first-boot Replay correction `09dfecb` is independently
+**SOURCE ACCEPT + ARTIFACT ACCEPT**. The
+[non-activating installation successor](stage-8/stage8b-p1f-o2-replay-installation.md)
+reuses the accepted three ELF bytes without a rebuild. Fresh read-only VPS
+preflight confirms **FAILED/1/23**, P1 stopped, P0 unchanged and matching old
+installation. Five replacement slots are prepared locally; terminal history,
+receipts, retained inputs, units and calendar are preserved. Installation
+review/permission and a separately authorized fresh bounded O2 are still ahead.
+**NOT INSTALLED; O2 HOLD.** No phase signing, timer, service action, remote
+write, push/merge or GitHub CI is included. Earlier entries below are historical.
+
 2026-10-08, after the 15:15 MSK attempt: the accepted credential installation
 reached `ReadyForBootstrap`, then stopped at bootstrap exit 66. Current terminal
 frontier is **FAILED/1/23**, P1 stopped, P0 unchanged; no durable root or DB15
