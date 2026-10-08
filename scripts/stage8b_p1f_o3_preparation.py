@@ -193,13 +193,20 @@ def package(out, evidence, handoff):
     files['handoff-evidence/index.json']=encode({n:sha(b) for n,b in files.items()})
     out.mkdir(parents=True,exist_ok=True)
     path=out/f'moex-trading-project-{commit[:7]}-o3-preparation.zip'
-    with zipfile.ZipFile(path,'x',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+    require(not path.exists(), 'immutable output exists')
+    partial=Path(str(path)+'.partial')
+    for name in files:
+        # git archive represents non-executable regular files with Unix mode 0.
+        # Preserve executable bits; never normalize symlinks or special files.
+        require(modes.get(name,0) in (0,0o100644,0o100755), 'source symlink/special file')
+    with zipfile.ZipFile(partial,'x',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
         for name,raw in sorted(files.items()):
             info=zipfile.ZipInfo(name);info.create_system=3
-            mode=modes.get(name,0o100644)
-            require(mode in (0o100644,0o100755), 'source symlink/special file')
+            mode=modes.get(name,0) or 0o100644
             info.external_attr=mode<<16;info.compress_type=zipfile.ZIP_DEFLATED
             z.writestr(info,raw)
+    verify(partial)
+    partial.rename(path)
     report=verify(path)
     put(Path(str(path)+'.sha256'),(report['sha256']+'  '+path.name+'\n').encode())
     put(Path(str(path)+'.safety.json'),encode(report))
