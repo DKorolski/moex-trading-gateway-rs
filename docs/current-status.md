@@ -2,6 +2,17 @@
 
 Status date: 2026-10-08.
 
+2026-10-08, after the 15:15 MSK attempt: the accepted credential installation
+reached `ReadyForBootstrap`, then stopped at bootstrap exit 66. Current terminal
+frontier is **FAILED/1/23**, P1 stopped, P0 unchanged; no durable root or DB15
+entries were created. Offline replay of the exact retained source/config found
+a BO Sell intent from the ordinary paper Replay callback, incompatible with
+the first-boot zero-intent contract. The
+[narrow first-boot observation correction](stage-8/stage8b-o2-first-boot-replay-correction.md)
+is a source review candidate. No new run, timer, installation or remote change
+is included. O2 HOLD; source acceptance/build/installation must precede a
+separately authorized fresh phase. Prior entries below are historical.
+
 2026-10-08: lifecycle-credential correction `817985c` is independently
 **SOURCE ACCEPT + BUILD ACCEPT** in the
 [retained review](stage-8/reviews/REVIEW_817985c_O2_CREDENTIAL_SOURCE_BUILD_20261008_RU.txt).

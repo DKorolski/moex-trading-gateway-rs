@@ -3666,6 +3666,7 @@ pub(crate) enum Stage5gR2caR2PositionApplyError {
 #[cfg(test)]
 #[allow(clippy::items_after_test_module)]
 mod tests {
+    mod first_boot_replay;
     mod sparse_parity;
     use super::*;
     use crate::{StrategyCtx, TradeMode};
@@ -7588,8 +7589,13 @@ mod tests {
     }
 }
 
-impl Strategy for HybridIntradayRuntimeStrategy {
-    fn on_bar(&mut self, ctx: &StrategyCtx, bar: &BarEvent) -> Vec<Intent> {
+impl HybridIntradayRuntimeStrategy {
+    fn on_bar_with_first_boot_observation(
+        &mut self,
+        ctx: &StrategyCtx,
+        bar: &BarEvent,
+        first_boot_observation: bool,
+    ) -> Vec<Intent> {
         if bar.symbol != self.config.symbol {
             return Vec::new();
         }
@@ -7664,6 +7670,14 @@ impl Strategy for HybridIntradayRuntimeStrategy {
         let reference_price = self.live_reference_price();
         let bar_input =
             self.bar_input(dt_local, bar, close_prev, day_range_prev, has_open_position);
+        if first_boot_observation {
+            // The authenticated initial Replay advances indicators/shadow state,
+            // but must never evaluate an entry or acquire pending/owner state.
+            // Do not generate and then discard intents: bypass action generation.
+            self.orchestrator.warm_bar(bar_input);
+            self.sync_state();
+            return Vec::new();
+        }
         if self.deferred_exit.is_some() {
             self.orchestrator.warm_bar(bar_input);
             if let Some(intents) = self.maybe_reissue_deferred_exit(
@@ -7781,6 +7795,12 @@ impl Strategy for HybridIntradayRuntimeStrategy {
         }));
         self.sync_state();
         intents
+    }
+}
+
+impl Strategy for HybridIntradayRuntimeStrategy {
+    fn on_bar(&mut self, ctx: &StrategyCtx, bar: &BarEvent) -> Vec<Intent> {
+        self.on_bar_with_first_boot_observation(ctx, bar, false)
     }
 
     fn on_ack(&mut self, _ctx: &StrategyCtx, ack: &CommandAck) -> Vec<Intent> {
@@ -8793,6 +8813,44 @@ pub trait BrokerNeutralHybridStrategy {
 }
 
 impl HybridIntradayRuntimeStrategy {
+    /// Only the crate-private first-boot facade may select this observation.
+    /// Ordinary paper Replay, Live and backtest callbacks retain their policy.
+    pub(crate) fn observe_stage8b_p1_first_boot_replay(
+        &mut self,
+        input: broker_core::HybridRuntimeCallbackInput<broker_core::HybridRuntimeBarEvent>,
+    ) -> Option<Vec<Intent>> {
+        self.validate_context_payload_instruments(&input.context, &input.payload.instrument)
+            .ok()?;
+        if input.payload.origin != broker_core::HybridRuntimeBarOrigin::Replay
+            || !input.payload.is_final
+            || input.payload.timeframe_sec != 600
+            || input.context.trade_mode != broker_core::HybridRuntimeTradeMode::Paper
+            || input.context.paper_execution_mode
+                != broker_core::HybridRuntimePaperExecutionMode::LiveOnly
+            || input.context.allow_live_orders
+            || input.context.position_qty != Some(0.0)
+            || self.has_live_orders()
+            || self.deferred_entry.is_some()
+            || self.deferred_exit.is_some()
+            || self.current_owner.is_some()
+            || self.orchestrator.snapshot().has_pending_entry
+        {
+            return None;
+        }
+        let context = Self::compatibility_context(&input.context);
+        let bar = BarEvent {
+            symbol: input.payload.instrument.symbol,
+            close_time_utc: input.payload.close_time_utc,
+            close: input.payload.close,
+            o: input.payload.open,
+            h: input.payload.high,
+            l: input.payload.low,
+            v: input.payload.volume,
+            origin: DataOrigin::Replay,
+        };
+        Some(self.on_bar_with_first_boot_observation(&context, &bar, true))
+    }
+
     fn validate_context_target(
         &self,
         context: &broker_core::HybridRuntimeStrategyContext,

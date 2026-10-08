@@ -8170,14 +8170,18 @@ fn apply_stage5c_semantic_bar_at_with_replay_boundary(
     let callback_bar = accepted.strategy_callback_bar(&strategy);
     let origin = accepted.origin;
     let execution_eligible = origin == broker_core::HybridRuntimeBarOrigin::Live;
-    let intents = crate::BrokerNeutralHybridStrategy::on_broker_bar(
-        &mut strategy,
-        broker_core::HybridRuntimeCallbackInput {
-            context,
-            payload: callback_bar,
-        },
-    )
-    .map_err(|_| Stage5cSemanticBarError::CallbackValidationFailed)?;
+    let input = broker_core::HybridRuntimeCallbackInput {
+        context,
+        payload: callback_bar,
+    };
+    let intents = if allow_authenticated_first_boot_replay {
+        strategy
+            .observe_stage8b_p1_first_boot_replay(input)
+            .ok_or(Stage5cSemanticBarError::CallbackValidationFailed)?
+    } else {
+        crate::BrokerNeutralHybridStrategy::on_broker_bar(&mut strategy, input)
+            .map_err(|_| Stage5cSemanticBarError::CallbackValidationFailed)?
+    };
     let expected_attribution_by_request =
         stage5cj_expected_generated_attribution_by_request_from_ledger(
             admission,

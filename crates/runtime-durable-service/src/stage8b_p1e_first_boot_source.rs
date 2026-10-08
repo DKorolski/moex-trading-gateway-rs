@@ -1747,6 +1747,87 @@ pub(crate) mod no_riskgate_tests;
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[test]
+    #[ignore = "requires retained public O2 source/config; no credentials or network"]
+    fn retained_o2_first_boot_prepares_and_restarts() {
+        let evidence: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(std::env::var("O2_PUBLIC_INPUTS").unwrap()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            super::sha256_hex(evidence["source_text"].as_str().unwrap().as_bytes()),
+            "22fbcbe9b883ffd9a801b188f32763c8596d3e6134cd70b642f7268006c440ce"
+        );
+        assert_eq!(
+            super::sha256_hex(evidence["config_text"].as_str().unwrap().as_bytes()),
+            "100965eb86c259ab33c94679c55d36bbed1f387def40054c73301c90cb6e8d4b"
+        );
+        let mut config = crate::parse_stage8b_p1e_supervisor_config_v1(
+            evidence["config_text"].as_str().unwrap().as_bytes(),
+        )
+        .unwrap();
+        let parent =
+            std::env::temp_dir().join(format!("o2-offline-diagnostic-{}", std::process::id()));
+        std::fs::create_dir(&parent).unwrap();
+        config.bootstrap.durable_parent = std::fs::canonicalize(&parent).unwrap();
+        let mut restart_config = crate::parse_stage8b_p1e_supervisor_config_v1(
+            evidence["config_text"].as_str().unwrap().as_bytes(),
+        )
+        .unwrap()
+        .bootstrap;
+        restart_config.durable_parent = config.bootstrap.durable_parent.clone();
+        let supervisor =
+            crate::validate_stage8b_p1e_supervisor_config_v1(config, [0x1e; 16]).unwrap();
+        let now = chrono::DateTime::parse_from_rfc3339("2026-10-08T12:15:04Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let source = super::parse_bootstrap_bound_source(
+            evidence["source_text"].as_str().unwrap().as_bytes(),
+            supervisor.first_boot_source_bundle_sha256(),
+            supervisor.bootstrap(),
+            now,
+            super::FirstBootTruthPolicy::FreshAdmission,
+        )
+        .expect("retained source admission");
+        let admin = crate::authorize_stage8b_p1_first_boot(
+            supervisor.bootstrap(),
+            crate::STAGE8B_P1_FIRST_BOOT_CONFIRMATION,
+        )
+        .unwrap();
+        let (bootstrap, runtime) = supervisor.into_first_boot_parts();
+        let prepared = super::prepare_stage8b_p1_first_boot_source_v1(bootstrap, runtime, source)
+            .expect("retained composition");
+        let fresh = prepared.fresh_runtime.clone();
+        let key =
+            strategy_runtime_core::Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x81; 32])
+                .unwrap();
+        let outcome = crate::first_boot_stage8b_p1e_transaction_v5(prepared, admin, 1, &key)
+            .expect("retained source export/restore and isolated durable root");
+        assert!(outcome
+            .owner()
+            .recovered()
+            .unwrap()
+            .stage8b_p1e_initial_adoption_ready());
+        drop(outcome);
+        let restarted = crate::restart_stage8b_p1(
+            crate::validate_stage8b_p1_bootstrap_config(restart_config).unwrap(),
+            &key,
+            fresh,
+        )
+        .expect("normal restart without another callback");
+        assert!(restarted.recovery_ready());
+        if let crate::Stage7bRestartOutcome::Ready(owner) = &restarted {
+            assert!(owner
+                .recovered()
+                .unwrap()
+                .stage8b_p1e_initial_adoption_ready());
+        } else {
+            panic!("restart did not restore the initial zero-effect checkpoint");
+        }
+        drop(restarted);
+        std::fs::remove_dir_all(parent).unwrap();
+    }
+
     use std::{
         ffi::CString,
         fs,
