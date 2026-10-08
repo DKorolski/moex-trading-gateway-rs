@@ -1,6 +1,22 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-10-07.
+Status date: 2026-10-08.
+
+2026-10-08: lifecycle-credential correction `817985c` is independently
+**SOURCE ACCEPT + BUILD ACCEPT** in the
+[retained review](stage-8/reviews/REVIEW_817985c_O2_CREDENTIAL_SOURCE_BUILD_20261008_RU.txt).
+The [credential installation successor](stage-8/stage8b-p1f-o2-credential-installation.md)
+reuses those three exact Linux ELF files; no rebuild, production Rust/Cargo,
+unit, strategy or permission changes. Fresh read-only snapshot confirms
+**FAILED/1/19**, the unchanged installed manifest, P1 stopped and P0 running.
+This is an installation **review candidate**, not an installation or O2 run.
+Five replacement slots: three ELFs and two installation manifests. History,
+archives, generated FAILED19 inputs and current calendar stay unchanged.
+Next: package review → separately authorized non-activating update/postflight
+→ separately authorized fresh-phase preparation and one bounded O2.
+The old failed phase/source/key must not be reused. O2 remains HOLD; continuous
+paper, WS/freshness/EOD/O3/O4 parity and live micro remain later steps.
+Earlier entries below describe history, not the current terminal frontier.
 
 2026-10-07 terminal recovery is independently **OPERATIONAL EVIDENCE ACCEPTED**
 in the [retained review](stage-8/reviews/REVIEW_21cc7eb_TERMINAL_RECOVERY_EVIDENCE_20261007_RU.txt).
