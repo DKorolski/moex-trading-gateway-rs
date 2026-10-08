@@ -27,14 +27,14 @@ and did not cover this real unit mismatch. No fallback is enabled or added here.
 
 ## Minimal correction and explicit trade-off
 
-Only the O2 bootstrap runner changes `ProcSubset=pid` to `all`. This exposes
-non-PID proc information inside that unit; it is not claimed to expose only one
+The O2 runner and its downstream bootstrap change `ProcSubset=pid` to `all`. This exposes
+non-PID proc information inside those units; it is not claimed to expose only one
 file. It avoids a new boot-ID credential/export mechanism or binary rebuild.
 ProtectKernelTunables, ProtectProc, PrivateNetwork, AF_UNIX restriction, empty
-capabilities and all other sandbox/command settings remain exact. Other units,
+capabilities and all other sandbox/command settings remain exact. Main/recovery units,
 Rust/Cargo, FINAM permissions and CI/governance are untouched.
 
-The correction installer changes only runner unit and installation-o2 manifest.
+The first correction installer changes only runner unit and installation-o2 manifest.
 Manifest pins the new unit bytes, retains exact accepted ELF artifact lineage,
 and records predecessor `309ab4fc557f44dcbc56cc081bb32b125abd2dc8470c3062faa88421d20b2974`.
 Before-images and journal are root-only under
@@ -67,7 +67,7 @@ by the owner's current request. No expired phase is extended or replayed.
 If any new failure occurs, record it and stop; do not create a retry loop.
 O2 remains HOLD until its actual result is evaluated. O3/O4/continuous paper,
 FINAM order POST/DELETE, broker dispatch, runtime-live and real orders remain closed.
-# Bootstrap-chain completion before the retry
+## Bootstrap-chain completion before the retry
 
 The stopped downstream `moex-finam-p1-paper-bootstrap.service` has the same
 conflict: `load_validated_supervisor()` reads the real boot ID before bootstrap.
@@ -83,3 +83,17 @@ probe; the production credential contract is still checked and unchanged.
 Retain the first runner-only installation transaction; the bootstrap follow-up
 has its own two-file transaction and manifest predecessor. No history reset,
 automatic retry, P0 change, real order or live runtime is authorized.
+
+The fixed-install source checker pins `ProcSubset=all` only for bootstrap;
+its main/recovery unit expectations remain `pid`. The latter units are not
+started by O2 and must be qualified separately before their later activation.
+Source tests check this distinction. No generic sandbox relaxation is added.
+
+The first bootstrap follow-up applied the unit and then stopped on its own
+retained-unit hash assertion (the verifier still expected the old bootstrap
+hash). Read-only inspection proved exactly PREPARED / unit-new / manifest-old,
+with both before-images intact. An explicit completion checked that frontier,
+bound the new unit hash, wrote only the planned manifest, and reloaded systemd.
+No O2 operation occurred during either installation transaction. The helper
+preparation also had an earlier missing `__file__` failure before any write;
+both failed captures are retained, not presented as successful gates.

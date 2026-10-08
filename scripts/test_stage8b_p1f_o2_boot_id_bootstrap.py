@@ -22,4 +22,14 @@ class Bootstrap(unittest.TestCase):
             with self.subTest(old=old),self.assertRaises(ValueError):
                 c.bootstrap_properties(self.raw.replace(old,new))
 
+    def test_fixed_install_checker_tracks_only_bootstrap_exception(self):
+        import stage8b_p1e_i1_fixed_install_check as fixed
+        bootstrap=fixed.parse_unit(c.ROOT/fixed.DEPLOY/fixed.BOOTSTRAP)
+        fixed.check_shared(bootstrap,bootstrap=True)
+        with self.assertRaises(fixed.CheckError):fixed.check_shared(bootstrap)
+        for name in (fixed.MAIN,fixed.RECOVERY):
+            unit=fixed.parse_unit(c.ROOT/fixed.DEPLOY/name)
+            fixed.check_shared(unit)
+            with self.assertRaises(fixed.CheckError):fixed.check_shared(unit,bootstrap=True)
+
 if __name__=='__main__':unittest.main()
