@@ -54,7 +54,7 @@
     "stage8b_s_authorized": false
   },
   "governance_control_plane_manifest": {
-    "aggregate_sha256": "bfe40789d2c0b900a0330ab8945ab698dbfec6854aa7ba08621e772fc0ce3898",
+    "aggregate_sha256": "f2bff031da274a8cbddc85cf31d1fbd3f4ca61e94639b81dd0d60cc7ee84e4ac",
     "entries": {
       ".github/workflows/ci.yml": {
         "mode": "100644",
@@ -68,13 +68,13 @@
       },
       "docs/current-status.md": {
         "mode": "100644",
-        "sha256": "6ecd1dc72669e940624ba4fc037ed149951990dfdf419ec083788706e2f53aaa",
-        "size": 166229
+        "sha256": "c65b5725417309986d8b7a42ae2a5e669bb2218fcbde2d40a3672700f9ccd7ef",
+        "size": 169299
       },
       "docs/roadmap.md": {
         "mode": "100644",
-        "sha256": "27221800b65fcae25c0a6ff31069c7827da8ac768d9cbb6bc10cd57becd4d5b7",
-        "size": 43007
+        "sha256": "9108cc9531b57aa8237c77ac69e73e6a2514bece2d5cf7cd4bb548ec067d0036",
+        "size": 44875
       },
       "docs/stage-5/stage5f-authority-rotation.json": {
         "mode": "100644",
@@ -176,8 +176,8 @@
   },
   "negative_cases": 45,
   "production_code_manifest": {
-    "aggregate_sha256": "c51b9e7f2b22b31f308fc33d2132b84db604e59f2669b090863cfb8df2aa647a",
-    "content_sha256": "07e36d17c06da61f1ba8e887fdcb9c6449ed202e6fb3d50084493d40ab7bd2ae",
+    "aggregate_sha256": "3b580cc5997f71338dc4832926bb07d05b6685f0c96985d99202eb6c70b48017",
+    "content_sha256": "d07e783ee6d05ac48fa319eb32f595fd082f1c0bd54d668dd6f8ac7802ae7f17",
     "entries": {
       "Cargo.lock": {
         "mode": "100644",
@@ -434,6 +434,16 @@
         "sha256": "c5a14a93eb888425bdf09665cb44cb3890ec50ef0692cefd83b871203aea4636",
         "size": 3452
       },
+      "crates/finam-gateway/examples/o3_local_signer_witness.rs": {
+        "mode": "100644",
+        "sha256": "c9672e0ef8b67368ca41c5c483ff668144e048ab7dabca768642e8d2ec04f828",
+        "size": 25673
+      },
+      "crates/finam-gateway/examples/o3_local_signer_witness/linked.rs": {
+        "mode": "100644",
+        "sha256": "40e5ff118d5f499583c3882b058ac0d7e174c4a1afaf90a9759c636c599e6ef0",
+        "size": 8544
+      },
       "crates/finam-gateway/src/bin/stage8b-p1f-o2-materializer.rs": {
         "mode": "100644",
         "sha256": "306ce62df003cb41d63b2626d14a3e869ee06bb6ad0f3256acd4122c6ec28167",
@@ -448,6 +458,21 @@
         "mode": "100644",
         "sha256": "f2431056ddb7371aa80e2a2133e6d156a9fe172d129ed676f2de10c2504ab9b5",
         "size": 18499
+      },
+      "crates/finam-gateway/src/bin/stage8b-p1f-o3-composition.rs": {
+        "mode": "100644",
+        "sha256": "798ed45b9a65a376810daf17956446ca7a3e4f5af083ea9a36b9c77b27c696a1",
+        "size": 1593
+      },
+      "crates/finam-gateway/src/bin/stage8b-p1f-o3-provisioner.rs": {
+        "mode": "100644",
+        "sha256": "5a706f93b046473fd21009da1c0d4883662522c62825fc74fd4c1b2399f64d23",
+        "size": 788
+      },
+      "crates/finam-gateway/src/bin/stage8b-p1f-o3-signer.rs": {
+        "mode": "100644",
+        "sha256": "fa267446c058ddf21726d5e8170331a0a56595e220fd49f4ed4dbf7099cb45df",
+        "size": 596
       },
       "crates/finam-gateway/src/bin/stage8b-r2a6-source-adapter.rs": {
         "mode": "100644",
@@ -496,8 +521,8 @@
       },
       "crates/finam-gateway/src/lib.rs": {
         "mode": "100644",
-        "sha256": "f9f763e3af191514976c02ef6b464a71a9b7766d37ff031dcc5e6e51e8a5ef32",
-        "size": 1227710
+        "sha256": "c4eb7bb6258977175041135766f84bb986a01a7535434b18555ffb52806d96fc",
+        "size": 1227947
       },
       "crates/finam-gateway/src/m3d2_local_mock_endpoint.rs": {
         "mode": "100644",
@@ -591,8 +616,8 @@
       },
       "crates/finam-gateway/src/stage8b_p1e_schedule_publisher.rs": {
         "mode": "100644",
-        "sha256": "35c3c5b4f0bed8f4b42b1cb87323eebcaa821aebe184486e71966e0725e63dff",
-        "size": 68327
+        "sha256": "80dfaad6c943a7c5777696c44c1d5ea8a8ef5f454740c287bda06a3d168bf5e6",
+        "size": 69785
       },
       "crates/finam-gateway/src/stage8b_p1f_fixed_producers.rs": {
         "mode": "100644",
@@ -601,18 +626,23 @@
       },
       "crates/finam-gateway/src/stage8b_p1f_fixed_producers/observed.rs": {
         "mode": "100644",
-        "sha256": "b42822229cf9a0d1272257b0294ae0238a1b2fe64a490f2148de6cd93fb6dd05",
-        "size": 16497
+        "sha256": "bde06a65f514fbcaeed422aead2a33b285af0772ef3a4a51b183d1e446deab2a",
+        "size": 16983
+      },
+      "crates/finam-gateway/src/stage8b_p1f_fixed_producers/observed/retained_window.rs": {
+        "mode": "100644",
+        "sha256": "085d0030343bf900787a7145a34fbd75e1ed52b85135122e34034d6974485d4e",
+        "size": 4728
       },
       "crates/finam-gateway/src/stage8b_p1f_fixed_producers/tests/observed.rs": {
         "mode": "100644",
-        "sha256": "0bedfb1ed8faab740e9e05196279f6fc8625c0499ff81cd579d990628b427d66",
-        "size": 13556
+        "sha256": "ad4d129c49b874866b6bd76abd0f9a44a2a36aec945f3af7e50fc1e686cfa49d",
+        "size": 18417
       },
       "crates/finam-gateway/src/stage8b_p1f_fixed_producers/tests/observed_linked.rs": {
         "mode": "100644",
-        "sha256": "df02e4c8af77730932f2850b1736f017e4da4c9ed58a95b4b7f2d673390133e3",
-        "size": 20403
+        "sha256": "50b1cac750370b8b284c858f2c66c910cc0c93e818e847d0127f1753bef90a70",
+        "size": 24142
       },
       "crates/finam-gateway/src/stage8b_p1f_o2_materializer.rs": {
         "mode": "100644",
@@ -638,6 +668,51 @@
         "mode": "100644",
         "sha256": "c20f988ed7a77eaa6097a671d49d25e70a41432c3b1fb4b7a627d1f105b9d502",
         "size": 24465
+      },
+      "crates/finam-gateway/src/stage8b_p1f_o3_composition.rs": {
+        "mode": "100644",
+        "sha256": "7ce727c61b79e6ef3891d224175a0d548040adfe042768286f33066c686f0861",
+        "size": 7459
+      },
+      "crates/finam-gateway/src/stage8b_p1f_o3_composition/authority.rs": {
+        "mode": "100644",
+        "sha256": "649928c57c03a1be19263d117d3ceaed328e0e66b23e913d6e2cb3d17757ac4f",
+        "size": 2806
+      },
+      "crates/finam-gateway/src/stage8b_p1f_o3_composition/inputs.rs": {
+        "mode": "100644",
+        "sha256": "f533fe7b6a61556919b5fb3782abef4a24314df546adc4426c8fc102bef5bfd2",
+        "size": 11863
+      },
+      "crates/finam-gateway/src/stage8b_p1f_o3_composition/producers.rs": {
+        "mode": "100644",
+        "sha256": "3dc928abe30d2ee3ffb8542a831c409712f29faffb7244165936082ab3675e73",
+        "size": 25249
+      },
+      "crates/finam-gateway/src/stage8b_p1f_o3_composition/provisioning.rs": {
+        "mode": "100644",
+        "sha256": "89b14a9c1e7ab3645064ab6169896c52393e4176e6b8475358898501db5952c0",
+        "size": 2199
+      },
+      "crates/finam-gateway/src/stage8b_p1f_o3_composition/shutdown_tests.rs": {
+        "mode": "100644",
+        "sha256": "413e760be173828f6655ee8f8e1d38ea3fe013eae07172bd820cbfe5c8fe1251",
+        "size": 16161
+      },
+      "crates/finam-gateway/src/stage8b_p1f_o3_composition/tests.rs": {
+        "mode": "100644",
+        "sha256": "7d6353c0d8f89f5090bbc8e9056efb57485cae8682114f7a8a21a36d2e7ee9e7",
+        "size": 13150
+      },
+      "crates/finam-gateway/src/stage8b_p1f_o3_signer.rs": {
+        "mode": "100644",
+        "sha256": "683239f6b82fe237eb89b2a9146ac1a4dcb34835b40d969fdf690e88c7b39d9d",
+        "size": 19720
+      },
+      "crates/finam-gateway/src/stage8b_p1f_o3_signer/service.rs": {
+        "mode": "100644",
+        "sha256": "7d5e1378b6915b62918b318c86d59cfe1c8427b6ac463ec34e497b94ac77dbb4",
+        "size": 10706
       },
       "crates/finam-gateway/src/stage8b_r2a7_source_adapter.rs": {
         "mode": "100644",
@@ -676,18 +751,18 @@
       },
       "crates/runtime-durable-service/src/bin/stage8b-p1f-o2-operator.rs": {
         "mode": "100644",
-        "sha256": "50b68046cfe82afa17b4d7da5f26f8b94538ac349299d5f2c62882e86f103c83",
-        "size": 16731
+        "sha256": "3950fb737547dd917d43eb1e9c4c54cdf0e22252aff150ef7d30131fbc672862",
+        "size": 17578
       },
       "crates/runtime-durable-service/src/lib.rs": {
         "mode": "100644",
-        "sha256": "95005ce82ca66a1bd9fa30d67aaee2cdd3913120cebdb02eb3d9cbd3713b2e7f",
-        "size": 71758
+        "sha256": "eac9e161fbc5a6d4ec77ed03bc4837b80c544d1d1dc6ca285b87bf90a9c79c04",
+        "size": 71926
       },
       "crates/runtime-durable-service/src/recovery.rs": {
         "mode": "100644",
-        "sha256": "b74d926e06f3dbec6833374ad885a05426d928b09a4274b6bf30c73d99117040",
-        "size": 472778
+        "sha256": "2af4f0bca3fcbe43e7202f172a8148929221a9700e3f5d45a19837377249c001",
+        "size": 472858
       },
       "crates/runtime-durable-service/src/recovery/redis_service.rs": {
         "mode": "100644",
@@ -746,8 +821,13 @@
       },
       "crates/runtime-durable-service/src/stage8b_p1_supervisor.rs": {
         "mode": "100644",
-        "sha256": "c716dfb80e84ba303c1b58900e6fef9c6730f50473793fcff73db2d9f00dcd91",
-        "size": 145195
+        "sha256": "2139b8953f2e6e04f3d1216e82eb336766d449785cdff2c5450afbb56445d0d4",
+        "size": 150949
+      },
+      "crates/runtime-durable-service/src/stage8b_p1_supervisor/o3_provisioning.rs": {
+        "mode": "100644",
+        "sha256": "bf8c5e10f5efce31680b398f7e5a05b49e9ea482c71ffdf29402a6c484a29ee6",
+        "size": 7463
       },
       "crates/runtime-durable-service/src/stage8b_p1_supervisor/tests/observed_window.rs": {
         "mode": "100644",
@@ -781,8 +861,8 @@
       },
       "crates/runtime-durable-service/src/stage8b_p1e_process.rs": {
         "mode": "100644",
-        "sha256": "ec30e9f0f496705590a808f04939be16baf37e3c5c5777b58f5f5fe3ef8b413c",
-        "size": 591125
+        "sha256": "9ba726de5bddf6d1e1d029473592b2edf0ebdd573d7b180296017ddef9c17008",
+        "size": 606627
       },
       "crates/runtime-durable-service/src/stage8b_p1e_schedule_source.rs": {
         "mode": "100644",
@@ -796,8 +876,8 @@
       },
       "crates/runtime-durable-service/src/stage8b_p1f_guardian.rs": {
         "mode": "100644",
-        "sha256": "664021ad24f5ff00b0718f00046a9bcbea7517a02bfa0b52e6d0648c01f73c7b",
-        "size": 321538
+        "sha256": "132dfe37c4ee68ed292bce51f72a41773476c3ec2c7fc30a7a26d534c0651647",
+        "size": 325986
       },
       "crates/runtime-durable-service/src/stage8b_p1f_guardian/materialization_abort.rs": {
         "mode": "100644",
@@ -811,8 +891,8 @@
       },
       "crates/runtime-durable-service/src/stage8b_p1f_local_supervision.rs": {
         "mode": "100644",
-        "sha256": "43b7cd753704bd36172ea6a7a2f726fe6f359f5ca5aea3234f824c438adc61e5",
-        "size": 43522
+        "sha256": "784dc027c7a1cbce885737c9380a265d96970fa5cb0967886407cf354b0d1456",
+        "size": 45111
       },
       "crates/runtime-durable-service/src/stage8b_p1f_o2_systemd.rs": {
         "mode": "100644",
@@ -941,8 +1021,8 @@
       },
       "crates/strategy-runtime-core/src/stage5g_clean_restart.rs": {
         "mode": "100644",
-        "sha256": "b7f50e592817e084cc6080b4eadf4058b4b35219df74f7536a2762f2453acaee",
-        "size": 164993
+        "sha256": "339b55b8edbe66747283914c7bccbc5aedce288c34f576d70ea86179ea7a69db",
+        "size": 167018
       },
       "crates/strategy-runtime-core/src/stage5g_fresh_broker_truth.rs": {
         "mode": "100644",
@@ -976,8 +1056,8 @@
       },
       "crates/strategy-runtime-core/src/stage5g_p1_semantic.rs": {
         "mode": "100644",
-        "sha256": "85d623212b81ef3ffd57f2922f5651153f98d5c97e56bbab13813677544bb617",
-        "size": 43442
+        "sha256": "303bca47322042d6c186c2690af86afff6f8794413427009e31f193a909bf27e",
+        "size": 43662
       },
       "crates/strategy-runtime-core/src/stage5g_protective_completion.rs": {
         "mode": "100644",
@@ -1011,8 +1091,8 @@
       },
       "crates/strategy-runtime-core/src/stage6d_live_core.rs": {
         "mode": "100644",
-        "sha256": "1ca5fd73ce7578df6fc3b9c31206de47b50161119d1e26e6e56845eecd9d929d",
-        "size": 650801
+        "sha256": "71d9f55eddbc7411e64dde54be0bd70621e92a09fd0c2b9da3a42fea2b2457fc",
+        "size": 653077
       },
       "crates/strategy-runtime-core/src/stage6d_live_core/p1_journal_source.rs": {
         "mode": "100644",
@@ -1031,8 +1111,8 @@
       },
       "crates/strategy-runtime-core/src/stage8b_p1d3_working_limit.rs": {
         "mode": "100644",
-        "sha256": "31f64285a272f43a32cf5f090e7b7e04c4b951b51776ba6d3cf815ec7c5b2b08",
-        "size": 310767
+        "sha256": "6db3bf8c66a0f00fc73d6c09e297d81c55e9b5223801344641c25d6fcd7f1a36",
+        "size": 313337
       },
       "crates/strategy-runtime-core/src/stage8b_p1d4_generated_market.rs": {
         "mode": "100644",
@@ -1065,7 +1145,7 @@
         "size": 6212
       }
     },
-    "file_count": 177
+    "file_count": 193
   },
   "requirements": {
     "accepted_stage8a5_immutable_replay_required": true,

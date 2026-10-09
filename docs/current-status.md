@@ -2,6 +2,22 @@
 
 Status date: 2026-10-09.
 
+2026-10-09 latest: O3 source `fb1ceb3dac40b365d0d23983af788ca1c9c72907`
+is independently **SOURCE ACCEPT / P1-O301 CLOSED**. The next deliverable is
+the [unified release/authority/stopped-installation candidate](stage-8/stage8b-p1f-o3-release-installation.md).
+Production Rust/Cargo and service templates remain byte-for-byte accepted.
+Five Linux amd64 release slots are built from the accepted tree; current-tree
+authority is rebound without workflow changes. Fresh read-only VPS observation
+confirms COMPLETED/1/26, stopped P1 and unchanged accepted installed payload.
+Local qualification uses a disposable Linux filesystem and systemd; it does
+not install or activate anything on the VPS. Installation and bounded O3 each
+still need separate acceptance/permission. All 13 operational rows stay NOT_RUN.
+Systemd syntax/loading and custody checks pass; dynamic service execution remains
+UNQUALIFIED (local x86 executor and journald exit 255, not runtime refusal 70).
+The package explicitly requests review of that remaining native qualification.
+No push/merge/CI, FINAM request, private-key access or DB0 change in this slice.
+The earlier source-candidate entries below are retained historical records.
+
 2026-10-09 correction: O3 source `6f0a6bf` received **SOURCE HOLD, P1-O301 only**.
 The [early-shutdown correction](stage-8/stage8b-p1f-o3-shutdown-correction.md)
 passes one existing coordinator/latch across composition → lazy runtime and
