@@ -54,7 +54,8 @@ def verify(path):
         for n,digest in idx.items():
             raw=read(n);require(sha(raw)==digest,'file hash: '+n);h.scan(n,raw)
         d=js(P+'descriptor.json');index=js(P+'source-index.json')
-        require(set(index)=={n for n in names if not n.startswith(P)},'complete source inventory')
+        require(set(index)=={n for n in names if not n.startswith(P)
+                and (n!='handoff-commit.txt' or d['handoff_was_tracked'])},'complete source inventory')
         files={n:read(P+'original-handoff-commit.txt') if n=='handoff-commit.txt' else read(n) for n in index}
         require(all(sha(files[n])==e['sha256'] and modes[n]==e['mode'] for n,e in index.items()),'source blob/mode')
         tree=h.tree_hash(files,{n:e['mode'] for n,e in index.items()})
@@ -168,7 +169,8 @@ def package(work, qualification, out):
     require(git('status','--porcelain')==b'','commit complete package sources first')
     ref=git('rev-parse','HEAD').decode().strip();files,modes=snapshot('HEAD');base,bm=snapshot(r.REF)
     payload=dict(files);name='moex-trading-project-'+ref[:7]+'-o3-release-installation.zip'
-    payload[P+'original-handoff-commit.txt']=files['handoff-commit.txt']
+    if 'handoff-commit.txt' in files:
+        payload[P+'original-handoff-commit.txt']=files['handoff-commit.txt']
     payload[P+'package-commit.raw']=git('cat-file','commit',ref)
     payload[P+'accepted-source-commit.raw']=git('cat-file','commit',r.REF)
     payload['handoff-commit.txt']=f'short_sha={ref[:7]}\nfull_sha={ref}\nsource_ref={r.REF}\narchive={name}\n'.encode()
@@ -193,6 +195,7 @@ def package(work, qualification, out):
         results[n]=dict(command=cmd,exit_code=p.returncode,sha256=sha(raw));payload[P+'gates/'+n+'.log']=raw
     payload[P+'gates/result.json']=encode(results)
     payload[P+'descriptor.json']=encode(dict(schema_version=1,archive=name,package_ref=ref,
+        handoff_was_tracked='handoff-commit.txt' in files,
         package_tree=git('rev-parse','HEAD^{tree}').decode().strip(),source_ref=r.REF,source_tree=r.TREE,
         repository='https://github.com/DKorolski/moex-trading-gateway-rs',
         branch=git('branch','--show-current').decode().strip(),packaging_delta=sorted(changed),
