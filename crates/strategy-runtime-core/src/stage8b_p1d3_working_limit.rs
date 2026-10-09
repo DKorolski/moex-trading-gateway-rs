@@ -589,8 +589,34 @@ pub(crate) fn migrate_stage8b_p1d3_from_p1d2(
         package_generation,
         authenticated_stage6_checkpoint_sha256,
         commitment_key,
-        false,
+        P1d2MigrationRuntime::Preserve,
     )
+}
+
+/// Private half of the post-Market semantic transition. This intermediate
+/// package is NOT installed: the caller must commit the subsequent semantic
+/// result in the same replacement seal before exposing continuation/XACK.
+pub(crate) fn stage8b_p1d2_prepare_semantic_continuation(
+    restored: crate::Stage5gCleanRestartedCapability,
+    operational_identity_sha256: String,
+    authenticated_stage6_checkpoint_sha256: String,
+    key: &crate::Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1d3MigrationResult, Stage8bP1d3Error> {
+    migrate_stage8b_p1d3_from_p1d2_inner(
+        restored,
+        operational_identity_sha256,
+        1,
+        authenticated_stage6_checkpoint_sha256,
+        key,
+        P1d2MigrationRuntime::ApplyCanonicalTruth,
+    )
+}
+
+enum P1d2MigrationRuntime {
+    Preserve,
+    ApplyCanonicalTruth,
+    #[cfg(feature = "stage5g-artifact-fixtures")]
+    FixturePosition,
 }
 
 #[cfg(feature = "stage5g-artifact-fixtures")]
@@ -607,7 +633,7 @@ pub(crate) fn stage8b_p1d4_test_migrate_from_position_synced_p1d2(
         package_generation,
         authenticated_stage6_checkpoint_sha256,
         commitment_key,
-        true,
+        P1d2MigrationRuntime::FixturePosition,
     )
 }
 
@@ -617,7 +643,7 @@ fn migrate_stage8b_p1d3_from_p1d2_inner(
     package_generation: u64,
     authenticated_stage6_checkpoint_sha256: String,
     commitment_key: &crate::Stage5gLifecycleCommitmentKey,
-    synchronize_runtime_position_fixture: bool,
+    runtime_mode: P1d2MigrationRuntime,
 ) -> Result<Stage8bP1d3MigrationResult, Stage8bP1d3Error> {
     if !is_sha256(&authenticated_stage6_checkpoint_sha256) {
         return Err(Stage8bP1d3Error::IdentityMismatch);
@@ -627,12 +653,31 @@ fn migrate_stage8b_p1d3_from_p1d2_inner(
     let export_input = restored_p1d2_truth
         .stage8b_p1d3_migration_export_input(&accepted_p1d2_package_commitment_sha256)
         .map_err(|_| Stage8bP1d3Error::RestartPackage)?;
+    let truth_callback = if matches!(runtime_mode, P1d2MigrationRuntime::ApplyCanonicalTruth) {
+        Some(
+            restored_p1d2_truth
+                .stage8b_p1d2_truth_callback_input()
+                .map_err(|_| Stage8bP1d3Error::InvalidTransition)?,
+        )
+    } else {
+        None
+    };
     let (mut runtime, state, attribution) = restored_p1d2_truth
         .into_stage8b_p1d3_migration_parts()
         .map_err(|_| Stage8bP1d3Error::RestartPackage)?;
     let (_, account_id, instrument) =
         crate::Stage5gOrderPositionSession::stage5g_restart_state_binding(&state);
-    if synchronize_runtime_position_fixture {
+    if let Some(input) = truth_callback {
+        let callback =
+            crate::stage5c_paper_host::resolve_stage8b_p1d3_broker_truth_bridge(runtime, input)
+                .map_err(|_| Stage8bP1d3Error::InvalidTransition)?;
+        if callback.callback_count != 2 {
+            return Err(Stage8bP1d3Error::InvalidTransition);
+        }
+        runtime = callback.strategy;
+    }
+    #[cfg(feature = "stage5g-artifact-fixtures")]
+    if matches!(runtime_mode, P1d2MigrationRuntime::FixturePosition) {
         let (qty, avg_price) =
             crate::Stage5gOrderPositionSession::stage8b_p1d3_position_basis(&state)
                 .ok_or(Stage8bP1d3Error::InvalidRegistry)?;
@@ -1292,7 +1337,19 @@ impl Stage8bP1d3ReplacementProjectionV1 {
         current_semantic: Option<&crate::stage5g_p1_semantic::Stage5gP1SemanticCommitProjectionV1>,
         next_redis_id: &str,
     ) -> Result<bool, Stage8bP1d3Error> {
-        if !self.terminal_semantic_commit_covers_or_follows_source(current_semantic)? {
+        // An empty legacy migration alone grants no fresh-bar authority.
+        // The first post-Market path commits both truth callbacks and the
+        // semantic watermark; only that committed semantic source may advance.
+        self.validate()?;
+        let committed_migration = self.phase == Stage8bP1d3BookPhase::Migrated
+            && current_semantic.is_some_and(|current| {
+                current.validate()
+                    && current.operational_identity_sha256
+                        == self.working_book.operational_identity_sha256
+            });
+        if !committed_migration
+            && !self.terminal_semantic_commit_covers_or_follows_source(current_semantic)?
+        {
             return Ok(false);
         }
         let current = current_semantic.ok_or(Stage8bP1d3Error::InvalidTransition)?;
@@ -7075,6 +7132,12 @@ mod tests {
         let restored = crate::restore_stage5g_clean_restart(&bytes, &key, fresh_runtime).unwrap();
         let actual = restored.stage8b_p1d3_replacement().unwrap();
         assert_eq!(actual.phase(), Stage8bP1d3BookPhase::Migrated);
+        assert!(
+            !actual
+                .terminal_semantic_continuation_allows(None, "1785759600000-0")
+                .unwrap(),
+            "bare migration cannot authorize a fresh semantic callback"
+        );
         assert_eq!(
             actual.working_book().encode_canonical().unwrap(),
             book.encode_canonical().unwrap()

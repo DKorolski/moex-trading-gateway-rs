@@ -3895,7 +3895,9 @@ impl Stage7bRecoveryReadyOwner {
                     | Stage6Stage8bP1d3RestartPhase::SemanticCallbackCommitted
             )
         );
-        let transition = if p1d3_terminal_continuation {
+        let transition = if p1d3_terminal_continuation
+            || recovered.stage8b_p1d2_truth_frontier_is_authenticated()
+        {
             strategy_runtime_core::apply_stage8b_p1d3_semantic_transition(
                 recovered,
                 accepted_bar,

@@ -818,6 +818,56 @@ impl Stage5gCleanRestartedCapability {
         feedback.validate().then(|| feedback.source_m10_binding())
     }
 
+    /// The first post-Market semantic transition applies the canonical truth
+    /// callbacks that P1-d2 retained but deliberately did not invoke. Only an
+    /// authenticated, flat-entry S_truth may supply this material.
+    pub(crate) fn stage8b_p1d2_truth_callback_input(
+        &self,
+    ) -> Result<
+        crate::stage5c_paper_host::Stage8bP1d3BrokerTruthBridgeInput,
+        Stage5gCleanRestartError,
+    > {
+        self.stage8b_p1d2_validate_truth_frontier()?;
+        if self.projection.p1d3_replacement.is_some()
+            || self.projection.p1_semantic_commit.is_some()
+        {
+            return Err(Stage5gCleanRestartError::LifecycleProofMismatch);
+        }
+        let feedback = self
+            .projection
+            .p1d2_market_feedback
+            .as_ref()
+            .ok_or(Stage5gCleanRestartError::LifecycleProofMismatch)?;
+        let order = feedback
+            .truth
+            .orders
+            .first()
+            .ok_or(Stage5gCleanRestartError::LifecycleProofMismatch)?;
+        let position = feedback
+            .truth
+            .positions
+            .first()
+            .ok_or(Stage5gCleanRestartError::LifecycleProofMismatch)?;
+        let delta = match order.side {
+            broker_core::OrderSide::Buy => order.filled_qty,
+            broker_core::OrderSide::Sell => -order.filled_qty,
+        };
+        if position.qty != delta {
+            return Err(Stage5gCleanRestartError::LifecycleProofMismatch);
+        }
+        Ok(
+            crate::stage5c_paper_host::Stage8bP1d3BrokerTruthBridgeInput {
+                strategy_id: self.projection.binding.strategy_id.clone(),
+                account_id: self.projection.binding.account_id.clone(),
+                instrument: self.projection.binding.instrument_id.clone(),
+                request_id: feedback.request_id,
+                attribution: feedback.expected_attribution.clone(),
+                pre_position_qty: 0.0,
+                truth: feedback.truth.clone(),
+            },
+        )
+    }
+
     pub(crate) fn stage8b_p1d2_feedback_audit_core(
         &self,
     ) -> Option<crate::Stage8bP1d2FeedbackAuditCoreV1> {

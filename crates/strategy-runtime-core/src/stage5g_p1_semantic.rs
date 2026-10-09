@@ -300,8 +300,13 @@ pub fn continue_stage5g_p1_semantic(
     let ready = restored
         .into_stage8b_p1_timer_ready()
         .map_err(|_| Stage5gP1SemanticFailure::PriorAuthorityNotContinuationCapable)?;
-    let continued = continue_stage5g_timer_with_bar(ready, accepted_bar)
-        .map_err(|_| Stage5gP1SemanticFailure::SemanticCallbackFailed)?;
+    let continued = continue_stage5g_timer_with_bar(ready, accepted_bar).map_err(|error| {
+        eprintln!(
+            "stage8b-p1-bar-continuation-error-class: {:?}",
+            error.reason()
+        );
+        Stage5gP1SemanticFailure::SemanticCallbackFailed
+    })?;
     match settle_stage5g_bar_continuation(continued) {
         Stage5gBarContinuationTransition::Ready(ready) => {
             let projection = Stage5gP1SemanticCommitProjectionV1 {
@@ -701,7 +706,10 @@ pub fn export_stage5g_p1_one_intent(
         export_input,
         key,
     )
-    .map_err(|_| Stage5gP1SemanticFailure::RestartExportFailed)
+    .map_err(|error| {
+        eprintln!("stage8b-p1-restart-export-error-class: {error:?}");
+        Stage5gP1SemanticFailure::RestartExportFailed
+    })
 }
 
 pub(crate) fn p1_zero_source_runtime(

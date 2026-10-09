@@ -426,8 +426,9 @@ pub use stage8b_p1_semantic::{
 pub use stage8b_p1_supervisor::stage8b_p1e_test_provision_production_redis_v1;
 pub use stage8b_p1_supervisor::{
     attach_stage8b_p1e_verified_redis, parse_stage8b_p1e_supervisor_config_v1,
-    stage8b_p1e_classify_restart_v1, stage8b_p1e_readiness_v1, stage8b_p1e_redact_account_id,
-    stage8b_p1e_redact_request_id, stage8b_p1e_telemetry_envelope_v1,
+    provision_stage8b_p1f_o3_redis_v1, stage8b_p1e_classify_restart_v1, stage8b_p1e_readiness_v1,
+    stage8b_p1e_redact_account_id, stage8b_p1e_redact_request_id,
+    stage8b_p1e_telemetry_envelope_v1, stage8b_p1f_o3_redis_manifest_v1,
     validate_stage8b_p1e_supervisor_config_v1, Stage8bP1RuntimeProfileKind,
     Stage8bP1RuntimeProfileV1, Stage8bP1RuntimeProfileV2, Stage8bP1eConsumerHygieneReportV1,
     Stage8bP1eCoordinatorActionV1, Stage8bP1eCoordinatorDecisionV1, Stage8bP1eCoordinatorV1,
@@ -579,7 +580,7 @@ pub use stage8b_p1f_guardian::{
     Stage8bP1fTerminalReceiptV1, STAGE8B_P1F_AUTHORITY_CONTROL_ROOT,
     STAGE8B_P1F_AUTHORITY_SCHEMA_VERSION, STAGE8B_P1F_CONFIG_ROOT, STAGE8B_P1F_MAX_AUTHORITY_BYTES,
     STAGE8B_P1F_SERVICE_USER, STAGE8B_P1F_SOURCE_SHA256_TEMPLATE_SENTINEL,
-    STAGE8B_P1F_TARGET_HOST_ID,
+    STAGE8B_P1F_TARGET_HOST_ID, STAGE8B_P1F_TARGET_HOST_SSH_ED25519_SHA256,
 };
 pub use stage8b_p1f_local_supervision::{
     run_stage8b_p1f_local_supervisor_v1, Stage8bP1fLocalSupervisionDispositionV1,

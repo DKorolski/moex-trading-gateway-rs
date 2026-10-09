@@ -92,6 +92,110 @@ fn new_state(outcome: Stage8bP1fObservedM10Outcome) -> Stage8bP1fObservedM10Stat
 }
 
 #[tokio::test]
+async fn observed_o3_retained_window_rejects_missing_conflicting_and_unpublished_state() {
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    let redis = RedisServer::start().await;
+    runtime_durable_service::initialize_stage8b_p1_redis_namespace(
+        &redis.url,
+        Stage8bP1RedisConfig::paper_default_auto(),
+    )
+    .await
+    .unwrap();
+    let path = state_path("o3-retained-window");
+    let parent = path.parent().unwrap().canonicalize().unwrap();
+    fs::set_permissions(&parent, fs::Permissions::from_mode(0o700)).unwrap();
+    let high_water = parent.join("high-water.json");
+    let checkpoint = parent.join("predecessor.json");
+    let signer = FixtureSigner::new(91);
+    let old_source = snapshot(timestamp(12, 10, 0), &[1, 4, 7]);
+    let old_schedule = o3_published_schedule(old_source.receipt().received_at(), &signer).await;
+    let old_prepared =
+        new_state(prepare(input(&old_source, false), &old_schedule, &signer, first()).unwrap());
+    assert!(retain_published_predecessor(&checkpoint, &old_prepared).is_err());
+    assert!(!checkpoint.exists());
+    let connect = |binding| {
+        Stage8bP1fM10FeederRedisV1::connect_observed_local_evidence(
+            &redis.url,
+            Stage8bP1RedisConfig::paper_default_auto(),
+            binding,
+            Stage8bP1fRedisRoleV1::SyntheticM10Feeder,
+        )
+    };
+    let mut feeder = connect(old_prepared.binding().clone()).await.unwrap();
+    let old = publish_stage8b_p1f_observed_m10(&high_water, old_prepared, &mut feeder)
+        .await
+        .unwrap();
+    retain_published_predecessor(&checkpoint, &old).unwrap();
+    let old_bytes = fs::read(&checkpoint).unwrap();
+    retain_published_predecessor(&checkpoint, &old).unwrap();
+    assert_eq!(old_bytes, fs::read(&checkpoint).unwrap());
+
+    let next_source = snapshot(timestamp(12, 20, 0), &[0, 8]);
+    let next_schedule = o3_published_schedule(next_source.receipt().received_at(), &signer).await;
+    let prepared = new_state(
+        prepare(
+            input(&next_source, false),
+            &next_schedule,
+            &signer,
+            Stage8bP1fObservedM10Lineage::Resume(&old),
+        )
+        .unwrap(),
+    );
+    prepared.persist(&high_water).unwrap();
+    let old_binding = old.binding().clone();
+    let next_binding = prepared.binding().clone();
+    let old_canonical = old.canonical_bytes().unwrap();
+    let next_canonical = prepared.canonical_bytes().unwrap();
+    let restore = |old_path: &Path, next_path: &Path| {
+        restore_published_window(
+            old_path,
+            next_path,
+            old_binding.clone(),
+            next_binding.clone(),
+            &old_canonical,
+            &next_canonical,
+        )
+    };
+    // A Prepared successor must not become fresh-source authority, even
+    // though its canonical bytes and independent receipt are already valid.
+    assert!(restore(&checkpoint, &high_water).is_err());
+    let mut feeder = connect(next_binding.clone()).await.unwrap();
+    let next = publish_stage8b_p1f_observed_m10(&high_water, prepared, &mut feeder)
+        .await
+        .unwrap();
+    assert!(restore(&checkpoint, &high_water).is_ok());
+    assert!(restore(&high_water, &high_water).is_err());
+    assert!(retain_published_predecessor(&checkpoint, &next).is_err());
+    assert_eq!(old_bytes, fs::read(&checkpoint).unwrap());
+
+    let saved = parent.join("saved-predecessor.json");
+    fs::rename(&checkpoint, &saved).unwrap();
+    assert!(restore(&checkpoint, &high_water).is_err());
+    assert!(!checkpoint.exists()); // No recovery by directory discovery.
+    symlink(&saved, &checkpoint).unwrap();
+    assert!(restore(&checkpoint, &high_water).is_err());
+    assert!(retain_published_predecessor(&checkpoint, &old).is_err());
+    fs::remove_file(&checkpoint).unwrap();
+    fs::rename(&saved, &checkpoint).unwrap();
+    fs::set_permissions(&checkpoint, fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(restore(&checkpoint, &high_water).is_err());
+    fs::set_permissions(&checkpoint, fs::Permissions::from_mode(0o600)).unwrap();
+    let next_bytes = fs::read(&high_water).unwrap();
+    let mut altered: serde_json::Value = serde_json::from_slice(&next_bytes).unwrap();
+    altered["publication_sequence"] = json!("3");
+    fs::write(&high_water, stage8b_p1e_canonical_json(&altered).unwrap()).unwrap();
+    assert!(restore(&checkpoint, &high_water).is_err());
+    fs::write(&high_water, &next_bytes).unwrap();
+    assert!(restore(&checkpoint, &high_water).is_ok());
+    fs::write(&checkpoint, b"{}").unwrap();
+    assert!(retain_published_predecessor(&checkpoint, &old).is_err());
+    assert_eq!(fs::read(&checkpoint).unwrap(), b"{}");
+    assert!(restore(&checkpoint, &high_water).is_err());
+    assert_eq!(fs::read(&high_water).unwrap(), next_bytes);
+    fs::remove_dir_all(parent).unwrap();
+}
+
+#[tokio::test]
 async fn observed_producer_strict_version_binding_schedule_and_pending_lineage() {
     let signer = FixtureSigner::new(91);
     let source = snapshot(timestamp(12, 10, 0), &[1, 4, 7]);

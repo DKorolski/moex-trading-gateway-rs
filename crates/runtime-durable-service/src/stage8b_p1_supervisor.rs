@@ -74,6 +74,8 @@ const RUNTIME_PROFILE_BYTES: &[u8] =
     include_bytes!("../../../docs/stage-8/stage8b-p1e-runtime-profile-v1.json");
 const NO_RISKGATE_RUNTIME_PROFILE_BYTES: &[u8] =
     include_bytes!("../../../docs/stage-8/stage8b-p1e-runtime-profile-v2.json");
+mod o3_provisioning;
+pub use o3_provisioning::{provision_stage8b_p1f_o3_redis_v1, stage8b_p1f_o3_redis_manifest_v1};
 #[cfg(test)]
 const REDIS_RUNTIME_POLICY_BYTES: &[u8] =
     include_bytes!("../../../docs/stage-8/stage8b-p1e-redis-runtime-policy-v2.json");
@@ -840,8 +842,7 @@ fn manifest_key(name: &str, groups: &[&str]) -> Stage8bP1eRedisManifestKeyV1 {
     }
 }
 
-#[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
-fn stage8b_p1e_test_manifest_for_plan_v1(
+fn stage8b_p1e_manifest_for_plan_v1(
     plan: &Stage8bP1eRedisAttachPlanV1,
 ) -> Stage8bP1eRedisDeploymentManifestV1 {
     let namespace = plan.namespace();
@@ -925,7 +926,7 @@ pub async fn stage8b_p1e_test_provision_production_redis_v1(
     let validated =
         validate_stage8b_p1e_supervisor_config_v1(config, boot_id).expect("test supervisor config");
     let plan = stage8b_p1e_test_attach_plan_v1(&validated, redis_url, &"00".repeat(32));
-    let manifest = stage8b_p1e_test_manifest_for_plan_v1(&plan);
+    let manifest = stage8b_p1e_manifest_for_plan_v1(&plan);
     let encoded = serde_json::to_vec(&manifest).expect("test deployment manifest");
     let canonical = canonical_json_bytes(&encoded).expect("canonical test deployment manifest");
     let manifest_sha256 = sha256_hex(&canonical);
@@ -2935,6 +2936,141 @@ mod tests {
         );
         assert_eq!(validated.redis_config().claim_count, 2);
         assert_eq!(validated.redis_config().max_claim_pages, 1);
+        fs::remove_dir(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn o3_fresh_inventory_uses_accepted_groups_and_refuses_reinitialization() {
+        let server = RedisServer::start().await;
+        let parent = durable_parent();
+        let validated = validate_stage8b_p1e_supervisor_config_v1(
+            supervisor_config(parent.clone()),
+            [0xab; 16],
+        )
+        .unwrap();
+        let manifest = stage8b_p1f_o3_redis_manifest_v1(&validated).unwrap();
+        let (_, _, mut plan, _) = validated.into_run_parts();
+        plan.redis_url = server.url.clone(); // local test transport, never production input
+        plan.redis_deployment_manifest_sha256 = sha256_hex(&manifest);
+        let mut connection = server.connection().await;
+        o3_provisioning::fresh_inventory(&mut connection, &plan)
+            .await
+            .unwrap();
+        drop(
+            crate::initialize_stage8b_p1_redis_namespace(&server.url, plan.redis_config.clone())
+                .await
+                .unwrap(),
+        );
+        // This test covers Redis inventory ONLY. The production entry verifies
+        // the real signature first; the Linux executable witness covers that.
+        let fixture_schedule = b"inventory-only-not-an-authenticated-schedule";
+        o3_provisioning::finish_fresh_inventory(
+            &mut connection,
+            &plan,
+            &manifest,
+            fixture_schedule,
+        )
+        .await
+        .unwrap();
+        let count: u64 = redis::cmd("DBSIZE")
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(count, 12); // ten lifecycle streams, schedule, manifest
+        let groups = redis::cmd("XINFO")
+            .arg("GROUPS")
+            .arg(&plan.namespace.canonical_m10_stream)
+            .query_async::<redis::streams::StreamInfoGroupsReply>(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(groups.groups.len(), 1);
+        assert_eq!(groups.groups[0].name, plan.namespace.m10_consumer_group);
+        assert_eq!(groups.groups[0].pending, 0);
+        let before: Vec<u8> = redis::cmd("GET")
+            .arg(STAGE8B_P1E_DEPLOYMENT_MANIFEST_KEY)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert!(o3_provisioning::fresh_inventory(&mut connection, &plan)
+            .await
+            .is_err());
+        let after: Vec<u8> = redis::cmd("GET")
+            .arg(STAGE8B_P1E_DEPLOYMENT_MANIFEST_KEY)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(before, after);
+        assert_eq!(
+            redis::cmd("DBSIZE")
+                .query_async::<u64>(&mut connection)
+                .await
+                .unwrap(),
+            count
+        );
+        // Ordinary attachment accepts the unchanged manifest/groups contract;
+        // it neither initializes nor repairs any key.
+        let _session = attach_stage8b_p1e_verified_redis(&plan).await.unwrap();
+        fs::remove_dir(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn o3_provisioning_rejects_manifest_or_schedule_before_redis() {
+        let parent = durable_parent();
+        let mut config = supervisor_config(parent.clone());
+        let profile = Stage8bP1RuntimeProfileKind::V2;
+        config.runtime_profile_id = profile.profile_id().into();
+        config.runtime_profile_sha256 = profile.profile_sha256().into();
+        config.bootstrap.schema_version = 2;
+        config.bootstrap.market_data_policy_sha256 =
+            Some(crate::STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V4_SHA256.into());
+        config.bootstrap.runtime_config_fingerprint_sha256 =
+            profile.build_hybrid_runtime().unwrap().1;
+        let mut validated = validate_stage8b_p1e_supervisor_config_v1(config, [1; 16]).unwrap();
+        // No local port-6379 Redis is needed: both rejects precede any connect.
+        assert_eq!(
+            provision_stage8b_p1f_o3_redis_v1(&validated, b"{}", &"a".repeat(64)).await,
+            Err(Stage8bP1eRedisControlError::ManifestMismatch)
+        );
+        validated.redis_deployment_manifest_sha256 =
+            sha256_hex(&stage8b_p1f_o3_redis_manifest_v1(&validated).unwrap());
+        assert_eq!(
+            provision_stage8b_p1f_o3_redis_v1(&validated, b"{}", &"a".repeat(64)).await,
+            Err(Stage8bP1eRedisControlError::ManifestMismatch)
+        );
+        fs::remove_dir(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn o3_fresh_inventory_rejects_partial_or_foreign_stream_without_writes() {
+        let server = RedisServer::start().await;
+        let parent = durable_parent();
+        let validated =
+            validate_stage8b_p1e_supervisor_config_v1(supervisor_config(parent.clone()), [2; 16])
+                .unwrap();
+        let (_, _, plan, _) = validated.into_run_parts();
+        let mut connection = server.connection().await;
+        let _: () = redis::cmd("SET")
+            .arg(strategy_runtime_core::STAGE8B_P1E_SCHEDULE_STREAM)
+            .arg("foreign-state")
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert!(o3_provisioning::fresh_inventory(&mut connection, &plan)
+            .await
+            .is_err());
+        assert_eq!(
+            redis::cmd("DBSIZE")
+                .query_async::<u64>(&mut connection)
+                .await
+                .unwrap(),
+            1
+        );
+        let retained: String = redis::cmd("GET")
+            .arg(strategy_runtime_core::STAGE8B_P1E_SCHEDULE_STREAM)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(retained, "foreign-state");
         fs::remove_dir(parent).unwrap();
     }
 

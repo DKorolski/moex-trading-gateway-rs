@@ -1173,6 +1173,31 @@ impl Stage8bP1fAuthorityStoreV1 {
         Ok(())
     }
 
+    /// Narrow O3 entry: reject every other phase BEFORE any authority write.
+    /// Reuses ordinary signature/history/one-shot claim validation. In
+    /// particular, it never publishes the O2 materialization selector.
+    pub fn claim_o3_phase(
+        &self,
+        manifest_bytes: &[u8],
+        expected_public_key_hex: &str,
+        expected_key_id: &str,
+        trusted_now: DateTime<Utc>,
+    ) -> Result<Stage8bP1fClaimDispositionV1, Stage8bP1fAuthorityErrorV1> {
+        if manifest_bytes.len() as u64 > STAGE8B_P1F_MAX_AUTHORITY_BYTES {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        let manifest: Stage8bP1fPhaseManifestV1 = parse_canonical(manifest_bytes)?;
+        if manifest.phase != Stage8bP1fPhaseV1::O3SyntheticPaper {
+            return Err(Stage8bP1fAuthorityErrorV1::InvalidDocument);
+        }
+        self.claim_phase(
+            manifest_bytes,
+            expected_public_key_hex,
+            expected_key_id,
+            trusted_now,
+        )
+    }
+
     pub fn claim_phase(
         &self,
         manifest_bytes: &[u8],
@@ -4639,6 +4664,92 @@ mod tests {
     impl Drop for Setup {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    fn o3_claim_is_phase_specific_and_preserves_existing_terminal_history() {
+        let s = Setup::new();
+        let initial = s.initialize_and_activate();
+        let prior_bytes = s.phase(&initial, Stage8bP1fPhaseV1::O2MaterializeBootstrap);
+        let prior_hash = sha256_hex(&prior_bytes);
+        s.store
+            .claim_phase(&prior_bytes, &s.public_key_hex(), "p1f-offline-1", s.now)
+            .unwrap();
+        s.store
+            .finish_phase(
+                &prior_hash,
+                Stage8bP1fPhaseStateV1::Failed,
+                "local-predecessor",
+                s.now,
+            )
+            .unwrap();
+        let predecessor = s.store.inspect().unwrap();
+        let history_path = s.root.join(AUTHORITY_DIRECTORY).join(EVENTS_DIRECTORY);
+        let history = fs::read_dir(&history_path)
+            .unwrap()
+            .map(|e| {
+                let path = e.unwrap().path();
+                let bytes = fs::read(&path).unwrap();
+                (path, bytes)
+            })
+            .collect::<Vec<_>>();
+        for phase in [
+            Stage8bP1fPhaseV1::O1Provision,
+            Stage8bP1fPhaseV1::O2MaterializeBootstrap,
+            Stage8bP1fPhaseV1::O4FinamReadOnly,
+        ] {
+            assert!(s
+                .store
+                .claim_o3_phase(
+                    &s.phase(&predecessor, phase),
+                    &s.public_key_hex(),
+                    "p1f-offline-1",
+                    s.now,
+                )
+                .is_err());
+            assert_eq!(s.store.inspect().unwrap(), predecessor);
+        }
+        let phase = s.phase(&predecessor, Stage8bP1fPhaseV1::O3SyntheticPaper);
+        assert!(s
+            .store
+            .claim_o3_phase(&phase, &"0".repeat(64), "p1f-offline-1", s.now,)
+            .is_err());
+        assert_eq!(s.store.inspect().unwrap(), predecessor);
+        s.store
+            .claim_o3_phase(&phase, &s.public_key_hex(), "p1f-offline-1", s.now)
+            .unwrap();
+        let active = s.store.inspect().unwrap();
+        assert_eq!(
+            active.authority_generation,
+            predecessor.authority_generation
+        );
+        assert_eq!(active.latest_sequence, predecessor.latest_sequence + 1);
+        assert_eq!(active.state, Stage8bP1fPhaseStateV1::Active);
+        // Exact retry is continuation of the same claim, never a new sequence.
+        assert!(matches!(
+            s.store
+                .claim_o3_phase(&phase, &s.public_key_hex(), "p1f-offline-1", s.now)
+                .unwrap(),
+            Stage8bP1fClaimDispositionV1::ContinuedExisting(_)
+        ));
+        assert_eq!(s.store.inspect().unwrap(), active);
+        let manifest_hash = sha256_hex(&phase);
+        assert!(s
+            .store
+            .publish_o2_active_manifest_selector(&manifest_hash, s.now)
+            .is_err());
+        assert_eq!(s.store.inspect().unwrap(), active);
+        let permit = s.store.admit_active_phase(&manifest_hash, s.now).unwrap();
+        assert_eq!(permit.phase(), Stage8bP1fPhaseV1::O3SyntheticPaper);
+        crate::stage8b_p1f_local_supervision::test_support::assert_fixed_o3_route(&permit);
+        assert_eq!(
+            permit.deadline_utc(),
+            canonical_timestamp(s.now + Duration::seconds(1800))
+        );
+        drop(permit);
+        for (path, bytes) in history {
+            assert_eq!(fs::read(path).unwrap(), bytes);
         }
     }
 

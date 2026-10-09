@@ -1,0 +1,36 @@
+[Unit]
+Description=MOEX bounded O3 constrained schedule signer (source review template)
+After=local-fs.target
+Before=moex-finam-p1f-o3-supervisor.service
+
+[Service]
+Type=exec
+User=root
+Group=moex-p1-paper
+UMask=0077
+RuntimeDirectory=moex-finam-p1-o3
+RuntimeDirectoryMode=0750
+LoadCredential=schedule.ed25519:/run/moex-finam-p1-o3-input/schedule.ed25519
+ExecStart=/usr/local/libexec/moex/stage8b-p1f-o3-signer run @PHASE_SHA256@
+Restart=no
+TimeoutStopSec=5s
+KillMode=control-group
+LimitCORE=0
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProcSubset=all
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=CAP_CHOWN
+AmbientCapabilities=
+ReadOnlyPaths=/etc/moex-finam-p1-paper /var/lib/moex-finam-p1-paper-control
+ReadWritePaths=/var/lib/moex-finam-p1-paper-control/.execution.lock /var/lib/moex-finam-p1-paper-control/.guardian.lock
+
+# No Install section, timer, automatic claim or retry. Exit 70 is NOT success.
+# A terminal-phase revocation may produce 70; inspect the guardian receipt.

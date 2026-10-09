@@ -1,6 +1,21 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-10-08.
+Status date: 2026-10-09.
+
+2026-10-09: [O3 source review candidate](stage-8/stage8b-p1f-o3-source-handoff.md)
+contains a fixed composition, production constrained signer and separate DB15
+initializer. Local Linux production-process run7 passed one paper Market,
+post-truth successor M10, SIGKILL/restart without duplicated effects and bounded
+graceful stop. Components: 23 exact tests plus fmt/build/clippy/diff PASS.
+Minimal disabled service templates and retained source/ELF identities accompany
+the immutable source package. The witness used a disposable synthetic root;
+it is NOT VPS/O3 operational acceptance or a qualified release installation.
+Accepted O2 remains COMPLETED/1/26; root/history/P0 unchanged.
+All 13 operational O3 matrix rows remain NOT_RUN. Next: source review, narrow
+artifact/authority closure, stopped installation and separately authorized O3;
+then O4 WS/reconnect/freshness/EOD and multi-session ALOR comparison.
+No VPS, DB0, FINAM request, push/merge or CI run was performed for this package.
+Earlier dated entries are historical.
 
 2026-10-08, after 20:14 MSK: **O2 OPERATIONAL ACCEPT / CLOSED** in the
 [independent review](stage-8/reviews/REVIEW_2d67937_O2_BOUNDED_20261008_2004_RU.txt).

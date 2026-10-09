@@ -8,6 +8,8 @@ use broker_finam::sparse_m10::AdmittedClosedM1Snapshot;
 use runtime_durable_service::{Stage8bP1ObservedM10Binding, Stage8bP1fM10FeederRedisV1};
 
 pub(super) const STATE_DOMAIN: &str = "moex.stage8b.p1f.fixed-m10-producer-state.v2";
+mod retained_window;
+pub use retained_window::{restore_published_window, retain_published_predecessor};
 
 pub struct Stage8bP1fObservedM10Input<'a> {
     pub phase: Stage8bP1fProducerPhaseV1,
@@ -76,6 +78,12 @@ pub fn observed_published_window(
 }
 
 impl Stage8bP1fObservedM10State {
+    pub fn phase_id(&self) -> &str {
+        &self.record.phase_id
+    }
+    pub fn producer_phase(&self) -> Stage8bP1fProducerPhaseV1 {
+        self.record.producer_phase
+    }
     pub fn phase(&self) -> Stage8bP1fM10ProducerPhaseV1 {
         self.record.phase
     }
@@ -99,7 +107,14 @@ impl Stage8bP1fObservedM10State {
         binding: Stage8bP1ObservedM10Binding,
     ) -> Result<Self, Stage8bP1fProducerErrorV1> {
         let bytes = fs::read(path)?;
-        let record = serde_json::from_slice(&bytes)
+        Self::from_retained_bytes(&bytes, binding)
+    }
+
+    fn from_retained_bytes(
+        bytes: &[u8],
+        binding: Stage8bP1ObservedM10Binding,
+    ) -> Result<Self, Stage8bP1fProducerErrorV1> {
+        let record = serde_json::from_slice(bytes)
             .map_err(|_| Stage8bP1fProducerErrorV1::DurableStateConflict)?;
         let state = Self { record, binding };
         state.validate()?;

@@ -1,7 +1,9 @@
 //! Fixed local Stage 8B-P1-f guardian/I1 composition.
 //!
 //! This is deliberately not a general process orchestrator. Production can
-//! launch only the accepted I1 `run` command. Tests replace that one command
+//! launch only the accepted I1 `run` or the fixed O3 composition command.
+//! O3 selection comes from the admitted guardian permit, not a CLI executable.
+//! Tests replace that one command
 //! with small real Unix children to exercise process-group lifecycle behavior.
 
 use std::{
@@ -34,6 +36,7 @@ use crate::{
 };
 
 pub const STAGE8B_P1F_I1_BINARY_PATH: &str = "/usr/local/libexec/moex/stage8b-p1-paper-supervisor";
+pub const STAGE8B_P1F_O3_BINARY_PATH: &str = "/usr/local/libexec/moex/stage8b-p1f-o3-composition";
 const PROCESS_POLL_INTERVAL: StdDuration = StdDuration::from_millis(25);
 const RESTART_WINDOW: StdDuration = StdDuration::from_secs(600);
 const RESTART_DELAY: StdDuration = StdDuration::from_secs(5);
@@ -105,6 +108,21 @@ impl FixedChildCommandV1 {
                 OsString::from(STAGE8B_P1E_SUPERVISOR_CONFIG_PATH),
             ],
             identity: Some((uid, gid)),
+        }
+    }
+
+    fn for_permit(uid: u32, gid: u32, permit: &Stage8bP1fRunPermitV1) -> Self {
+        if permit.phase() == Stage8bP1fPhaseV1::O3SyntheticPaper {
+            Self {
+                executable: PathBuf::from(STAGE8B_P1F_O3_BINARY_PATH),
+                args: vec![
+                    OsString::from("run"),
+                    OsString::from(permit.manifest_sha256()),
+                ],
+                identity: Some((uid, gid)),
+            }
+        } else {
+            Self::production(uid, gid)
         }
     }
 }
@@ -418,10 +436,11 @@ pub async fn run_stage8b_p1f_local_supervisor_v1(
         let store = Stage8bP1fAuthorityStoreV1::open_production(service_gid)?;
         match prepare_permit_or_expire(&store, manifest_sha256, Utc::now())? {
             PreparedRunV1::Permit(permit) => {
+                let child = FixedChildCommandV1::for_permit(service_uid, service_gid, &permit);
                 supervise_admitted_child(
                     &store,
                     permit,
-                    FixedChildCommandV1::production(service_uid, service_gid),
+                    child,
                     signal_receiver,
                     Some(barrier_sender),
                     Some(pre_spawn_witness),
@@ -1072,6 +1091,29 @@ fn resolve_service_identity() -> Result<(u32, u32), Stage8bP1fLocalSupervisionEr
 )]
 pub(crate) mod test_support {
     use super::*;
+
+    #[cfg(test)]
+    pub(crate) fn assert_fixed_o3_route(permit: &Stage8bP1fRunPermitV1) {
+        let spec = FixedChildCommandV1::for_permit(987, 987, permit);
+        assert_eq!(spec.executable, PathBuf::from(STAGE8B_P1F_O3_BINARY_PATH));
+        assert_eq!(
+            spec.args,
+            vec![
+                OsString::from("run"),
+                OsString::from(permit.manifest_sha256())
+            ]
+        );
+        assert_eq!(spec.identity, Some((987, 987)));
+        let old = FixedChildCommandV1::production(987, 987);
+        assert_eq!(old.executable, PathBuf::from(STAGE8B_P1F_I1_BINARY_PATH));
+        assert_eq!(
+            old.args,
+            vec![
+                OsString::from("run"),
+                OsString::from(STAGE8B_P1E_SUPERVISOR_CONFIG_PATH)
+            ]
+        );
+    }
 
     pub(crate) fn shell(command: String) -> FixedChildCommandV1 {
         FixedChildCommandV1 {

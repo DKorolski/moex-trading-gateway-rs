@@ -1,0 +1,43 @@
+[Unit]
+Description=MOEX bounded O3 existing guardian and fixed paper composition
+After=local-fs.target moex-finam-p1f-o3-signer.service
+Requires=moex-finam-p1f-o3-signer.service
+
+[Service]
+Type=exec
+User=root
+Group=moex-p1-paper
+UMask=0077
+# Pre-staged exact EXISTING lifecycle key, paper UID 0400, parent dir 0700.
+# A root-owned LoadCredential here would not be readable after setuid().
+Environment=CREDENTIALS_DIRECTORY=/run/moex-finam-p1-o3-runtime-credentials
+ExecStart=/usr/local/libexec/moex/stage8b-p1f-local-supervisor run @PHASE_SHA256@
+Restart=no
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=40s
+FinalKillSignal=SIGKILL
+RuntimeMaxSec=1800s
+LimitCORE=0
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProcSubset=all
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=127.0.0.1/32
+IPAddressAllow=::1/128
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_KILL
+AmbientCapabilities=
+ReadOnlyPaths=/etc/moex-finam-p1-paper /run/moex-finam-p1-o3-runtime-credentials
+InaccessiblePaths=-/run/moex-finam-p1-o3-input -/run/credentials/moex-finam-p1f-o3-signer.service
+ReadWritePaths=/var/lib/moex-finam-p1-paper/state /var/lib/moex-finam-p1-paper-control /var/lib/moex-finam-p1-paper-o3-producer
+
+# Guardian owns the child restart budget and 30s drain; systemd does not restart.
+# Do NOT add bootstrap, initializer, cleanup-fixed or a fresh claim to ExecStartPre.
+# No Install section or timer. No automatic activation of this review template.

@@ -32,6 +32,7 @@ const O2_GENESIS_PATH: &str = "/etc/moex-finam-p1-paper/o2/genesis-manifest.sign
 const O2_ACTIVATION_PATH: &str = "/etc/moex-finam-p1-paper/o2/activation-certificate.signed.json";
 const O2_PHASE_PATH: &str = "/etc/moex-finam-p1-paper/o2/o2-phase-manifest.signed.json";
 const O2_KEY_ID: &str = "stage8b-p1f-o2-authority-generation-1";
+const O3_PHASE_PATH: &str = "/etc/moex-finam-p1-paper/o3/phase-manifest.signed.json";
 
 fn main() -> ExitCode {
     match run() {
@@ -103,6 +104,22 @@ fn run() -> Result<(), String> {
                 )
                 .map_err(|error| error.to_string())?;
             print_json(&store.inspect().map_err(|error| error.to_string())?)?;
+        }
+        [command] if command == "guardian-claim-o3-fixed" => {
+            let store = open_store()?;
+            let bytes = read_root_owned(
+                Path::new(O3_PHASE_PATH),
+                STAGE8B_P1F_MAX_AUTHORITY_BYTES,
+                0o440,
+            )?;
+            let result = store
+                .claim_o3_phase(&bytes, &fixed_public_key()?, O2_KEY_ID, Utc::now())
+                .map_err(|error| error.to_string())?;
+            // No O2 selector, materialization, initialization or child start.
+            match result {
+                Stage8bP1fClaimDispositionV1::Claimed(receipt)
+                | Stage8bP1fClaimDispositionV1::ContinuedExisting(receipt) => print_json(&receipt)?,
+            }
         }
         [command] if command == "guardian-claim-fixed" => {
             let store = open_store()?;
@@ -182,7 +199,7 @@ fn run() -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "usage: stage8b-p1f-o2-operator <public-key|sign-genesis|sign-activation|sign-phase|prepare-control-root|guardian-init-fixed|guardian-activate-fixed|guardian-claim-fixed|guardian-materialize-fixed|guardian-inspect|runner-fixed|cleanup-fixed|terminal-abort-oct7-fixed|collect-unit-evidence|collect-evidence> ...".into()
+    "usage: stage8b-p1f-o2-operator <public-key|sign-genesis|sign-activation|sign-phase|prepare-control-root|guardian-init-fixed|guardian-activate-fixed|guardian-claim-fixed|guardian-claim-o3-fixed|guardian-materialize-fixed|guardian-inspect|runner-fixed|cleanup-fixed|terminal-abort-oct7-fixed|collect-unit-evidence|collect-evidence> ...".into()
 }
 
 fn guardian_materialize_fixed() -> Result<(), String> {

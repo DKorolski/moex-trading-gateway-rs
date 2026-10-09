@@ -160,6 +160,20 @@ fn prepared(
 
 #[tokio::test]
 async fn observed_real_history_fixed_producer_paper_truth_xack_restart() {
+    linked_history(false, false).await;
+}
+
+#[tokio::test]
+async fn observed_flat_local_history_earliest_bo_window_paper_truth_xack_restart() {
+    linked_history(true, false).await;
+}
+
+#[tokio::test]
+async fn observed_synthetic_sparse_history_fractional_source_paper_restart() {
+    linked_history(true, true).await;
+}
+
+async fn linked_history(flat_local: bool, synthetic_sparse: bool) {
     let redis = RedisServer::start().await;
     d::initialize_stage8b_p1_redis_namespace(
         &redis.url,
@@ -188,7 +202,14 @@ async fn observed_real_history_fixed_producer_paper_truth_xack_restart() {
         .unwrap();
     let producer_path = state_path("observed-real-linked");
     let parent = producer_path.parent().unwrap().canonicalize().unwrap();
+    let mut producer_path = parent.join(producer_path.file_name().unwrap());
     fs::set_permissions(&parent, fs::Permissions::from_mode(0o700)).unwrap();
+    if synthetic_sparse {
+        let separate = parent.join("producer");
+        fs::create_dir(&separate).unwrap();
+        fs::set_permissions(&separate, fs::Permissions::from_mode(0o700)).unwrap();
+        producer_path = separate.join("high-water.json");
+    }
     let profile = d::Stage8bP1RuntimeProfileKind::V2;
     let fingerprint = profile.build_hybrid_runtime().unwrap().1;
     let mut config: Value = serde_json::from_slice(include_bytes!(
@@ -231,16 +252,50 @@ async fn observed_real_history_fixed_producer_paper_truth_xack_restart() {
     ]);
     template["history_coverage"]["candidate_session"] = session("2026-10-02");
     let template_bytes = serde_json::to_vec(&template).unwrap();
-    let candidate_close = time("2026-10-02T09:50:00Z");
+    let candidate_close = time(if synthetic_sparse {
+        "2026-10-02T08:10:00Z"
+    } else if flat_local {
+        "2026-10-02T07:00:00Z"
+    } else {
+        "2026-10-02T09:50:00Z"
+    });
     let decision_close = candidate_close + Duration::minutes(10);
     let successor_close = decision_close + Duration::minutes(10);
-    let now = decision_close - Duration::seconds(29);
+    let now = decision_close
+        - Duration::seconds(29)
+        - if synthetic_sparse {
+            Duration::microseconds(573_924)
+        } else {
+            Duration::zero()
+        };
     let plan =
         Stage8bP1fObservedM10Plan::from_calendar_template(&template_bytes, &identity, now).unwrap();
     let mut raw: Value = serde_json::from_slice(include_bytes!(
         "../../../../broker-finam/tests/fixtures/sparse-m10/finam-long-response.json"
     ))
     .unwrap();
+    if flat_local {
+        for bar in raw["bars"].as_array_mut().unwrap() {
+            for (field, value) in [
+                ("open", "2280"),
+                ("high", "2281"),
+                ("low", "2279"),
+                ("close", "2280"),
+            ] {
+                bar[field]["value"] = json!(value);
+            }
+        }
+    }
+    if synthetic_sparse {
+        raw["bars"] = json!([]);
+        for day in ["2026-09-28", "2026-09-29", "2026-09-30", "2026-10-01"] {
+            let mut close = time(&format!("{day}T04:10:00Z"));
+            while close <= time(&format!("{day}T20:50:00Z")) {
+                append_control(&mut raw, close, 2280);
+                close += Duration::minutes(10);
+            }
+        }
+    }
     let mut close = time("2026-10-02T04:10:00Z");
     while close <= candidate_close {
         append_control(&mut raw, close, 2280);
@@ -263,7 +318,7 @@ async fn observed_real_history_fixed_producer_paper_truth_xack_restart() {
             .filter(|bar| bar.bar().close_ts < time("2026-10-02T00:00:00Z")
                 && bar.actual_m1().len() < 10)
             .count(),
-        18
+        if synthetic_sparse { 404 } else { 18 }
     );
     let account: AccountResponse = serde_json::from_value(json!({"account_id":"ACC_TEST_0001","cash":[],"positions":[],"status":"ACCOUNT_STATUS_OPEN"})).unwrap();
     let orders = AccountOrdersResponse { orders: vec![] };
@@ -345,6 +400,19 @@ async fn observed_real_history_fixed_producer_paper_truth_xack_restart() {
     append_control(&mut raw, decision_close, 2310);
     let decision_source = admit(&raw, decision_close);
     let decision = prepared(&decision_source, &identity, &first_schedule, &signer, None).unwrap();
+    if synthetic_sparse {
+        assert!(d::Stage8bP1ObservedM10Binding::restore_retained_receipt(
+            &parent,
+            &identity,
+            decision.binding().source().sha256(),
+        )
+        .is_err());
+        crate::stage8b_p1f_o3_composition::producers::retain_runtime_source(
+            decision.binding(),
+            &parent,
+        )
+        .unwrap();
+    }
     let mut feeder = d::Stage8bP1fM10FeederRedisV1::connect_observed_local_evidence(
         &redis.url,
         d::Stage8bP1RedisConfig::paper_default_auto(),
@@ -356,6 +424,10 @@ async fn observed_real_history_fixed_producer_paper_truth_xack_restart() {
     let decision = publish_stage8b_p1f_observed_m10(&producer_path, decision, &mut feeder)
         .await
         .unwrap();
+    let decision_path = parent.join("o3-published-predecessor.json");
+    retain_published_predecessor(&decision_path, &decision).unwrap();
+    retain_published_predecessor(&decision_path, &decision).unwrap();
+    let expected_decision = decision.canonical_bytes().unwrap();
     let final_schedule = schedule(
         &redis,
         &signer,
@@ -441,6 +513,13 @@ async fn observed_real_history_fixed_producer_paper_truth_xack_restart() {
     )
     .unwrap();
     assert!(observed_published_window(&decision, &successor).is_err());
+    if synthetic_sparse {
+        crate::stage8b_p1f_o3_composition::producers::retain_runtime_source(
+            successor.binding(),
+            &parent,
+        )
+        .unwrap();
+    }
     let mut feeder = d::Stage8bP1fM10FeederRedisV1::connect_observed_local_evidence(
         &redis.url,
         d::Stage8bP1RedisConfig::paper_default_auto(),
@@ -463,6 +542,8 @@ async fn observed_real_history_fixed_producer_paper_truth_xack_restart() {
     let successor_id = successor.redis_id().to_string();
     let decision_hash = decision_source.receipt().sha256().to_string();
     let successor_hash = successor_source.receipt().sha256().to_string();
+    let expected_successor = successor.canonical_bytes().unwrap();
+    drop(published_window);
     drop((
         decision,
         successor,
@@ -478,6 +559,30 @@ async fn observed_real_history_fixed_producer_paper_truth_xack_restart() {
     assert_eq!(successor.publication_sequence(), 2);
     assert_eq!(successor.redis_id(), successor_id);
     assert_eq!(restored(&decision_hash).source().sha256(), decision_hash);
+    let restore_window = |old: &[u8], next: &[u8]| {
+        restore_published_window(
+            &decision_path,
+            &producer_path,
+            restored(&decision_hash),
+            restored(&successor_hash),
+            old,
+            next,
+        )
+    };
+    assert!(restore_window(b"{}", &expected_successor).is_err());
+    assert!(restore_window(&expected_decision, b"{}").is_err());
+    assert!(restore_published_window(
+        &decision_path,
+        &producer_path,
+        restored(&successor_hash),
+        restored(&decision_hash),
+        &expected_decision,
+        &expected_successor,
+    )
+    .is_err());
+    // The runtime receives the reconstructed capability, not a handle kept
+    // alive across the simulated producer restart.
+    let published_window = restore_window(&expected_decision, &expected_successor).unwrap();
     let input = d::Stage8bP1fIeCompositionInputV1 {
         supervisor_path: config_path,
         source_path,
@@ -510,8 +615,10 @@ async fn observed_real_history_fixed_producer_paper_truth_xack_restart() {
         "SPARSE_LINKED_EVIDENCE={}",
         json!({
             "schema_version": 1,
-            "real_history_m10_count": 404,
-            "real_sparse_history_m10_count": 18,
+            "history_is_real": !flat_local,
+            "history_m10_count": 404,
+            "sparse_history_m10_count": if synthetic_sparse { 404 } else { 18 },
+            "separate_producer_and_runtime_parent": synthetic_sparse,
             "current_session_controls": "synthetic seven-M1 bars, not broker observations",
             "observed_policy": broker_finam::sparse_m10::OBSERVED_M1_POLICY_V1,
             "overlap_negatives": overlap_negatives,

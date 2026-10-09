@@ -27,6 +27,15 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
+2026-10-09 O3 source candidate: fixed executable composition is implemented and
+qualified in a local production-process witness (paper Market, next M10,
+SIGKILL/readmission, graceful stop). See the
+[source handoff](stage-8/stage8b-p1f-o3-source-handoff.md). Review comes now,
+before release/installation and separately authorized bounded O3 on the accepted
+O2 root. No operational matrix row is closed by the local witness. O4 retains
+WS subscriptions/reconnect, freshness, REST overlap, session/EOD and ALOR parity.
+No new macro-stage, automatic main merge or live permission is introduced.
+
 2026-10-08 O2 closure: independent **O2 OPERATIONAL ACCEPT**, terminal
 COMPLETED/1/26; one existing adopted root, one Replay callback, zero requests
 and journal frames. See the [bounded O3 preparation](stage-8/stage8b-p1f-o3-preparation.md).

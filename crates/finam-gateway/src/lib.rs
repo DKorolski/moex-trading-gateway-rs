@@ -19,6 +19,8 @@ mod stage8b_no_send;
 mod stage8b_p1e_schedule_publisher;
 mod stage8b_p1f_fixed_producers;
 mod stage8b_p1f_o2_materializer;
+pub mod stage8b_p1f_o3_composition;
+pub mod stage8b_p1f_o3_signer;
 #[cfg(feature = "stage8b-r2a7-source-adapter")]
 mod stage8b_r2a7_source_adapter;
 
@@ -72,8 +74,11 @@ pub use stage8b_p1e_schedule_publisher::{
 };
 pub use stage8b_p1f_fixed_producers::observed::{
     observed_published_window as stage8b_p1f_observed_published_window,
-    prepare_stage8b_p1f_observed_m10, publish_stage8b_p1f_observed_m10, Stage8bP1fObservedM10Input,
-    Stage8bP1fObservedM10Lineage, Stage8bP1fObservedM10Outcome, Stage8bP1fObservedM10State,
+    prepare_stage8b_p1f_observed_m10, publish_stage8b_p1f_observed_m10,
+    restore_published_window as restore_stage8b_p1f_observed_published_window,
+    retain_published_predecessor as retain_stage8b_p1f_observed_published_predecessor,
+    Stage8bP1fObservedM10Input, Stage8bP1fObservedM10Lineage, Stage8bP1fObservedM10Outcome,
+    Stage8bP1fObservedM10State,
 };
 pub use stage8b_p1f_fixed_producers::{
     authorize_stage8b_p1f_first_m10, load_stage8b_p1f_m10_producer_state,
