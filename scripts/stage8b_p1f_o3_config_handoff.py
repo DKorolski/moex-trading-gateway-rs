@@ -43,7 +43,8 @@ def verify(path):
         m.require(set(inventory)==set(names)-{P+'files-sha256.json'},'complete inventory')
         for n,sha in inventory.items():m.require(m.sha(z.read(n))==sha,'hash '+n)
         descriptor=js(P+'descriptor.json');index=js(P+'source-index.json')
-        m.require(set(index)=={n for n in names if not n.startswith(P)},'complete source')
+        m.require(set(index)=={n for n in names if not n.startswith(P)
+            and (n!='handoff-commit.txt' or descriptor['handoff_was_tracked'])},'complete source')
         files={n:z.read(P+'original-handoff-commit.txt') if n=='handoff-commit.txt' else z.read(n) for n in index}
         m.require(all(m.sha(files[n])==e['sha256'] and modes[n]==e['mode'] for n,e in index.items()),'source bytes/modes')
         tree=safety.tree_hash(files,{n:e['mode'] for n,e in index.items()})
@@ -90,7 +91,9 @@ def package(work,out):
     files,modes=archive.snapshot(ref);base,bm=archive.snapshot(BASE)
     changed={n for n in set(files)|set(base) if files.get(n)!=base.get(n) or modes.get(n)!=bm.get(n)}
     m.require(changed<=ALLOWED,'unexpected source delta')
-    payload=dict(files);payload[P+'original-handoff-commit.txt']=files['handoff-commit.txt']
+    payload=dict(files)
+    if 'handoff-commit.txt' in files:
+        payload[P+'original-handoff-commit.txt']=files['handoff-commit.txt']
     name='moex-trading-project-'+ref[:7]+'-o3-config-binding-correction.zip'
     payload['handoff-commit.txt']=f'short_sha={ref[:7]}\nfull_sha={ref}\nsource_ref={ref}\narchive={name}\n'.encode()
     for prefix,f,mo,commit in (('',files,modes,ref),('accepted-',base,bm,BASE)):
@@ -106,6 +109,7 @@ def package(work,out):
     payload[P+'descriptor.json']=encode(dict(commit=ref,baseline=BASE,changed_paths=sorted(changed),
         branch=archive.git('branch','--show-current').decode().strip(),
         repository='https://github.com/DKorolski/moex-trading-gateway-rs',
+        handoff_was_tracked='handoff-commit.txt' in files,
         installation_performed=False,operational_o3=False))
     payload[P+'files-sha256.json']=encode({n:m.sha(b) for n,b in payload.items()})
     out.mkdir(parents=True,exist_ok=True);path=out/name
