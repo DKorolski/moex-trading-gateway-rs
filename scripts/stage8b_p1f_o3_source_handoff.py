@@ -180,7 +180,9 @@ def verify(path):
             n for n in names if n.startswith(("evidence/", PREFIX)) or n == "handoff-commit.txt"
         }, "unindexed source")
         d = json.loads(z.read(PREFIX + "descriptor.json"))
-        require(re.fullmatch("[0-9a-f]{40}", d["commit"]) and d["parent"] == BASE, "lineage")
+        require(re.fullmatch("[0-9a-f]{40}", d["commit"])
+                and re.fullmatch("[0-9a-f]{40}", d["parent"])
+                and d["accepted_baseline"] == BASE, "lineage")
         require(tree_hash(files, modes) == d["git_tree"], "Git tree binding")
         require(d["operational_ready"] is False and d["installation_authorized"] is False,
                 "false operational claim")
@@ -212,19 +214,34 @@ def git(*args):
     return subprocess.check_output(["git", *args], cwd=ROOT)
 
 
+def tracked_modes():
+    result = {}
+    for entry in git("ls-tree", "-r", "-z", "HEAD").split(b"\0"):
+        if not entry:
+            continue
+        header, name = entry.split(b"\t", 1)
+        mode, kind, _oid = header.decode().split()
+        require(kind == "blob" and mode in ("100644", "100755"), "tracked special file")
+        result[name.decode()] = mode
+    return result
+
+
 def package(args):
     require(git("status", "--porcelain") == b"", "commit source first; dirty tree")
     commit = git("rev-parse", "HEAD").decode().strip()
-    require(git("rev-parse", "HEAD^").decode().strip() == BASE, "source baseline changed")
+    require(git("merge-base", "HEAD", BASE).decode().strip() == BASE, "source baseline changed")
     archive = f"moex-trading-project-{commit[:7]}-o3-source.zip"
-    payload, modes = {}, {}
+    payload, modes = {}, tracked_modes()
     with zipfile.ZipFile(io.BytesIO(git("archive", "--format=zip", "HEAD"))) as source:
         for item in source.infolist():
             if item.is_dir():
                 continue
-            require(stat.S_ISREG(item.external_attr >> 16), "tracked special file")
+            # git archive uses DOS attributes=0 for ordinary non-executable
+            # blobs on this Git version. Git tree mode is authoritative; never
+            # infer "regular" for an arbitrary imported ZIP's zero attributes.
+            require(item.filename in modes, "archive member absent from Git tree")
             payload[item.filename] = source.read(item)
-            modes[item.filename] = "100755" if item.external_attr >> 16 & 0o111 else "100644"
+    require(set(payload) == set(modes), "Git archive omitted tracked source")
     source_index = {n: sha(b) for n, b in payload.items()}
     for label in RESULT_PINS:
         directory = getattr(args, label)
@@ -254,7 +271,8 @@ def package(args):
         dict(records=records, systemd_execution="NOT_RUN", vps_mutated=False))
     d = dict(schema_version=1, kind="O3_SOURCE_REVIEW_NOT_INSTALLATION",
              repository="https://github.com/DKorolski/moex-trading-gateway-rs",
-             branch=git("branch", "--show-current").decode().strip(), commit=commit, parent=BASE,
+             branch=git("branch", "--show-current").decode().strip(), commit=commit,
+             parent=git("rev-parse", "HEAD^").decode().strip(), accepted_baseline=BASE,
              git_tree=git("rev-parse", "HEAD^{tree}").decode().strip(), archive=archive,
              operational_ready=False, installation_authorized=False,
              main_changed=False, pushed=False, result_sha256=RESULT_PINS,

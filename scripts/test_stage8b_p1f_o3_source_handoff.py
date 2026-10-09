@@ -88,6 +88,7 @@ class PackagingTests(unittest.TestCase):
                 files[item.filename] = z.read(item)
                 modes[item.filename] = "100755" if item.external_attr >> 16 & 0o111 else "100644"
         actual = h.git("rev-parse", "HEAD^{tree}").decode().strip()
+        self.assertEqual(modes, h.tracked_modes())
         self.assertEqual(h.tree_hash(files, modes), actual)
         name = sorted(files)[0]
         altered = dict(modes, **{name: "100755" if modes[name] == "100644" else "100644"})
