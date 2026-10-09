@@ -18,6 +18,34 @@ class PackagingTests(unittest.TestCase):
 
     def test_templates_positive(self):
         h.validate_templates(self.templates())
+        h.validate_templates(self.templates(), native=True)
+
+    def test_native_supervisor_identity_and_capabilities(self):
+        name = h.TEMPLATES + h.UNITS[1] + ".service.in"
+        for old, new in ((b"\nUser=\n", b"\nUser=root\n"),
+                         (b"\nUser=\n", b"\nUser=987\n"),
+                         (b"\nUser=\n", b"\nUser=\nUser=root\n"),
+                         (b"\nUser=\n", b"\n"),
+                         (b"Group=moex-p1-paper", b"Group=root"),
+                         (b"NoNewPrivileges=yes", b"NoNewPrivileges=no"),
+                         (b"AmbientCapabilities=", b"AmbientCapabilities=CAP_SETUID"),
+                         (b"CAP_SETUID CAP_SETGID CAP_KILL", b"CAP_SETUID CAP_SETGID CAP_KILL CAP_DAC_OVERRIDE"),
+                         (b"Type=exec", b"Type=exec\nSecureBits=keep-caps"),
+                         (b"Type=exec", b"Type=exec\nDynamicUser=yes")):
+            with self.subTest(new=new):
+                files = self.templates()
+                self.assertIn(old, files[name])
+                files[name] = files[name].replace(old, new)
+                with self.assertRaises(ValueError):
+                    h.validate_templates(files, native=True)
+
+    def test_historical_template_verification_remains_non_native(self):
+        name = h.TEMPLATES + h.UNITS[1] + ".service.in"
+        files = self.templates()
+        files[name] = files[name].replace(b"\nUser=\n", b"\nUser=root\n")
+        h.validate_templates(files)
+        with self.assertRaises(ValueError):
+            h.validate_templates(files, native=True)
 
     def test_templates_do_not_gain_retry_or_initialization(self):
         for unit in h.UNITS:

@@ -5,17 +5,21 @@ Status date: 2026-10-09.
 2026-10-09 latest: O3 source `fb1ceb3dac40b365d0d23983af788ca1c9c72907`
 is independently **SOURCE ACCEPT / P1-O301 CLOSED**. The next deliverable is
 the [unified release/authority/stopped-installation candidate](stage-8/stage8b-p1f-o3-release-installation.md).
-Production Rust/Cargo and service templates remain byte-for-byte accepted.
-Five Linux amd64 release slots are built from the accepted tree; current-tree
-authority is rebound without workflow changes. Fresh read-only VPS observation
-confirms COMPLETED/1/26, stopped P1 and unchanged accepted installed payload.
-Local qualification uses a disposable Linux filesystem and systemd; it does
-not install or activate anything on the VPS. Installation and bounded O3 each
+Native Linux amd64/systemd 255 **isolated start/stop qualification now PASS**:
+one child UID/GID987, no effective/permitted/ambient/inheritable capabilities,
+NNP1; GRACEFUL_STOP in 0.493s, child exit0, no restarts or surviving processes.
+Narrow supervisor template correction: `User=root` -> `User=` (system-manager
+default root); capability bounds, NNP and sandbox retained. Signer terminal
+exit70 is recorded honestly, not masked. Rust/Cargo, all five release ELF bytes,
+installer and CI/authority policy are unchanged from package `e7f8599`.
+The owner-authorized test used the selected generation-2 schedule credential
+in disposable container tmpfs; deletion and container removal are recorded.
+Full accepted-host snapshots before/after are exactly equal: COMPLETED/1/26,
+P0 unchanged, P1 stopped, 15 installed slots unchanged, seven O3 slots absent.
+This does not install O3 on the accepted host or qualify its operational matrix.
+New template/package needs independent review; installation and bounded O3 each
 still need separate acceptance/permission. All 13 operational rows stay NOT_RUN.
-Systemd syntax/loading and custody checks pass; dynamic service execution remains
-UNQUALIFIED (local x86 executor and journald exit 255, not runtime refusal 70).
-The package explicitly requests review of that remaining native qualification.
-No push/merge/CI, FINAM request, private-key access or DB0 change in this slice.
+No push/merge/CI, FINAM request, host Redis/DB0 change or operational O3.
 The earlier source-candidate entries below are retained historical records.
 
 2026-10-09 correction: O3 source `6f0a6bf` received **SOURCE HOLD, P1-O301 only**.

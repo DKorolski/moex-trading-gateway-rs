@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import stat
 import subprocess
@@ -12,6 +13,7 @@ import zipfile
 import stage8b_p1f_o3_release as r
 import stage8b_p1f_o3_source_handoff as h
 import stage8b_p1f_o3_install as install
+import stage8b_p1f_o3_native_evidence as native
 
 P='o3-release/'
 ROOT=Path(__file__).resolve().parents[1]
@@ -74,9 +76,11 @@ def verify(path):
         for n in changed:
             require(n in {'docs/current-status.md','docs/roadmap.md','docs/stage-8/gov-ci-1-authority.json',
                 'docs/stage-8/stage8b-p1f-o3-release-installation.md',
-                'docs/stage-8/reviews/REVIEW_fb1ceb3_O3_SOURCE_ACCEPT_20261009_RU.txt'}
+                'docs/stage-8/reviews/REVIEW_fb1ceb3_O3_SOURCE_ACCEPT_20261009_RU.txt',native.TEMPLATE}
                 or n.startswith(('scripts/stage8b_p1f_o3_','scripts/test_stage8b_p1f_o3_')),'unexpected source delta: '+n)
-        h.validate_templates(files)
+        has_native=any(n.startswith(native.PREFIX) for n in names)
+        require(has_native == (native.TEMPLATE in changed), 'changed template requires native evidence')
+        h.validate_templates(files,native=has_native)
         handoff=read('handoff-commit.txt').decode()
         require('full_sha='+d['package_ref'] in handoff and 'archive='+d['archive'] in handoff,'handoff provenance')
         build=js(P+'build/build.json')
@@ -147,13 +151,14 @@ def verify(path):
         require(sr['exit_code']==0 and sr['stdout_sha256']==sha(read(P+'snapshot/stdout.json'))
                 and sr['stdin_sha256']==sha(read(P+'snapshot/collector.py'))
                 and sr['stderr_sha256']==sha(read(P+'snapshot/stderr.txt')),'readonly collection records')
+        native_result=native.verify(read,names,files,base,build,snap) if has_native else None
         authority=json.loads(files['docs/stage-8/gov-ci-1-authority.json'])
         old_authority=json.loads(base['docs/stage-8/gov-ci-1-authority.json'])
         inv_fields={'production_code_manifest','governance_control_plane_manifest'}
         require({k:v for k,v in authority.items() if k not in inv_fields}==
                 {k:v for k,v in old_authority.items() if k not in inv_fields},'authority scope drift')
         gates=js(P+'gates/result.json')
-        require(set(gates)=={'authority','authority-negative','diff'},'gate inventory')
+        require(set(gates)=={'authority','authority-negative','diff'} | ({'templates'} if has_native else set()),'gate inventory')
         for n,g in gates.items():
             require(g['exit_code']==0 and sha(read(P+'gates/'+n+'.log'))==g['sha256'],'gate log')
         require(b'45 cases passed' in read(P+'gates/authority-negative.log') or
@@ -162,10 +167,11 @@ def verify(path):
             package_tree=tree,compiled_source_ref=r.REF,compiled_source_tree=r.TREE,
             members=len(names),source_files=len(index),duplicates=0,symlinks=0,unsafe_paths=0,
             release_elfs=5,write_slots=9,installation_performed=False,operational_o3=False,
-            dynamic_systemd_qualified=False,verdict='INTEGRITY_PASS_NOT_INSTALLATION_OR_EXECUTION_ACCEPTANCE')
+            dynamic_systemd_qualified=has_native,native_qualification=native_result,
+            verdict='INTEGRITY_PASS_NOT_INSTALLATION_OR_EXECUTION_ACCEPTANCE')
 
 
-def package(work, qualification, out):
+def package(work, qualification, out, native_work=None):
     require(git('status','--porcelain')==b'','commit complete package sources first')
     ref=git('rev-parse','HEAD').decode().strip();files,modes=snapshot('HEAD');base,bm=snapshot(r.REF)
     payload=dict(files);name='moex-trading-project-'+ref[:7]+'-o3-release-installation.zip'
@@ -179,15 +185,24 @@ def package(work, qualification, out):
     changed={n for n in set(base)|set(files) if base.get(n)!=files.get(n) or bm.get(n)!=modes.get(n)}
     for n in changed:
         if n in base:payload[P+'source-preimages/'+n]=base[n]
-    for src,dest in [(work/'installation-r1','installation'),(work/'build/logs','build/logs'),
-                     (work/qualification,'qualification'),(work/'snapshot-r1','snapshot')]:
+    installation=work/('installation-native-r1' if native_work else 'installation-r1')
+    observation=native_work/'run3-after' if native_work else work/'snapshot-r1'
+    sources=[(installation,'installation'),(work/'build/logs','build/logs'),
+             (work/qualification,'qualification'),(observation,'snapshot')]
+    if native_work:
+        sources += [(native_work/'run3','native/run'),(native_work/'run3-before','native/before'),
+                    (native_work/'run3-after','native/after')]
+    for src,dest in sources:
+        require(src.is_dir(),'missing evidence: '+str(src))
         for p in sorted(src.rglob('*')):
             require(not p.is_symlink(),'evidence symlink')
+            if dest=='native/run' and 'payload' in p.relative_to(src).parts:continue
             if p.is_file():payload[P+dest+'/'+p.relative_to(src).as_posix()]=p.read_bytes()
     payload[P+'build/build.json']=(work/'build/build.json').read_bytes()
     commands={'authority':['python3','-B','scripts/current_tree_authority_check.py'],
         'authority-negative':['python3','-B','scripts/current_tree_authority_negative_harness.py'],
         'diff':['git','diff','--check',r.REF,'HEAD']}
+    if native_work:commands['templates']=['python3','-B','scripts/test_stage8b_p1f_o3_source_handoff.py']
     results={}
     for n,cmd in commands.items():
         p=subprocess.run(cmd,cwd=ROOT,capture_output=True,timeout=600)
@@ -203,16 +218,42 @@ def package(work, qualification, out):
     for n,raw in payload.items():h.scan(n,raw)
     payload[P+'files-sha256.json']=encode({n:sha(raw) for n,raw in payload.items()})
     out.mkdir(parents=True,exist_ok=True);path=out/name
-    for suffix in ('','.partial','.sha256','.safety.json','.review.txt'):require(not Path(str(path)+suffix).exists(),'output exists')
+    for suffix in ('','.partial','.sha256','.safety.json','.review.txt','.checks.txt','.checks.json'):
+        require(not Path(str(path)+suffix).exists(),'output exists')
     tmp=Path(str(path)+'.partial')
     with zipfile.ZipFile(tmp,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
         for n,raw in sorted(payload.items()):
             i=zipfile.ZipInfo(n,(2026,10,9,0,0,0));i.create_system=3
             i.external_attr=(stat.S_IFREG|(0o755 if modes.get(n)=='100755' else 0o644))<<16
             i.compress_type=zipfile.ZIP_DEFLATED;z.writestr(i,raw)
-    safety=verify(tmp);tmp.rename(path)
+    safety=verify(tmp)
+    test_cmd=['python3','-B','scripts/test_stage8b_p1f_o3_release_handoff.py']
+    tested=subprocess.run(test_cmd,cwd=ROOT,capture_output=True,timeout=600,
+                          env=dict(os.environ,O3_RELEASE_ZIP=str(tmp)))
+    test_log=tested.stdout+tested.stderr
+    require(tested.returncode==0,'archive negative tests: '+test_log.decode(errors='replace'))
+    tmp.rename(path)
     r.put(Path(str(path)+'.sha256'),f'{safety["archive_sha256"]}  {name}\n'.encode())
     r.put(Path(str(path)+'.safety.json'),encode(safety))
+    r.put(Path(str(path)+'.checks.txt'),test_log)
+    r.put(Path(str(path)+'.checks.json'),encode(dict(command=test_cmd,exit_code=tested.returncode,
+        archive_sha256=safety['archive_sha256'],log_sha256=sha(test_log),package_ref=ref)))
+    qualification_note='''Qualification evidence is an INCOMPLETE attempt, not a completed aggregate PASS.
+LIMITATION: dynamic systemd unqualified; local signer executor exit 255.
+This is NOT the expected runtime refusal 70. Native x86 systemd check remains required.
+VPS only read, not changed. No private key bytes read. No phase inputs issued.
+'''
+    if native_work:
+        qualification_note='''Native systemd 255 / Linux amd64 START-STOP qualification PASS (isolated, not operational O3).
+Narrow template correction only: supervisor User=root -> User= (system-manager root).
+Unchanged five release ELF bytes; child UID/GID987, NNP1, no effective/permitted/ambient/inheritable caps.
+One child, GRACEFUL_STOP, child exit0, stop0.493s, no surviving processes/restarts.
+Signer terminal exit70 is retained, not masked. Previous exit255 evidence remains historical.
+Authorized generation-2 schedule key used only via private stdin/container tmpfs; not in this ZIP.
+Credential deletion and container removal recorded. Accepted VPS snapshots before/after EXACTLY equal.
+No accepted host installation or operational activation. Synthetic test history is NOT O2 history.
+New template/package needs independent review; compiled-source acceptance is unchanged.
+'''
     r.put(Path(str(path)+'.review.txt'),f'''Repository: https://github.com/DKorolski/moex-trading-gateway-rs
 Branch: {git('branch','--show-current').decode().strip()}
 Package commit: {ref}
@@ -224,11 +265,7 @@ O3 unified RELEASE / AUTHORITY / STOPPED INSTALLATION candidate.
 SOURCE ACCEPT inherited; five production Linux amd64 release ELFs, no fixture features.
 Nine exact old-to-new slots; accepted installer custody/locks/fsync retained.
 Real Linux filesystem tests; real local systemd syntax/loading/custody.
-Qualification evidence is an INCOMPLETE attempt, not a completed aggregate PASS.
-LIMITATION: dynamic systemd unqualified; local signer executor exit 255.
-This is NOT the expected runtime refusal 70. Native x86 systemd check remains required.
-No positive active-phase systemd run claimed; operational O3 NOT_RUN (13 rows).
-VPS only read, not changed. No private key bytes read. No phase inputs issued.
+{qualification_note}Operational O3 NOT_RUN (13 rows).
 No push/merge/CI invocation; stopped installation and O3 need separate authorization.
 Start at docs/stage-8/stage8b-p1f-o3-release-installation.md and o3-release/descriptor.json.
 Verify: python3 -B scripts/stage8b_p1f_o3_release_handoff.py verify ARCHIVE
@@ -240,6 +277,7 @@ Next: package review -> permitted stopped install -> installation evidence -> pe
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('action',choices=('package','verify'))
     p.add_argument('path',type=Path);p.add_argument('--work',type=Path);p.add_argument('--qualification',default='qualification-r3')
+    p.add_argument('--native-work',type=Path,help='Retained run3/before/after; never reruns the witness')
     a=p.parse_args()
     if a.action=='verify':print(json.dumps(verify(a.path.resolve()),indent=2))
-    else:package(a.work.resolve(),a.qualification,a.path.resolve())
+    else:package(a.work.resolve(),a.qualification,a.path.resolve(),a.native_work.resolve() if a.native_work else None)

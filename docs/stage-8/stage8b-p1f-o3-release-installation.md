@@ -16,9 +16,12 @@ fixture features/test artifacts. ELF identities, raw commit object, source
 tree, logs and build command are retained. Public Cargo cache reuse is not
 used as proof of a binary identity: every selected artifact is built and hashed.
 
-No Rust/Cargo/deploy-template/workflow change is made in this package. The
-authority manifest only updates exact production/control inventories; it does
-not reopen historical Stage5 authority, CI policy or closed surfaces.
+No Rust/Cargo/workflow change is made. Five release ELF bytes and their build
+records are reused exactly from `e7f8599`, not rebuilt. The only deployment
+template directive change is supervisor `User=root` -> `User=` (system-manager
+default root). Signer template, installer, capability bounds and sandbox are
+unchanged. The original package's authority inventory closure is retained;
+this correction does not alter authority/CI policy or closed surfaces.
 
 ## Installation delta
 
@@ -38,7 +41,7 @@ Nine fixed write slots, all root-owned:
 | `…/stage8b-p1f-o3-composition` | Absent | Release, 0755 |
 | `…/stage8b-p1f-o3-signer` | Absent | Release, 0755 |
 | `…/stage8b-p1f-o3-provisioner` | Absent | Release, 0755 |
-| `/usr/local/share/moex/stage8b-p1e/moex-finam-p1f-o3-supervisor.service.in` | Absent | Accepted disabled template, 0644 |
+| `/usr/local/share/moex/stage8b-p1e/moex-finam-p1f-o3-supervisor.service.in` | Absent | Corrected disabled template for review, 0644 |
 | `…/moex-finam-p1f-o3-signer.service.in` | Absent | Accepted disabled template, 0644 |
 | `…/installation-o3-v1.json` | Absent | Five ELF + two template bindings, 0644 |
 | `…/installation-o2-v1.json` | Accepted outer manifest | Exact successor with retained O2 entries, 0644 |
@@ -65,9 +68,10 @@ state, issue public phase inputs, stage credentials or call bootstrap.
 
 ## Inputs and qualification
 
-Exact accepted template bytes are included. `@PHASE_SHA256@` is the sole render
+Exact qualified template bytes are included. `@PHASE_SHA256@` is the sole render
 field. A zero hash used in the disposable systemd negative test is deliberately
-NOT an operational phase. There is no signed O3 input set in this bundle.
+NOT an operational phase. There is no operational O3 input set in this bundle;
+native evidence contains only the public synthetic test's expired envelope.
 Fresh public phase/composition/initial-schedule bytes must be selected and bound
 against the preserved O2 root and current clock at the later operational gate;
 reusing the source witness or an expired window is forbidden.
@@ -76,14 +80,14 @@ Local tests use the actual release bytes and real Linux paths/locks/permissions.
 Tests cover preflight/apply/resume/rollback, every replacement frontier, new-slot
 rollback frontiers and custody/foreign-byte/state/history/lock failures.
 The host observer is mocked only in filesystem unit tests, explicitly labelled.
-A separate disposable real systemd PID1 loads both accepted unit templates,
-checks syntax/loaded properties, paper-UID credential separation and release
-CLI/ABI. **Dynamic systemd execution is UNQUALIFIED:** in this local x86
+The original disposable systemd PID1 attempt loaded both old unit templates,
+checked syntax/loaded properties, paper-UID credential separation and release
+CLI/ABI. **Historical dynamic execution was UNQUALIFIED:** in that local x86
 container both signer setup and systemd-journald exit 255. This is not the
 expected missing-phase runtime refusal 70 and is not counted as its PASS.
 An additional native ARM diagnostic reaches systemd but cannot execute x86
 ELFs (203/EXEC); that console diagnostic is context, not retained acceptance.
-The exact units are not weakened to work around the local environment.
+That exit255 is retained and is not retrospectively relabelled as PASS.
 
 The bundle preserves the **incomplete** `qualification-r5` command records;
 it does not label that attempt an aggregate PASS or claim a completed run of
@@ -102,14 +106,68 @@ captured, so byte-for-byte restoration is not claimed. The revised qualification
 driver masks systemd-binfmt, but a successful rerun is not claimed here.
 No further local privileged systemd experiments are required by this handoff.
 
-This is **not** a positive active-phase systemd Market/restart run. The accepted
-source witness supplies the local production-feature debug lifecycle proof;
-operational O3 and its 13 rows remain NOT_RUN. Private signing/HMAC keys are not
-used for release qualification. No service has been loaded on the VPS for O3.
-The package is reviewable source/build/installer evidence with an explicit
-remaining native x86 systemd qualification, NOT a claim of fully qualified
-deployment. Agree the narrow native qualification boundary at package review;
-do not start a VPS test or broaden installation permission implicitly.
+## Native qualification correction (2026-10-09, run3)
+
+The user separately authorized the narrow unit correction and **one** new
+isolated attempt with the same selected generation-2 schedule key. That attempt
+passed on native x86_64/systemd 255.4. Earlier unsuccessful attempts remain local
+diagnostics; only run3 is the retained positive start/stop proof.
+
+In this qualified environment, explicit `User=root` with NNP left the guardian
+without effective CAP_SETUID (0x60 vs bounded 0xe0), preventing child launch.
+Using the system-manager default root (`User=`) restores the exact bounded
+guardian capabilities without adding ambient/inheritable authority. The child
+still drops to UID/GID987, clears supplementary groups, has no effective,
+permitted, inheritable or ambient capabilities, and retains NNP1. This is an
+environment-specific observation, not a general claim about all systemd versions.
+Group, bounds, restart/stop policy and other sandbox directives are unchanged.
+
+Retained `o3-release/native/` proof includes the exact executed driver and its
+support module, all **55** command records/stdout/stderr, actual process
+identities/capabilities, journals and independent read-only host snapshots.
+The offline verifier checks exact source/template/ELF bindings, record inventory,
+live-child identities, graceful-stop result, empty cgroups and equal snapshots.
+These are retained developer observations, not externally signed attestation.
+
+- Actual production signer started using systemd credentials and signed the
+  initial synthetic schedule with the pinned generation-2 public identity.
+- Actual production provisioner created 12 keys in a **disposable Redis DB15**.
+  Actual production guardian launched exactly one production composition child;
+  both signer and guardian remained active over the eight-second observation.
+- Bounded stop completed in **0.493s**: `GRACEFUL_STOP`, child exit0, no forced
+  kill or restart, all captured PID/start-tick identities gone, cgroups empty.
+- After synthetic phase terminalization the signer refused further operation
+  with **exit70**. This status is retained, not translated to success or hidden
+  with `SuccessExitStatus`. Synthetic receipt COMPLETED/1/3 is not host O2/1/26.
+- Selected schedule key went over private SSH stdin directly to `/run` tmpfs
+  (no private stdin/hash retained). Swap was disabled. Explicit key/credential
+  deletion and both container removals passed; no key bytes enter the package.
+
+The test container had private PID/cgroup/network namespaces, no host bind mounts
+and `network=none`, with bounded memory/CPU/PIDs/core0 and a six-minute shutdown
+backstop. Added SYS_ADMIN/NET_ADMIN/BPF/PERFMON and unconfined seccomp/AppArmor
+supported nested systemd sandbox tests; these are **test-container settings**,
+not additions to either service or the accepted host. Mount propagation was
+first made private, then shared within the disconnected container namespace so
+systemd credentials reached services. Binfmt/udev/module services were masked.
+
+`input-helper` and `bootstrap-source-witness` are explicitly separate synthetic
+setup tools from earlier source evidence, not substitutes for the five release
+ELFs. Their identities are recorded; their binaries are not duplicated in this
+package. The captured driver is historical execution evidence, not an authorized
+one-command rerun: its local import/support paths need reconstruction and any
+new credential use/remote attempt needs fresh permission.
+
+Full host before/after snapshots are exactly equal: accepted P0 processes/units,
+O2 root/history COMPLETED/1/26, installed 15 slots and seven absent O3 slots.
+Host binfmt/container inventories are equal as well. No accepted host unit,
+payload, Redis or FINAM endpoint was changed/contacted by the test. Local
+installation payloads were regenerated only to bind the corrected template.
+
+This closes the requested **native start/stop qualification evidence**, not a
+Market/restart operational O3 run. All 13 operational rows remain NOT_RUN.
+Independent review of the corrected template/full installation bundle comes
+now; host installation and operational O3 remain closed pending separate gates.
 
 ## Handoff and next authorization
 

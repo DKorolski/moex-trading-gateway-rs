@@ -29,13 +29,16 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 2026-10-09 latest: O3 source `fb1ceb3` independently accepted; P1-O301 closed.
 Now: one [release/authority/installation package](stage-8/stage8b-p1f-o3-release-installation.md),
-with unchanged accepted Rust/service templates, exact five release ELFs and
-old→new inventory. Then separately permitted stopped installation → fresh
+with unchanged accepted Rust/five release ELFs, a narrowly corrected supervisor
+identity directive, native isolated start/stop evidence and old→new inventory.
+Then separately permitted stopped installation → fresh
 bounded O3 → operational review → O4 WS/freshness/reconnect/REST overlap/EOD
 and multi-session frozen ALOR comparison. No new framework/design round or
 automatic per-patch main merge. Runtime-live and real orders remain closed.
-Package review must account for the remaining native x86 systemd qualification:
-local static/custody checks are not a successful dynamic service launch.
+Native systemd qualification passed in a disposable VPS container; full accepted
+host before/after snapshots match. This proves start/stop only, not operational
+O3 or permission to install. Review the corrected template and retained evidence
+now; do not reopen the accepted source history or add a new architecture stage.
 
 2026-10-09 P1-O301 correction is ready for focused source re-review against
 held source `6f0a6bf`; see [retained shutdown evidence](stage-8/stage8b-p1f-o3-shutdown-correction.md).

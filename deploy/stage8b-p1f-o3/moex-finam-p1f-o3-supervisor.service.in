@@ -5,7 +5,11 @@ Requires=moex-finam-p1f-o3-signer.service
 
 [Service]
 Type=exec
-User=root
+# System-manager default root. An explicit User=root with NoNewPrivileges=yes
+# loses effective CAP_SETUID on the qualified systemd 255 environment. Keep
+# the bounding set narrow and ambient/inheritable sets empty; the guardian
+# itself drops the child to the fixed paper UID/GID before exec.
+User=
 Group=moex-p1-paper
 UMask=0077
 # Pre-staged exact EXISTING lifecycle key, paper UID 0400, parent dir 0700.

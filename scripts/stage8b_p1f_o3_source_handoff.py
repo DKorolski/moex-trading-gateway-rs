@@ -96,7 +96,7 @@ def tree_hash(files, modes):
     return recurse(tree).hex()
 
 
-def validate_templates(files):
+def validate_templates(files, *, native=False):
     for name in UNITS:
         data = files[TEMPLATES + name + ".service.in"].decode()
         lines = [x.strip() for x in data.splitlines() if x.strip() and not x.startswith("#")]
@@ -116,6 +116,18 @@ def validate_templates(files):
     require(b"LoadCredential=" not in parent and
             b"Environment=CREDENTIALS_DIRECTORY=/run/moex-finam-p1-o3-runtime-credentials" in parent,
             "child lifecycle credential custody")
+    if native:
+        # Old immutable handoffs retain their historical template. New native
+        # qualification/rendering must use the corrected, non-ambient policy.
+        lines = [x.strip() for x in parent.decode().splitlines()
+                 if x.strip() and not x.lstrip().startswith("#")]
+        for key, value in {"User": "", "Group": "moex-p1-paper",
+                           "NoNewPrivileges": "yes", "AmbientCapabilities": "",
+                           "CapabilityBoundingSet": "CAP_SETUID CAP_SETGID CAP_KILL"}.items():
+            require([x for x in lines if x.startswith(key + "=")] == [key + "=" + value],
+                    "native supervisor policy: " + key)
+        require(not any(x.startswith(("SecureBits=", "DynamicUser=")) for x in lines),
+                "native supervisor identity override")
 
 
 def bind_source(files, read):
@@ -382,7 +394,7 @@ def render(args):
                                "/run", "/System"))), "local output only")
     files = {TEMPLATES + n + ".service.in": (ROOT / TEMPLATES / (n + ".service.in")).read_bytes()
              for n in UNITS}
-    validate_templates(files)
+    validate_templates(files, native=True)
     target.mkdir(parents=True, exist_ok=False)
     for name in UNITS:
         with (target / (name + ".service")).open("xb") as f:
