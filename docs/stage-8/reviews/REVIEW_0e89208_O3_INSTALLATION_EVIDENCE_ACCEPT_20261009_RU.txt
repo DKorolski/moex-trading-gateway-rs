@@ -1,0 +1,185 @@
+REVIEW — Stage 8B-P1-f O3: фактическая установка без активации
+Дата: 2026-10-09
+Verdict: INSTALLATION EVIDENCE ACCEPT
+Блокирующих замечаний: 0.
+
+1. Что принято
+
+Приняты retained operational evidence одного stopped apply комплекта:
+0e89208c1e6235eab8b5ea0e115d7899cbafd223.
+Результат установки: APPLIED; postflight подтверждает exact новые bytes и custody.
+Принятие source/release/authority/install package 0e89208 сохраняется.
+O2 остаётся ACCEPTED / COMPLETED / generation 1 / sequence 26.
+Operational O3 ещё NOT_RUN. Этот verdict не является разрешением на запуск.
+
+Evidence ZIP:
+moex-trading-project-0e89208-o3-installation-evidence-20261009.zip
+SHA-256:
+19436f9072ecb89e7a718f94be1594e1b460327ff074e866f65eaf91c9e0a461
+
+Принятый полный release ZIP:
+moex-trading-project-0e89208-o3-release-installation.zip
+SHA-256:
+1ae1f174b964484417f85fbc916e44e1123aafc52f3b23b8e7044103d1fce37d
+Compiled source:
+fb1ceb3dac40b365d0d23983af788ca1c9c72907
+
+2. Проверки, независимо выполненные reviewer
+
+— Evidence ZIP: 210 222 bytes, 52 regular members, CRC PASS.
+  Duplicates, symlinks, special files, unsafe paths: 0.
+  Полный files-sha256 inventory пересчитан.
+
+— Поставляемый offline verifier исполнен из распакованного evidence:
+  python3 -B installation_evidence.py verify EVIDENCE_ZIP
+  Exit 0, status PASS.
+
+— Все 17 вложенных accepted files сравнены byte-exact с ранее принятым
+  полным release ZIP. Все 22 позиции staged inventory, включая пять ELF,
+  независимо сверены с bytes этого release ZIP.
+  Spec, build, snapshot, installer и templates связаны с exact accepted bytes.
+
+— Пять embedded modules read-only before collector совпадают с принятыми
+  исходниками. Top-level collector загружает их и вызывает collect().
+  SHA collector/stdin/stdout/stderr сверены с retained before record.
+  Fresh before JSON равен accepted snapshot JSON; перепривязки нет.
+
+— Все пять SSH command records: stage, preflight, apply, postflight, cleanup —
+  exit 0, stderr пуст; intents совпадают с records, output hashes пересчитаны.
+  Recorded python command каждого action после shlex parsing содержит ровно
+  приложенный remote.py; execution-driver SHA совпадает с вложенным файлом.
+  Никакие записанные remote scripts reviewer не исполнял.
+
+— Семантические negative controls reviewer: 12/12 отклонены.
+  Контроли изменяли raw postflight и пересчитывали stdout hash в record:
+  ELF hash, mode, uid, extra slot, history sequence, P0 PID, journal state,
+  activation, daemon-reload, backup hash, private-byte-read flag, receipt hash.
+  Positive control проходил тем же check path.
+  Эти 12 controls — проверки reviewer, не новые заявленные developer tests.
+
+Rust suites и native systemd qualification здесь повторно не запускались:
+production bytes не изменены, их source/release qualification ранее принята.
+
+3. Один apply и точная установленная граница
+
+Время retained command observations (UTC):
+before:     16:43:48.936070 — 16:43:53.969023
+stage:      16:47:19.850536 — 16:47:27.875758
+preflight:  16:47:55.830834 — 16:47:59.498602
+apply:      16:48:26.408237 — 16:48:40.261623
+postflight: 16:49:25.365873 — 16:49:30.062392
+cleanup:    16:49:54.554411 — 16:49:57.111158
+
+Apply соответствует accepted CLI с exact confirmation:
+INSTALL_O3_FB1CEB3_PRESERVE_COMPLETED_26_WITHOUT_ACTIVATION.
+Preflight дал EXACT_OLD_COMPLETED_26 под existing execution/guardian locks.
+Driver фиксирует intent до effectful command и не повторяет существующий action.
+
+Девять target slots: два replacement и семь added.
+Полный проверенный installed inventory: 23 slots, включая outer manifest.
+Все 23 сверены по hash, size, uid, gid, mode, nlink.
+Новые ELF — root:root 0755; новые public templates/manifests — root:root 0644;
+все regular, single-link.
+
+Пять ELF:
+stage8b-p1f-o2-operator — replacement
+  3d09ff06eb1d592fa3bd907d5d8fd9dcc80d42f4de02083efae6deb3cbf99764
+stage8b-p1f-local-supervisor — added
+  c6f8e801863e0605d4cd461e5ff8932f89f0b9956ad1f0736051cdf8a6ba885f
+stage8b-p1f-o3-composition — added
+  ba3b2a2553111bcfc1e4d18dc299268f1f6f7e3d2fd49fa3eb7230df13d450e1
+stage8b-p1f-o3-signer — added
+  596c24771a06b58741c8f8df0ca330e6d7b2f07f20f36f9dcc32113dc51c98c8
+stage8b-p1f-o3-provisioner — added
+  f90514956f2b6c25faff74cd2c576a09ec1c569dc00b94d61889b60755c22c47
+
+Два shared .service.in — added:
+supervisor:
+  d92f830702d524487dc8e3455c2d3620c669db009d0736ddc5af7d5bc4bc78aa
+signer:
+  763527fcce53aafff6c44a88d4f8fc376d42be1b174e614eece0493ba5faf543
+
+Inner installation-o3-v1.json — added:
+  3075cc2cbf96a70d75684630ca9a61a01e274f96e61bf84c13fe143448ce0ca0
+Outer installation-o2-v1.json — replacement:
+  c2585bb68d67aa8515db15762d61fdd5cf5cd2e36bf75cdec3023339ac937c15
+
+Совместимый installation-v1.json и остальные 14 retained slots сохранены.
+Прежние standalone paper-supervisor и O2 materializer не заменялись:
+это соответствует принятому inventory, а не незавершённая установка.
+
+Transaction journal:
+domain=o3-install-fb1ceb3-v1, state=APPLIED
+spec_sha256=61a66c88c90f3925ed490d69998752930084561f17d902c55174b40f1afbfea7
+Transaction root: root:root 0700.
+Inventory ровно before-0, before-8, journal.json; files root:root 0600.
+Old operator backup и old outer-manifest backup совпадают с accepted old hashes.
+Public staging удалён exact cleanup после успешного postflight.
+Persistent transaction и backups сохранены.
+
+4. Сохранность O2/P0 и отсутствие активации
+
+Raw observed before/postflight совпадают, включая 22 retained trees.
+468 public file hashes и metadata, а также 3 secret metadata entries сохранены.
+Secret key/credential bytes collector не читает; private keys не вложены.
+
+O2 history-head:
+state=COMPLETED, authority_generation=1, latest_sequence=26
+latest_event_sha256:
+fb4fa038d829f0d21e5f2d8e39b1bd26e05ba4f4186b95dfa6205b41d47933d8
+active_manifest_sha256=null, deadline_utc=null.
+
+Проверены сохранение durable root/seal/journal, first-boot transaction/receipt,
+control history, consumed receipts/history, config, staging и старых archives.
+Нового bootstrap/root/phase claim не было.
+
+P0 runtime:
+MainPID=762243, start_ticks=316357164, active/running.
+P0 WS:
+MainPID=208156, start_ticks=100260101, active/running.
+PID/start ticks, executable и unit fingerprints совпадают с before.
+
+11 P1 service observations: MainPID=ControlPID=0, empty ControlGroup,
+inactive либо исторический failed. Семь старых таймеров исчерпаны:
+нет следующего realtime firing, monotonic пуст/infinity, Persistent=no.
+Исторические failed services не являются новыми отказами этой установки.
+O3 operational config/producer/run inputs и установленные O3 .service units
+ещё отсутствуют. На этом шаге установлены только принятые .service.in templates.
+
+По recorded command path и accepted implementation не выполнялись
+daemon-reload, enable/start, phase admission, bootstrap, signing,
+Redis/FINAM requests. DB15 не опрашивался; его текущее содержимое этот review
+не утверждает. Для следующего запуска нужна свежая предусмотренная проверка.
+
+Граница доказательства: retained developer observations с independently
+проверенными bytes/records/semantics; это не независимая remote attestation.
+Reviewer не подключался к VPS и не исполнял installation/runtime commands.
+
+5. Следующий шаг в облегчённом варианте
+
+Дополнительных source/artifact/installation corrections для этого evidence
+не требуется. При неизменных accepted bytes следующий узкий шаг —
+подготовка и отдельно разрешённое выполнение одной bounded O3.
+
+Перед effectful запуском: свежий предусмотренный read-only preflight,
+actual O2 root/receipt/config/key/history/P0 bindings и актуальное время;
+затем fresh O3 phase/manifest/window/inputs по принятому контракту.
+Не создавать новый O2 root и не сбрасывать историю/receipt/clock.
+Не выводить следующий sequence из старого сообщения без проверки current head.
+
+В одной bounded synthetic paper-сессии проверить:
+paper outcome и durable truth → XACK-last;
+successor M10;
+предусмотренный restart без повторной команды/эффектов;
+controlled stop, terminal receipt и отсутствие оставшихся процессов.
+
+Сохранить принятые deadline, restart budget, fixed DB15 roles и stopped proof.
+Без длительного paper soak и новых recovery/framework subphases.
+FINAM write, runtime-live и реальные заявки пока не открываются.
+После operational O3 acceptance — короткие O4 FINAM bars/WS/parity проверки
+и несколько paper-сессий для сравнения с ALOR; затем отдельный live-micro scope.
+
+Итог:
+0e89208 installation evidence ACCEPT.
+O2 ACCEPTED / COMPLETED/1/26.
+Operational O3 NOT_RUN; bounded O3 требует отдельного разрешения владельца.

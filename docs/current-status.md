@@ -2,6 +2,18 @@
 
 Status date: 2026-10-09.
 
+2026-10-09 current: `0e89208` release and actual stopped installation evidence
+are independently ACCEPTED. Owner-authorized O3 preparation stopped before
+activation: the inherited supervisor Redis-manifest pin does not match the
+current no-riskgate/V4 identity. The [config-only correction candidate](stage-8/stage8b-p1f-o3-config-binding-correction.md)
+changes one field and records old→new outside immutable O2 authority history.
+No production Rust/Cargo/ELF/template change or new bootstrap is needed.
+Fresh diagnostic snapshots retained COMPLETED/1/26, exact root/receipt/history/P0
+and empty DB15. Correction is NOT INSTALLED; O3 remains NOT_RUN. Next review:
+config-only transition/local regressions → separately permitted stopped apply
+→ fresh bounded O3. No remote effect, push/merge or GitHub CI in this correction.
+Earlier dated entries are historical, not a claim that O3 is still uninstalled.
+
 2026-10-09 latest: O3 source `fb1ceb3dac40b365d0d23983af788ca1c9c72907`
 is independently **SOURCE ACCEPT / P1-O301 CLOSED**. The next deliverable is
 the [unified release/authority/stopped-installation candidate](stage-8/stage8b-p1f-o3-release-installation.md).

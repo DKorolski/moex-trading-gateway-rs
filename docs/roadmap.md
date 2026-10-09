@@ -27,6 +27,14 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
+2026-10-09 current: O3 release/installation `0e89208` accepted and installed;
+fresh O3 preparation stopped before activation on a config Redis-manifest pin
+mismatch. Next: [one-field config-binding correction](stage-8/stage8b-p1f-o3-config-binding-correction.md)
+and local regressions → focused review → separately permitted stopped apply
+preserving O2 root/receipts/history/P0 → fresh bounded O3. Reuse accepted ELFs;
+no new architecture stage, root bootstrap or automatic main merge. O3 remains
+NOT_RUN; O4/WS/freshness/reconnect/EOD/ALOR parity and live-micro gates unchanged.
+
 2026-10-09 latest: O3 source `fb1ceb3` independently accepted; P1-O301 closed.
 Now: one [release/authority/installation package](stage-8/stage8b-p1f-o3-release-installation.md),
 with unchanged accepted Rust/five release ELFs, a narrowly corrected supervisor
