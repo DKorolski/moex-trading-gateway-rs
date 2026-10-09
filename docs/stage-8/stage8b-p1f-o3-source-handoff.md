@@ -1,12 +1,20 @@
-# O3 source review: fixed composition and local production proof
+# O3 source review: early-shutdown correction and local production proof
 
 2026-10-09. **SOURCE REVIEW CANDIDATE, NOT operational O3 acceptance.**
 Predecessor: preparation ACCEPT `bc9813434b35238e9e6e861476cab2aaf3fc72a2`.
 O2 remains CLOSED at installation `2d67937`, historical COMPLETED/1/26.
 
+Current narrow re-review compares against SOURCE HOLD
+`6f0a6bf8f49a57272ce6a20024f57743b6b11e1d`.
+Read the [P1-O301 correction and exact process matrix](stage8b-p1f-o3-shutdown-correction.md)
+first. The earlier positive run7 is not reused as correction evidence:
+the ZIP contains fresh components-run4 / production-run4 with actual
+SIGTERM/SIGINT startup cases, negative controls and positive production replay.
+
 ## Reviewer entry
 
-Review the delta from bc98134, not the accepted migration history. Main changes:
+Preparation-to-source context (already reviewed except P1-O301), not a request
+to re-audit history. Main earlier changes:
 fixed O3 child and guardian claim, constrained AF_UNIX schedule signer,
 separate fresh DB15 initializer, retained Published V2 decision/successor
 window, and ordinary semantic continuation after canonical P1-d2 Market truth.
@@ -16,8 +24,10 @@ attempts and the narrow corrections rather than relabelling them successful.
 
 Read the ZIP's `o3-source/descriptor.json`, then:
 
-- `evidence/components/result.json`: 23 exact selectors + fmt, production
-  build, strict clippy and diff check = 27 recorded passing checks.
+- `evidence/components/result.json`: 28 exact selectors + fmt, production
+  build, strict clippy and diff check = 32 recorded passing checks.
+- `evidence/production/o301/`: two deterministic real-signal startup cases
+  and two expected-failure missing-latch controls, exact logs and state hashes.
 - `evidence/production/result.json`: one completed paper Market lifecycle,
   both M10 source rows XACKed, Hybrid position +1, ACK/truth sequences 1/2,
   SIGKILL of the exact child, ordinary restart with identical journal/seal/
@@ -31,8 +41,9 @@ Read the ZIP's `o3-source/descriptor.json`, then:
   must match exactly. Only the explicitly enumerated documentation/packaging
   additions may differ after qualification; differences retain old/new hashes.
 
-The full core suite (1302 passed) and durable suite (433 passed, 17 ignored)
-were supplemental console checks, not retained-log acceptance evidence.
+The predecessor's full core suite (1302 passed) and durable suite (433 passed,
+17 ignored) were supplemental console checks, NOT rerun/claimed for this
+correction and not retained-log acceptance evidence.
 All 13 operational matrix rows remain NOT_RUN. A successful local normal
 Market+restart proof does not prove every rare VPS crash frontier.
 
@@ -46,8 +57,8 @@ python3 -B scripts/test_stage8b_p1f_o3_source_handoff.py
 The tree-reconstruction unit test needs a Git checkout; archive verification
 does not. The ZIP binds its full source Git tree including executable modes,
 all evidence bytes, both qualified snapshots and the actual result/log hashes.
-The 7 packaging tests include source drift, altered service commands/retry,
-secret filenames, invalid rendering and Git mode drift. Safety scanning is
+The 8 packaging tests include source drift, altered service commands/retry,
+secret filenames, invalid rendering, Git mode drift and missing O301 evidence. Safety scanning is
 an inventory/filename/PEM check, not a mathematical proof of absence of secrets.
 Service templates passed these static contract checks only: systemd-analyze
 was not available in the local qualification image, and dynamic systemd
@@ -76,7 +87,7 @@ Fixed executable slots (root-owned 0755; future reviewed artifact hashes):
 Do not deploy the fixture example or invoke bootstrap. The installation
 successor must bind release ELF hashes, service bytes and old/new inventory;
 the operator source was covered by component clippy/all-targets, not invoked
-by the local run7 production-runtime build. Do not claim run7 qualified its ELF.
+by the local production-runtime build. Do not claim this witness qualified its ELF.
 
 Public inputs, root-owned regular files (0440, paper group, no symlinks):
 `/etc/moex-finam-p1-paper/o3/{phase-manifest.signed.json,composition.json,initial-schedule.json}`,
@@ -142,7 +153,7 @@ outer backstop, not a new guardian grace. No automatic signer/parent restart.
 
 ## Honest qualification boundary and next steps
 
-Run7 used a disposable LOCAL root made by ordinary production bootstrap,
+The correction's run4 used a disposable LOCAL root made by ordinary production bootstrap,
 recent explicitly synthetic history and the real gen2 schedule trust set.
 It did NOT replace/rebootstrap the accepted VPS O2 root. It proves the source
 composition, not that a selected operational fixture produces a trade against

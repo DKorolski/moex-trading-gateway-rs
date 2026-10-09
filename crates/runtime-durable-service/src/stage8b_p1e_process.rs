@@ -4518,12 +4518,34 @@ pub async fn execute_stage8b_p1e_process_command_v1(
 pub async fn execute_stage8b_p1e_observed_run_v1(
     window: crate::Stage8bP1ObservedPublishedWindow,
 ) -> Result<Stage8bP1eProcessSuccessV1, Stage8bP1eProcessErrorV1> {
+    execute_stage8b_p1e_observed_run_with_shutdown_v1(window, Stage8bP1eCoordinatorV1::new()).await
+}
+
+/// In-process O3 handoff of the EXISTING first-wins shutdown coordinator.
+/// The composition retains its latch before constructing/polling this future.
+/// This transfers no source/owner authority and introduces no clock or CLI input.
+pub async fn execute_stage8b_p1e_observed_run_with_shutdown_v1(
+    window: crate::Stage8bP1ObservedPublishedWindow,
+    coordinator: Stage8bP1eCoordinatorV1,
+) -> Result<Stage8bP1eProcessSuccessV1, Stage8bP1eProcessErrorV1> {
+    reject_pre_admission_shutdown(&coordinator)?;
     let supervisor = load_validated_supervisor(
         Path::new(STAGE8B_P1E_SUPERVISOR_CONFIG_PATH),
         Path::new(STAGE8B_P1E_BOOT_ID_PATH),
         0,
     )?;
-    execute_run_with_observed_window(supervisor, Utc::now(), Some(window)).await
+    execute_run_with_shutdown(supervisor, Utc::now(), Some(window), coordinator).await
+}
+
+fn reject_pre_admission_shutdown(
+    coordinator: &Stage8bP1eCoordinatorV1,
+) -> Result<(), Stage8bP1eProcessErrorV1> {
+    if coordinator.shutdown_intent().is_some() {
+        // No authenticated owner exists: preserve the existing conservative
+        // pre-admission exit class, not an invented authenticated exit-0 stop.
+        return Err(Stage8bP1eProcessErrorV1::DurableRestart);
+    }
+    Ok(())
 }
 
 async fn execute_with_boundaries(
@@ -5224,6 +5246,24 @@ async fn execute_run_with_observed_window(
     trusted_now: DateTime<Utc>,
     window: Option<crate::Stage8bP1ObservedPublishedWindow>,
 ) -> Result<Stage8bP1eProcessSuccessV1, Stage8bP1eProcessErrorV1> {
+    execute_run_with_shutdown(
+        supervisor,
+        trusted_now,
+        window,
+        Stage8bP1eCoordinatorV1::new(),
+    )
+    .await
+}
+
+async fn execute_run_with_shutdown(
+    supervisor: Stage8bP1eValidatedSupervisorConfigV1,
+    trusted_now: DateTime<Utc>,
+    window: Option<crate::Stage8bP1ObservedPublishedWindow>,
+    coordinator: Stage8bP1eCoordinatorV1,
+) -> Result<Stage8bP1eProcessSuccessV1, Stage8bP1eProcessErrorV1> {
+    // Also cover a stop accepted during synchronous config loading. This is
+    // the same latch the composition and the ordinary owner/supervisor see.
+    reject_pre_admission_shutdown(&coordinator)?;
     if window.is_some() && !supervisor.bootstrap().observed_source_policy() {
         return Err(Stage8bP1eProcessErrorV1::Config);
     }
@@ -5236,7 +5276,6 @@ async fn execute_run_with_observed_window(
     let interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
         .map_err(|_| Stage8bP1eProcessErrorV1::SignalTaskFailed)?;
     let shutdown_grace_ms = supervisor.shutdown_grace_ms();
-    let coordinator = Stage8bP1eCoordinatorV1::new();
     let latch = coordinator.shutdown_latch();
     // Process supervision owns the audit sink. It therefore survives every
     // early owner return and a grace-deadline abort, and can always emit the
@@ -6695,6 +6734,21 @@ async fn stage8b_p1f_ie_run_linked_composition(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn o3_retained_stop_rejects_before_admission_and_preserves_intent() {
+        let coordinator = Stage8bP1eCoordinatorV1::new();
+        assert!(reject_pre_admission_shutdown(&coordinator).is_ok());
+        let latch = coordinator.shutdown_latch();
+        let intent =
+            Stage8bP1eShutdownIntentV1::new(Stage8bP1eShutdownCauseV1::ExternalSignal, 123_456, 1);
+        assert!(latch.request(intent.clone()));
+        assert!(matches!(
+            reject_pre_admission_shutdown(&coordinator),
+            Err(Stage8bP1eProcessErrorV1::DurableRestart)
+        ));
+        assert_eq!(coordinator.shutdown_intent(), Some(&intent));
+    }
     use std::{
         collections::BTreeMap,
         ffi::CString,

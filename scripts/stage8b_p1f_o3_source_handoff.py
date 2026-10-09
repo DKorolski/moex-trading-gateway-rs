@@ -15,10 +15,12 @@ import stat
 import subprocess
 import sys
 import zipfile
+from stage8b_p1f_o3_shutdown_witness import CASES as O301_CASES, PREFIX as O301_PREFIX
 
 ROOT = Path(__file__).resolve().parents[1]
 PREFIX = "o3-source/"
 BASE = "bc9813434b35238e9e6e861476cab2aaf3fc72a2"
+CORRECTION_BASE = "6f0a6bf8f49a57272ce6a20024f57743b6b11e1d"
 TEMPLATES = "deploy/stage8b-p1f-o3/"
 UNITS = ("moex-finam-p1f-o3-signer", "moex-finam-p1f-o3-supervisor")
 REVIEW = "docs/stage-8/reviews/REVIEW_bc98134_O3_PREPARATION_AND_MINIMAL_SCOPE_20261008_RU.txt"
@@ -27,13 +29,15 @@ POST_PROOF = {
     "docs/current-status.md", "docs/roadmap.md",
     "docs/stage-8/stage8b-p1f-o3-source-progress.md",
     "docs/stage-8/stage8b-p1f-o3-source-handoff.md", REVIEW,
+    "docs/stage-8/stage8b-p1f-o3-shutdown-correction.md",
+    "docs/stage-8/reviews/REVIEW_6f0a6bf_O3_SOURCE_HOLD_20261009_RU.txt",
     "scripts/stage8b_p1f_o3_source_handoff.py",
     "scripts/test_stage8b_p1f_o3_source_handoff.py",
     *(TEMPLATES + name + ".service.in" for name in UNITS),
 }
 RESULT_PINS = {
-    "components": "ecbb7627048778a604f7df07e81f5eef0103ea600e70c7c398dd625da8044cc1",
-    "production": "1dbba38a817bcfbe7b794f185056c4c3f2ba5bd422eb30b602960373be4cd3c8",
+    "components": "e9819ec36f630008aa7d6a480b768c88bde4fe55adc3f6a8e3147a944065d04e",
+    "production": "9730d8fac191c65e49559bf1dff2f59398728522ea2dadbd03b44f0a29bc6b84",
 }
 
 
@@ -127,6 +131,48 @@ def bind_source(files, read):
     return result
 
 
+def o301_check(value, read):
+    proof = value.get("o301_early_shutdown", {})
+    require(proof.get("all_passed") is True
+            and proof.get("deterministic_datagram_barrier") is True
+            and proof.get("test_elf_not_production") is True, "O301 proof boundary")
+    cases = proof.get("cases", [])
+    require(len(cases) == len(O301_CASES), "O301 missing case")
+    for recorded, (label, name, mutation) in zip(cases, O301_CASES):
+        selector = O301_PREFIX + name
+        require(recorded["selector"] == selector and recorded["harness_exit"] == 0
+                and recorded["negative_control"] is mutation
+                and recorded["child_exit"] == (101 if mutation else 0), "O301 selector/exit")
+        prefix = "evidence/production/o301/" + label + "/"
+        raw = read(prefix + "result.json")
+        require(sha(raw) == recorded["evidence_sha256"], "O301 result hash")
+        case = json.loads(raw)
+        require(case["disconnected_latch_mutation"] is mutation
+                and case["child_exit_code"] == recorded["child_exit"]
+                and case["signal"] == recorded["signal"] == label.split("-")[0]
+                and case["durable_root_and_bootstrap_unchanged"] is True
+                and case["producer_checkpoint_retained"] is True
+                and case["redis_before"] == case["redis_after"]
+                and case["fresh_runtime_admission"] is False
+                and case["callback_effects"] == 0 and case["force_kill"] is False,
+                "O301 zero-effect invariant")
+        log = read("evidence/production/o301-process-" + label + ".log")
+        require(f"test {selector} ...".encode() in log
+                and b"test result: ok. 1 passed; 0 failed; 0 ignored;" in log,
+                "O301 exact parent log")
+        if mutation:
+            require(b"P1-O301: stop accepted without retained runtime intent" in
+                    read(prefix + "child.stderr"), "O301 negative diagnostic")
+        else:
+            require(case["stop_accepted_before_release"] is True
+                    and case["accepted"]["cause"] == "ExternalSignal"
+                    and case["accepted"]["first_sequence"] == 1
+                    and b"O301_ZERO_ADMISSION_STOP runtime_exit_class=66" in
+                    read(prefix + "child.stdout"), "O301 retained stop")
+            require(log.index(b"STOP_ACCEPTED") < log.index(b"RUNTIME_RELEASED"),
+                    "O301 event ordering")
+
+
 def evidence_check(read):
     for label, pin in RESULT_PINS.items():
         raw = read(f"evidence/{label}/result.json")
@@ -137,15 +183,16 @@ def evidence_check(read):
                 label + " evidence boundary")
         if label == "components":
             records = value["records"]
-            require(value["all_component_checks_passed"] is True and len(records) == 27,
+            require(value["all_component_checks_passed"] is True and len(records) == 32,
                     "component count/result")
-            require(sum(r["selector"] is not None for r in records) == 23, "exact selectors")
+            require(sum(r["selector"] is not None for r in records) == 28, "exact selectors")
             for r in records:
                 require(r["passed"] is True and r["exit_code"] == 0, "component failure")
                 require(sha(read("evidence/components/" + r["log"])) == r["log_sha256"],
                         "component log mismatch")
         else:
             require(value["verdict"] == "PASS_LOCAL_PRODUCTION_PAPER_LIFECYCLE", "linked verdict")
+            o301_check(value, read)
             for name, digest in value["evidence_files_sha256"].items():
                 require(sha(read("evidence/production/" + name)) == digest, "production evidence drift")
             require(value["parent_exit_code"] == 0 and value["child_restart"] is True
@@ -182,7 +229,8 @@ def verify(path):
         d = json.loads(z.read(PREFIX + "descriptor.json"))
         require(re.fullmatch("[0-9a-f]{40}", d["commit"])
                 and re.fullmatch("[0-9a-f]{40}", d["parent"])
-                and d["accepted_baseline"] == BASE, "lineage")
+                and d["accepted_baseline"] == BASE
+                and d["correction_review_baseline"] == CORRECTION_BASE, "lineage")
         require(tree_hash(files, modes) == d["git_tree"], "Git tree binding")
         require(d["operational_ready"] is False and d["installation_authorized"] is False,
                 "false operational claim")
@@ -230,6 +278,8 @@ def package(args):
     require(git("status", "--porcelain") == b"", "commit source first; dirty tree")
     commit = git("rev-parse", "HEAD").decode().strip()
     require(git("merge-base", "HEAD", BASE).decode().strip() == BASE, "source baseline changed")
+    require(git("merge-base", "HEAD", CORRECTION_BASE).decode().strip() == CORRECTION_BASE,
+            "correction review baseline changed")
     archive = f"moex-trading-project-{commit[:7]}-o3-source.zip"
     payload, modes = {}, tracked_modes()
     with zipfile.ZipFile(io.BytesIO(git("archive", "--format=zip", "HEAD"))) as source:
@@ -273,6 +323,7 @@ def package(args):
              repository="https://github.com/DKorolski/moex-trading-gateway-rs",
              branch=git("branch", "--show-current").decode().strip(), commit=commit,
              parent=git("rev-parse", "HEAD^").decode().strip(), accepted_baseline=BASE,
+             correction_review_baseline=CORRECTION_BASE,
              git_tree=git("rev-parse", "HEAD^{tree}").decode().strip(), archive=archive,
              operational_ready=False, installation_authorized=False,
              main_changed=False, pushed=False, result_sha256=RESULT_PINS,
@@ -303,11 +354,13 @@ def package(args):
         "Stage 8B-P1-f O3 — SOURCE REVIEW CANDIDATE\n"
         f"Repository: {d['repository']}\nBranch: {d['branch']}\nCommit: {commit}\n"
         f"Archive: {archive}\nSHA-256: {safety['archive_sha256']}\n"
-        f"Compare against accepted preparation: {BASE}\n"
+        f"Correction compare against SOURCE HOLD: {CORRECTION_BASE}\n"
+        f"Accepted preparation ancestor: {BASE}\n"
         "Read first: docs/stage-8/stage8b-p1f-o3-source-handoff.md inside ZIP.\n"
-        "Evidence: 23 exact tests + fmt/build/clippy/diff; local production Linux paper "
+        "Evidence: 28 exact tests + fmt/build/clippy/diff; SIGTERM/SIGINT early-stop "
+        "process cases and two disconnected-latch negative controls; local production Linux paper "
         "Market, successor M10, SIGKILL/restart, graceful stop.\n"
-        "7 offline packaging tests; exact Git tree, source/evidence hashes and ZIP safety verified.\n"
+        "8 offline packaging tests; exact Git tree, source/evidence hashes and ZIP safety verified.\n"
         "Linux debug production-feature proof, NOT a release/installation artifact.\n"
         "O2 accepted root/history untouched. O3 operational 13/13 NOT_RUN.\n"
         "No VPS/DB0/FINAM execution, signing of operational phase, push/merge or CI.\n"

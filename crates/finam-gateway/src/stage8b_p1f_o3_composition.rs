@@ -6,6 +6,9 @@ use chrono::{DateTime, Utc};
 use runtime_durable_service as durable;
 use tokio::sync::watch;
 
+#[cfg(test)]
+mod shutdown_tests;
+
 pub(crate) mod authority;
 mod inputs;
 pub(crate) mod producers;
@@ -108,23 +111,37 @@ pub async fn run_fixed(manifest_sha256: &str) -> Result<(), O3Error> {
             return Err(error);
         }
     };
-    // Keep the ordinary future alive during publisher failure: SIGTERM asks
-    // the existing runtime to drain. Do not cancel/drop a pending durable step.
-    let runtime = durable::execute_stage8b_p1e_observed_run_v1(window);
+    // The latch exists BEFORE the lazy runtime future. A signal consumed here
+    // is retained even if runtime has not registered its own signal receivers.
+    let coordinator = durable::Stage8bP1eCoordinatorV1::new();
+    let latch = coordinator.shutdown_latch();
+    #[cfg(test)]
+    let barrier = shutdown_tests::HandoffBarrier::new();
+    let runtime = async {
+        #[cfg(test)]
+        barrier.release().await;
+        durable::execute_stage8b_p1e_observed_run_with_shutdown_v1(window, coordinator).await
+    };
     tokio::pin!(runtime);
     let result = tokio::select! {
         biased;
         _ = terminate.recv() => {
             let _ = stop.send(true);
+            retain_shutdown(&latch, inputs.shutdown_grace_ms, durable::Stage8bP1eShutdownCauseV1::ExternalSignal);
+            #[cfg(test)]
+            barrier.accepted(&latch, "SIGTERM");
             runtime.await.map(|_| ()).map_err(O3Error::Runtime)
         },
         _ = interrupt.recv() => {
             let _ = stop.send(true);
+            retain_shutdown(&latch, inputs.shutdown_grace_ms, durable::Stage8bP1eShutdownCauseV1::ExternalSignal);
+            #[cfg(test)]
+            barrier.accepted(&latch, "SIGINT");
             runtime.await.map(|_| ()).map_err(O3Error::Runtime)
         },
         result = &mut runtime => result.map(|_| ()).map_err(O3Error::Runtime),
         _ = &mut publisher => {
-            unsafe { libc::raise(libc::SIGTERM); }
+            retain_shutdown(&latch, inputs.shutdown_grace_ms, durable::Stage8bP1eShutdownCauseV1::OwnerFailure);
             let _ = runtime.await;
             Err(O3Error::Producer)
         }
@@ -137,6 +154,26 @@ pub async fn run_fixed(manifest_sha256: &str) -> Result<(), O3Error> {
         let _ = publisher.await;
     }
     result
+}
+
+fn retain_shutdown(
+    latch: &durable::Stage8bP1eShutdownLatchV1,
+    grace_ms: u64,
+    cause: durable::Stage8bP1eShutdownCauseV1,
+) {
+    #[cfg(test)]
+    if shutdown_tests::disconnect_latch_mutation() {
+        return;
+    }
+    // OnceLock is the existing first-wins rule. Never reset cause or grace on
+    // another signal. A live durable future is awaited, not cancelled/dropped.
+    latch.request(durable::Stage8bP1eShutdownIntentV1::new(
+        cause,
+        Utc::now()
+            .timestamp_millis()
+            .saturating_add(grace_ms as i64),
+        1,
+    ));
 }
 
 pub(crate) fn now_before(deadline: DateTime<Utc>) -> Result<DateTime<Utc>, O3Error> {

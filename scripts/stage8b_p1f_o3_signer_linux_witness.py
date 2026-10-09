@@ -39,7 +39,11 @@ def main():
     parser.add_argument("--authorized-local-schedule-key-use", action="store_true", required=True)
     parser.add_argument("--linked-runtime", action="store_true",
                         help="operator-authorized recent synthetic input and disposable production bootstrap/runtime")
+    parser.add_argument("--early-shutdown-regressions", action="store_true",
+                        help="real SIGTERM/SIGINT at deterministic Published-window barrier; test ELF only")
     args = parser.parse_args()
+    if args.early_shutdown_regressions and not args.linked_runtime:
+        parser.error("--early-shutdown-regressions requires --linked-runtime")
     key = args.schedule_key.absolute()
     metadata = key.lstat()
     if (not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1
@@ -65,7 +69,8 @@ def main():
 
     def run(label, command, expected=0):
         print(f"RUN {label}", flush=True)
-        done = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=600 if label.startswith("build-") else 60)
+        timeout = 1100 if label.startswith("o301-process-") else (600 if label.startswith("build-") else 60)
+        done = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
         # Commands/credential source paths are intentionally not retained.
         (output / (label + ".log")).write_bytes(done.stdout)
         result["checks"].append(dict(name=label, exit_code=done.returncode,
@@ -103,6 +108,9 @@ def main():
         # Examples activate dev-dependency features under resolver=2. Building
         # --example and --bin together would contaminate the signer build.
         run("build-fixture-client", build_prefix + ["--example","o3_local_signer_witness"])
+        if args.early_shutdown_regressions:
+            from stage8b_p1f_o3_shutdown_witness import build_tests
+            test_elf = build_tests(run, build_prefix, output)
         production_build = run("build-production-signer", build_prefix + ["--bin","stage8b-p1f-o3-signer",
             "--bin","stage8b-p1f-o3-provisioner","--bin","stage8b-p1f-o3-composition"])
         expected = {"finam_gateway", "runtime_durable_service", "strategy_runtime_core"}
@@ -262,6 +270,9 @@ def main():
         result["missing_or_conflicting_checkpoint_rejected_before_redis"] = True
         result["runtime_missing_checkpoint_does_not_start_first_publication"] = True
         if args.linked_runtime:
+            if args.early_shutdown_regressions:
+                from stage8b_p1f_o3_shutdown_witness import early_shutdown
+                early_shutdown(run, docker, name, phase, test_elf, output, result)
             from stage8b_p1f_o3_runtime_witness import witness
             witness(docker, name, redis_name, phase, output, result, inside, redis, signer)
             # The terminal guardian head may already have stopped the signer.

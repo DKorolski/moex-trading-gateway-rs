@@ -27,6 +27,14 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
+2026-10-09 P1-O301 correction is ready for focused source re-review against
+held source `6f0a6bf`; see [retained shutdown evidence](stage-8/stage8b-p1f-o3-shutdown-correction.md).
+No new design macro-stage or supervision framework. Early stop and normal
+production lifecycle are locally qualified; O3 operation remains NOT_RUN.
+After SOURCE ACCEPT: exact artifact/authority/install package → authorized
+stopped update preserving O2 → authorized bounded O3 → O4 WS/EOD/ALOR parity.
+No GitHub operation or deployment is part of this source correction.
+
 2026-10-09 O3 source candidate: fixed executable composition is implemented and
 qualified in a local production-process witness (paper Market, next M10,
 SIGKILL/readmission, graceful stop). See the

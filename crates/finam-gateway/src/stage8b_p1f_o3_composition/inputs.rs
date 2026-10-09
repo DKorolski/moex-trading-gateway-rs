@@ -66,6 +66,7 @@ pub(crate) struct AdmittedInputs {
     pub manifest_sha256: String,
     pub not_before: DateTime<Utc>,
     pub deadline: DateTime<Utc>,
+    pub shutdown_grace_ms: u64,
 }
 
 impl AdmittedInputs {
@@ -213,6 +214,7 @@ impl AdmittedInputs {
             manifest_sha256: expected.into(),
             not_before,
             deadline,
+            shutdown_grace_ms: validated.shutdown_grace_ms(),
         })
     }
 }

@@ -2,6 +2,18 @@
 
 Status date: 2026-10-09.
 
+2026-10-09 correction: O3 source `6f0a6bf` received **SOURCE HOLD, P1-O301 only**.
+The [early-shutdown correction](stage-8/stage8b-p1f-o3-shutdown-correction.md)
+passes one existing coordinator/latch across composition → lazy runtime and
+rejects retained stop before admission. Fresh retained evidence: 28 exact tests
+plus fmt/build/clippy/diff; real SIGTERM/SIGINT barrier cases plus two mutation
+controls; ordinary production Market → successor → restart → graceful stop.
+This is a focused SOURCE RE-REVIEW CANDIDATE, not independent acceptance.
+All O3 operational rows remain NOT_RUN; O2/VPS/P0 unchanged. No installation,
+push/merge, CI, DB0 or FINAM access. After source acceptance: one exact artifact/
+installation package, permitted stopped update and separately permitted O3.
+Earlier entries below retain history.
+
 2026-10-09: [O3 source review candidate](stage-8/stage8b-p1f-o3-source-handoff.md)
 contains a fixed composition, production constrained signer and separate DB15
 initializer. Local Linux production-process run7 passed one paper Market,

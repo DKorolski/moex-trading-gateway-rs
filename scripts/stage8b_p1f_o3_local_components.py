@@ -17,6 +17,11 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 TESTS = [
+    ("finam-gateway", "stage8b_p1f_o3_composition::shutdown_tests::o3_shutdown_handoff_preserves_first_cause_and_deadline"),
+    ("runtime-durable-service", "stage8b_p1e_process::tests::o3_retained_stop_rejects_before_admission_and_preserves_intent"),
+    ("runtime-durable-service", "stage8b_p1e_process::tests::process_supervisor_observes_telemetry_intent_without_os_signal"),
+    ("runtime-durable-service", "stage8b_p1e_process::tests::process_supervisor_uses_retained_telemetry_deadline_without_extension"),
+    ("runtime-durable-service", "stage8b_p1e_process::tests::process_wrapper_keeps_owner_panic_fatal_precedence"),
     ("runtime-durable-service", "stage8b_p1e_process::tests::o3_post_market_successor_preserves_position_and_commits_before_xack"),
     ("finam-gateway", "stage8b_p1f_fixed_producers::tests::observed_linked::observed_synthetic_sparse_history_fractional_source_paper_restart"),
     ("finam-gateway", "stage8b_p1f_fixed_producers::tests::observed_linked::observed_flat_local_history_earliest_bo_window_paper_truth_xack_restart"),

@@ -79,6 +79,15 @@ class PackagingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             h.evidence_check(lambda _: b'{"all_component_checks_passed": true}')
 
+    def test_o301_cannot_be_replaced_by_old_positive_lifecycle_or_empty_matrix(self):
+        with self.assertRaises(ValueError):
+            h.o301_check({"verdict": "PASS_LOCAL_PRODUCTION_PAPER_LIFECYCLE"}, lambda _: b"")
+        with self.assertRaises(ValueError):
+            h.o301_check({"o301_early_shutdown": {
+                "all_passed": True, "deterministic_datagram_barrier": True,
+                "test_elf_not_production": True, "cases": [],
+            }}, lambda _: b"")
+
     def test_git_tree_reconstructed_including_modes(self):
         files, modes = {}, {}
         with zipfile.ZipFile(io.BytesIO(h.git("archive", "--format=zip", "HEAD"))) as z:
