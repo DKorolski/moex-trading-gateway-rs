@@ -573,6 +573,8 @@ pub(crate) async fn published_window(
         &expected_bytes(&inputs.plan.decision, decision.binding())?,
         &expected_bytes(&inputs.plan.successor, successor.binding())?,
     )
+    .map_err(|_| O3Error::Input)?
+    .with_o3_paper_source(inputs.paper_source.clone())
     .map_err(|_| O3Error::Input)
 }
 

@@ -3200,11 +3200,41 @@ impl P1SemanticPrepublicationPending {
             .is_some_and(|check| check.matches(binding))
     }
 
+    pub(crate) fn o3_source_seal(&self) -> &str {
+        self.committed_s0.seal_commitment_sha256()
+    }
+
+    pub(crate) fn replay_o3_permit(
+        &self,
+        binding: &Stage5gP1SemanticBindingInput,
+        bytes: &[u8],
+        scope: &strategy_runtime_core::stage8b_o3_readmission::Stage8bO3PaperScope,
+    ) -> Result<
+        strategy_runtime_core::stage8b_o3_readmission::Stage8bO3PaperPermit,
+        Stage7bRecoveryError,
+    > {
+        self.source_check
+            .as_ref()
+            .ok_or(Stage7bRecoveryError::SealInvalid)?
+            .replay_o3_permit(binding, bytes, scope)
+            .map_err(|_| Stage7bRecoveryError::SealInvalid)
+    }
+
     pub(crate) fn complete_with_exact_semantic_input(
         self,
         accepted_bar: Stage5cAcceptedSemanticBar,
         binding: Stage5gP1SemanticBindingInput,
         commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Stage8bP1SemanticPrepublicationOwner, Stage7bRecoveryError> {
+        self.complete_with_exact_semantic_input_o3(accepted_bar, binding, commitment_key, None)
+    }
+
+    pub(crate) fn complete_with_exact_semantic_input_o3(
+        self,
+        accepted_bar: Stage5cAcceptedSemanticBar,
+        binding: Stage5gP1SemanticBindingInput,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+        o3: Option<strategy_runtime_core::stage8b_o3_readmission::Stage8bO3PaperPermit>,
     ) -> Result<Stage8bP1SemanticPrepublicationOwner, Stage7bRecoveryError> {
         if binding.operational_identity_sha256 != self.committed_s0.operational_identity_sha256() {
             return Err(Stage7bRecoveryError::SealInvalid);
@@ -3247,13 +3277,24 @@ impl P1SemanticPrepublicationPending {
             self.fresh_runtime,
             Stage6OwnedJournalBackend::from_memory(prefix),
         )?;
-        let transition = apply_stage8b_p1_semantic_transition(
-            prefix_recovered,
-            accepted_bar,
-            binding,
-            s0_source,
-            commitment_key,
-        )?;
+        let transition = if let Some(permit) = o3 {
+            strategy_runtime_core::apply_stage8b_o3_semantic_transition(
+                prefix_recovered,
+                accepted_bar,
+                binding,
+                s0_source,
+                permit,
+                commitment_key,
+            )?
+        } else {
+            apply_stage8b_p1_semantic_transition(
+                prefix_recovered,
+                accepted_bar,
+                binding,
+                s0_source,
+                commitment_key,
+            )?
+        };
         let Stage6Stage8bP1SemanticTransition::OneIntentPrepublication {
             recovered: replayed,
             stage5g_restart_package,
@@ -3847,10 +3888,49 @@ impl Stage7bRecoveryReadyOwner {
     /// continuation state.  P1-b deliberately returns no Redis publication or
     /// provider method.
     pub(crate) fn commit_stage8b_p1_semantic(
+        self,
+        accepted_bar: Stage5cAcceptedSemanticBar,
+        binding: Stage5gP1SemanticBindingInput,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Stage8bP1SemanticCommitOutcome, Stage7bRecoveryError> {
+        self.commit_stage8b_p1_semantic_o3(accepted_bar, binding, commitment_key, None)
+    }
+
+    pub(crate) fn o3_decision_binding(
+        &self,
+        binding: &Stage5gP1SemanticBindingInput,
+        source_hash: &str,
+    ) -> Result<
+        strategy_runtime_core::stage8b_o3_readmission::Stage8bO3DecisionBinding,
+        Stage7bRecoveryError,
+    > {
+        self.writer_lease.validate_namespace()?;
+        let source = Stage6Stage8bP1SealSourceV1 {
+            seal_generation: self.committed_seal.seal_generation(),
+            seal_commitment_sha256: self.committed_seal.seal_commitment_sha256().into(),
+            stage6_checkpoint_sha256: self
+                .committed_seal
+                .stage6_checkpoint()
+                .checkpoint_sha256()
+                .into(),
+            stage6_frontier_sha256: stage6_frontier_fingerprint_sha256(
+                self.committed_seal.stage6_checkpoint().frontier(),
+            )?
+            .as_str()
+            .into(),
+            operational_identity_sha256: self.committed_seal.operational_identity_sha256().into(),
+        };
+        Ok(self
+            .recovered
+            .stage8b_o3_decision_binding(&source, binding, source_hash)?)
+    }
+
+    pub(crate) fn commit_stage8b_p1_semantic_o3(
         mut self,
         accepted_bar: Stage5cAcceptedSemanticBar,
         binding: Stage5gP1SemanticBindingInput,
         commitment_key: &Stage5gLifecycleCommitmentKey,
+        o3: Option<strategy_runtime_core::stage8b_o3_readmission::Stage8bO3PaperPermit>,
     ) -> Result<Stage8bP1SemanticCommitOutcome, Stage7bRecoveryError> {
         self.require_lifecycle_available()?;
         self.revalidate_cached_committed_seal(commitment_key)?;
@@ -3895,7 +3975,16 @@ impl Stage7bRecoveryReadyOwner {
                     | Stage6Stage8bP1d3RestartPhase::SemanticCallbackCommitted
             )
         );
-        let transition = if p1d3_terminal_continuation
+        let transition = if let Some(permit) = o3 {
+            strategy_runtime_core::apply_stage8b_o3_semantic_transition(
+                recovered,
+                accepted_bar,
+                binding,
+                source,
+                permit,
+                commitment_key,
+            )?
+        } else if p1d3_terminal_continuation
             || recovered.stage8b_p1d2_truth_frontier_is_authenticated()
         {
             strategy_runtime_core::apply_stage8b_p1d3_semantic_transition(
@@ -6090,10 +6179,22 @@ impl Stage7bRecoveryReadyOwner {
 #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
 #[doc(hidden)]
 pub fn stage8b_p1_test_stop_after_request_accepted(
+    owner: Stage7bRecoveryReadyOwner,
+    accepted_bar: Stage5cAcceptedSemanticBar,
+    binding: Stage5gP1SemanticBindingInput,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1SemanticCommitEvidenceV1, Stage7bRecoveryError> {
+    stage8b_o3_test_stop_after_request_accepted(owner, accepted_bar, binding, commitment_key, None)
+}
+
+#[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
+#[doc(hidden)]
+pub fn stage8b_o3_test_stop_after_request_accepted(
     mut owner: Stage7bRecoveryReadyOwner,
     accepted_bar: Stage5cAcceptedSemanticBar,
     binding: Stage5gP1SemanticBindingInput,
     commitment_key: &Stage5gLifecycleCommitmentKey,
+    o3: Option<strategy_runtime_core::stage8b_o3_readmission::Stage8bO3PaperPermit>,
 ) -> Result<Stage6Stage8bP1SemanticCommitEvidenceV1, Stage7bRecoveryError> {
     owner.require_lifecycle_available()?;
     owner.revalidate_cached_committed_seal(commitment_key)?;
@@ -6125,13 +6226,24 @@ pub fn stage8b_p1_test_stop_after_request_accepted(
         writer_lease,
         ..
     } = owner;
-    let transition = apply_stage8b_p1_semantic_transition(
-        recovered,
-        accepted_bar,
-        binding,
-        source,
-        commitment_key,
-    )?;
+    let transition = if let Some(permit) = o3 {
+        strategy_runtime_core::apply_stage8b_o3_semantic_transition(
+            recovered,
+            accepted_bar,
+            binding,
+            source,
+            permit,
+            commitment_key,
+        )?
+    } else {
+        apply_stage8b_p1_semantic_transition(
+            recovered,
+            accepted_bar,
+            binding,
+            source,
+            commitment_key,
+        )?
+    };
     let Stage6Stage8bP1SemanticTransition::OneIntentPrepublication {
         recovered,
         evidence,

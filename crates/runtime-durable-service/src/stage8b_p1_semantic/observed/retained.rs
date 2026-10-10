@@ -13,7 +13,7 @@ use std::{
 const MAX_RECEIPT_BYTES: u64 = 16 * 1024 * 1024;
 static TEMP: AtomicU64 = AtomicU64::new(1);
 
-fn path(parent: &Path, hash: &str) -> Result<PathBuf, Stage8bP1CanonicalM10Error> {
+pub(super) fn path(parent: &Path, hash: &str) -> Result<PathBuf, Stage8bP1CanonicalM10Error> {
     if !is_sha256(hash) {
         return Err(Stage8bP1CanonicalM10Error::DigestMismatch);
     }
@@ -24,7 +24,7 @@ fn path(parent: &Path, hash: &str) -> Result<PathBuf, Stage8bP1CanonicalM10Error
     Ok(parent.join(format!("stage8b-observed-receipt-{hash}.json")))
 }
 
-fn read(path: &Path) -> Result<Vec<u8>, Stage8bP1CanonicalM10Error> {
+pub(super) fn read(path: &Path) -> Result<Vec<u8>, Stage8bP1CanonicalM10Error> {
     let invalid = Stage8bP1CanonicalM10Error::Decode;
     let mut file = OpenOptions::new()
         .read(true)

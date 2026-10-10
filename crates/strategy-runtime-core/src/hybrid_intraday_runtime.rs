@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+mod session_catchup;
+
 use broker_core::{BrokerOrderId, BrokerStopOrderId, StrategyRequestId};
 use chrono::{
     Datelike, Duration as ChronoDuration, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime,
@@ -4297,7 +4299,7 @@ mod tests {
     // These successor tests deliberately leave the accepted High180/lb120
     // frozen test above unchanged. Read the actual V2 semantic values without
     // introducing a core -> durable-service dependency.
-    fn frozen_baseline07_no_riskgate_profile_v2_config() -> HybridIntradayRuntimeConfig {
+    pub(super) fn frozen_baseline07_no_riskgate_profile_v2_config() -> HybridIntradayRuntimeConfig {
         let profile: serde_json::Value = serde_json::from_str(include_str!(
             "../../../docs/stage-8/stage8b-p1e-runtime-profile-v2.json"
         ))

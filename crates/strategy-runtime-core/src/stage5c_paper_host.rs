@@ -1618,6 +1618,8 @@ mod stage5e_retryable_bridge_tests {
             stage5e_b3c_semantic_bar_identity(&bar, stage3_provenance_identity);
         Stage5cAcceptedSemanticBar {
             strategy_model_bar_label_utc: bar.close_time_utc,
+            p1_observed_source: None,
+            o3_readmission: None,
             bar,
             tick_size: 0.5,
             origin,
@@ -1790,7 +1792,9 @@ pub(crate) mod stage5f_test_seams {
             },
             Stage5cAcceptedSemanticBar {
                 strategy_model_bar_label_utc: bar.close_time_utc,
+                p1_observed_source: None,
                 bar,
+                o3_readmission: None,
                 tick_size,
                 origin: broker_core::HybridRuntimeBarOrigin::Live,
                 stage3_provenance_identity,
@@ -2828,6 +2832,9 @@ pub struct Stage5cSemanticBarInput {
 
 pub struct Stage5cAcceptedSemanticBar {
     bar: broker_core::HybridRuntimeBarEvent,
+    // Full source already bound by the canonical P1 V2 payload hash.
+    p1_observed_source: Option<broker_core::observed_m1::ObservedM1Receipt>,
+    pub(crate) o3_readmission: Option<Box<crate::stage8b_o3_readmission::Stage8bO3PaperPermit>>,
     // Durable ordering and semantic identity remain bound to `bar.close_time_utc`.
     // This separate label is exposed only to the strategy callback because the
     // accepted ALOR Hybrid model names candles by their opening instant.
@@ -2842,6 +2849,89 @@ pub struct Stage5cAcceptedSemanticBar {
     // STAGE5D-ADDITIVE-BRIDGE-END: stage5e-b3c-semantic-identity-fields
 }
 impl Stage5cAcceptedSemanticBar {
+    fn execution_admission<'a>(
+        &'a self,
+        historical: &'a Stage5cPaperHostAdmission,
+        now: DateTime<Utc>,
+    ) -> Result<&'a Stage5cPaperHostAdmission, Stage5cSemanticBarError> {
+        if let Some(permit) = &self.o3_readmission {
+            let a = permit.admission();
+            if permit.execution_time().is_err()
+                || now.timestamp_millis() != permit.decision_at().timestamp_millis()
+            {
+                return Err(Stage5cSemanticBarError::BrokerTruthExpired);
+            }
+            if a.strategy_id() != historical.strategy_id()
+                || a.account_id() != historical.account_id()
+                || a.target_instrument() != historical.target_instrument()
+                || !same_tick_size(a.tick_size(), historical.tick_size())
+            {
+                return Err(Stage5cSemanticBarError::InstrumentMismatch);
+            }
+            Ok(a)
+        } else if now > historical.expires_at() {
+            Err(Stage5cSemanticBarError::BrokerTruthExpired)
+        } else {
+            Ok(historical)
+        }
+    }
+
+    /// Retain independently admitted context for initial P1 Ready continuation.
+    /// Neither a raw bar nor a legacy provenance flag constructs this source.
+    pub fn with_stage8b_p1_observed_source(
+        mut self,
+        source: &broker_core::observed_m1::ObservedM1Receipt,
+        expected_sha256: &str,
+    ) -> Result<Self, Stage5cSemanticBarError> {
+        let invalid = || Stage5cSemanticBarError::Stage3Rejected;
+        if !self.uses_closed_rest_observed_m1()
+            || self.origin != broker_core::HybridRuntimeBarOrigin::Live
+            || self.p1_observed_source.is_some()
+            || source.instrument() != &self.bar.instrument
+            || self.strategy_model_bar_label_utc.checked_add(600) != Some(self.bar.close_time_utc)
+        {
+            return Err(invalid());
+        }
+        let retained = broker_core::observed_m1::ObservedM1Receipt::restore(
+            source.retained_bytes(),
+            expected_sha256,
+        )
+        .map_err(|_| invalid())?;
+        let open =
+            DateTime::from_timestamp(self.strategy_model_bar_label_utc, 0).ok_or_else(invalid)?;
+        let actual = retained.bucket(open).map_err(|_| invalid())?.bar;
+        use rust_decimal::prelude::ToPrimitive;
+        if [
+            actual.open,
+            actual.high,
+            actual.low,
+            actual.close,
+            actual.volume,
+        ]
+        .into_iter()
+        .zip([
+            self.bar.open,
+            self.bar.high,
+            self.bar.low,
+            self.bar.close,
+            self.bar.volume,
+        ])
+        .any(|(left, right)| left.to_f64() != Some(right))
+        {
+            return Err(invalid());
+        }
+        self.p1_observed_source = Some(retained);
+        Ok(self)
+    }
+
+    pub(crate) fn p1_observed_source(
+        &self,
+    ) -> Option<(&broker_core::observed_m1::ObservedM1Receipt, i64)> {
+        self.p1_observed_source
+            .as_ref()
+            .map(|source| (source, self.strategy_model_bar_label_utc))
+    }
+
     pub(crate) fn uses_closed_rest_observed_m1(&self) -> bool {
         self.stage3_provenance_identity
             == stage5e_b3c_stage3_provenance_identity(
@@ -4922,6 +5012,20 @@ pub(crate) fn resolve_stage8b_p1d3_semantic_bar_bridge(
         return Err(Stage8bP1d3CallbackBridgeError::ScopeMismatch);
     }
     let bar_close_ts = accepted.bar.close_time_utc;
+    let decision_ts = if let Some(p) = &accepted.o3_readmission {
+        if p.admission().strategy_id() != input.strategy_id
+            || p.admission().account_id() != &input.account_id
+            || p.admission().target_instrument() != &input.instrument
+            || !same_tick_size(p.admission().tick_size(), input.tick_size)
+        {
+            return Err(Stage8bP1d3CallbackBridgeError::ScopeMismatch);
+        }
+        p.execution_time()
+            .map_err(|_| Stage8bP1d3CallbackBridgeError::ScopeMismatch)?
+            .timestamp()
+    } else {
+        bar_close_ts
+    };
     let callback_bar = accepted.strategy_callback_bar(&strategy);
     let pre_callback_cleanup_ledger =
         stage5cj_cleanup_attribution_ledger(Strategy::state(&strategy), &input.strategy_id);
@@ -4932,8 +5036,11 @@ pub(crate) fn resolve_stage8b_p1d3_semantic_bar_bridge(
         &input.instrument,
         input.tick_size,
         bar_close_ts,
-        bar_close_ts,
+        decision_ts,
     );
+    if let Some(p) = &accepted.o3_readmission {
+        p.observe_callback_attempt();
+    }
     let intents = crate::BrokerNeutralHybridStrategy::on_broker_bar(
         &mut strategy,
         broker_core::HybridRuntimeCallbackInput {
@@ -7276,7 +7383,9 @@ pub fn accept_stage5c_semantic_bar(
     // STAGE5D-ADDITIVE-BRIDGE-END: stage5e-b3c-semantic-identity-admission
     Ok(Stage5cAcceptedSemanticBar {
         strategy_model_bar_label_utc: input.bar.close_time_utc,
+        p1_observed_source: None,
         origin: input.bar.origin,
+        o3_readmission: None,
         bar: input.bar,
         tick_size: input.tick_size,
         // STAGE5D-ADDITIVE-BRIDGE-BEGIN: stage5e-b3c-semantic-identity-construction
@@ -7585,7 +7694,9 @@ pub(crate) fn stage5e_test_nonempty_intent_sequence_inputs(
         },
         Stage5cAcceptedSemanticBar {
             strategy_model_bar_label_utc: bar.close_time_utc,
+            p1_observed_source: None,
             bar,
+            o3_readmission: None,
             tick_size: 0.5,
             origin: broker_core::HybridRuntimeBarOrigin::Live,
             stage3_provenance_identity,
@@ -8139,15 +8250,7 @@ fn apply_stage5c_semantic_bar_at_with_replay_boundary(
         .restore_receipt()
         .bootstrap_receipt()
         .admission;
-    if now
-        > recovery_receipt
-            .warmup_receipt()
-            .restore_receipt()
-            .bootstrap_receipt()
-            .expires_at()
-    {
-        return Err(Stage5cSemanticBarError::BrokerTruthExpired);
-    }
+    let admission = accepted.execution_admission(admission, now)?;
     if accepted.bar.instrument != *admission.target_instrument() {
         return Err(Stage5cSemanticBarError::InstrumentMismatch);
     }
@@ -8174,6 +8277,9 @@ fn apply_stage5c_semantic_bar_at_with_replay_boundary(
         context,
         payload: callback_bar,
     };
+    if let Some(p) = &accepted.o3_readmission {
+        p.observe_callback_attempt();
+    }
     let intents = if allow_authenticated_first_boot_replay {
         strategy
             .observe_stage8b_p1_first_boot_replay(input)
@@ -8877,13 +8983,17 @@ fn advance_stage5c_controlled_next_bar_at(
             },
         )));
     }
-    if now
-        > settled
-            .recovery_receipt
-            .warmup_receipt()
-            .restore_receipt()
-            .bootstrap_receipt()
-            .expires_at()
+    if accepted
+        .execution_admission(
+            &settled
+                .recovery_receipt
+                .warmup_receipt()
+                .restore_receipt()
+                .bootstrap_receipt()
+                .admission,
+            now,
+        )
+        .is_err()
     {
         return Err(Stage5cNextBarLoopFailure::Blocked(Box::new(
             Stage5cNextBarBlocked {
@@ -9682,12 +9792,9 @@ pub(crate) fn advance_stage5c_timer_settlement_next_bar_transactional_at_checkpo
             settlement,
         ));
     }
-    if explicit_now
-        > recovery_receipt
-            .warmup_receipt()
-            .restore_receipt()
-            .bootstrap_receipt()
-            .expires_at()
+    if accepted
+        .execution_admission(admission, explicit_now)
+        .is_err()
     {
         return Err(stage5cm_block(
             Stage5cTimerContinuationError::NextBar(Stage5cNextBarLoopError::Semantic(

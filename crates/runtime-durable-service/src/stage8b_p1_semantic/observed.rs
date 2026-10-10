@@ -145,6 +145,8 @@ pub(super) enum ObservedM10Context {
     Recovery(Stage8bP1ObservedRecoveryContext),
 }
 
+mod o3;
+
 /// Initial source is authenticated by the configured bundle and current seal.
 /// Disk resolution is available ONLY with independently sealed exact M10 IDs.
 /// This is not a fresh-source registry or permission to accept a Redis hash.

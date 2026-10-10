@@ -258,6 +258,14 @@ fn prepare(linked_runtime: bool) {
         schedule:O3ScheduleTemplate {synthetic_truth:truth,registry_entry:entry,registry_version:"imoexf-v1".into(),registry_identity_sha256:map,
             exact_synthetic_schedule_json:serde_json::to_string(&json!({"symbol":"IMOEXF@RTSX","sessions":[{"type":"SESSION_TYPE_MAIN","interval":{"start_time":stamp(schedule_start),"end_time":stamp(schedule_end)}}]})).unwrap()},
         decision,successor,
+        // This disposable witness explicitly declares its synthetic session;
+        // operational plans must supply approved History coverage instead.
+        catchup_coverage:serde_json::from_value(json!({
+            "source_mode":"config-bound-explicit-session-windows-v1",
+            "sessions":[{"session_date":(schedule_start+Duration::hours(3)).date_naive().to_string(),
+                "windows":[{"first_close_time_utc":schedule_start.timestamp()/600*600,
+                "last_close_time_utc":schedule_end.timestamp()/600*600-600}]}]
+        })).unwrap(),
     };
     let input = input(&plan);
     plan.schedule_fixture_sha256 =

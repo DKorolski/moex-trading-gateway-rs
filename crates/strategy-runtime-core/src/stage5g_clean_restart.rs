@@ -628,6 +628,45 @@ impl Stage5gCleanRestartedCapability {
         self.runtime.stage8b_p1e_last_semantic_bar_ts_utc()
     }
 
+    pub(crate) fn stage8b_o3_join_permit(
+        &self,
+        permit: &crate::stage8b_o3_readmission::Stage8bO3PaperPermit,
+    ) -> bool {
+        let (strategy, account, instrument, config) = self.stage6d_restart_binding();
+        let a = permit.admission();
+        if strategy != permit.scope().strategy_id
+            || strategy != a.strategy_id()
+            || account != a.account_id()
+            || instrument != a.target_instrument()
+            || config != permit.scope().runtime_config_fingerprint_sha256
+            || self
+                .runtime
+                .stage5c_binding_matches(instrument, a.tick_size())
+                != (true, true)
+            || self
+                .stage8b_p1_model_last_bar_label_utc()
+                .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
+                .map(|ts| ts.timestamp())
+                != Some(permit.binding().prior_model_label)
+        {
+            return false;
+        }
+        match self.stage8b_o3_prior_proof() {
+            // An already admitted paper run may continue only in the SAME
+            // phase; the synthetic flat observation never replaces its book.
+            Some(proof) => &proof.scope == permit.scope(),
+            None => {
+                matches!(
+                    self.reconciliation_authority,
+                    Stage5gValidatedReconciliationAuthority::P1SemanticReady {
+                        p1_semantic_commit: None,
+                        ..
+                    }
+                ) && self.runtime.stage8b_o3_initial_flat()
+            }
+        }
+    }
+
     pub(crate) fn stage8b_p1e_last_semantic_bar_ts_utc(&self) -> Option<String> {
         self.continuation_authority
             .lifecycle_watermarks
@@ -721,6 +760,19 @@ impl Stage5gCleanRestartedCapability {
         &self,
     ) -> Option<&Stage5gP1SemanticCommitProjectionV1> {
         self.projection.p1_semantic_commit.as_ref()
+    }
+
+    pub(crate) fn stage8b_o3_prior_proof(&self) -> Option<&crate::stage8b_o3_readmission::Proof> {
+        self.projection
+            .p1_semantic_commit
+            .as_ref()
+            .and_then(|commit| commit.o3_readmission.as_deref())
+            .or_else(|| {
+                self.projection
+                    .p1d2_market_feedback
+                    .as_ref()
+                    .and_then(|feedback| feedback.o3_readmission.as_deref())
+            })
     }
 
     pub(crate) fn into_stage8b_p1d2_pre_ack_parts(
@@ -1502,6 +1554,38 @@ impl Stage5gCleanRestartedCapability {
             &stage5c_settlement,
         )
         .map_err(|_| Stage5gCleanRestartError::TimerReadySourceAuthorityMismatch)
+    }
+
+    /// In-memory prelude to the existing atomic semantic commit, not a new
+    /// durable frontier. Only the no-effect initial P1 seed may be warmed.
+    pub(crate) fn stage8b_p1_catch_up_initial_source(
+        &mut self,
+        accepted: &crate::Stage5cAcceptedSemanticBar,
+    ) -> Result<(), Stage5gCleanRestartError> {
+        let Some((source, candidate_label)) = accepted.p1_observed_source() else {
+            return Ok(());
+        };
+        if matches!(
+            self.reconciliation_authority,
+            Stage5gValidatedReconciliationAuthority::P1SemanticReady {
+                p1_semantic_commit: None,
+                ..
+            }
+        ) {
+            self.runtime
+                .stage8b_p1_catch_up_initial_session(
+                    source,
+                    candidate_label,
+                    &self.projection.binding.strategy_id,
+                    &self.projection.binding.account_id,
+                    accepted
+                        .o3_readmission
+                        .as_ref()
+                        .map(|p| &p.scope().catchup_coverage),
+                )
+                .map_err(|_| Stage5gCleanRestartError::P1SemanticCommitMismatch)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn stage5g_pre_restart_package_fingerprint_sha256(&self) -> String {

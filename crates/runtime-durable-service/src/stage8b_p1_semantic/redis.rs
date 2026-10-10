@@ -1457,11 +1457,29 @@ impl Stage8bP1RedisSemanticCompositionOwner {
             .stage8b_p1_operational_identity_sha256()
             .to_string();
         let binding = binding_from_delivery(&delivery, operational_identity_sha256.clone());
-        let accepted_bar = parse_exact_after_p1e_permit(&delivery, &operational_identity_sha256)?
-            .into_stage5c_semantic_bar()?;
+        let canonical = parse_exact_after_p1e_permit(&delivery, &operational_identity_sha256)?;
+        let o3 = self
+            .transport
+            .backend
+            .observed_binding
+            .as_ref()
+            .and_then(|c| c.o3())
+            .map(|ctx| {
+                let hash = canonical
+                    .observed_binding
+                    .as_ref()
+                    .ok_or(Stage8bP1RedisSemanticError::ExactSourceConflict)?
+                    .source()
+                    .sha256();
+                let exact = self.stage7.o3_decision_binding(&binding, hash)?;
+                ctx.fresh(&binding, exact)
+                    .map_err(Stage8bP1RedisSemanticError::from)
+            })
+            .transpose()?;
+        let accepted_bar = canonical.into_stage5c_semantic_bar()?;
         let outcome =
             self.stage7
-                .commit_stage8b_p1_semantic(accepted_bar, binding, commitment_key)?;
+                .commit_stage8b_p1_semantic_o3(accepted_bar, binding, commitment_key, o3)?;
         #[cfg(test)]
         p1e_i0_observe_callback();
         match outcome {
@@ -5669,8 +5687,15 @@ pub async fn resume_stage8b_p1_journal_ahead_with_redis(
     let binding = binding_from_delivery(&delivery, operational_identity_sha256.clone());
     let accepted_bar = parse_exact_after_p1e_permit(&delivery, &operational_identity_sha256)?
         .into_stage5c_semantic_bar()?;
+    let o3 = transport
+        .backend
+        .observed_binding
+        .as_ref()
+        .and_then(|c| c.o3())
+        .map(|ctx| ctx.replay(&pending, &binding))
+        .transpose()?;
     let durable =
-        pending.complete_with_exact_semantic_input(accepted_bar, binding, commitment_key)?;
+        pending.complete_with_exact_semantic_input_o3(accepted_bar, binding, commitment_key, o3)?;
     #[cfg(test)]
     p1e_i0_observe_replacement_seal_commit();
     Ok(Stage8bP1RedisPrepublicationPending {
@@ -6698,7 +6723,12 @@ impl Stage8bP1RedisBackend {
             .await?
             .ok_or(Stage8bP1RedisSemanticError::ExactPendingEntryMissing)?;
         let probe = super::observed::journal_source_probe(payload.as_bytes())?;
-        if probe.m10_redis_id != *redis_id || !durable.matches_source_probe(&probe) {
+        let matches = if let Some(ctx) = self.observed_binding.as_ref().and_then(|c| c.o3()) {
+            ctx.replay(durable, &probe).is_ok()
+        } else {
+            durable.matches_source_probe(&probe)
+        };
+        if probe.m10_redis_id != *redis_id || !matches {
             return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
         }
         // The tuple is now bound to protected RequestAccepted + authenticated

@@ -1,6 +1,19 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-10-09.
+Status date: 2026-10-10.
+
+Latest local work: [O3 fresh paper admission and observation catch-up](stage-8/stage8b-p1f-o3-readmission-source-correction.md)
+implements the narrow source-only assignment following the accepted diagnostic.
+The historical O2 admission stays expired and unchanged; each new O3 decision
+gets separately bound Stage4 → Stage5C synthetic permission. Its exact retained
+proof is committed with RequestAccepted/S1 and carried through S_ack/S_truth.
+New work and journal-ahead replay have distinct freshness rules and counters.
+This is a source review candidate, **not independent acceptance or permission
+to install/run**. Retained local test results and limitations accompany the ZIP.
+O2 remains accepted COMPLETED/1/26; operational O3 NOT_RUN. No VPS changes,
+operational signing, push/merge, CI, DB0 or FINAM access were performed.
+Authority pins are deliberately unchanged pending source acceptance.
+The dated entries below retain their original historical status.
 
 2026-10-09 current: `0e89208` release and actual stopped installation evidence
 are independently ACCEPTED. Owner-authorized O3 preparation stopped before

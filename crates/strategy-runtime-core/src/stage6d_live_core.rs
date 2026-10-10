@@ -89,7 +89,9 @@ const STAGE8B_P1_REQUEST_ACCEPTED_BINDING_DOMAIN: &str =
 
 static STAGE6E_PROCESS_GENERATION_COUNTER: AtomicU64 = AtomicU64::new(1);
 
+mod o3_readmission;
 mod p1_journal_source;
+pub use o3_readmission::apply_stage8b_o3_semantic_transition;
 pub use p1_journal_source::Stage8bP1JournalAheadSourceCheck;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -3861,6 +3863,8 @@ struct Stage8bP1RequestAcceptedBindingV1<'a> {
     strategy_request_id: StrategyRequestId,
     canonical_command_sha256: &'a str,
     expected_request_accepted_record_id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    o3_readmission_sha256: Option<&'a str>,
 }
 
 /// Consumes the sole recovered runtime owner and applies exactly one P1 M10
@@ -3899,6 +3903,9 @@ pub fn apply_stage8b_p1_semantic_transition(
             }
             _ => return Err(Stage6dLiveCoreError::RestartRuntimeRequired),
         };
+        if current.stage8b_o3_prior_proof().is_some() && accepted_bar.o3_readmission.is_none() {
+            return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+        }
         (
             current.stage5g_fresh_reconstruction_candidate(),
             current.stage5g_fresh_reconstruction_candidate(),
@@ -4082,6 +4089,9 @@ pub fn apply_stage8b_p1d3_semantic_transition(
             }
             _ => return Err(Stage6dLiveCoreError::RestartRuntimeRequired),
         };
+        if current.stage8b_o3_prior_proof().is_some() && accepted_bar.o3_readmission.is_none() {
+            return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+        }
         if post_market {
             current
                 .stage8b_p1d2_truth_callback_input()
@@ -7407,6 +7417,12 @@ fn validate_stage8b_p1_projection_source(
         || projection.intent_count != expected_intent_count
         || projection.operational_identity_sha256 != source.operational_identity_sha256
         || projection.prior_stage5g_checkpoint_sha256 != prior_stage5_checkpoint_sha256
+        || projection.o3_readmission.as_ref().is_some_and(|p| {
+            p.binding.source_seal_generation != source.seal_generation
+                || p.binding.source_seal_commitment_sha256 != source.seal_commitment_sha256
+                || p.binding.source_checkpoint_sha256 != source.stage6_checkpoint_sha256
+                || p.binding.source_frontier_sha256 != source.stage6_frontier_sha256
+        })
     {
         return Err(Stage6dLiveCoreError::DurableOrderingViolation);
     }
@@ -7437,6 +7453,11 @@ fn stage8b_p1_request_accepted_source_evidence(
         request_id,
         command_sha256,
         expected_record_id,
+        projection
+            .o3_readmission
+            .as_ref()
+            .map(|p| p.sha256())
+            .as_deref(),
     )
 }
 
@@ -7447,6 +7468,7 @@ fn stage8b_p1_request_accepted_source_evidence_parts(
     request_id: StrategyRequestId,
     command_sha256: &str,
     expected_record_id: &Stage6JournalRecordId,
+    o3_readmission_sha256: Option<&str>,
 ) -> Result<Stage6Sha256Digest, Stage6dLiveCoreError> {
     let bytes = serde_json::to_vec(&Stage8bP1RequestAcceptedBindingV1 {
         schema_version: STAGE8B_P1_REQUEST_ACCEPTED_BINDING_SCHEMA_VERSION,
@@ -7463,6 +7485,7 @@ fn stage8b_p1_request_accepted_source_evidence_parts(
         strategy_request_id: request_id,
         canonical_command_sha256: command_sha256,
         expected_request_accepted_record_id: expected_record_id.as_str(),
+        o3_readmission_sha256,
     })
     .map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?;
     Stage6Sha256Digest::parse(sha256_hex(&bytes))

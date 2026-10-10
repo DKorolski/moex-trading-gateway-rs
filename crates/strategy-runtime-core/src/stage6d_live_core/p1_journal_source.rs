@@ -68,6 +68,34 @@ impl Stage8bP1JournalAheadSourceCheck {
     /// or mint callback/Ready authority; canonical + retained source checks and
     /// post-permit replay remain mandatory.
     pub fn matches(&self, binding: &Stage5gP1SemanticBindingInput) -> bool {
+        self.matches_proof(binding, None)
+    }
+
+    pub fn replay_o3_permit(
+        &self,
+        binding: &Stage5gP1SemanticBindingInput,
+        bytes: &[u8],
+        scope: &crate::stage8b_o3_readmission::Stage8bO3PaperScope,
+    ) -> Result<
+        crate::stage8b_o3_readmission::Stage8bO3PaperPermit,
+        crate::stage8b_o3_readmission::Stage8bO3ReadmissionError,
+    > {
+        use crate::stage8b_o3_readmission::*;
+        let mut permit = Stage8bO3PaperPermit::reconstruct(bytes, scope)?;
+        if !permit.proof().validates_commit(
+            &binding.operational_identity_sha256,
+            &binding.m10_redis_id,
+            &binding.m10_semantic_id_sha256,
+            &binding.m10_payload_sha256,
+        ) || !self.matches_proof(binding, Some(&permit.sha256()))
+        {
+            return Err(Stage8bO3ReadmissionError);
+        }
+        permit.authorize_recorded_replay()?;
+        Ok(permit)
+    }
+
+    fn matches_proof(&self, binding: &Stage5gP1SemanticBindingInput, proof: Option<&str>) -> bool {
         if binding.operational_identity_sha256 != self.source.operational_identity_sha256 {
             return false;
         }
@@ -84,6 +112,7 @@ impl Stage8bP1JournalAheadSourceCheck {
             self.request_id,
             self.command_sha256.as_str(),
             &self.record_id,
+            proof,
         )
         .is_ok_and(|actual| actual == self.expected_source_evidence)
     }

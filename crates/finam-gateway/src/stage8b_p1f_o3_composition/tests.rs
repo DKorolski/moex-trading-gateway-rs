@@ -155,6 +155,13 @@ impl Case {
             },
             decision:source(now+chrono::Duration::minutes(10)),
             successor:source(now+chrono::Duration::minutes(20)),
+            catchup_coverage: serde_json::from_value(json!({
+                "source_mode":"config-bound-explicit-session-windows-v1",
+                "sessions":[{"session_date":"2026-10-08","windows":[{
+                    "first_close_time_utc":parse_time("2026-10-08T04:00:00Z").unwrap().timestamp(),
+                    "last_close_time_utc":parse_time("2026-10-08T20:40:00Z").unwrap().timestamp()
+                }]}]
+            })).unwrap(),
         };
         let phase = durable::Stage8bP1fPhaseManifestV1 {
             schema_version: 1,

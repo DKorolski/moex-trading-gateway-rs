@@ -8,6 +8,7 @@ use super::*;
 pub struct Stage8bP1ObservedPublishedWindow {
     pair: Stage8bP1ObservedM10WindowPair,
     entries: [(String, Vec<u8>); 2],
+    o3: Option<Box<strategy_runtime_core::stage8b_o3_readmission::Stage8bO3PaperSource>>,
 }
 
 impl Stage8bP1ObservedPublishedWindow {
@@ -32,6 +33,7 @@ impl Stage8bP1ObservedPublishedWindow {
             return Err(Stage8bP1CanonicalM10Error::InvalidChronology);
         }
         Ok(Self {
+            o3: None,
             pair,
             entries: [
                 (old.redis_id().into(), predecessor_bytes),
@@ -42,6 +44,25 @@ impl Stage8bP1ObservedPublishedWindow {
 
     pub(crate) fn entries(&self) -> &[(String, Vec<u8>); 2] {
         &self.entries
+    }
+
+    pub fn with_o3_paper_source(
+        mut self,
+        source: strategy_runtime_core::stage8b_o3_readmission::Stage8bO3PaperSource,
+    ) -> Result<Self, Stage8bP1CanonicalM10Error> {
+        if self.o3.is_some()
+            || source.scope().operational_identity_sha256 != self.pair.operational_identity_sha256()
+        {
+            return Err(Stage8bP1CanonicalM10Error::IdentityMismatch);
+        }
+        self.o3 = Some(Box::new(source));
+        Ok(self)
+    }
+
+    pub(super) fn o3(
+        &self,
+    ) -> Option<&strategy_runtime_core::stage8b_o3_readmission::Stage8bO3PaperSource> {
+        self.o3.as_deref()
     }
 
     fn validate_initial(

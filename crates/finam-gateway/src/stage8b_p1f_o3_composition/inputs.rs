@@ -37,6 +37,7 @@ pub struct O3CompositionPlan {
     pub schedule: O3ScheduleTemplate,
     pub decision: O3ObservedInput,
     pub successor: O3ObservedInput,
+    pub catchup_coverage: strategy_runtime_core::stage8b_o3_readmission::Stage8bO3Coverage,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -67,6 +68,7 @@ pub(crate) struct AdmittedInputs {
     pub not_before: DateTime<Utc>,
     pub deadline: DateTime<Utc>,
     pub shutdown_grace_ms: u64,
+    pub paper_source: strategy_runtime_core::stage8b_o3_readmission::Stage8bO3PaperSource,
 }
 
 impl AdmittedInputs {
@@ -207,7 +209,31 @@ impl AdmittedInputs {
                 return Err(O3Error::Input);
             }
         }
+        let paper_source =
+            strategy_runtime_core::stage8b_o3_readmission::Stage8bO3PaperSource::new(
+                strategy_runtime_core::stage8b_o3_readmission::Stage8bO3PaperScope {
+                    phase_id: plan.phase_id.clone(),
+                    phase_sha256: expected.into(),
+                    config_sha256: phase.config_template_sha256.clone(),
+                    plan_sha256: phase.materialization_policy_sha256.clone(),
+                    fixture_sha256: hash(
+                        &serde_json::to_vec(&plan.schedule.synthetic_truth)
+                            .map_err(|_| O3Error::Input)?,
+                    ),
+                    operational_identity_sha256: plan.operational_identity_sha256.clone(),
+                    runtime_config_fingerprint_sha256: plan
+                        .runtime_config_fingerprint_sha256
+                        .clone(),
+                    strategy_id: durable::STAGE8B_P1_STRATEGY_ID.into(),
+                    not_before,
+                    deadline,
+                    catchup_coverage: plan.catchup_coverage.clone(),
+                },
+                plan.schedule.synthetic_truth.clone(),
+            )
+            .map_err(|_| O3Error::Input)?;
         Ok(Self {
+            paper_source,
             durable_parent,
             plan,
             supervisor_bytes: supervisor.to_vec(),
