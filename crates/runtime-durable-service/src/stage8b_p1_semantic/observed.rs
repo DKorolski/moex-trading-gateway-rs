@@ -146,6 +146,8 @@ pub(super) enum ObservedM10Context {
 }
 
 mod o3;
+#[cfg(test)]
+pub(in crate::stage8b_p1_semantic) use o3::sync_test;
 
 /// Initial source is authenticated by the configured bundle and current seal.
 /// Disk resolution is available ONLY with independently sealed exact M10 IDs.

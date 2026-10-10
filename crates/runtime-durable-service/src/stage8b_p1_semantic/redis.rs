@@ -1477,9 +1477,13 @@ impl Stage8bP1RedisSemanticCompositionOwner {
             })
             .transpose()?;
         let accepted_bar = canonical.into_stage5c_semantic_bar()?;
+        #[cfg(test)]
+        super::observed::sync_test::record(super::observed::sync_test::Point::CommitEntered);
         let outcome =
             self.stage7
                 .commit_stage8b_p1_semantic_o3(accepted_bar, binding, commitment_key, o3)?;
+        #[cfg(test)]
+        super::observed::sync_test::record(super::observed::sync_test::Point::CommitReturned);
         #[cfg(test)]
         p1e_i0_observe_callback();
         match outcome {

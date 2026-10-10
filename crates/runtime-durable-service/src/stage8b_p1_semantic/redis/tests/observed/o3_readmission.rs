@@ -3,6 +3,8 @@ use broker_core::*;
 use rust_decimal::Decimal;
 use strategy_runtime_core::stage8b_o3_readmission::*;
 
+mod sync_retry;
+
 pub(super) fn paper_source(op: &str, fingerprint: &str) -> Stage8bO3PaperSource {
     let now = chrono::Utc::now();
     let fixture = BrokerTruthSnapshot {

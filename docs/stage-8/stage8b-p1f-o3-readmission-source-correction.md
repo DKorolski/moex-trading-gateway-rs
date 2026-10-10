@@ -47,9 +47,15 @@ candidate are checked before observation. Four days is a resource bound only.
 The exact O3 plan now REQUIRES `catchup_coverage`, using the existing explicit
 session-window representation. Its legacy `first_close_time_utc` /
 `last_close_time_utc` fields denote **opening model labels**, as in History.
-An explicitly listed empty session is closed; an omitted day is unknown and
-fails closed. Sparse M1 is aggregated normally, but an empty required M10 fails.
-No holiday or clearing break is inferred from missing bars. Existing plans
+Coverage is required for regular model-session labels. With the frozen
+`weekends_off=true`, weekend labels are suppressed by the existing model BEFORE
+coverage lookup and need no explicit empty weekend sessions (for example,
+Friday 2026-10-09 to Monday 2026-10-12). This is model suppression, not a calendar
+inference from absent data, and does not change the frozen model. An explicitly
+listed empty regular session is closed; an omitted regular-session day is
+unknown and fails closed. Sparse M1 is aggregated normally, but an empty
+required M10 fails. No holiday or clearing break in a regular model session is
+inferred from missing bars. Existing plans
 without this field are rejected and must not be reused as new run authority.
 Only after source/release review may an operator authorize a new exact plan.
 
@@ -91,6 +97,26 @@ was changed. The applicable complete no-default-features gateway suite passes
 the all-features test failure is retained, not relabelled green.
 
 ## Next boundary
+
+### Source retry correction after review 7cf760c
+
+Review `REVIEW_7cf760c_O3_SOURCE_RESULT_RU.txt` retained SOURCE HOLD for
+P1-O3-R01: an existing complete proof could be visible after write_all but before
+file/parent sync. Both create and existing paths now finish the same boundary:
+validate canonical/fresh/exact binding → open no-follow regular file and validate
+its exact bytes/custody → sync that descriptor → sync parent → exact reread →
+return permit. No proof is rewritten or reissued on retry; expired proof remains
+rejected. Errors return before callback/RequestAccepted.
+
+The targeted real-Redis/V5 witness interrupts immediately after full write,
+then uses public restart to retry the exact attempt. Thread-local test-only
+faults separately reject file sync, parent sync and final reread. Positive trace
+requires both successful syncs and exact reread before semantic commit; failures
+retain identical journal/seal/history/proof, zero callbacks/effects and source
+PEL. This is an instrumented durability barrier, not a power-failure experiment.
+The P2 weekend wording above is documentation-only. Admission, model, timing,
+journal replay and provider algorithms are unchanged. Existing long-wait results
+remain evidence of 7cf760c, not newly executed tests of the correction.
 
 Source review → one explicit authority/release artifact → separately permitted
 stopped installation preserving root/history → separately authorized bounded O3.

@@ -31,6 +31,13 @@ pub(super) fn read(path: &Path) -> Result<Vec<u8>, Stage8bP1CanonicalM10Error> {
         .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
         .open(path)
         .map_err(|_| invalid)?;
+    read_file(&mut file)
+}
+
+// Let the O3 retry sync the same no-follow descriptor whose bytes/custody
+// were checked, without duplicating or weakening the retained-read checks.
+pub(super) fn read_file(file: &mut File) -> Result<Vec<u8>, Stage8bP1CanonicalM10Error> {
+    let invalid = Stage8bP1CanonicalM10Error::Decode;
     let before = file.metadata().map_err(|_| invalid)?;
     if !before.is_file()
         || before.nlink() != 1
@@ -40,7 +47,7 @@ pub(super) fn read(path: &Path) -> Result<Vec<u8>, Stage8bP1CanonicalM10Error> {
         return Err(invalid);
     }
     let mut bytes = Vec::new();
-    (&mut file)
+    (&mut *file)
         .take(MAX_RECEIPT_BYTES + 1)
         .read_to_end(&mut bytes)
         .map_err(|_| invalid)?;

@@ -2,7 +2,7 @@
 //! No discovery, overwrite, refresh of an expired attempt, or new journal.
 use super::*;
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::{self, OpenOptions},
     io::Write,
     os::unix::fs::OpenOptionsExt,
     path::PathBuf,
@@ -67,15 +67,9 @@ impl O3RetainedContext<'_> {
                     .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
                     .open(&path)
                     .map_err(|_| fail)?;
-                file.write_all(permit.retained_bytes())
-                    .and_then(|_| file.sync_all())
-                    .map_err(|_| fail)?;
-                File::open(self.parent)
-                    .and_then(|f| f.sync_all())
-                    .map_err(|_| fail)?;
-                if retained::read(&path)? != permit.retained_bytes() {
-                    return Err(fail);
-                }
+                file.write_all(permit.retained_bytes()).map_err(|_| fail)?;
+                #[cfg(test)]
+                sync_test::step(sync_test::Point::AfterWrite)?;
                 permit
             }
             Err(_) => return Err(fail),
@@ -83,6 +77,39 @@ impl O3RetainedContext<'_> {
         if permit.binding() != &exact {
             return Err(fail);
         }
+        // An earlier process may have stopped after write_all but before either
+        // sync. Existing bytes alone do not establish pre-RequestAccepted durability.
+        // Validate and sync the SAME regular no-follow descriptor for both paths.
+        let mut file = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
+            .open(&path)
+            .map_err(|_| fail)?;
+        if retained::read_file(&mut file)? != permit.retained_bytes() {
+            return Err(fail);
+        }
+        #[cfg(test)]
+        sync_test::step(sync_test::Point::BeforeFileSync)?;
+        file.sync_all().map_err(|_| fail)?;
+        #[cfg(test)]
+        sync_test::step(sync_test::Point::FileSynced)?;
+        let parent = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_DIRECTORY)
+            .open(self.parent)
+            .map_err(|_| fail)?;
+        #[cfg(test)]
+        sync_test::step(sync_test::Point::BeforeParentSync)?;
+        parent.sync_all().map_err(|_| fail)?;
+        #[cfg(test)]
+        sync_test::step(sync_test::Point::ParentSynced)?;
+        #[cfg(test)]
+        sync_test::step(sync_test::Point::BeforeReread)?;
+        if retained::read(&path)? != permit.retained_bytes() {
+            return Err(fail);
+        }
+        #[cfg(test)]
+        sync_test::step(sync_test::Point::ExactReread)?;
         Ok(permit)
     }
 
@@ -95,5 +122,77 @@ impl O3RetainedContext<'_> {
         pending
             .replay_o3_permit(b, &bytes, self.source.scope())
             .map_err(|_| Stage8bP1CanonicalM10Error::DigestMismatch)
+    }
+}
+
+// Thread-local instrumentation is absent from production/fixture builds. The
+// default current-thread Tokio witnesses can stop at a completed write, or fail
+// a sync/reread boundary, without process-wide fault races or real power cuts.
+#[cfg(test)]
+pub(in crate::stage8b_p1_semantic) mod sync_test {
+    use super::Stage8bP1CanonicalM10Error;
+    use std::cell::RefCell;
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Point {
+        AfterWrite,
+        BeforeFileSync,
+        FileSynced,
+        BeforeParentSync,
+        ParentSynced,
+        BeforeReread,
+        ExactReread,
+        CommitEntered,
+        CommitReturned,
+    }
+
+    #[derive(Default)]
+    struct State {
+        active: bool,
+        fault: Option<Point>,
+        trace: Vec<Point>,
+    }
+    thread_local! {
+        static STATE: RefCell<State> = RefCell::new(State::default());
+    }
+    pub struct Guard;
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            STATE.with(|s| *s.borrow_mut() = State::default());
+        }
+    }
+    pub fn arm(fault: Option<Point>) -> Guard {
+        STATE.with(|s| {
+            assert!(!s.borrow().active, "nested proof sync audit");
+            *s.borrow_mut() = State {
+                active: true,
+                fault,
+                trace: Vec::new(),
+            };
+        });
+        Guard
+    }
+    pub fn record(point: Point) {
+        STATE.with(|s| {
+            let mut s = s.borrow_mut();
+            if s.active {
+                s.trace.push(point);
+            }
+        });
+    }
+    pub fn step(point: Point) -> Result<(), Stage8bP1CanonicalM10Error> {
+        record(point);
+        STATE.with(|s| {
+            let mut s = s.borrow_mut();
+            if s.active && s.fault == Some(point) {
+                s.fault = None;
+                Err(Stage8bP1CanonicalM10Error::DigestMismatch)
+            } else {
+                Ok(())
+            }
+        })
+    }
+    pub fn trace() -> Vec<Point> {
+        STATE.with(|s| s.borrow().trace.clone())
     }
 }

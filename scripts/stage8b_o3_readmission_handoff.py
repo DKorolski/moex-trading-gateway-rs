@@ -13,7 +13,7 @@ from make_stage8b_design_handoff import zip_info
 from stage8b_p1f_o3_source_handoff import tree_hash, scan
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE = "2be020c234a01f8627d9f7621623dc603c912e23"
+BASE = "7cf760c84f9005cd9dec7e6e93c23100d5a0b978"
 PREFIX = "o3-source-review/"
 
 
@@ -96,6 +96,16 @@ def package(evidence, output):
     for name in result.get("retained_failed_attempts", []):
         require(Path(name).name == name, "attempt path")
         data[PREFIX + "earlier/" + name] = (evidence / name).read_bytes()
+    # Historical evidence is retained as custody, never promoted to a current
+    # PASS (especially precursor suites and the reviewed baseline failures).
+    for item in result.get("inherited_evidence", []):
+        name = item["path"]
+        path = evidence / name
+        require(path.is_file() and path.resolve().is_relative_to(evidence.resolve()), "inherited custody")
+        require(PREFIX + name not in data, "inherited collision")
+        raw = path.read_bytes()
+        require(sha(raw) == item["sha256"], "inherited hash")
+        data[PREFIX + name] = raw
     data[PREFIX + "result.json"] = encode(result)
     data[PREFIX + "commit.raw"] = git("cat-file", "commit", ref)
     data[PREFIX + "status.txt"] = git("status", "--short")

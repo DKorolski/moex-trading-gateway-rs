@@ -2,6 +2,12 @@
 
 Status date: 2026-10-10.
 
+Latest correction: review of `7cf760c` is **SOURCE HOLD** for P1-O3-R01
+(existing pre-append proof missing retry fsync). The local correction adds a
+common file-sync/parent-sync/exact-reread boundary, targeted interruption/fault
+tests and P2 weekend-coverage wording. This remains a source re-review candidate;
+it does not independently close the finding or authorize release/installation.
+
 Latest local work: [O3 fresh paper admission and observation catch-up](stage-8/stage8b-p1f-o3-readmission-source-correction.md)
 implements the narrow source-only assignment following the accepted diagnostic.
 The historical O2 admission stays expired and unchanged; each new O3 decision
