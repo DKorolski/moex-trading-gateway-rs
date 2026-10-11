@@ -12,8 +12,12 @@ import time
 
 import stage8b_p1f_o2_build_linux as b
 
+# Preserve the historical verifier/installer's immutable baseline.
 REF = 'fb1ceb3dac40b365d0d23983af788ca1c9c72907'
 TREE = 'bf7b2353a8a972ffd5af0ba1fc7e86e7eeb06b31'
+# Source-only acceptance; this pin is not installation/operational authority.
+READMISSION_REF = '5df1c88299bbb7f1a70b709d3c01e2cf0a09d08c'
+READMISSION_TREE = 'd0d57aab9079b4afe5941bf414e29ff75f19c860'
 BINS = ('stage8b-p1f-o2-operator', 'stage8b-p1f-local-supervisor',
         'stage8b-p1f-o3-composition', 'stage8b-p1f-o3-signer', 'stage8b-p1f-o3-provisioner')
 
@@ -42,9 +46,9 @@ def capture(out, name, command):
     return raw
 
 
-def source_check(out):
+def source_check(out, source_ref=REF):
     expected = set()
-    for row in b.git('ls-tree', '-rz', REF).split(b'\0'):
+    for row in b.git('ls-tree', '-rz', source_ref).split(b'\0'):
         if not row:
             continue
         metadata, name = row.split(b'\t', 1)
@@ -58,8 +62,10 @@ def source_check(out):
         raise ValueError('source inventory changed')
 
 
-def build(out, cache):
-    if b.git('rev-parse', REF+'^{tree}').decode().strip() != TREE:
+def build(out, cache, source_ref=REF, source_tree=TREE):
+    if (source_ref, source_tree) not in ((REF, TREE), (READMISSION_REF, READMISSION_TREE)):
+        raise ValueError('unknown accepted source baseline')
+    if b.git('rev-parse', source_ref+'^{tree}').decode().strip() != source_tree:
         raise ValueError('accepted source tree mismatch')
     if {p.name for p in (cache/'cargo-home').iterdir()} - {
             'registry', '.global-cache', '.package-cache', '.package-cache-mutate'}:
@@ -69,9 +75,9 @@ def build(out, cache):
     out.mkdir(parents=True, exist_ok=False)
     (out/'source').mkdir(); (out/'logs').mkdir()
     subprocess.run(['tar', '-xf', '-', '-C', str(out/'source')],
-                   input=b.git('archive', '--format=tar', REF), check=True)
-    put(out/'source-commit.raw', b.git('cat-file', 'commit', REF))
-    source_check(out)
+                   input=b.git('archive', '--format=tar', source_ref), check=True)
+    put(out/'source-commit.raw', b.git('cat-file', 'commit', source_ref))
+    source_check(out, source_ref)
     docker = ['docker', 'run', '--rm', '--network', 'none', '--platform', 'linux/amd64',
         '--ulimit', 'core=0', '--mount', f'type=bind,src={out / "source"},dst=/src,readonly',
         '--mount', f'type=bind,src={cache / "target"},dst=/target',
@@ -107,9 +113,9 @@ def build(out, cache):
         put(out/'payload'/name, raw); (out/'payload'/name).chmod(0o555)
         entries.append(dict(name=name, size=len(raw), sha256=b.sha(raw), elf_machine='x86-64'))
         capture(out, 'identity-'+name, [*docker, 'readelf', '-h', '-d', '-V', '/target/release/'+name])
-    source_check(out)
+    source_check(out, source_ref)
     put(out/'build.json', encoded(dict(schema_version=1, status='BUILT_NOT_INSTALLED',
-        source_ref=REF, source_tree=TREE, image=b.IMAGE, cargo_args=args,
+        source_ref=source_ref, source_tree=source_tree, image=b.IMAGE, cargo_args=args,
         source_commit_raw_sha256=b.sha((out/'source-commit.raw').read_bytes()),
         binaries=entries, production_artifacts=selected, production_artifact_count=len(artifacts),
         fixture_features_enabled=False, cargo_offline=True, network='none',
@@ -120,4 +126,9 @@ def build(out, cache):
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('output', type=Path); p.add_argument('--cache', type=Path, required=True)
-    a = p.parse_args(); build(a.output.resolve(), a.cache.resolve())
+    p.add_argument('--readmission', action='store_true',
+                   help='build accepted 5df1c88; does not authorize installation')
+    a = p.parse_args()
+    build(a.output.resolve(), a.cache.resolve(),
+          READMISSION_REF if a.readmission else REF,
+          READMISSION_TREE if a.readmission else TREE)

@@ -2,7 +2,9 @@
 
 2026-10-10. Baseline: `2be020c234a01f8627d9f7621623dc603c912e23`.
 Assignment: `REVIEW_O3_FRESH_PAPER_READMISSION_CATCHUP_20261009_RU.txt`,
-sections 5–6. Source review candidate; operational O3 stays NOT_RUN.
+sections 5–6. Source accepted at `5df1c88` in the
+[focused review](reviews/REVIEW_5df1c88_O3_SOURCE_ACCEPT_RU.txt).
+P1-O3-R01 and P2 are closed; operational O3 stays NOT_RUN.
 The earlier [diagnostic](stage8b-p1f-o3-session-catchup-diagnostic.md)
 is preserved as history, not the current source implementation description.
 

@@ -1,8 +1,42 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-10-10.
+Status date: 2026-10-11.
 
-Latest correction: review of `7cf760c` is **SOURCE HOLD** for P1-O3-R01
+Current source baseline: **SOURCE ACCEPT**
+`5df1c88299bbb7f1a70b709d3c01e2cf0a09d08c`, per the
+[independent focused review](stage-8/reviews/REVIEW_5df1c88_O3_SOURCE_ACCEPT_RU.txt).
+P1-O3-R01 and P2 weekend coverage are CLOSED. This is not release,
+installation or operational O3 acceptance. The
+[unified readmission release preparation](stage-8/stage8b-p1f-o3-readmission-release.md)
+is in progress. Five native Linux/amd64 production ELFs from accepted source
+are built and hashed; the temporary build resources were removed. Read-only
+postflight matches the accepted VPS state. The seven-slot stopped installer is
+prepared locally: 19 Linux filesystem tests pass; this does not execute ELFs
+or systemd. Two separate qualification helpers are also built from accepted
+source; fixture support is not included in the production installation slots.
+Their temporary build resources are removed; postflight at 06:48:36Z matches
+the accepted VPS state. Dynamic systemd qualification in a weekday window and
+the sealed review package remain pending. The manual qualification runner and
+public nine-file input set are prepared offline; 11 runner tests pass, including
+weekend refusal before SSH/key access. No automatic launch is scheduled; no key transfer,
+signing or installation occurred. No new Rust/Cargo/template/CI semantics
+are requested.
+The accepted source branch through `5df1c88` is now published to `origin`;
+local `main` matches `origin/main` at `ab0235a7`, without an O3 merge.
+Sunday 2026-10-11 remains outside the existing fixture admission window.
+Next manual calendar candidate is 2026-10-12 around 10:06 MSK, subject to fresh
+preflight; no unattended launch is arranged. The historical release packager
+is still bound to `fb1ceb3`; readmission packaging/verification must be completed
+against the new native result, not relabelled from earlier success.
+Next: exact release/authority/install evidence, separately permitted stopped
+installation, then separately permitted bounded O3. O2 remains accepted
+COMPLETED/1/26; operational O3 remains NOT_RUN. O4 WS/reconnect/freshness/EOD
+and multi-session ALOR parity follow O3; FINAM execution remains closed.
+
+The entries below retain earlier work and verdicts chronologically; they do
+not supersede this source acceptance.
+
+Historical correction: review of `7cf760c` was **SOURCE HOLD** for P1-O3-R01
 (existing pre-append proof missing retry fsync). The local correction adds a
 common file-sync/parent-sync/exact-reread boundary, targeted interruption/fault
 tests and P2 weekend-coverage wording. This remains a source re-review candidate;
