@@ -1,7 +1,66 @@
 # O3 readmission release preparation
 
-2026-10-11. Native production build PASS; unified release package IN PROGRESS,
-not a completed or accepted release/install package.
+2026-10-12. Native production build PASS; dynamic qualification FAILED.
+Unified release package remains IN PROGRESS, not a completed or accepted
+release/install package. The dated preparation sections below retain their
+historical status; the following current attempt supersedes their pending-run
+and no-key-transfer statements only.
+
+## Monday native attempt — FAILED / NOT QUALIFIED
+
+Retained operation directory: `reports/operations/o3-readmission-qualification-20261012`.
+`before-preparation/record.json` and `stdout.json` record the fresh read-only
+preflight at 06:06:00Z. It matches accepted P0/O2/config/installed bytes/prior
+transactions, COMPLETED/1/26, DB15 empty and synchronized NTP.
+
+Before attempting the native run, a concrete harness custody bug was fixed:
+`docker cp` retains the staged public `/payload` directory's 0700 mode, while
+production bootstrap executes under UID987. The container-only directory and
+the two public support executables now have 0755; executable/not-writable checks
+run as UID987 before fixture generation. No host paths, credential permissions,
+unit templates or production binaries were altered. Twelve offline runner
+tests pass, including this directory traversal regression. `prepared-r1`
+contains the exact corrected driver/public inputs; the Sunday prepared-r0 is
+not relabelled.
+
+`native-run-r0/result.json` and its individual command logs retain the single
+authorized run. Actual fresh synthetic inputs were generated at
+2026-10-12T07:06:55.103320Z. The new production bootstrap succeeded. ELF hashes
+were checked twice. The selected existing schedule credential was verified
+locally and transferred only through SSH stdin into isolated container tmpfs.
+Signer systemd syntax/loading/start exec succeeded, but its readiness check
+found a failed service: application exit70, `O3 fixed input, custody or phase
+binding is invalid`. There was no initial-schedule request, supervisor start,
+positive composition child or start/stop PASS. This exit70 is a startup refusal,
+not the expected terminal refusal after a successful run.
+
+Cleanup removed both uniquely named containers and the public staging directory;
+the credential tmpfs disappeared with the signer container. The normal successful
+path's explicit credential-unlink milestone was not reached and is not claimed.
+Host Docker/binfmt inventory and protected state before/after match exactly.
+`cleanup_notes` is empty; installation and operational O3 remain false.
+
+Static diagnosis found an independently sufficient incompatible input:
+`crates/finam-gateway/examples/o3_local_signer_witness.rs` emits broker asset
+marker `LOCAL-SYNTHETIC`, but the accepted
+`crates/strategy-runtime-core/src/stage8b_o3_readmission.rs` constructor requires
+`SYNTHETIC-O3`. The linked helper's synthetic truth becomes the composition
+plan verbatim. The signer invokes this constructor through `load_fixed` before
+reading the service credential or binding its socket. The generic error does
+not independently identify the first failed predicate; no claim that this is
+the only remaining issue is made. Do not weaken the production restriction.
+
+Required narrow next step: correct/regression-test and separately rebuild only
+the disposable input helper, retain its distinct source/ELF provenance, then
+one newly permitted isolated qualification using the same five production
+ELFs and unchanged units. No automatic retry, source acceptance relabelling,
+host installation, clock override or operational activation. The original
+helper/build/run evidence remains immutable. The new packaging script and its
+positive-evidence mutations are drafts until a successful new witness exists;
+the assembler rejects the current failed result before running package gates
+or writing a ZIP. No final review ZIP has been created.
+
+## Preparation checkpoint (2026-10-11; historical)
 
 Accepted source: `5df1c88299bbb7f1a70b709d3c01e2cf0a09d08c`.
 Source tree: `d0d57aab9079b4afe5941bf414e29ff75f19c860`.

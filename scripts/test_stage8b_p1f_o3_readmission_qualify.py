@@ -118,5 +118,20 @@ class Qualification(unittest.TestCase):
                           ('after',m.AFTER_PREPARE),('stage',m.STAGE_KEY),('processes',m.PROCESSES)]:
             compile(code,name,'exec')
 
+    def test_public_support_directory_traversable_not_writable(self):
+        # docker cp preserves the staged directory's 0700; bootstrap drops UID.
+        with tempfile.TemporaryDirectory() as tmp:
+            directory=Path(tmp)/'payload';directory.mkdir(mode=0o700)
+            for name in m.SUPPORT:
+                (directory/name).write_bytes(b'public test placeholder')
+                (directory/name).chmod(0o600)
+            def mapped(name):
+                self.assertTrue(name=='/payload' or name in ('/payload/'+n for n in m.SUPPORT))
+                return directory if name=='/payload' else directory/name.rsplit('/',1)[1]
+            with patch('pathlib.Path',side_effect=mapped):
+                exec(m.PUBLIC_SUPPORT_SETUP,{})
+            for entry in (directory,*(directory/n for n in m.SUPPORT)):
+                self.assertEqual(entry.stat().st_mode & 0o777,0o755)
+
 
 if __name__=='__main__':unittest.main(verbosity=2)

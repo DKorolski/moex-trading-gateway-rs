@@ -55,6 +55,14 @@ def credential_seed(path):
         # No local custody pathname or decoder diagnostic in handoff evidence.
         raise ValueError('selected credential validation failed; private details omitted') from None
 
+PUBLIC_SUPPORT_SETUP='''
+import pathlib
+# Only public files in this disposable container; no host directory/credential.
+pathlib.Path('/payload').chmod(0o755)
+for n in ('input-helper','bootstrap-source-witness'):
+ pathlib.Path('/payload/'+n).chmod(0o755)
+'''
+
 EXTRA_SETUP='''
 import os,pathlib
 p=pathlib.Path
@@ -65,8 +73,7 @@ for d in ('/run/o3-local-lifecycle','/run/o3-public'):
 # Base setup's inert credential placeholders are not reused in this positive run.
 p('/run/moex-finam-p1-o3-input/schedule.ed25519').unlink()
 p('/run/moex-finam-p1-o3-runtime-credentials/stage8b-p1-lifecycle.key').unlink()
-for n in ('input-helper','bootstrap-source-witness'):p('/payload/'+n).chmod(0o755)
-'''
+'''+PUBLIC_SUPPORT_SETUP
 
 AFTER_PREPARE='''
 import os,pathlib,shutil
@@ -302,6 +309,8 @@ def main(argv=None):
         run('group',ex('groupadd','-g','987','moex-p1-paper'))
         run('user',ex('useradd','-u','987','-g','987','-M','-s','/usr/sbin/nologin','moex-p1-paper'))
         py('base-setup',base.SETUP);py('extra-setup',EXTRA_SETUP)
+        run('bootstrap-support-executable',uid('test','-x','/payload/bootstrap-source-witness'))
+        run('bootstrap-support-not-writable',uid('test','-w','/payload/bootstrap-source-witness'),expect=(1,))
         actual=run('exact-release-hashes',ex('sha256sum',*(FIXED+n for n in base.BINS))).decode().splitlines()
         assert {Path(line.split()[1]).name:line.split()[0] for line in actual}=={n:hashes[n] for n in base.BINS}
         redis_created=True

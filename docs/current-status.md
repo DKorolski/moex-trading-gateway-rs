@@ -1,6 +1,31 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-10-11.
+Status date: 2026-10-12.
+
+Latest native readmission qualification: **FAILED / NOT QUALIFIED**.
+The single owner-authorized attempt entered the ordinary Monday model slot
+at 10:06 MSK. Production bootstrap passed, but the signer exited 70 during
+startup with `O3 fixed input, custody or phase binding is invalid`; the
+supervisor was not started and no schedule request was sent. Both disposable
+containers (including credential tmpfs) and public staging were removed.
+Fresh postflight matches protected P0/O2/config/installed bytes/prior
+transactions; O2 remains COMPLETED/1/26, host DB15 empty.
+
+Static diagnosis identifies an incompatible fixture marker: the accepted-source
+input helper still emits `LOCAL-SYNTHETIC`, whereas `Stage8bO3PaperSource::new`
+requires `SYNTHETIC-O3`. The generic runtime diagnostic does not distinguish
+every input branch; this is a deterministic incompatibility, not proof that no
+other qualification issue remains. No production-code or trust-policy bypass.
+Next: correct and regression-test the fixture helper, bind its separate build
+provenance, then obtain permission for one repeat isolated qualification with
+the unchanged five production ELFs. No repeat has run or been scheduled.
+The new handoff assembler/verifier is a local draft; positive native evidence
+tests and final ZIP remain blocked, not PASS. No new installation/release ZIP
+has been created. Details and retained paths are in the
+[readmission release record](stage-8/stage8b-p1f-o3-readmission-release.md).
+
+The following preparation summary retains the 2026-10-11 checkpoint; its
+future tense and no-key-transfer statements are historical, not current.
 
 Current source baseline: **SOURCE ACCEPT**
 `5df1c88299bbb7f1a70b709d3c01e2cf0a09d08c`, per the
