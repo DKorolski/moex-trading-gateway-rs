@@ -28,6 +28,8 @@ PUBLIC='432a274889bc2b3a4492b3a1510f7356e1c2878337263e28472335f8600e4d99'
 SUPPORT={'input-helper':'20594d8506fb39d123449078d0157965df4224e9c4636ab3b1003f17a9e4cd4b',
          'bootstrap-source-witness':'fe8ed5da2106dfb939313daec2c531ae85b55b7922e17a85e904b79268e3c03e'}
 SUPPORT_RECORD='cc6c2fead646157b5cf06507fb20ff1eaca84966b3140b02470dd769285e88b3'
+HELPER_REF='d26c02a378b0c5b33af0bcfad8e0224d5f0e2ad9'
+HELPER_RECORD='8496dfff89ca7df5489603aed28238fce0756d3f8373e2ad8495d546f4ee206a'
 OBSERVER='cb53f7779935169fa30f623576b6cbaf86d05001a382f14caaed9a4f9f166783'
 ROOT=Path(__file__).resolve().parents[1]
 UNITS=base.UNITS
@@ -148,7 +150,7 @@ def check_window(now):
     return dict(utc=now.isoformat(),slot_second=position)
 
 
-def inputs(package,support,observer):
+def inputs(package,support,observer,helper=None):
     spec,baseline,old,payload=installer.load(package)
     raw=installer.package_file(support/'support-build.json')
     if sha(raw)!=SUPPORT_RECORD:raise ValueError('exact separate support record required')
@@ -167,6 +169,21 @@ def inputs(package,support,observer):
         raw=installer.package_file(support/'payload'/name)
         if sha(raw)!=digest:raise ValueError('qualification support ELF drift')
         result[name]=raw
+    if helper is not None:
+        raw=installer.package_file(helper/'helper-build.json')
+        if sha(raw)!=HELPER_RECORD:raise ValueError('exact corrected helper record required')
+        record=json.loads(raw)
+        if (record['source_ref']!=HELPER_REF or record['status']!='FIXTURE_HELPER_BUILT_NOT_RELEASE'
+                or not record['container_removed'] or not record['remote_staging_removed']
+                or record['cleanup_errors'] or record['private_inputs'] or record['production_artifacts']
+                or record['production_artifact_count']!=0 or len(record['binaries'])!=1):
+            raise ValueError('corrected helper provenance/scope drift')
+        binary=record['binaries'][0]
+        raw=installer.package_file(helper/'payload/input-helper')
+        if (binary['name']!='input-helper' or sha(raw)!=binary['sha256'] or len(raw)!=binary['size']
+                or raw[:6]!=b'\x7fELF\x02\x01' or int.from_bytes(raw[18:20],'little')!=62):
+            raise ValueError('corrected helper ELF drift')
+        result['input-helper']=raw
     raw=installer.package_file(observer)
     if sha(raw)!=OBSERVER:raise ValueError('exact read-only host collector required')
     compile(raw,'host-collector.py','exec')
@@ -195,6 +212,7 @@ def main(argv=None):
     ap.add_argument('action',choices=('prepare','run'));ap.add_argument('package',type=Path)
     ap.add_argument('output',type=Path);ap.add_argument('--support',type=Path,required=True)
     ap.add_argument('--observer',type=Path,required=True)
+    ap.add_argument('--helper-build',type=Path,help='separate marker-corrected fixture-only build')
     ap.add_argument('--authorized-selected-key-native-test',action='store_true')
     ap.add_argument('--schedule-key',type=Path,help='only for run; never recorded in evidence')
     a=ap.parse_args(argv)
@@ -202,9 +220,10 @@ def main(argv=None):
         if not a.authorized_selected_key_native_test or a.schedule_key is None:
             raise ValueError('explicit isolated-test/key authorization required')
         check_window(dt.datetime.now(dt.timezone.utc))  # Before SSH, mkdir or key read.
+        if a.helper_build is None:raise ValueError('corrected helper required; old fixture marker rejected')
     elif a.schedule_key is not None or a.authorized_selected_key_native_test:
         raise ValueError('offline preparation must not receive a private key argument')
-    spec,baseline,payload,collector=inputs(a.package,a.support,a.observer)
+    spec,baseline,payload,collector=inputs(a.package,a.support,a.observer,a.helper_build)
     out=a.output.resolve();out.mkdir(parents=True,exist_ok=False)
     (out/'logs').mkdir();(out/'payload').mkdir()
     release.put(out/'driver.py',Path(__file__).read_bytes())
@@ -212,6 +231,8 @@ def main(argv=None):
     release.put(out/'host-collector.py',collector)
     for name,raw in payload.items():release.put(out/'payload'/name,raw)
     names=tuple(payload);hashes={name:sha(raw) for name,raw in payload.items()}
+    helper_binding=dict(corrected_helper_build_sha256=HELPER_RECORD if a.helper_build else None,
+                        corrected_helper_source_ref=HELPER_REF if a.helper_build else None)
     if a.action=='prepare':
         record=dict(status='PREPARED_ONLY_NOT_QUALIFIED',source_ref=release.READMISSION_REF,
             production_build_sha256=installer.BUILD,support_build_sha256=SUPPORT_RECORD,
@@ -219,7 +240,7 @@ def main(argv=None):
             driver_sha256=sha(Path(__file__).read_bytes()),observer_sha256=OBSERVER,
             fixture_setup_sha256=sha(Path(base.__file__).read_bytes()),
             remote_contact=False,private_key_read=False,signature_issued=False,
-            automatic_launch_scheduled=False,operational_o3=False,installation_performed=False)
+            automatic_launch_scheduled=False,operational_o3=False,installation_performed=False,**helper_binding)
         release.put(out/'preparation.json',release.encoded(record))
         print(json.dumps(record,sort_keys=True));return
     name='moex-o3-readmission-qual-'+uuid.uuid4().hex[:12];redis=name+'-redis';remote='/var/tmp/'+name
@@ -231,11 +252,12 @@ def main(argv=None):
         fixture_setup_sha256=sha(Path(base.__file__).read_bytes()),
         driver_sha256=sha(Path(__file__).read_bytes()),payload_sha256=hashes,support_not_release=list(SUPPORT),
         systemd_image=base.IMAGE,redis_image=REDIS,native=True,operational_o3=False,
-        installation_performed=False,host_state_used=False,rust_cargo_changed=False,
+        installation_performed=False,host_state_used=False,production_rust_cargo_changed=False,
+        qualification_fixture_source_changed=True,
         automatic_launch_scheduled=False,
         selected_schedule_public_key=PUBLIC,schedule_key_transferred=False,
         credential_staging='SSH stdin -> private container /run tmpfs only',
-        positive_phase_run=False,live_child_stop_proven=False,containers_removed=False)
+        positive_phase_run=False,live_child_stop_proven=False,containers_removed=False,**helper_binding)
     def run(label,args,expect=(0,),stdin=None,private=False,timeout=90):
         command=[*ssh,shlex.join(args)];started=time.monotonic()
         try:

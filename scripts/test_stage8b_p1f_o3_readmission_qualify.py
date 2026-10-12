@@ -57,6 +57,32 @@ class Qualification(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'authorization'):m.main(self.args('run',Path(tmp)/'out'))
             inputs.assert_not_called();key.assert_not_called();run.assert_not_called()
 
+    def test_run_needs_corrected_helper_before_effects(self):
+        with tempfile.TemporaryDirectory() as tmp,patch.object(m,'check_window'),\
+             patch.object(m,'inputs') as inputs,patch.object(m,'selected_seed') as key,\
+             patch.object(m.subprocess,'run') as run:
+            with self.assertRaisesRegex(ValueError,'corrected helper required'):
+                m.main(self.args('run',Path(tmp)/'out')+
+                       ['--authorized-selected-key-native-test','--schedule-key','/NOT-OPENED'])
+            inputs.assert_not_called();key.assert_not_called();run.assert_not_called()
+
+    def test_corrected_helper_replaces_only_one_public_payload(self):
+        helper=Path(os.environ['O3_READMISSION_HELPER'])
+        old=m.inputs(self.package,self.support,self.observer)[2]
+        new=m.inputs(self.package,self.support,self.observer,helper)[2]
+        self.assertEqual(set(old),set(new))
+        self.assertEqual({n for n in old if old[n]!=new[n]},{'input-helper'})
+        record=json.loads((helper/'helper-build.json').read_bytes())
+        self.assertEqual(m.sha(new['input-helper']),record['binaries'][0]['sha256'])
+
+    def test_corrected_record_or_elf_tamper_rejected(self):
+        helper=Path(os.environ['O3_READMISSION_HELPER']);read=m.installer.package_file
+        for target in (helper/'helper-build.json',helper/'payload/input-helper'):
+            with self.subTest(file=target.name):
+                def altered(path):return read(path)+b'changed' if path==target else read(path)
+                with patch.object(m.installer,'package_file',side_effect=altered):
+                    with self.assertRaises(ValueError):m.inputs(self.package,self.support,self.observer,helper)
+
     def test_prepare_cannot_receive_private_argument(self):
         with tempfile.TemporaryDirectory() as tmp,patch.object(m,'inputs') as inputs:
             for flag in (['--schedule-key','/NOT-OPENED'],['--authorized-selected-key-native-test']):
