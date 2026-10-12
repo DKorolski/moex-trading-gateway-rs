@@ -1,12 +1,85 @@
-# O3 readmission release preparation
+# O3 readmission release / isolated native qualification
 
-2026-10-12. Native production build PASS; dynamic qualification FAILED.
-Unified release package remains IN PROGRESS, not a completed or accepted
-release/install package. The dated preparation sections below retain their
-historical status; the following current attempt supersedes their pending-run
-and no-key-transfer statements only.
+2026-10-12. Native production build PASS; repeated isolated dynamic
+qualification PASS. Unified release/authority/stopped-installation candidate
+is ready for independent review, not installation or operational acceptance.
+The earlier preparation and failed-attempt sections below are historical.
 
-## Monday native attempt — FAILED / NOT QUALIFIED
+## Corrected fixture and one permitted repeat — PASS
+
+Production remains the five exact ELFs built from accepted
+`5df1c88299bbb7f1a70b709d3c01e2cf0a09d08c`; no production Rust/Cargo, unit,
+installation or runtime permission was changed. Only the disposable example
+`o3_local_signer_witness` was corrected at
+`d26c02a378b0c5b33af0bcfad8e0224d5f0e2ad9`: its truth marker is now
+`SYNTHETIC-O3`. A regression calls the actual production paper-source constructor:
+the corrected fixture passes, while the old marker fails even with a recomputed
+fixture hash. This test passed locally and in the native release build.
+
+The separate helper-only build record is `helper-build-r1/helper-build.json`,
+SHA-256 `8496dfff89ca7df5489603aed28238fce0756d3f8373e2ad8495d546f4ee206a`.
+Its sole ELF is `input-helper`, SHA-256
+`72175add8a0404d263bee903510b7473c6af88883fef26eaaff7a30ebf5821e4`.
+It is explicitly `FIXTURE_HELPER_BUILT_NOT_RELEASE`, with zero production
+artifacts. Original production and support records are retained unchanged;
+the bootstrap helper is reused, the original input helper is historical only.
+Current-tree authority inventories include the example correction; authority
+policy and CI workflows are unchanged.
+
+After native build cleanup, fresh preflight at 07:32:23Z matched the protected
+host baseline. The owner-permitted repeat entered the ordinary Monday window
+at 10:36 MSK, without a clock override, schedule or automatic retry.
+`native-run-r1/result.json` has SHA-256
+`59ac5446806d22a56648ad3b5057e1588f937c05e01c927b37f4833af1ac5533`:
+`NATIVE_SYSTEMD_START_STOP_PASS_NOT_OPERATIONAL_O3`, 72 command records.
+The nine public payloads bind the five unchanged production ELFs, two unchanged
+units, unchanged bootstrap and separately corrected input helper. The actual
+driver is SHA-256 `c163782c3404a0b82a685fcbfbe76e38291ce0d7b72ea29ee968acf0295fab1d`.
+
+Actual production bootstrap, signer admission/signature verification and fresh
+isolated Redis initialization passed. Signer and supervisor/UID987 child remained
+active through the stability observation without restarts. Bounded supervisor
+stop took 0.461s: `GRACEFUL_STOP`, one child start, child exit0, no forced kill.
+The signer then exited70 at the terminal boundary. All recorded PID/start-time
+identities disappeared. This is start/stop qualification, not completion of the
+operational O3 decision/successor scenario.
+
+The sole existing schedule credential was verified against its public key,
+transferred over SSH stdin only into container tmpfs, and explicitly unlinked
+after the services stopped; the systemd credential directory was absent.
+No private key bytes, digest or custody path are retained in this package.
+Both disposable containers and public staging were removed. Host Docker/binfmt
+inventory was unchanged. Protected postflight at 07:37:31Z matches P0, installed
+bytes/config, prior transactions and O2 COMPLETED/1/26; host DB15 remains empty.
+No operational services, installed package, DB0 or terminal history were changed.
+
+Offline evidence checks pass: 20 native/helper positive-and-mutation tests,
+15 runner tests, nine builder tests, ten source/template tests, authority and
+45 authority negatives. Retained 19 installer tests are Linux filesystem tests,
+not a new native SIGKILL matrix. `cargo fmt --all -- --check` passes. Full CI and
+full Rust suites are not rerun or claimed: accepted production source/ELFs are
+unchanged and the only Rust correction is the regression-tested fixture example.
+
+Handoff command (local, no network or operational effects):
+
+```sh
+python3 -B scripts/stage8b_p1f_o3_readmission_handoff.py package OUTPUT_DIR \
+  --work RELEASE_EVIDENCE_DIR --native QUALIFICATION_DIR/native-run-r1 \
+  --helper-build QUALIFICATION_DIR/helper-build-r1
+python3 -B scripts/stage8b_p1f_o3_readmission_handoff.py verify ARCHIVE.zip
+```
+
+The archive carries full tracked source, exact package/accepted/helper Git trees,
+build records and compiler graphs, seven-slot installation candidate, historical
+failed attempt, new native observations and focused offline gate logs. SHA-256,
+safety and review-message sidecars accompany it. The original helper build is
+not relabelled as the corrected build. Missing/failed native evidence blocks
+packaging. Next: independent release/install review, separately permitted stopped
+installation, installation-evidence acceptance, then separately permitted bounded
+operational O3. No new recovery framework or main/CI merge is required for this
+isolated qualification.
+
+## Earlier Monday native attempt — FAILED / NOT QUALIFIED (historical)
 
 Retained operation directory: `reports/operations/o3-readmission-qualification-20261012`.
 `before-preparation/record.json` and `stdout.json` record the fresh read-only
@@ -50,15 +123,15 @@ reading the service credential or binding its socket. The generic error does
 not independently identify the first failed predicate; no claim that this is
 the only remaining issue is made. Do not weaken the production restriction.
 
-Required narrow next step: correct/regression-test and separately rebuild only
+The narrow next step agreed after this failure was to correct/regression-test and separately rebuild only
 the disposable input helper, retain its distinct source/ELF provenance, then
 one newly permitted isolated qualification using the same five production
 ELFs and unchanged units. No automatic retry, source acceptance relabelling,
 host installation, clock override or operational activation. The original
 helper/build/run evidence remains immutable. The new packaging script and its
-positive-evidence mutations are drafts until a successful new witness exists;
+positive-evidence mutations were drafts until a successful new witness existed;
 the assembler rejects the current failed result before running package gates
-or writing a ZIP. No final review ZIP has been created.
+or writing a ZIP. No final review ZIP existed at that failed-attempt checkpoint.
 
 ## Preparation checkpoint (2026-10-11; historical)
 

@@ -16,11 +16,13 @@ import zipfile
 import stage8b_p1f_o3_release_handoff as previous
 import stage8b_p1f_o3_readmission_install as install
 import stage8b_p1f_o3_readmission_qualify as qual
+import stage8b_p1f_o3_release_native as builder
 
 h, r = previous.h, previous.r
 sha, encode, require = h.sha, h.encode, h.require
 ROOT = Path(__file__).resolve().parents[1]
 P = 'o3-readmission/'
+HELPER_SOURCE = 'crates/finam-gateway/examples/o3_local_signer_witness.rs'
 
 
 def records(read, prefix, entries):
@@ -40,14 +42,18 @@ def verify_native(read, files, build, baseline, spec):
     require(result['status'] == 'NATIVE_SYSTEMD_START_STOP_PASS_NOT_OPERATIONAL_O3', 'new native PASS required')
     for field in ('native','schedule_key_transferred','selected_key_removed','positive_phase_run',
                   'live_child_stop_proven','containers_removed','remote_public_staging_removed',
-                  'host_binfmt_and_container_inventory_unchanged','protected_host_unchanged'):
+                  'host_binfmt_and_container_inventory_unchanged','protected_host_unchanged','qualification_fixture_source_changed'):
         require(result[field] is True, 'native flag: '+field)
-    for field in ('operational_o3','installation_performed','host_state_used','rust_cargo_changed','automatic_launch_scheduled'):
+    for field in ('operational_o3','installation_performed','host_state_used','production_rust_cargo_changed','automatic_launch_scheduled'):
         require(result[field] is False, 'native scope: '+field)
     require(result['cleanup_notes'] == [], 'native cleanup incomplete')
     require(result['source_ref'] == r.READMISSION_REF and result['production_build_sha256'] == install.BUILD
             and result['support_build_sha256'] == qual.SUPPORT_RECORD
             and result['installation_spec_sha256'] == sha(install.canonical(spec)), 'native input binding')
+    helper_raw = read(P+'helper/helper-build.json')
+    require(sha(helper_raw) == result['corrected_helper_build_sha256'] == qual.HELPER_RECORD
+            and result['corrected_helper_source_ref'] == qual.HELPER_REF, 'corrected helper binding')
+    helper = json.loads(helper_raw)
     for name, field, source in (
         ('driver.py','driver_sha256','scripts/stage8b_p1f_o3_readmission_qualify.py'),
         ('fixture-setup.py','fixture_setup_sha256','scripts/stage8b_p1f_o3_native_fixture.py')):
@@ -55,6 +61,7 @@ def verify_native(read, files, build, baseline, spec):
     require(result['observer_sha256'] == sha(read(prefix+'host-collector.py')) == qual.OBSERVER, 'exact observer')
     hashes = {b['name']:b['sha256'] for b in build['binaries']}
     hashes.update(qual.SUPPORT)
+    hashes['input-helper'] = helper['binaries'][0]['sha256']
     hashes.update({u+'.in':sha(files['deploy/stage8b-p1f-o3/'+u+'.in']) for u in qual.UNITS})
     require(result['payload_sha256'] == hashes and set(result['support_not_release']) == set(qual.SUPPORT), 'qualified payload binding')
     require(result['systemd_image'] == qual.base.IMAGE and result['redis_image'] == qual.REDIS
@@ -182,6 +189,47 @@ def verify_build(read, kind):
     return value
 
 
+def verify_helper(read):
+    """Distinct fixture-only build; it never replaces production build evidence."""
+    prefix = P+'helper/'
+    raw = read(prefix+'helper-build.json')
+    require(sha(raw) == qual.HELPER_RECORD, 'corrected helper record')
+    value = json.loads(raw)
+    require(value['source_ref'] == qual.HELPER_REF and value['image'] == r.b.IMAGE
+            and value['status'] == 'FIXTURE_HELPER_BUILT_NOT_RELEASE'
+            and value['build_kind'] == 'fixture_helper_correction'
+            and value['production_artifacts'] == [] and value['production_artifact_count'] == 0
+            and value['build_steps'] == builder.build_plan(fixture_only=True)[0], 'helper-only build profile')
+    require(value['container_removed'] is True and value['remote_staging_removed'] is True
+            and value['cleanup_errors'] == [] and value['private_inputs'] is False
+            and value['installation_performed'] is False and value['operational_o3_invoked'] is False
+            and value['source_tree_reverified'] is True and value['cargo_offline'] is True, 'helper cleanup/scope')
+    records(read,prefix+'logs/',value['records'])
+    for v in value['records']:
+        require(v['exit_code'] == 0 or (v['id'].startswith('state-') and v['exit_code'] in (124,255)), 'helper command failure')
+    for step in value['build_steps']:
+        log = read(prefix+'evidence/'+step['name']+'.log')
+        rec = json.loads(read(prefix+'evidence/'+step['name']+'.json'))
+        require(rec['exit_code'] == 0 and rec['log_sha256'] == sha(log), 'helper Cargo log binding')
+        if step['name'] == 'fixture-regression':
+            require(b'1 passed; 0 failed' in log and b'fixture_matches_production_paper_source_and_old_marker_is_rejected' in log,
+                    'real helper constructor regression')
+        else:
+            items = [json.loads(line) for line in log.splitlines() if line.startswith(b'{')]
+            items = [v for v in items if v.get('reason') == 'compiler-artifact']
+            require([v for v in items if v.get('executable') == '/target/release/examples/o3_local_signer_witness'] ==
+                    [value['fixture_input_artifact']], 'corrected helper target')
+            require(value['fixture_input_artifact']['target']['kind'] == ['example']
+                    and value['fixture_input_artifact']['profile']['test'] is False, 'fixture executable profile')
+            require({v['target']['name']:v['features'] for v in items if 'lib' in v['target']['kind']} ==
+                    value['fixture_library_features'], 'corrected helper feature graph')
+    require(len(value['binaries']) == 1 and value['binaries'][0]['name'] == 'input-helper', 'single helper output')
+    binary = value['binaries'][0]; raw = read(prefix+'payload/input-helper')
+    require(sha(raw) == binary['sha256'] and len(raw) == binary['size'] and raw[:6] == b'\x7fELF\x02\x01'
+            and int.from_bytes(raw[18:20],'little') == 62, 'corrected helper ELF')
+    return value
+
+
 def verify(path):
     with zipfile.ZipFile(path) as z:
         infos = z.infolist(); names = [v.filename for v in infos]
@@ -220,12 +268,24 @@ def verify(path):
                     'docs/stage-8/reviews/REVIEW_5df1c88_O3_SOURCE_ACCEPT_RU.txt',
                     'docs/stage-8/stage8b-p1f-o3-readmission-source-correction.md',
                     'docs/stage-8/stage8b-p1f-o3-readmission-release.md'}
+                    or n == HELPER_SOURCE
                     or n.startswith(('scripts/stage8b_p1f_o3_','scripts/test_stage8b_p1f_o3_')), 'unexpected runtime/deploy/CI delta: '+n)
         h.validate_templates(files,native=True)
         handoff = read('handoff-commit.txt').decode()
         require('full_sha='+d['package_ref'] in handoff and 'source_ref='+r.READMISSION_REF in handoff
                 and 'archive='+d['archive'] in handoff, 'handoff provenance')
         build = verify_build(read,'build'); verify_build(read,'support')
+        helper = verify_helper(read)
+        hi = js('helper/source-index.json')
+        hf = {n:files[n] if n in files and sha(files[n]) == e['sha256'] else read(P+'helper/source-preimages/'+n) for n,e in hi.items()}
+        require(all(sha(hf[n]) == e['sha256'] and len(hf[n]) == e['size'] for n,e in hi.items())
+                and h.tree_hash(hf,{n:e['mode'] for n,e in hi.items()}) == helper['source_tree'], 'helper Git tree')
+        hr = read(P+'helper/source-commit.raw')
+        require(previous.commit_hash(hr) == qual.HELPER_REF and sha(hr) == helper['source_commit_raw_sha256']
+                and hr.startswith(('tree '+helper['source_tree']+'\n').encode()), 'helper commit binding')
+        rust = lambda n: n.startswith('crates/') or n in ('Cargo.toml','Cargo.lock')
+        hd = {n for n in set(hf)|set(base) if rust(n) and (hf.get(n) != base.get(n) or hi.get(n,{}).get('mode') != idx.get(n,{}).get('mode'))}
+        require(hd == {HELPER_SOURCE} and files[HELPER_SOURCE] == hf[HELPER_SOURCE], 'only disposable example changed')
         source_index = {n:dict(sha256=sha(raw),size=len(raw),mode=idx[n]['mode']) for n,raw in base.items()}
         require(js('build/source-index.json') == js('support/source-index.json') == source_index, 'compiled input inventories')
         baseline, spec = js('installation/baseline.json'), js('installation/spec.json')
@@ -252,10 +312,11 @@ def verify(path):
             native_qualification=native,installation_performed=False,operational_o3=False)
 
 
-def package(work, native, out):
+def package(work, native, out, helper=None):
     # Refuse missing/failed witness before running gates or creating an archive.
     require(json.loads((native/'result.json').read_bytes())['status'] ==
             'NATIVE_SYSTEMD_START_STOP_PASS_NOT_OPERATIONAL_O3', 'new native PASS required')
+    require(helper is not None, 'corrected fixture helper build required')
     require(previous.git('status','--porcelain') == b'', 'commit completed packaging sources first')
     ref = previous.git('rev-parse','HEAD').decode().strip()
     files, modes = previous.snapshot(ref); base, bm = previous.snapshot(r.READMISSION_REF)
@@ -287,6 +348,16 @@ def package(work, native, out):
         add_file(work/directory/'source-index.json',kind+'/source-index.json')
         if kind == 'support': add_tree(work/directory/'payload','support/payload')
     add_tree(native,'native',exclude=('payload',))
+    failed = native.parent/'native-run-r0'
+    failed_record = json.loads((failed/'result.json').read_bytes())
+    require(failed_record['status'] == 'FAILED_NOT_QUALIFIED'
+            and failed_record['containers_removed'] is True and failed_record['cleanup_notes'] == [], 'prior attempt/cleanup record')
+    add_tree(failed,'historical-failed-native',exclude=('payload',))
+    for sub in ('logs','evidence','payload'): add_tree(helper/sub,'helper/'+sub)
+    for n in ('helper-build.json','source-index.json','source-commit.raw'): add_file(helper/n,'helper/'+n)
+    hf, hm = previous.snapshot(qual.HELPER_REF)
+    for n, raw in hf.items():
+        if files.get(n) != raw: payload[P+'helper/source-preimages/'+n] = raw
     add_file(work/'readmission-installer-tests-r1.log','installer-filesystem/tests.log')
     add_file(work/'readmission-installer-tests-command.json','installer-filesystem/command.json')
     commands = {
@@ -300,13 +371,15 @@ def package(work, native, out):
     gates = {}
     for label, command in commands.items():
         q = subprocess.run(command,cwd=ROOT,capture_output=True,timeout=600,
-                           env=dict(os.environ,O3_READMISSION_EVIDENCE=str(work),O3_READMISSION_NATIVE=str(native)))
+                           env=dict(os.environ,O3_READMISSION_EVIDENCE=str(work),O3_READMISSION_NATIVE=str(native),
+                                    O3_READMISSION_HELPER=str(helper)))
         raw = q.stdout+q.stderr; require(q.returncode == 0, 'gate failed: '+label)
         gates[label] = dict(command=command,exit_code=q.returncode,sha256=sha(raw)); payload[P+'gates/'+label+'.log'] = raw
     payload[P+'gates/result.json'] = encode(gates)
     payload[P+'descriptor.json'] = encode(dict(archive=name,package_ref=ref,
         package_tree=previous.git('rev-parse',ref+'^{tree}').decode().strip(),source_ref=r.READMISSION_REF,
         source_tree=r.READMISSION_TREE,packaging_delta=sorted(changed),
+        corrected_fixture_source_ref=qual.HELPER_REF,corrected_fixture_build_sha256=qual.HELPER_RECORD,
         repository='https://github.com/DKorolski/moex-trading-gateway-rs',
         branch=previous.git('branch','--show-current').decode().strip(),
         installation_performed=False,operational_o3=False,acceptance='REVIEW_PENDING'))
@@ -330,6 +403,8 @@ SHA-256: {safety['archive_sha256']}
 
 O3 readmission release / authority / STOPPED installation review candidate.
 Five new production ELFs; two separate qualification-only support helpers.
+Only the input helper was corrected/rebuilt at {qual.HELPER_REF}.
+Original support build is historical; native result binds the replacement helper.
 Native Linux amd64 systemd start/stop: actual new ELF bytes, unchanged units.
 Scope remains isolated: accepted host installation/P0/O2/history unchanged.
 Installer: seven exact replacements, no config/template/reload/history/Redis writes.
@@ -346,6 +421,7 @@ Next: review -> separately permitted stopped install -> installation evidence ->
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__); p.add_argument('action',choices=('package','verify'))
     p.add_argument('path',type=Path); p.add_argument('--work',type=Path); p.add_argument('--native',type=Path)
+    p.add_argument('--helper-build',type=Path)
     a = p.parse_args()
     if a.action == 'verify': print(json.dumps(verify(a.path.resolve()),indent=2))
-    else: package(a.work.resolve(),a.native.resolve(),a.path.resolve())
+    else: package(a.work.resolve(),a.native.resolve(),a.path.resolve(),helper=a.helper_build.resolve())

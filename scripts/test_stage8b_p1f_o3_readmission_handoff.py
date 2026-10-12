@@ -15,6 +15,11 @@ class NativeEvidence(unittest.TestCase):
         work = Path(os.environ['O3_READMISSION_EVIDENCE'])
         cls.original = {m.P+'native/'+p.relative_to(cls.native).as_posix():p.read_bytes()
                         for p in cls.native.rglob('*') if p.is_file() and 'payload' not in p.relative_to(cls.native).parts}
+        helper = Path(os.environ['O3_READMISSION_HELPER'])
+        cls.original[m.P+'helper/helper-build.json'] = (helper/'helper-build.json').read_bytes()
+        for sub in ('logs','evidence','payload'):
+            for p in (helper/sub).rglob('*'):
+                if p.is_file(): cls.original[m.P+'helper/'+p.relative_to(helper).as_posix()] = p.read_bytes()
         cls.build = json.loads((work/'native-build-r1/build.json').read_bytes())
         cls.spec = json.loads((work/'installation-prepared-r1/spec.json').read_bytes())
         cls.baseline = json.loads((work/'installation-prepared-r1/baseline.json').read_bytes())
@@ -40,9 +45,24 @@ class NativeEvidence(unittest.TestCase):
     def test_real_retained_positive(self):
         self.assertEqual(self.verify()['signer_exit'],70)
 
+    def test_real_helper_only_build_positive(self):
+        self.assertEqual(m.verify_helper(self.data.__getitem__)['production_artifact_count'],0)
+
+    def test_corrected_helper_elf_tamper_rejected(self):
+        self.data[m.P+'helper/payload/input-helper'] += b'changed'
+        with self.assertRaisesRegex(ValueError,'helper ELF'): m.verify_helper(self.data.__getitem__)
+
     def test_old_source_cannot_inherit_pass(self):
         self.result['source_ref'] = m.r.REF
         with self.assertRaisesRegex(ValueError,'input binding'): self.verify()
+
+    def test_old_helper_cannot_inherit_pass(self):
+        self.result['corrected_helper_build_sha256'] = m.qual.SUPPORT_RECORD
+        with self.assertRaisesRegex(ValueError,'corrected helper binding'): self.verify()
+
+    def test_helper_record_change_rejected(self):
+        self.data[m.P+'helper/helper-build.json'] += b'\n'
+        with self.assertRaisesRegex(ValueError,'corrected helper binding'): self.verify()
 
     def test_failed_or_prepared_result_rejected(self):
         for value in ('FAILED_NOT_QUALIFIED','PREPARED_ONLY_NOT_QUALIFIED'):

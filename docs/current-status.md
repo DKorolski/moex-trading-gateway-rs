@@ -2,26 +2,27 @@
 
 Status date: 2026-10-12.
 
-Latest native readmission qualification: **FAILED / NOT QUALIFIED**.
-The single owner-authorized attempt entered the ordinary Monday model slot
-at 10:06 MSK. Production bootstrap passed, but the signer exited 70 during
-startup with `O3 fixed input, custody or phase binding is invalid`; the
-supervisor was not started and no schedule request was sent. Both disposable
-containers (including credential tmpfs) and public staging were removed.
-Fresh postflight matches protected P0/O2/config/installed bytes/prior
-transactions; O2 remains COMPLETED/1/26, host DB15 empty.
+Latest native readmission qualification: **PASS / NOT OPERATIONAL O3**.
+After the retained 10:06 MSK failed attempt, only the disposable input helper
+was corrected/rebuilt at `d26c02a` (fixture marker `SYNTHETIC-O3`), with a real
+production-constructor regression passing locally and on native release.
+The five production ELFs remain those built from accepted `5df1c88`; bootstrap
+and unit templates are unchanged. One newly owner-permitted repeat at 10:36 MSK
+passed signer/bootstrap/start/stop: stable UID987 child, `GRACEFUL_STOP` in
+0.461s, child exit0, signer terminal exit70, no restarts or surviving identities.
+The schedule credential was explicitly removed from tmpfs; both disposable
+containers and public staging were removed. No automatic retry or timer.
 
-Static diagnosis identifies an incompatible fixture marker: the accepted-source
-input helper still emits `LOCAL-SYNTHETIC`, whereas `Stage8bO3PaperSource::new`
-requires `SYNTHETIC-O3`. The generic runtime diagnostic does not distinguish
-every input branch; this is a deterministic incompatibility, not proof that no
-other qualification issue remains. No production-code or trust-policy bypass.
-Next: correct and regression-test the fixture helper, bind its separate build
-provenance, then obtain permission for one repeat isolated qualification with
-the unchanged five production ELFs. No repeat has run or been scheduled.
-The new handoff assembler/verifier is a local draft; positive native evidence
-tests and final ZIP remain blocked, not PASS. No new installation/release ZIP
-has been created. Details and retained paths are in the
+Protected postflight at 07:37:31Z matches installed bytes/config, P0 and previous
+transactions/history; O2 remains COMPLETED/1/26, P1 stopped and host DB15 empty.
+The unified release/authority/seven-slot stopped-installation candidate is for
+independent review. Installation, operational O3, DB0, FINAM execution and real
+orders remain closed. Next: review -> separately permitted stopped install ->
+installation evidence -> separately permitted bounded O3. New evidence has 72
+command records; focused tests pass (native/helper 20, runner 15, builder 9,
+templates 10, authority negatives 45). Retained 19 installer tests are filesystem
+tests, not a new SIGKILL claim. No full CI/full Rust rerun is claimed. Details
+and handoff procedure are in the
 [readmission release record](stage-8/stage8b-p1f-o3-readmission-release.md).
 
 The following preparation summary retains the 2026-10-11 checkpoint; its
