@@ -248,7 +248,8 @@ def verify(path):
             if name.startswith(P):
                 require(b'r2b-trust-rebind-generation-2-20260830' not in raw, 'private custody path in evidence')
         d, index = js('descriptor.json'), js('source-index.json')
-        require(set(index) == {n for n in names if not n.startswith(P)}, 'tracked source inventory')
+        # handoff-commit.txt may be generated, rather than a tracked Git blob.
+        require(set(index)|{'handoff-commit.txt'} == {n for n in names if not n.startswith(P)}, 'tracked source inventory')
         files = {n:read(P+'original-handoff-commit.txt') if n == 'handoff-commit.txt' else read(n) for n in index}
         require(all(sha(files[n]) == e['sha256'] and modes[n] == e['mode'] for n,e in index.items()), 'source hash/mode')
         tree = h.tree_hash(files,modes); raw = read(P+'package-commit.raw')
@@ -322,7 +323,7 @@ def package(work, native, out, helper=None):
     files, modes = previous.snapshot(ref); base, bm = previous.snapshot(r.READMISSION_REF)
     require(not any(n.startswith(P) for n in files), 'reserved evidence prefix')
     payload = dict(files); name = 'moex-trading-project-'+ref[:7]+'-o3-readmission-release.zip'
-    payload[P+'original-handoff-commit.txt'] = files['handoff-commit.txt']
+    payload[P+'original-handoff-commit.txt'] = files.get('handoff-commit.txt',b'')
     payload['handoff-commit.txt'] = f'short_sha={ref[:7]}\nfull_sha={ref}\nsource_ref={r.READMISSION_REF}\narchive={name}\n'.encode()
     for label, tree_files, tree_modes, commit in (
         ('source',files,modes,ref),('accepted-source',base,bm,r.READMISSION_REF)):
