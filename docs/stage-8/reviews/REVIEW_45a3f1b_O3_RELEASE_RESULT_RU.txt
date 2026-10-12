@@ -1,0 +1,221 @@
+REVIEW RELEASE / STOPPED INSTALLATION — 45a3f1b
+Дата: 2026-10-12
+
+Вердикт: RELEASE HOLD
+Один блокер: P1-O3-REL-R01 — пропущенный directory fsync при retry installer.
+Дополнительно: P2-O3-REL-R02 — ложный отказ package reader из-за atime.
+Accepted production source 5df1c88: сохраняет SOURCE ACCEPT.
+Native qualification: ACCEPT в заявленной границе isolated start/stop.
+Установка и operational O3: NOT_PERFORMED / NOT_RUN.
+
+1. Объект и scope
+
+Repository: https://github.com/DKorolski/moex-trading-gateway-rs
+Branch: stage8b-o3-preparation-20261008
+Package commit: 45a3f1b900aa19f9b78e2d98069d2bf030e2298e
+Package tree: 8631c737c485b9d95119367f11a636956e7c7ee6
+Accepted compiled source: 5df1c88299bbb7f1a70b709d3c01e2cf0a09d08c
+Accepted tree: d0d57aab9079b4afe5941bf414e29ff75f19c860
+Corrected helper source: d26c02a378b0c5b33af0bcfad8e0224d5f0e2ad9
+ZIP: moex-trading-project-45a3f1b-o3-readmission-release.zip
+ZIP bytes: 56 816 443
+ZIP SHA-256: 769fbbfc7749c86016fe819c08b495b9f2013732d315ef70d80d3f9e80cf9702
+
+Проверены release provenance, authority inventories, финальные ELF bytes,
+native evidence, новый seven-slot stopped installer и его тестовые границы.
+Это review перед установкой без активации. VPS, брокер, установленные сервисы,
+Redis и source проекта reviewer не изменял. ELF/native исполнение, пересборка
+Rust и operational O3 здесь не выполнялись.
+
+2. P1-O3-REL-R01 — directory durability не восстанавливается на retry
+
+Места:
+- scripts/stage8b_p1f_o3_readmission_install.py:195 — при совпадающих bytes
+  atomic_write пропускается.
+- тот же файл:196 — после verify_files/invariants записывается terminal journal.
+- scripts/stage8b_p1f_o2_install.py:161 — fsync временного файла;
+  :162 — os.replace; :163 — sync_dir каталога.
+- scripts/test_stage8b_p1f_o3_readmission_install.py:119 —
+  текущая fault-инъекция происходит после полного atomic_write,
+  то есть уже после успешного directory fsync.
+
+Воспроизводимый сценарий:
+1. Новая транзакция имеет PREPARED; установленный контур остановлен.
+2. Пять ELF последовательно заменяются. На последнем ELF rename уже видим,
+   но процесс прекращается или directory fsync возвращает ошибку до завершения.
+3. При resume все пять ELF читаются как exact-new. Условие :195 пропускает
+   их atomic_write, поэтому /usr/local/libexec/moex не синхронизируется.
+4. Два manifest записываются в /usr/local/share/moex/stage8b-p1e;
+   terminal journal APPLIED — в отдельный TX directory.
+5. Успешный terminal commit не устанавливает требуемую durability последнего
+   ELF rename. При последующем OS/power crash замена может потеряться,
+   несмотря на сохранённый APPLIED; штатный resume остановится на mismatch.
+
+Rollback имеет симметричную границу: после видимого rename последнего ELF
+retry может записать ROLLED_BACK без повторного directory fsync ELF parent.
+
+Это один P1 в installer, не повтор прежнего замечания к Rust proof:
+P1-O3-R01 в accepted source остаётся закрытым.
+
+Локальное доказательство reviewer выполнено на actual Update.transition,
+secure reads, atomic_write и sync_dir, с public synthetic payloads/temp-root.
+Host observations и locks stubbed; production ELF не запускались.
+Инъекция OSError(EIO) сделана непосредственно перед parent fsync после
+последнего ELF rename. Это не эксперимент с физическим отключением питания.
+
+Полученный trace:
+apply: fault → PREPARED;
+resume → APPLIED;
+retry sync_dir:
+  usr/local/share/moex/stage8b-p1e
+  usr/local/share/moex/stage8b-p1e
+  usr/local/share/moex/stage8b-p1e/o3-readmission-5df1c88-after-completed-26
+ELF parent resynchronized: False.
+
+rollback: fault → ROLLING_BACK;
+rollback retry → ROLLED_BACK;
+retry sync_dir: TX, manifest parent, manifest parent, TX.
+ELF parent resynchronized: False.
+
+Минимальная коррекция в новом installer:
+Перед terminal journal для apply/resume и rollback проверять desired bytes,
+синхронизировать все distinct replacement parents, включая parent ELF,
+а также TX.parent; затем выполнять exact reread и invariants. Синхронизация
+должна происходить даже когда все bytes уже совпадают. Ошибка должна выходить
+до нового terminal journal, сохраняя PREPARED / ROLLING_BACK для retry.
+
+TX.parent также нужен для retry незавершённой подготовки после mkdir:
+синхронизация самого TX не заменяет durability его directory entry.
+
+Достаточны два focused fault witness:
+- apply → last ELF rename / отказ до parent fsync → resume;
+- rollback → last ELF rename / отказ до parent fsync → rollback retry.
+Оба должны доказывать parent fsync до terminal journal при exact desired bytes.
+В каждом проверить и отказ новой финальной синхронизации: terminal не пишется,
+повтор остаётся возможен. Существующие 19 installer-регрессий сохраняются.
+Новая recovery architecture, native SIGKILL matrix и изменения Rust не нужны.
+
+3. P2-O3-REL-R02 — package_file может отвергать собственное чтение
+
+scripts/stage8b_p1f_o3_readmission_install.py:36 и :38 сравнивают полный
+stat_result. Он включает atime, который может измениться от обычного read.
+
+В нашей среде первый прогон offline runner tests на свежей копии candidate
+дал package changed during read. На отдельном свежем public файле подтверждено:
+из stat полей изменилась только st_atime_ns. После обычного чтения public
+inputs, без изменения bytes/source, все 15 runner tests прошли.
+
+Это fail-closed availability issue, не возможность обойти custody и не второй
+блокер установки. Рекомендуемая малая коррекция: сравнивать явно dev/ino,
+mode/nlink, uid/gid, size, mtime_ns/ctime_ns и соответствие открытого fd пути,
+исключив atime. Сохранить single-link/type/size/custody проверки.
+Один тест обычного чтения свежего файла плюс существующие tamper negatives
+достаточны; расширение проекта не требуется.
+
+4. Что принято по package/source/authority
+
+SHA-256 ZIP, CRC, пути, типы и уникальность членов проверены независимо:
+3754 members, unsafe paths/duplicates/symlinks отсутствуют.
+
+Независимо восстановлены Git trees package, accepted source и helper;
+raw commit hashes соответствуют объявленным refs. Все 2745 accepted-source
+blobs совпадают с ранее принятым source snapshot. Package содержит 2756 files;
+дельта ровно 16 файлов, как в descriptor.
+Production Rust/Cargo/deploy units/CI workflows не менялись; единственный crate
+delta — disposable example o3_local_signer_witness.
+
+Authority diff меняет только production_code_manifest и
+governance_control_plane_manifest. Authority policy и workflows неизменны.
+Офлайн ZIP verifier — PASS. Это подтверждает byte/evidence consistency,
+но не отменяет обнаруженную source ошибку installer.
+
+Five production ELF: exact build record e82171c248fda803eb973a141642a8510a77490c40dbd75e95bf471f8b54540e,
+x86-64 ELF64, размеры и hashes совпадают с installation payload и обоими
+remote hash observations. Production Cargo graph содержит 189 artifacts,
+без test profiles и fixture features; build-finished.success=true, exit0.
+Bootstrap support graph: 145 production artifacts, также без fixture features.
+
+Corrected helper имеет отдельный record
+8496dfff89ca7df5489603aed28238fce0756d3f8373e2ad8495d546f4ee206a,
+ELF SHA-256 72175add8a0404d263bee903510b7473c6af88883fef26eaaff7a30ebf5821e4,
+production_artifacts=[], FIXTURE_HELPER_BUILT_NOT_RELEASE.
+Regression вызывает production paper-source constructor: SYNTHETIC-O3 принят,
+старый marker отклонён даже с пересчитанным fixture hash. Native regression PASS.
+Старый input helper исторический; bootstrap helper переиспользован явно.
+
+5. Native qualification — ACCEPT с точной границей
+
+Все 72 native command records и их stdout/stderr hashes согласованы;
+build/support/helper command records также проверены. Driver/setup/collector
+связаны с приложенными bytes. Production bootstrap, signer admission,
+подписанный production checkpoint и fresh isolated Redis (0 → 12 keys)
+подтверждены actual retained logs.
+
+Signer/supervisor и один UID987 composition child сохраняют PID/start-time
+identities через stability observation. У child отсутствуют capabilities,
+NoNewPrivs=1. Supervisor stop: 0.461s, GRACEFUL_STOP, one child start,
+child exit0, force_killed=false. Signer exit70 произошёл после terminal boundary,
+после успешного старта и checkpoint, а не вместо readiness.
+Все зафиксированные identities исчезли.
+
+Credential transfer содержит только redacted milestone, stdin_sha256=null.
+Explicit unlink и отсутствие systemd credential directory подтверждены.
+Оба disposable containers и public staging удалены; cleanup notes пусты.
+
+Protected native preflight 07:36:29Z и postflight 07:37:31Z совпадают по
+installed/config/P0/O2/prior transactions/public seal; O2 COMPLETED/1/26,
+host DB15=0. Docker/binfmt inventory совпадает. Изоляция: network none,
+no host binds, private cgroup namespace, restart=no, bounded resources.
+
+Witness остановлен в 07:37:21Z, до decision 07:40Z и successor 07:50Z.
+Redis consumers=0, pending=0. Это start/admission/guardian-stop квалификация
+данных final ELF bytes; она не доказывает operational O3 lifecycle,
+catch-up/replay после сбоя или ALOR parity. Scope в документах указан честно.
+Это аудит retained observations, не независимая remote attestation.
+
+6. Проверки reviewer и сохранённые ограничения
+
+Локально reviewer выполнил:
+- независимые archive/hash/tree/delta/evidence comparisons;
+- офлайн release ZIP verifier: PASS;
+- native/helper positive-and-mutation suite: 20 PASS;
+- runner offline suite: 15 PASS после повторного чтения inputs;
+  первоначальный отказ по atime указан в P2, не скрыт;
+- structural installer retry witness: подтверждён P1 для apply и rollback.
+
+Сохранённые package gates: authority, 45 authority negatives, builder9,
+templates10, runner15 и native/helper20 — PASS.
+19 retained installer tests — Linux filesystem tests с synthetic host/DBSIZE,
+с инъекциями после durable writes; их coverage не включает найденную границу.
+Full CI/Rust suites/native run reviewer повторно не выполнял.
+Источник 5df1c88 и production ELF при этой упаковке не менялись.
+
+7. Минимальный следующий шаг
+
+Установку пакета 45a3f1b пока не принимать. Исправить только durability retry
+нового installer; P2 reader целесообразно исправить рядом. Выполнить targeted
+witness и existing installer-регрессии, затем точечный re-review installer delta
+и согласованных spec/manifests/authority/hash bindings.
+
+Сохранять нынешний native PASS неизменным: не редактировать старый result.json
+и не подменять в нём installation_spec_sha256. Installer hash входит в новые
+manifest/spec hashes; successor packaging должен явно различать исходный
+qualified spec и corrected installation candidate и проверить, что пять
+qualified ELF, два templates, два helpers и protected baseline прежние.
+Executed driver.py, fixture-setup.py и host-collector.py также должны
+сохранять исходные bytes/hashes; их изменение не покрывается прежним PASS.
+Прямое equality старого native result с новым spec иначе закономерно не пройдёт.
+
+Для чистой installer-only коррекции пересборка production ELF и повтор native
+start/stop не требуются при доказанной неизменности этих qualification inputs.
+Нельзя переносить PASS на изменённые runtime/native inputs.
+
+После закрытия P1: отдельно разрешённая установка без активации с fresh
+preflight и preservation evidence; затем acceptance установки и отдельно
+разрешённый bounded O3. Fresh operational plan должен содержать catchup_coverage
+по принятому контракту; старую synthetic phase нельзя использовать как новую
+authority. Далее существующий путь O4/paper с ALOR parity → live micro.
+Новых стадий roadmap это review не вводит.
+
+Итог: source/provenance/native qualification приняты в своих границах;
+release/stopped-install acceptance удерживается одним локальным P1 installer.

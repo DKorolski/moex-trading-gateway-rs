@@ -5,6 +5,7 @@ Checks retained observations; not a remote attestation or operational permit.
 Historical fb1ceb3 packaging/verifiers remain unchanged.
 """
 import argparse
+import copy
 import datetime as dt
 import json
 import os
@@ -23,6 +24,64 @@ sha, encode, require = h.sha, h.encode, h.require
 ROOT = Path(__file__).resolve().parents[1]
 P = 'o3-readmission/'
 HELPER_SOURCE = 'crates/finam-gateway/examples/o3_local_signer_witness.rs'
+QUALIFIED_REF = '45a3f1b900aa19f9b78e2d98069d2bf030e2298e'
+QUALIFIED_SPEC = 'f19ff3a430c4e49b697a50005333cb16f7ecaeaed16557b370af340ce2dc175b'
+QUALIFIED_INSTALLER = '01a340eec5b406dba0ab390da4b38612fad28c759c9a89f823996f6581250785'
+QUALIFIED_RESULT = '59ac5446806d22a56648ad3b5057e1588f937c05e01c927b37f4833af1ac5533'
+
+
+def verify_installation_continuity(read, files, baseline, spec):
+    """Retain the actual qualified spec; allow only installer-derived metadata drift."""
+    prefix = P+'qualified-installation/'
+    raw = read(prefix+'spec.json')
+    require(sha(raw) == QUALIFIED_SPEC, 'original qualified spec')
+    old = json.loads(raw)
+    require(sha(read(prefix+'installer.py')) == old['installer_sha256'] == QUALIFIED_INSTALLER,
+            'original qualified installer')
+    require(sha(read(P+'native/result.json')) == QUALIFIED_RESULT, 'original native result bytes')
+    require(read(prefix+'baseline.json') == install.canonical(baseline)
+            and sha(install.canonical(baseline)) == install.BASELINE, 'unchanged qualified baseline')
+    own = sha(files['scripts/stage8b_p1f_o3_readmission_install.py'])
+    manifests = {}
+    for n in (install.O3,install.c.MANIFEST):
+        raw = read(prefix+'payload/'+Path(n).name)
+        require(install.prior.metadata(n,raw) == {k:v for k,v in old['updates'][n].items() if k != 'old_sha256'},
+                'original qualified manifest')
+        value = json.loads(raw); value['installer_sha256'] = own
+        if n == install.c.MANIFEST:
+            value['payload'][install.O3] = install.prior.metadata(install.O3,manifests[install.O3])
+        manifests[n] = install.canonical(value)
+        require(read(P+'installation/payload/'+Path(n).name) == manifests[n], 'installer-only manifest correction')
+    expected = copy.deepcopy(old)
+    expected['installer_sha256'] = own
+    expected['new_manifest_sha256'] = sha(manifests[install.c.MANIFEST])
+    for n,raw in manifests.items(): expected['updates'][n].update(install.prior.metadata(n,raw))
+    require(spec == expected, 'installer-only spec correction / unchanged five ELF slots')
+    return old, dict(qualified_package_ref=QUALIFIED_REF,qualified_spec_sha256=QUALIFIED_SPEC,
+        corrected_spec_sha256=sha(install.canonical(spec)),native_result_sha256=QUALIFIED_RESULT,
+        installer_only_metadata_change=True,production_rebuilt=False,native_rerun=False)
+
+
+def verify_installer_tests(read, files, spec):
+    for phase,code,installer_hash,spec_hash in (
+        ('before-tests',1,QUALIFIED_INSTALLER,QUALIFIED_SPEC),
+        ('after-tests',0,spec['installer_sha256'],sha(install.canonical(spec)))):
+        prefix = P+'installer-correction/'+phase+'/'
+        row = json.loads(read(prefix+'command.json')); log = read(prefix+'tests.log')
+        require(type(row['exit_code']) is int and row['exit_code'] == code
+                and row['log_sha256'] == sha(log) and b'Ran 23 tests in ' in log, 'installer regression evidence')
+        require(row['candidate_spec_sha256'] == spec_hash and row['source_sha256'] == {
+            'scripts/stage8b_p1f_o3_readmission_install.py':installer_hash,
+            'scripts/test_stage8b_p1f_o3_readmission_install.py':sha(files['scripts/test_stage8b_p1f_o3_readmission_install.py'])},
+            'installer regression source binding')
+        require(row['source_unchanged'] is True and row['container_removed'] is True
+                and row['network'] == 'none' and row['remote_writes'] is False and row['private_inputs'] is False,
+                'local installer regression scope')
+        if code == 0:
+            require(log.endswith(b'\nOK\n') and b'fresh-public-read atime_changed=True' in log,
+                    'fresh-read / corrected regression PASS')
+        else:
+            require(b'FAILED (failures=3, errors=1)' in log, 'retained reproduction')
 
 
 def records(read, prefix, entries):
@@ -270,6 +329,7 @@ def verify(path):
         for n in changed:
             require(n in {'docs/current-status.md','docs/stage-8/gov-ci-1-authority.json',
                     'docs/stage-8/reviews/REVIEW_5df1c88_O3_SOURCE_ACCEPT_RU.txt',
+                    'docs/stage-8/reviews/REVIEW_45a3f1b_O3_RELEASE_RESULT_RU.txt',
                     'docs/stage-8/stage8b-p1f-o3-readmission-source-correction.md',
                     'docs/stage-8/stage8b-p1f-o3-readmission-release.md'}
                     or n == HELPER_SOURCE
@@ -299,7 +359,10 @@ def verify(path):
         require(spec == derived and spec['installer_sha256'] == sha(files['scripts/stage8b_p1f_o3_readmission_install.py']), 'derived seven-slot plan')
         require(read(P+'installation/build.json') == read(P+'build/build.json'), 'one production build')
         for n,raw in payload.items(): require(raw == read(P+'installation/payload/'+Path(n).name), 'derived replacement: '+n)
-        native = verify_native(read,files,build,baseline,spec)
+        qualified_spec, continuity = verify_installation_continuity(read,files,baseline,spec)
+        require(d['installation_continuity'] == continuity, 'declared installation continuity')
+        native = verify_native(read,files,build,baseline,qualified_spec)
+        verify_installer_tests(read,files,spec)
         old, new = (json.loads(v['docs/stage-8/gov-ci-1-authority.json']) for v in (base,files))
         inventories = {'production_code_manifest','governance_control_plane_manifest'}
         require({k:v for k,v in old.items() if k not in inventories} == {k:v for k,v in new.items() if k not in inventories}, 'authority policy changed')
@@ -313,14 +376,16 @@ def verify(path):
             archive_sha256=sha(path.read_bytes()),package_ref=d['package_ref'],package_tree=tree,
             compiled_source_ref=r.READMISSION_REF,members=len(names),tracked_files=len(index),
             duplicates=0,symlinks=0,unsafe_paths=0,release_elfs=5,write_slots=7,
-            native_qualification=native,installation_performed=False,operational_o3=False)
+            native_qualification=native,installation_continuity=continuity,installer_filesystem_tests=23,
+            installation_performed=False,operational_o3=False)
 
 
-def package(work, native, out, helper=None):
+def package(work, native, out, helper=None, correction=None):
     # Refuse missing/failed witness before running gates or creating an archive.
     require(json.loads((native/'result.json').read_bytes())['status'] ==
             'NATIVE_SYSTEMD_START_STOP_PASS_NOT_OPERATIONAL_O3', 'new native PASS required')
     require(helper is not None, 'corrected fixture helper build required')
+    require(correction is not None, 'installer correction evidence required')
     require(previous.git('status','--porcelain') == b'', 'commit completed packaging sources first')
     ref = previous.git('rev-parse','HEAD').decode().strip()
     files, modes = previous.snapshot(ref); base, bm = previous.snapshot(r.READMISSION_REF)
@@ -344,7 +409,17 @@ def package(work, native, out, helper=None):
             require(not p.is_symlink(), 'evidence symlink')
             if p.is_file() and not set(p.relative_to(src).parts)&set(exclude):
                 add_file(p,dest+'/'+p.relative_to(src).as_posix())
-    add_tree(work/'installation-prepared-r1','installation')
+    add_tree(correction/'installation','installation')
+    for n in ('spec.json','baseline.json'):
+        add_file(work/'installation-prepared-r1'/n,'qualified-installation/'+n)
+    for n in (install.O3,install.c.MANIFEST):
+        add_file(work/'installation-prepared-r1/payload'/Path(n).name,
+                 'qualified-installation/payload/'+Path(n).name)
+    payload[P+'qualified-installation/installer.py'] = previous.git(
+        'show',QUALIFIED_REF+':scripts/stage8b_p1f_o3_readmission_install.py')
+    for phase in ('before-tests','after-tests'):
+        for n in ('tests.log','command.json'):
+            add_file(correction/phase/n,'installer-correction/'+phase+'/'+n)
     for kind, directory, record in (
         ('build','native-build-r1','build.json'),('support','native-support','support-build.json')):
         for sub in ('logs','evidence'): add_tree(work/directory/sub,kind+'/'+sub)
@@ -376,13 +451,16 @@ def package(work, native, out, helper=None):
     for label, command in commands.items():
         q = subprocess.run(command,cwd=ROOT,capture_output=True,timeout=600,
                            env=dict(os.environ,O3_READMISSION_EVIDENCE=str(work),O3_READMISSION_NATIVE=str(native),
-                                    O3_READMISSION_HELPER=str(helper)))
+                                    O3_READMISSION_HELPER=str(helper),O3_READMISSION_PACKAGE=str(correction/'installation')))
         raw = q.stdout+q.stderr; require(q.returncode == 0, 'gate failed: '+label)
         gates[label] = dict(command=command,exit_code=q.returncode,sha256=sha(raw)); payload[P+'gates/'+label+'.log'] = raw
     payload[P+'gates/result.json'] = encode(gates)
+    _, continuity = verify_installation_continuity(payload.__getitem__,files,
+        json.loads(payload[P+'installation/baseline.json']),json.loads(payload[P+'installation/spec.json']))
     payload[P+'descriptor.json'] = encode(dict(archive=name,package_ref=ref,
         package_tree=previous.git('rev-parse',ref+'^{tree}').decode().strip(),source_ref=r.READMISSION_REF,
         source_tree=r.READMISSION_TREE,packaging_delta=sorted(changed),
+        installation_continuity=continuity,
         corrected_fixture_source_ref=qual.HELPER_REF,corrected_fixture_build_sha256=qual.HELPER_RECORD,
         repository='https://github.com/DKorolski/moex-trading-gateway-rs',
         branch=previous.git('branch','--show-current').decode().strip(),
@@ -405,16 +483,20 @@ Accepted compiled source: {r.READMISSION_REF}
 Archive: {name}
 SHA-256: {safety['archive_sha256']}
 
-O3 readmission release / authority / STOPPED installation review candidate.
-Five new production ELFs; two separate qualification-only support helpers.
-Only the input helper was corrected/rebuilt at {qual.HELPER_REF}.
-Original support build is historical; native result binds the replacement helper.
-Native Linux amd64 systemd start/stop: actual new ELF bytes, unchanged units.
-Scope remains isolated: accepted host installation/P0/O2/history unchanged.
+O3 installer-only correction of RELEASE HOLD {QUALIFIED_REF[:7]}.
+P1: reassert replacement-parent and TX.parent fsync before terminal journal on retry.
+P2: exclude read-induced atime drift, retain fd/path identity and mutation checks.
+23 local Linux filesystem tests PASS; original installer fails four new tests.
+Five production ELFs, two units, two helpers and protected baseline unchanged.
+No production/helper rebuild, native rerun, credential use or VPS contact in this correction.
+Original isolated native PASS and executed support sources retained byte-for-byte.
+Qualified spec: {QUALIFIED_SPEC}
+Corrected installation spec: {continuity['corrected_spec_sha256']}
+Original result installation_spec_sha256 is NOT rewritten to the corrected spec.
 Installer: seven exact replacements, no config/template/reload/history/Redis writes.
-Retained installer tests are Linux filesystem tests, not new SIGKILL proof.
+Installer tests use real Linux files/rename/fsync with synthetic host/DBSIZE; not power-crash proof.
 No installation performed; no operational O3; no operational authorization.
-Selected schedule key was test-only, via SSH stdin/tmpfs; absent from ZIP.
+Historical schedule-key witness remains test-only; no private bytes in ZIP.
 Verify: python3 -B scripts/stage8b_p1f_o3_readmission_handoff.py verify ARCHIVE
 Start at docs/stage-8/stage8b-p1f-o3-readmission-release.md and o3-readmission/descriptor.json.
 Next: review -> separately permitted stopped install -> installation evidence -> separately permitted bounded O3.
@@ -426,6 +508,8 @@ if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__); p.add_argument('action',choices=('package','verify'))
     p.add_argument('path',type=Path); p.add_argument('--work',type=Path); p.add_argument('--native',type=Path)
     p.add_argument('--helper-build',type=Path)
+    p.add_argument('--correction',type=Path)
     a = p.parse_args()
     if a.action == 'verify': print(json.dumps(verify(a.path.resolve()),indent=2))
-    else: package(a.work.resolve(),a.native.resolve(),a.path.resolve(),helper=a.helper_build.resolve())
+    else: package(a.work.resolve(),a.native.resolve(),a.path.resolve(),helper=a.helper_build.resolve(),
+                  correction=a.correction.resolve() if a.correction else None)

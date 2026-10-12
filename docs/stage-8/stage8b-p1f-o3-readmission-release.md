@@ -1,9 +1,59 @@
 # O3 readmission release / isolated native qualification
 
-2026-10-12. Native production build PASS; repeated isolated dynamic
-qualification PASS. Unified release/authority/stopped-installation candidate
-is ready for independent review, not installation or operational acceptance.
-The earlier preparation and failed-attempt sections below are historical.
+2026-10-12. Review of `45a3f1b` is **RELEASE HOLD** for installer retry
+durability (P1-O3-REL-R01), plus the atime reader issue (P2-O3-REL-R02).
+Production source and isolated native start/stop qualification retain acceptance.
+The local installer-only correction below is ready for focused re-review;
+it does not independently grant release/installation or operational acceptance.
+
+## Installer retry correction — review candidate
+
+The [independent review](reviews/REVIEW_45a3f1b_O3_RELEASE_RESULT_RU.txt)
+is retained. Before a terminal journal, apply/resume and rollback now
+verify desired files, fsync all distinct replacement parents and TX.parent,
+then reread files and check invariants. This barrier runs even for exact desired
+bytes. A failed barrier cannot write a new APPLIED/ROLLED_BACK journal.
+Incomplete mkdir preparation also resyncs TX.parent before PREPARED; a visible
+interrupted journal is resynced before replacements. Existing locks, custody,
+backup validation and protected-state checks remain in place.
+
+`package_file` compares dev/ino, mode/nlink, uid/gid, size, mtime_ns and ctime_ns
+across fd and path. Only atime is excluded; ordinary reads may change it.
+Regular-file/single-link/size checks remain unchanged.
+
+Four new tests fail against the original installer (three failures plus the
+atime error), while its existing 19 tests pass. All 23 tests pass after correction
+in a local network-none Linux/arm64 container, using real files, locks, rename
+and fsync with synthetic host observations/DBSIZE. Apply and rollback tests inject
+EIO directly before the last ELF parent fsync, then fail the final retry barrier,
+then prove an exact-bytes/no-payload-rewrite retry syncs parents before terminal.
+Incomplete mkdir retry and a real read-induced atime update are covered too.
+These are filesystem fault witnesses, not power-crash or new native SIGKILL proof.
+Both before/after logs and commands are retained with source/spec/log hashes.
+
+No VPS contact, installation, schedule-key use, production/helper rebuild or
+native rerun was performed for this correction. Five production ELFs, both
+units, both qualified helpers, baseline and executed driver/setup/collector are
+unchanged. The original native result remains byte-for-byte SHA-256
+`59ac5446806d22a56648ad3b5057e1588f937c05e01c927b37f4833af1ac5533`.
+Its original `installation_spec_sha256` remains
+`f19ff3a430c4e49b697a50005333cb16f7ecaeaed16557b370af340ce2dc175b`.
+The corrected installer necessarily derives new manifest/spec hashes. The ZIP
+contains `qualified-installation/` separately from `installation/`; the verifier
+allows only installer hash and its dependent manifest metadata to differ.
+It rejects changes to ELF slots, baseline, original native result, or any other
+spec/manifest semantics. Eight continuity tests supplement the retained 20
+native/helper mutations (28 total); runner15, builder9 and templates10 pass.
+
+The 07:37:31Z protected snapshot used for local candidate derivation is retained
+dated evidence, not a fresh installation preflight. Authority changes only the
+current-status inventory entry and aggregate hash; policy/workflows stay unchanged.
+Next: focused release/install re-review, fresh preflight and separately permitted
+stopped installation, installation-evidence acceptance, then separately permitted
+bounded O3. O2 remains accepted; operational O3 remains NOT_RUN. O4 includes
+WS/reconnect/freshness/EOD and multi-session ALOR parity before live micro.
+
+The remaining sections retain previous accepted evidence and historical attempts.
 
 ## Corrected fixture and one permitted repeat — PASS
 
@@ -65,7 +115,7 @@ Handoff command (local, no network or operational effects):
 ```sh
 python3 -B scripts/stage8b_p1f_o3_readmission_handoff.py package OUTPUT_DIR \
   --work RELEASE_EVIDENCE_DIR --native QUALIFICATION_DIR/native-run-r1 \
-  --helper-build QUALIFICATION_DIR/helper-build-r1
+  --helper-build QUALIFICATION_DIR/helper-build-r1 --correction INSTALLER_CORRECTION_DIR
 python3 -B scripts/stage8b_p1f_o3_readmission_handoff.py verify ARCHIVE.zip
 ```
 

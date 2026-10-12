@@ -29,13 +29,21 @@ ROLLBACK = 'ROLLBACK_O3_5DF1C88_PRESERVE_COMPLETED_26'
 BASELINE_FIELDS = ('observed','installed','old_installation_transaction','correction_transaction')
 
 
+def package_identity(s):
+    # Reads may update atime. All identity, custody and mutation fields remain
+    # bound across the pathname and opened descriptor, at nanosecond precision.
+    return (s.st_dev,s.st_ino,s.st_mode,s.st_nlink,s.st_uid,s.st_gid,
+            s.st_size,s.st_mtime_ns,s.st_ctime_ns)
+
+
 def package_file(path):
     s=path.lstat()
     require(stat.S_ISREG(s.st_mode) and s.st_nlink==1 and s.st_size<64*1024*1024,'package file custody')
     with path.open('rb') as f:
-        require(os.fstat(f.fileno())==s,'package replaced before read')
+        require(package_identity(os.fstat(f.fileno()))==package_identity(s),'package replaced before read')
         raw=f.read(s.st_size+1)
-        require(os.fstat(f.fileno())==s and path.lstat()==s and len(raw)==s.st_size,'package changed during read')
+        require(package_identity(os.fstat(f.fileno()))==package_identity(s)
+                and package_identity(path.lstat())==package_identity(s) and len(raw)==s.st_size,'package changed during read')
     return raw
 
 
@@ -182,6 +190,9 @@ class Update:
                 for i,n in enumerate(CHANGES):
                     if not c.exists(self.root,TX+f'/before-{i}'):
                         c.atomic_write(self.root,TX+f'/before-{i}',self.read(n),0o600,0)
+                # An earlier mkdir may be visible after its parent fsync failed.
+                # Persist the TX entry before PREPARED permits any replacement.
+                c.sync_dir(self.path(TX).parent)
                 self.write_journal('PREPARED');state='PREPARED'
             if action in ('apply','resume'):
                 require(state in ('PREPARED','APPLIED'),'cannot reapply rolled-back transaction')
@@ -189,10 +200,19 @@ class Update:
             else:
                 desired,terminal='old','ROLLED_BACK'
                 if state!='ROLLED_BACK':self.write_journal('ROLLING_BACK')
+            # Likewise reassert a visible journal after an interrupted write.
+            c.sync_dir(self.path(TX))
             for i,n in enumerate(CHANGES):
                 self.invariants();self.verify_files('mixed')
                 raw=self.payload[n] if desired=='new' else c.file_bytes(self.root,TX+f'/before-{i}',0o600,0)
                 if self.read(n)!=raw:c.atomic_write(self.root,n,raw,int(self.spec['updates'][n]['mode'],8),0)
+            self.verify_files(desired)
+            # A rename can be visible without a successful parent fsync. Retry
+            # must repair that durability even when every payload already matches.
+            parents={self.path(n).parent for n in CHANGES}|{self.path(TX).parent}
+            for parent in sorted(parents):
+                c.old.verify_secure_directory_chain(self.root,parent)
+                c.sync_dir(parent)
             self.verify_files(desired);self.invariants();self.write_journal(terminal)
             return dict(state=terminal,history_preserved=True,config_templates_preserved=True,
                 activation_performed=False,daemon_reload_performed=False,redis_writes=False,finam_contact=False)

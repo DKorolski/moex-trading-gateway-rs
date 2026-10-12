@@ -18,7 +18,7 @@ class Qualification(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.evidence=Path(os.environ['O3_READMISSION_EVIDENCE'])
-        cls.package=cls.evidence/'installation-prepared-r1'
+        cls.package=Path(os.environ.get('O3_READMISSION_PACKAGE',cls.evidence/'installation-prepared-r1'))
         cls.support=cls.evidence/'native-support'
         cls.observer=cls.evidence/'commands/support-build-after/remote.py'
 

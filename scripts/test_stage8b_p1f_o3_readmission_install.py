@@ -5,6 +5,7 @@ No installed host, network, Redis writes or private key input. Fixture payload
 bytes are independently checked against the exact accepted predecessor manifest.
 """
 import copy
+import errno
 import os
 from pathlib import Path
 import shutil
@@ -17,6 +18,19 @@ import stage8b_p1f_o3_readmission_install as m
 
 class Crash(Exception):
     pass
+
+
+class PackageReader(unittest.TestCase):
+    def test_fresh_public_read_may_update_atime(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'public.json';p.write_bytes(b'{"public":true}\n')
+            os.utime(p,ns=(0,p.stat().st_mtime_ns))
+            before=p.stat()
+            self.assertEqual(m.package_file(p),b'{"public":true}\n')
+            after=p.stat()
+            self.assertEqual(before.st_mtime_ns,after.st_mtime_ns)
+            self.assertEqual(before.st_ctime_ns,after.st_ctime_ns)
+            print('fresh-public-read atime_changed='+str(before.st_atime_ns!=after.st_atime_ns))
 
 
 class Installation(unittest.TestCase):
@@ -135,6 +149,81 @@ class Installation(unittest.TestCase):
                     with self.assertRaises(Crash):self.update().transition('rollback')
                 with self.assertRaises(m.c.Error):self.update().transition('resume')
                 self.assertEqual(self.update().transition('rollback')['state'],'ROLLED_BACK');self.unchanged()
+
+    def directory_retry_witness(self,rollback):
+        action='rollback' if rollback else 'apply'
+        retry='rollback' if rollback else 'resume'
+        interim='ROLLING_BACK' if rollback else 'PREPARED'
+        terminal='ROLLED_BACK' if rollback else 'APPLIED'
+        desired=self.before if rollback else self.payload
+        if rollback:self.update().transition('apply')
+        parent=self.path(m.ELFS[-1]).parent
+        sync=m.c.sync_dir;journal=m.Update.write_journal;trace=[]
+        def after_last_rename(path):
+            # Real atomic_write has already replaced the last ELF. Fail before
+            # its parent fsync, not after atomic_write's durable return.
+            if path==parent and self.path(m.ELFS[-1]).read_bytes()==desired[m.ELFS[-1]]:
+                trace.append('rename-visible-before-fsync')
+                raise OSError(errno.EIO,'injected parent fsync failure')
+            return sync(path)
+        with patch.object(m.c,'sync_dir',side_effect=after_last_rename):
+            with self.assertRaises(OSError):self.update().transition(action)
+        self.assertEqual(trace,['rename-visible-before-fsync'])
+        self.assertEqual(self.update().journal(),interim)
+        for n in m.ELFS:self.assertEqual(self.path(n).read_bytes(),desired[n])
+        self.unchanged()
+        def record_journal(update,state):
+            trace.append(('journal',state));return journal(update,state)
+        def retry_sync(path):
+            trace.append(('sync',path))
+            if path==parent:raise OSError(errno.EIO,'injected final retry sync failure')
+            return sync(path)
+        trace.clear()
+        with patch.object(m.c,'sync_dir',side_effect=retry_sync),patch.object(m.Update,'write_journal',new=record_journal):
+            with self.assertRaises(OSError):self.update().transition(retry)
+        self.assertNotIn(('journal',terminal),trace)
+        self.assertEqual(self.update().journal(),interim);self.unchanged()
+        # The failed final barrier ran after all desired bytes were written.
+        # This retry must fsync despite skipping EVERY payload atomic_write.
+        for n in m.CHANGES:self.assertEqual(self.path(n).read_bytes(),desired[n])
+        trace.clear();atomic=m.c.atomic_write
+        def no_payload_rewrite(root,name,*args):
+            self.assertNotIn(name,m.CHANGES)
+            return atomic(root,name,*args)
+        def successful_sync(path):
+            sync(path);trace.append(('sync',path))
+        with patch.object(m.c,'sync_dir',side_effect=successful_sync),\
+             patch.object(m.c,'atomic_write',side_effect=no_payload_rewrite),\
+             patch.object(m.Update,'write_journal',new=record_journal):
+            self.assertEqual(self.update().transition(retry)['state'],terminal)
+        before_terminal=trace[:trace.index(('journal',terminal))]
+        parents={self.path(n).parent for n in m.CHANGES}|{self.path(m.TX).parent}
+        for directory in parents:self.assertIn(('sync',directory),before_terminal)
+        self.assertEqual(self.update().journal(),terminal);self.unchanged()
+        print('directory-retry-witness '+action+': visible-rename fault -> '+interim+
+              '; final-sync fault -> no terminal; exact-bytes retry -> parents synced before '+terminal)
+
+    def test_apply_last_elf_rename_fsync_retry(self):self.directory_retry_witness(False)
+
+    def test_rollback_last_elf_rename_fsync_retry(self):self.directory_retry_witness(True)
+
+    def test_incomplete_mkdir_parent_retry_syncs_before_prepared(self):
+        parent=self.path(m.TX).parent;sync=m.c.sync_dir;journal=m.Update.write_journal;trace=[]
+        def fail_parent(path):
+            if path==parent:raise OSError(errno.EIO,'injected transaction-parent fsync failure')
+            return sync(path)
+        for action in ('apply','resume'):
+            with patch.object(m.c,'sync_dir',side_effect=fail_parent):
+                with self.assertRaises(OSError):self.update().transition(action)
+            self.assertTrue(self.path(m.TX).is_dir())
+            self.assertIsNone(self.update().journal())
+            for n in m.CHANGES:self.assertEqual(self.path(n).read_bytes(),self.before[n])
+        def successful_sync(path):sync(path);trace.append(('sync',path))
+        def record_journal(update,state):trace.append(('journal',state));return journal(update,state)
+        with patch.object(m.c,'sync_dir',side_effect=successful_sync),patch.object(m.Update,'write_journal',new=record_journal):
+            self.assertEqual(self.update().transition('resume')['state'],'APPLIED')
+        self.assertLess(trace.index(('sync',parent)),trace.index(('journal','PREPARED')))
+        self.unchanged()
 
     def test_each_partial_backup_resumes_without_payload_change(self):
         atomic=m.c.atomic_write

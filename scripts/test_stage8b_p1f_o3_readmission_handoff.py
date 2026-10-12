@@ -134,4 +134,72 @@ class NativeEvidence(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'native flag'): self.verify()
 
 
+class InstallationContinuity(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        work = Path(os.environ['O3_READMISSION_EVIDENCE'])/'installation-prepared-r1'
+        candidate = Path(os.environ['O3_READMISSION_PACKAGE'])
+        cls.original = {}
+        for label,directory in (('qualified-installation',work),('installation',candidate)):
+            for name in ('spec.json','baseline.json','payload/'+Path(m.install.O3).name,
+                         'payload/'+Path(m.install.c.MANIFEST).name):
+                cls.original[m.P+label+'/'+name] = (directory/name).read_bytes()
+        cls.original[m.P+'qualified-installation/installer.py'] = m.previous.git(
+            'show',m.QUALIFIED_REF+':scripts/stage8b_p1f_o3_readmission_install.py')
+        cls.original[m.P+'native/result.json'] = (Path(os.environ['O3_READMISSION_NATIVE'])/'result.json').read_bytes()
+        cls.files = {'scripts/stage8b_p1f_o3_readmission_install.py':
+                     (m.ROOT/'scripts/stage8b_p1f_o3_readmission_install.py').read_bytes()}
+
+    def setUp(self):
+        self.data = dict(self.original)
+        self.baseline = json.loads(self.data[m.P+'installation/baseline.json'])
+        self.spec = json.loads(self.data[m.P+'installation/spec.json'])
+
+    def verify(self):
+        return m.verify_installation_continuity(self.data.__getitem__,self.files,self.baseline,self.spec)
+
+    def test_installer_only_successor_positive(self):
+        old,bridge = self.verify()
+        self.assertNotEqual(old['installer_sha256'],self.spec['installer_sha256'])
+        self.assertNotEqual(bridge['qualified_spec_sha256'],bridge['corrected_spec_sha256'])
+        self.assertFalse(bridge['native_rerun'])
+
+    def test_cannot_relabel_native_result(self):
+        key = m.P+'native/result.json'; row = json.loads(self.data[key])
+        row['installation_spec_sha256'] = m.sha(m.install.canonical(self.spec)); self.data[key] = m.encode(row)
+        with self.assertRaisesRegex(ValueError,'original native result bytes'): self.verify()
+
+    def test_qualified_spec_tamper_rejected(self):
+        self.data[m.P+'qualified-installation/spec.json'] += b'\n'
+        with self.assertRaisesRegex(ValueError,'original qualified spec'): self.verify()
+
+    def test_qualified_installer_tamper_rejected(self):
+        self.data[m.P+'qualified-installation/installer.py'] += b'\n'
+        with self.assertRaisesRegex(ValueError,'original qualified installer'): self.verify()
+
+    def test_baseline_tamper_rejected(self):
+        self.baseline['changed'] = True
+        with self.assertRaisesRegex(ValueError,'unchanged qualified baseline'): self.verify()
+
+    def test_each_elf_and_other_spec_changes_rejected(self):
+        original = copy.deepcopy(self.spec)
+        for n in m.install.ELFS:
+            self.spec = copy.deepcopy(original); self.spec['updates'][n]['sha256'] = '0'*64
+            with self.subTest(n=n),self.assertRaisesRegex(ValueError,'unchanged five ELF'): self.verify()
+        self.spec = copy.deepcopy(original); self.spec['activation_authorized'] = True
+        with self.assertRaisesRegex(ValueError,'installer-only spec'): self.verify()
+
+    def test_each_manifest_other_changes_rejected(self):
+        for n in (m.install.O3,m.install.c.MANIFEST):
+            with self.subTest(n=n):
+                self.data = dict(self.original); key = m.P+'installation/payload/'+Path(n).name
+                row = json.loads(self.data[key]); row['source_ref'] = '0'*40; self.data[key] = m.install.canonical(row)
+                with self.assertRaisesRegex(ValueError,'installer-only manifest'): self.verify()
+
+    def test_original_manifest_tamper_rejected(self):
+        key = m.P+'qualified-installation/payload/'+Path(m.install.O3).name
+        self.data[key] += b'\n'
+        with self.assertRaisesRegex(ValueError,'original qualified manifest'): self.verify()
+
+
 if __name__ == '__main__': unittest.main(verbosity=2)

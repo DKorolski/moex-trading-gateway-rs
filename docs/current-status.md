@@ -2,6 +2,25 @@
 
 Status date: 2026-10-12.
 
+Latest release review (`45a3f1b`): **HOLD**, one installer P1; source/native
+acceptance retained. Local installer-only correction is ready for focused
+re-review: parent fsync on exact-bytes retry (apply and rollback), incomplete TX
+mkdir durability, and reader identity checks excluding atime. All 23 Linux
+filesystem tests PASS; the same four new tests reproduce the old defects.
+Before/after source-bound logs are retained, not a new power-crash claim.
+Packaging distinguishes the original qualified spec from the corrected candidate;
+the original native result and its spec hash are NOT rewritten. Five production
+ELFs, units, helpers, baseline and executed native support bytes are unchanged.
+Offline checks PASS: native/helper+continuity28, runner15, builder9, templates10.
+This correction performs no VPS contact, signing, installation, native rerun,
+rebuild, activation or GitHub push/merge. Release/stopped-install acceptance is
+still pending independent review. O2 accepted; operational O3 NOT_RUN.
+Next: focused installer/package review -> separately permitted stopped install
+with fresh preflight -> installation evidence -> separately permitted bounded O3.
+See the [release correction record](stage-8/stage8b-p1f-o3-readmission-release.md).
+
+The following native qualification is retained unchanged, not rerun or expanded.
+
 Latest native readmission qualification: **PASS / NOT OPERATIONAL O3**.
 After the retained 10:06 MSK failed attempt, only the disposable input helper
 was corrected/rebuilt at `d26c02a` (fixture marker `SYNTHETIC-O3`), with a real
