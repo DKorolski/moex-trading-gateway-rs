@@ -69,6 +69,18 @@ class InputBoundary(unittest.TestCase):
             n.read_container_state(run, 'own-container', 25)
         self.assertEqual(run.call_count, 3)
 
+    def test_helper_only_never_builds_production_slots(self):
+        steps, outputs = n.build_plan(fixture_only=True)
+        self.assertEqual(set(outputs), {'input-helper'})
+        self.assertEqual([s['name'] for s in steps], ['fixture-regression','fixture-input-build'])
+        self.assertTrue(all('--example' in s['command'] and '--bin' not in s['command'] for s in steps))
+        self.assertIn('marker_regression', steps[0]['command'])
+        with self.assertRaises(ValueError): n.build_plan(True, True)
+
+    def test_helper_ref_rejects_production_dependency_delta(self):
+        with patch.object(n.r.b, 'git', side_effect=[b'a'*40+b'\n', b'crates/finam-gateway/src/lib.rs\n']):
+            with self.assertRaisesRegex(ValueError, 'only the disposable example'): n.helper_source('HEAD')
+
     @patch.object(n.time, 'sleep')
     def test_docker_failure_and_bad_json_are_not_retried(self, sleep):
         for failure in (RuntimeError('no container'), b'invalid-json'):

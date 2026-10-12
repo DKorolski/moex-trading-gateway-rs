@@ -103,6 +103,43 @@ fn input(plan: &O3CompositionPlan) -> Stage8bP1eSchedulePublisherInputV1 {
     .unwrap()
 }
 
+fn fixture_entry() -> InstrumentMapEntry {
+    InstrumentMapEntry {
+        internal_symbol: InternalSymbol("IMOEXF".into()),
+        broker: BrokerKind::Finam,
+        broker_symbol: BrokerSymbol("IMOEXF@RTSX".into()),
+        exchange: Exchange::Moex,
+        market: Market::Futures,
+        price_step: Decimal::new(5, 1),
+        qty_step: Decimal::ONE,
+        lot_size: Decimal::ONE,
+        min_qty: Decimal::ONE,
+        step_value: Decimal::new(5, 0),
+        currency: "RUB".into(),
+        schedule_id: "RTSX".into(),
+        expiration_date: None,
+        is_tradable: true,
+    }
+}
+
+fn fixture_truth(now: DateTime<Utc>) -> BrokerTruthSnapshot {
+    BrokerTruthSnapshot {
+        account_id: BrokerAccountId::new("finam-paper-primary"),
+        orders: vec![],
+        positions: vec![],
+        trades: vec![],
+        cash: None,
+        instruments: vec![BrokerInstrumentSpec {
+            instrument: fixture_entry(),
+            broker_asset_id: Some("SYNTHETIC-O3".into()),
+            board: Some("RTSX".into()),
+            long_initial_margin: Some(Money::new(5000, 0)),
+            short_initial_margin: Some(Money::new(5000, 0)),
+        }],
+        received_ts: now,
+    }
+}
+
 fn prepare(linked_runtime: bool) {
     assert_eq!(unsafe { libc::geteuid() }, 0);
     let now = DateTime::from_timestamp_micros(Utc::now().timestamp_micros()).unwrap();
@@ -152,37 +189,8 @@ fn prepare(linked_runtime: bool) {
         None
     };
     let config = serde_json::to_vec(&config).unwrap();
-    let entry = InstrumentMapEntry {
-        internal_symbol: InternalSymbol("IMOEXF".into()),
-        broker: BrokerKind::Finam,
-        broker_symbol: BrokerSymbol("IMOEXF@RTSX".into()),
-        exchange: Exchange::Moex,
-        market: Market::Futures,
-        price_step: Decimal::new(5, 1),
-        qty_step: Decimal::ONE,
-        lot_size: Decimal::ONE,
-        min_qty: Decimal::ONE,
-        step_value: Decimal::new(5, 0),
-        currency: "RUB".into(),
-        schedule_id: "RTSX".into(),
-        expiration_date: None,
-        is_tradable: true,
-    };
-    let truth = BrokerTruthSnapshot {
-        account_id: BrokerAccountId::new("finam-paper-primary"),
-        orders: vec![],
-        positions: vec![],
-        trades: vec![],
-        cash: None,
-        instruments: vec![BrokerInstrumentSpec {
-            instrument: entry.clone(),
-            broker_asset_id: Some("LOCAL-SYNTHETIC".into()),
-            board: Some("RTSX".into()),
-            long_initial_margin: Some(Money::new(5000, 0)),
-            short_initial_margin: Some(Money::new(5000, 0)),
-        }],
-        received_ts: now,
-    };
+    let entry = fixture_entry();
+    let truth = fixture_truth(now);
     let close = DateTime::from_timestamp((now.timestamp() / 600 + 1) * 600, 0).unwrap();
     let source = |end: DateTime<Utc>| {
         let start = close - Duration::minutes(10);
@@ -601,5 +609,43 @@ fn main() {
             println!("PASS connected root peer rejected; only publisher uid admitted");
         }
         _ => panic!("prepare|request"),
+    }
+}
+
+#[cfg(test)]
+mod marker_regression {
+    use super::*;
+    use strategy_runtime_core::stage8b_o3_readmission::{
+        Stage8bO3PaperScope, Stage8bO3PaperSource,
+    };
+
+    #[test]
+    fn fixture_matches_production_paper_source_and_old_marker_is_rejected() {
+        let now = Utc::now();
+        let truth = fixture_truth(now);
+        let scope = |fixture: &BrokerTruthSnapshot| Stage8bO3PaperScope {
+            phase_id: "fixture-marker-regression".into(),
+            phase_sha256: "11".repeat(32),
+            config_sha256: "22".repeat(32),
+            plan_sha256: "33".repeat(32),
+            fixture_sha256: hash(&serde_json::to_vec(fixture).unwrap()),
+            operational_identity_sha256: "44".repeat(32),
+            runtime_config_fingerprint_sha256: "55".repeat(32),
+            strategy_id: "hybrid_imoexf".into(),
+            not_before: now,
+            deadline: now + Duration::minutes(30),
+            catchup_coverage: serde_json::from_value(json!({
+                "source_mode":"config-bound-explicit-session-windows-v1",
+                "sessions":[{"session_date":(now+Duration::hours(3)).date_naive().to_string(),
+                    "windows":[{"first_close_time_utc":now.timestamp()/600*600,
+                    "last_close_time_utc":now.timestamp()/600*600}]}]
+            }))
+            .unwrap(),
+        };
+        assert!(Stage8bO3PaperSource::new(scope(&truth), truth.clone()).is_ok());
+        let mut old = truth;
+        old.instruments[0].broker_asset_id = Some("LOCAL-SYNTHETIC".into());
+        // Recompute the fixture hash: rejection must be semantic, not hash drift.
+        assert!(Stage8bO3PaperSource::new(scope(&old), old).is_err());
     }
 }

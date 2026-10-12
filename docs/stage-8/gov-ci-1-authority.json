@@ -176,8 +176,8 @@
   },
   "negative_cases": 45,
   "production_code_manifest": {
-    "aggregate_sha256": "fda46501cd3bb5ef1deaf4736bda89ed93d8478ab8d5c8a32ad9707531324324",
-    "content_sha256": "226edaa3cac1b6f85385a0ce97c34f860c58c073cff928ffb2a1288982289130",
+    "aggregate_sha256": "7bb783ee58b67c64916fe846a5f2ac29a61ed58e26f20a9adf4df89a842992c6",
+    "content_sha256": "6ecc8e9630d09ed2be1ba84e1f3edcbdaadb5f2f861e06de9ab2f95d54a966c3",
     "entries": {
       "Cargo.lock": {
         "mode": "100644",
@@ -436,8 +436,8 @@
       },
       "crates/finam-gateway/examples/o3_local_signer_witness.rs": {
         "mode": "100644",
-        "sha256": "dcbd9585a5b04e637dc4bc73d8082843fbe2a39b0de98b32464fcf7718377611",
-        "size": 26243
+        "sha256": "6053b6ad7027566137f592e4034919810e87081362faff5728adfb36f32e6c7d",
+        "size": 28093
       },
       "crates/finam-gateway/examples/o3_local_signer_witness/linked.rs": {
         "mode": "100644",
