@@ -1,0 +1,195 @@
+SOURCE RE-REVIEW — FINAM SIGNAL-SHADOW R1
+Дата: 23.10.2026
+Commit по handoff: e1d5e8b3da38c61eb1d6cbe7cdb1b4a5718fba40
+Tree: 158b6291e52cd0ca99ebb9c23368e0965a14427b
+Предшественник review: 3b200dd84e763a2eff904a242b1c445480f7e6c1
+
+Вердикт: CHANGES REQUESTED — R1/R2 закрыты, два новых замечания P2 (R3/R4).
+Historical local S2 и local model EOD/next-start slice принимаются в указанных
+ниже границах. Полное source acceptance удерживается до R3/R4.
+Scope не расширяется: исправления относятся к уже реализованной composition.
+Установка, FINAM observation и live-micro этим review не разрешаются.
+
+1. Пакет и воспроизводимость
+
+ZIP: signal-shadow-review-r1-20261023.zip
+Размер: 9 907 610 bytes, 2838 файлов.
+SHA-256: d7944f28d88444b903ff95de995a76395030af210096d27f4855611a00cbcb56
+
+Независимо подтверждены SHA-256, ZIP CRC, уникальность и безопасность путей,
+отсутствие symlinks. Все 2837 entries package-manifest.json совпали по bytes/
+SHA-256; за пределами inventory только сам manifest. Все 2809 source files
+совпали с source manifest. Git tree реконструирован из bytes и записанных modes:
+получен ровно 158b6291e52cd0ca99ebb9c23368e0965a14427b.
+Commit ID сверялся с handoff/evidence; исходный Git object/refs не проверялись.
+
+Review ограничен delta к 3b200dd и связанными paths: quote/protocol/transport,
+config/comparator, prefix/session/runner, диагностический core diff,
+независимый oracle и новые tests. Общий повторный аудит проекта не проводился.
+
+Reviewer повторно выполнил:
+- python3 scripts/signal_shadow_state_reference.py --check fixtures/signal-shadow-state-parity/python-steps.json
+  → Independent rerun matches: 505 steps, 5 rounds.
+- python3 scripts/test_signal_shadow_reference_inventory.py -v
+  → 4/4 PASS.
+
+Rust/cargo в среде reviewer отсутствуют: Rust tests/Clippy/fmt не перезапускались.
+Приложенные логи содержат 114 shadow, 120 model и 6 WS passed, без failures.
+Отдельный restart-handoff-check.log содержит выполненный success marker
+CURRENT_SESSION_NONFLAT_HANDOFF_ASSERTIONS_COMPLETED; этот boundary не подменён
+early-return теста вне допустимого session window.
+Clippy log завершён успешно; fmt подтверждён parent exit-code=0.
+Среда evidence: macOS/Rust 1.95; MSRV/native Linux не проверялись.
+Новые замечания ниже установлены анализом кода и допустимых interleavings;
+Rust repro reviewer не исполнял.
+
+2. Предыдущие замечания закрыты
+
+R1 CLOSED: quote dedup теперь отдельное скользящее окно 4096, независимо от M10
+cache. Frame сначала полностью валидируется, затем выполняется eviction.
+Монотонный full-precision frontier запрещает повторный admission evicted-old
+event; retained duplicate/conflict checks и reconnect state сохранены.
+Добавлены длинный stream и multi-row/reconnect cases. Policy version входит
+в config fingerprints.
+
+R2 CLOSED: полный provenance fingerprint сохранён. Semantic fingerprint
+исключает только run_id, segment_id, previous_segment_id и связывает оставшуюся
+конфигурацию с quote policy. Comparator использует semantic identity.
+Новый seed_binding test создаёт настоящие validated configs и seeded headers:
+разные IDs совместимы; seed/reference/mapping/calendar/bounds drift отвергается.
+Тест больше не маскирует проблему ручной подменой header IDs при старом hash.
+
+Связанная доработка socket wait также корректна: ожидание frame использует
+оставшийся data-silence budget, без продления heartbeat; shared stop и absolute
+deadline сохранены. Старый короткий REST/connect cap больше не подменяет
+WS inactivity budget.
+
+3. Новые замечания
+
+R3 — P2: normalizer и live session несовместимы по точности quote timestamps.
+
+Места:
+- crates/finam-signal-shadow/src/quote.rs:122–125, 142–160;
+- crates/finam-signal-shadow/src/session.rs:338–346;
+- prefix handoff floor устанавливается в session.rs:114–116.
+
+QuoteInput принимает и различает полные DateTime timestamps, в том числе
+субмиллисекундные, но Quote.event_at_ms получается через timestamp_millis().
+Session теперь требует строгое увеличение миллисекунд для каждой live quote:
+event_at_ms <= last_quote_ms вызывает terminal SessionError::Input.
+Это правило действует и на fresh observe, не только после prefix.
+
+Допустимый сценарий одного frame:
+- timestamp 10:00:00.000100Z, last=2200;
+- timestamp 10:00:00.000200Z, last=2200.5;
+- receive 10:00:00.001Z.
+При подходящем run window/age оба события проходят normalizer, получают разные
+source IDs, но одинаковый event_at_ms. Session принимает первое и завершает
+сегмент на втором, даже при flat/no-pending. Фактическую точность FINAM reviewer
+не утверждает; дефект — противоречие между поддерживаемыми внутренними входами.
+До R1 session отвергал только event_at_ms < last; строгий prefix floor был
+распространён на весь live ordering.
+
+Минимальная коррекция: отделить неизменяемый strict cross-prefix floor от
+обычной within-live chronology либо сохранить полную точность. При варианте
+с миллисекундами source-level dedup остаётся full-precision, а несколько
+различных admitted quotes внутри одной ms не должны закрывать session.
+Если выбирается ms-only контракт, его нужно явно валидировать у входа и
+обосновать для выбранного provider build; молчаливое усечение не подходит.
+
+Acceptance: adapter→ObservedSession test с двумя разными timestamps в одной ms,
+включая flat/pending; не более одного feedback effect на intent. Отдельно
+сохранить отказ/неприменение old prefix quote и существующие conflict checks.
+Не смешивать прохождение chronology с разрешением fill: quote <= decision
+по-прежнему не должен заполнять новый intent.
+
+R4 — P2: prefix replay отвергает корректный порядок из собственного runner.
+
+Места:
+- crates/finam-signal-shadow/src/prefix.rs:219–225, 245–253, 305–314, 353;
+- crates/finam-signal-shadow/src/runner.rs:351–380, 393–410;
+- узкий сериализованный fixture: tests/restart.rs:182–205.
+
+Prefix требует received_at >= clock, где clock — предыдущий глобальный
+result_at_ms/applied_at_ms. Runner получает REST и QUOTES независимыми workers,
+а coordinator применяет уже полученные события последовательно через очередь.
+Receive time следующего обрабатываемого события может предшествовать завершению
+предыдущего callback, без clock rollback и без нарушения причинности.
+
+Сценарий, где T — nominal M10 close:
+- REST response получен в T+5ms, model result — T+10ms.
+- QUOTES frame с source event T+7ms получен другим worker в T+8ms.
+- Coordinator обрабатывает его в T+12ms. Он старше decision и корректно не
+  заполняет новый intent.
+Effects идут по порядку: result10 → apply12. Inventory полон и допустим для live
+path. Prefix отказывает на received8 < previous_effect10.
+Обратный overlap — REST response принят до применения предыдущей котировки,
+но callback исполняется позже — отвергается аналогично.
+
+Перестановка событий или исправление сохранённых receive timestamps изменяет
+историю; удаление ineligible quote нарушает требуемую полноту inventory.
+
+Минимальная коррекция: разделить глобальный порядок effects и chronology
+приёма. Сохранить монотонный result/applied clock, receive <= собственный
+result/applied, source-specific ordering и необходимые range/clock checks.
+Глобального receive >= previous effect для независимых каналов не требовать.
+
+Acceptance: оба queue-overlap cases с теми же raw evidence и исходными receive
+timestamps; reconstructed state/pending/position/side-used совпадают с
+непрерывной processing sequence. Ineligible pre-decision quote не создаёт fill.
+Негативные clock/range/coverage tests и BACKFILL-only classification сохранить.
+Для этого достаточно направленных local tests; live FINAM запуск не требуется.
+
+4. Что теперь подтверждено по S2 и S8
+
+Independent historical S2: oracle действительно отделён от FINAM core.
+Четыре архивных Rust modules компилируются отдельно через test-only paths и
+побайтно совпадают с включёнными historical production prefixes до #[cfg(test)].
+Original TAR здесь не пересверялся; его provenance представлен pins и описанием
+извлечения. Python expectations повторно сгенерированы из pinned ALOR source:
+AST hooks наблюдают фактические return/continue branches, FINAM outputs не
+используются. Instrumented/uninstrumented tradeframes и frozen CSV сверяются.
+
+Локальный срез: четыре seed sessions, пять historical sessions, 505 steps,
+пять rounds; 495 no-intent rows: 90 before_wait, 277 breakout_veto,
+120 position_hold, 8 eod_entry_cutoff. Сравниваются anchors/levels/side-used/
+owner/position, before/after decisions и feedback, action/reasons и veto facts.
+Runtime IDs/book protocol assertions отделены от полей независимого oracle.
+
+Diagnostic refactor BO сохраняет trading predicates и их порядок относительно
+3b200dd. Trace ephemeral, current-label-bound, очищается warm/reset/restore.
+Существующее расхождение старого ALOR archive по EOD entry guard удержано
+отдельным тестом; oracle не исправлен для получения match.
+
+Это принятие historical fixed-profile/seed/conditional-feedback slice.
+Synthetic close-derived quote/result+1ms не является observed QUOTES execution,
+current ALOR live parity или универсальным доказательством эквивалентности.
+
+Local S8 model seam содержателен: настоящий EOD exit на 23:30 label, отдельный
+hypothetical fill, final 23:40 label, следующий 07:00; missing tail отвергается,
+unresolved exit не превращается в flat. Friday→Monday endpoint явно synthetic,
+поскольку freeze заканчивается пятницей. Runner plan теперь включает final
+23:40 bucket с close 23:50; это не две observed sessions.
+
+5. Статус матрицы и следующий шаг
+
+| Область | Решение |
+| --- | --- |
+| R1/R2 | CLOSED в source. |
+| S1/S3/S4/S6 local composition | Существенная связка и tests есть; R3 мешает source acceptance всего observed path. |
+| S2 historical local | ACCEPT в явно заданных dataset/profile/seed/feedback границах. |
+| S7 local prefix/restart | HOLD по R4; reconstruction pending/nonflat/side-used и BACKFILL evidence показаны, общий queue-compatible replay ещё не закрыт. |
+| S8 local model boundary | ACCEPT для покрытых EOD/tail/next-start cases; operational continuity отдельно. |
+| S5/S9, S6/S10 operational | NOT RUN: actual subscription/reconnect/timing/restart, две full sessions и VPS isolation не заменяются local tests. |
+
+Prefix promotion требует отдельно доверенного полного prior-output/quote
+inventory и binding approval. Возможность локально пересчитать payload hash
+сама по себе не доказывает completeness. Этот честно объявленный trust boundary
+сохраняется; новый recovery/authority framework для текущих правок не требуется.
+
+Следующий пакет: только R3/R4 и направленные regression cases, immutable
+source identity/diff и новые focused logs. Не нужно повторно расширять scope,
+пересматривать принятый historical oracle или возвращать backlog O4.
+После закрытия правок можно принимать source в согласованных границах и отдельно
+рассматривать installation/observation. O3 +1, действующие VPS контуры и
+операционные namespaces reviewer не менял.

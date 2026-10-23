@@ -668,6 +668,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "finam-signal-shadow"
+version = "0.1.0"
+dependencies = [
+ "broker-core",
+ "broker-finam",
+ "chrono",
+ "csv",
+ "futures-util",
+ "runtime-durable-service",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "sha2",
+ "strategy-runtime-core",
+ "tokio",
+ "tokio-tungstenite",
+]
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"

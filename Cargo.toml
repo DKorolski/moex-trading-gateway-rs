@@ -8,6 +8,7 @@ members = [
     "crates/strategy-runtime-core",
     "crates/runtime-command-bridge",
     "crates/runtime-durable-service",
+    "crates/finam-signal-shadow",
 ]
 
 [workspace.package]

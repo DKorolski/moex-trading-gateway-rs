@@ -1,0 +1,171 @@
+ПРОМЕЖУТОЧНЫЙ SOURCE REVIEW — FINAM SIGNAL-SHADOW R0C
+Дата: 23.10.2026
+Снимок: 3b200dd84e763a2eff904a242b1c445480f7e6c1
+Tree: 05dff40b0ddf3044cc992f2e67151b37d8dd3b0b
+
+Вердикт: CHANGES REQUESTED — две точечные корректировки P2.
+Scope signal-shadow-first от 23.10 сохраняется. Разработку продолжать в том же
+узком slice; возвращать полный backlog O4 или строить новый framework не нужно.
+Полное source acceptance по S1–S10 этим промежуточным review не выдаётся.
+Установка, подключение к FINAM и operational observation отдельно не разрешались.
+
+1. Что проверено и насколько воспроизводим результат
+
+Пакет: signal-shadow-source-review-r0c-20261023.zip
+Размер: 9 653 029 bytes; 2818 файлов.
+SHA-256: 783fd04bed039bc8b480997aa664e9535cc261e9363300bfdc683bc30ad8da17
+
+Независимо проверены SHA-256, CRC ZIP, отсутствие повторных/опасных путей и
+symlinks; все 2817 записей package-manifest.json совпали по размеру и SHA-256.
+Единственный не включённый в него файл — сам package-manifest.json.
+Все 2793 файла source также совпали с source manifest. Git tree реконструирован
+из bytes и записанных modes: получен ровно 05dff40b0ddf3044cc992f2e67151b37d8dd3b0b.
+Это проверка содержимого заявленного tree; commit ID указан в handoff, Git refs
+и исходный рабочий репозиторий reviewer не проверял.
+Вложенное принятое ТЗ побайтно совпадает с выданным ранее review.
+
+Просмотрены intentional diff и ключевые paths: runner/transport/socket/WS,
+closed-input admission, seed/profile, actual model callbacks и virtual feedback,
+session/timing, observer/comparator и исторический reference.
+Общие изменения ограничены добавлением crate/workspace lock entry,
+WS decimal normalization и read-only model observation/seed seam.
+Признаков подключения retained paper owner или переноса dirty O4 coordinator
+в проверенном wiring не обнаружено. Это узкий review, не аудит всех 2793 файлов.
+
+Повторно выполнено: python3 scripts/test_signal_shadow_reference_inventory.py -v
+Результат: 4/4 PASS.
+Rust/cargo отсутствуют в среде reviewer: Rust tests, Clippy и fmt здесь не
+перезапускались. Приложенные логи показывают 87 shadow tests и 8 regressions
+(6 WS + 2 model), без failures; Clippy completion присутствует. Fmt подтверждён
+записанным parent exit-code=0; это attestation, не новый запуск reviewer.
+Evidence явно указывает macOS/Rust 1.95; MSRV и native Linux не проверены.
+Общие suites/governance/freeze не объявляются пройденными.
+
+2. Замечания, требующие исправления
+
+R1 — P2: QUOTES capacity ограничивает суммарное число событий за весь запуск.
+
+Места:
+- crates/finam-signal-shadow/src/quote.rs:30–32, 101, 126–151;
+- crates/finam-signal-shadow/src/transport.rs:168–191;
+- crates/finam-signal-shadow/src/runner.rs:236–245;
+- crates/finam-signal-shadow/src/session.rs:229–231.
+
+QuoteInput сохраняет все уникальные timestamps в seen, без освобождения.
+ConfiguredTransports задаёт quote_capacity через max_cache_bars, причём значение
+не может превышать 4096. QUOTES нормализуется постоянно, даже при flat/no-intent;
+проверка pending находится позже, в session.
+
+Детерминированный сценарий по коду: 4097 корректных, свежих, возрастающих quotes
+при максимальном лимите → Capacity → Held → runner_quotes_observe → shutdown.
+Fail-closed отказ предусмотрен и тестируется; проблема в том, что cache bound
+стал лимитом общего количества котировок. Для пути 07:00→23:40 это максимум
+одна новая котировка примерно в 14,6 секунды; при условном потоке 1/sec лимит
+исчерпается примерно за 68 минут. Фактическую частоту FINAM reviewer не утверждает.
+
+Минимальная правка: отделить quote dedup budget от M10 cache и использовать
+ограниченное окно/монотонный frontier. Старое событие после вытеснения не должно
+стать новым feedback; сохранить exact-duplicate/conflict/order checks и поведение
+через reconnect. Простого увеличения total-count limit недостаточно для
+устойчивого bounded stream.
+
+Acceptance правки: >4096 свежих монотонных quotes при ограниченной памяти,
+включая flat/no-pending; duplicate/conflict и old-event replay через reconnect
+не дают второго эффекта. Текущий tests/quote.rs:78–93 проверяет отказ при
+переполнении, но не способность обработать длинный корректный поток.
+Закрыть до реального длительного observation.
+
+R2 — P2: independent report IDs несовместимы с текущим config binding comparator.
+
+Места:
+- crates/finam-signal-shadow/src/config.rs:33–35, 153–158;
+- crates/finam-signal-shadow/src/seed.rs:171–174;
+- crates/finam-signal-shadow/src/segment.rs:141–152;
+- crates/finam-signal-shadow/src/observer.rs:301–318;
+- crates/finam-signal-shadow/tests/observer.rs:283–292.
+
+ValidatedConfig хеширует полный ShadowConfig, включая run_id, segment_id и
+previous_segment_id. Реальные SeedObservation получают этот полный fingerprint.
+report_identities_compatible требует равенства config_sha256. Поэтому одинаковые
+model/seed/feedback/inputs с разными FINAM/reference IDs дают NotComparable ещё
+до semantic comparison. Комментарий observer при этом ожидает разные IDs.
+Существующий тест меняет header IDs вручную, сохраняя фиктивный config hash,
+и не воспроизводит production construction.
+
+Минимальная правка: сохранить полный fingerprint для provenance и определить
+отдельный строгий semantic comparison binding без attribution IDs. Сохранить
+проверки model/reference/seed/feedback/mapping/calendar и всех влияющих на
+сравнение параметров. Нельзя просто удалить config check или вручную подменять
+hash в header.
+
+Acceptance правки: создать два реальных headers через ValidatedConfig →
+SeededSegment с разными IDs и эквивалентными остальными входами; их сравнение
+допустимо. Изменение seed/model/feedback/mapping/calendar должно по-прежнему
+давать NotComparable. Это исправление comparator, а не закрытие всего S2.
+
+3. Что в реализованной части выглядит корректно
+
+Runner действительно связывает выбранный seed/config с GET-only REST,
+отдельными BARS/QUOTES workers, model callbacks, virtual feedback и JSONL.
+Worker read futures сохраняются между coordinator selections; ошибка worker
+прекращает composition. Shutdown вызывает stop, abort и join под timeout.
+При controlled reconnect старый BARS socket уничтожается до открытия нового.
+
+Provisional BARS, handshake и heartbeat не продвигают модель. Finality поступает
+из admitted REST ranges. Required nominal sequence, duplicate/conflict/gap checks
+и timestamps не заменяются WS health. Raw admitted REST evidence записывается
+до выбранного model advancement.
+
+Используется настоящий HybridIntradayRuntimeStrategy и фиксированный
+baseline07 BO-only/no-riskgate профиль. Intents создают virtual pending;
+position callback меняет последующее состояние модели. Quote event time <=
+measured callback result не заполняет новый intent. Ошибка timing/callback
+делает путь terminal, без rollback/retry. EOD exit intent не равен flat;
+pending/nonflat/missing due bars заканчиваются INCOMPLETE.
+
+Историческая проверка использует pinned input и независимые frozen Python
+rounds, но synthetic-close feedback отличается от observed QUOTES policy.
+Отсутствие полного независимого state/reason parity описано честно.
+Ложного полного parity-PASS в проверенных paths не обнаружено.
+
+4. Учёт согласованного ТЗ
+
+| IDs | Итог промежуточного review |
+| --- | --- |
+| S1 | Executable/profile/seed composition присутствует; локальные Rust evidence — по приложенным логам. |
+| S2 | Открыт: independent per-step state/reason parity; отдельно исправить R2. Matching rounds недостаточно. |
+| S3 | Actual callbacks и virtual feedback связаны; observed quote evidence и независимое сравнение ещё впереди. |
+| S4 | REST admission и sequence/conflict checks связаны; operational evidence не собран. |
+| S5/S6 | Локальные protocol/socket/timing проверки не доказывают actual subscription/reconnect/latency. |
+| S7 | Только fresh session-boundary seed; intraday prefix/NEW_SEGMENT restart не квалифицирован. Честный отказ не считается PASS. |
+| S8/S9 | Single-session partial EOD path; 23:40 label и EOD→следующий старт не квалифицированы. Двух полных observed sessions нет. |
+| S10 | В проверенном wiring нет order dispatch/Redis writes; отдельный output и stop предусмотрены. Исправить R1; VPS isolation/stop ещё не наблюдались. |
+
+Read-only role токена остаётся внешним утверждением оператора; отсутствие
+order route не является проверкой provider permissions.
+
+Дополнение к operational config, без отдельного finding: transport.rs:179–180
+задаёт явный IO cap min(15s, stop_timeout, ws_silence). Он применяется и к
+socket.next(), поэтому допустимое ожидание WS frame может оказаться короче
+ws_silence_budget. При выборе exact config учитывать оба ограничения либо
+разделить read inactivity и shutdown budgets. Это не основание объявлять
+локальный timing тест actual FINAM latency evidence.
+
+5. Минимальный следующий шаг
+
+Закрыть R1/R2 узкими изменениями и соответствующими focused tests в следующем
+immutable source snapshot. Затем в том же scope завершить уже заявленные
+independent state/reason parity, выбранный restart с prefix/feedback и
+EOD→следующий старт. Полный backlog paper/O4 для этого не требуется.
+
+Сохранить условия ТЗ: virtual shadow state отдельно от O3 +1 и ALOR broker
+position, история не считается свежим наблюдением, unresolved state не
+превращается в flat/READY. Две full sessions относятся к последующему отдельно
+разрешённому observation; локальные fixtures не подменяют обязательные
+WS/reconnect/EOD/isolation witnesses.
+
+После пригодного source slice — отдельные решения об installation и
+observation. Execution qualification и live-micro остаются отдельным этапом
+по фактически выбранному order path. Новые внешние действия reviewer не выполнял.
+
+

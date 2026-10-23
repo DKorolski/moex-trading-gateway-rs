@@ -58,7 +58,36 @@ struct FinamWsQuotePayload {
 struct FinamWsBarsPayload {
     symbol: Option<String>,
     #[serde(default, alias = "bar")]
-    bars: Vec<dto::Bar>,
+    bars: Vec<FinamWsBar>,
+}
+
+// WS uses decimal strings; retained older envelopes use {"value":"..."}.
+// Keep REST Bar strict and normalize only at the WS boundary, never via f64.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+struct FinamWsBar {
+    timestamp: String,
+    open: dto::DecimalLike,
+    high: dto::DecimalLike,
+    low: dto::DecimalLike,
+    close: dto::DecimalLike,
+    volume: dto::DecimalLike,
+}
+
+impl FinamWsBar {
+    fn into_rest_shape(self) -> dto::Bar {
+        let decimal = |value| match value {
+            dto::DecimalLike::Value(v) => v,
+            dto::DecimalLike::String(value) => dto::DecimalValue { value },
+        };
+        dto::Bar {
+            timestamp: self.timestamp,
+            open: decimal(self.open),
+            high: decimal(self.high),
+            low: decimal(self.low),
+            close: decimal(self.close),
+            volume: decimal(self.volume),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -191,7 +220,7 @@ fn map_ws_bar_events(
         .bars
         .into_iter()
         .map(|bar| {
-            let mut mapped = map_bar(symbol, &bar, timeframe_sec)?;
+            let mut mapped = map_bar(symbol, &bar.into_rest_shape(), timeframe_sec)?;
             mapped.source_kind = MarketDataSourceKind::LiveStream;
             mapped.is_final = mapped.close_ts <= received_ts;
             Ok(MarketDataEvent::Bar(mapped))
@@ -368,6 +397,30 @@ mod tests {
                 assert!(bar.is_final);
             }
             other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn websocket_decimal_strings_match_legacy_objects_without_relaxing_rest() {
+        let row = json!({"timestamp":"2026-07-05T12:40:00Z",
+            "open":"2248.0","high":"2249.0","low":"2248.0","close":"2248.5","volume":"10"});
+        let map = |row| {
+            let envelope = serde_json::from_value(json!({"type":"DATA","subscription_type":"BARS",
+                "payload":{"symbol":"IMOEXF@RTSX","bars":[row]}}))
+            .unwrap();
+            map_ws_market_data_events(&envelope, None, 60, "2026-07-05T12:41:00Z".parse().unwrap())
+        };
+        let mut legacy = row.clone();
+        for field in ["open", "high", "low", "close", "volume"] {
+            legacy[field] = json!({"value":legacy[field]});
+        }
+        assert_eq!(map(row.clone()).unwrap(), map(legacy.clone()).unwrap());
+        assert!(serde_json::from_value::<dto::Bar>(legacy).is_ok());
+        assert!(serde_json::from_value::<dto::Bar>(row.clone()).is_err());
+        for bad in [json!(2248.5), json!(null), json!(true), json!("NaN")] {
+            let mut invalid = row.clone();
+            invalid["close"] = bad;
+            assert!(map(invalid).is_err());
         }
     }
 }

@@ -1,0 +1,221 @@
+SIGNAL-SHADOW FIRST — REVIEW РЕШЕНИЕ И МИНИМАЛЬНОЕ ТЗ
+Дата: 2026-10-23
+Вердикт: SCOPE ACCEPT. ТЗ ниже — согласованная граница следующего source slice.
+Source/release/deployment/operational acceptance этим решением не выдаются.
+
+Входной пакет: moex-signal-shadow-scope-tz-request-20261023.zip
+Размер: 306 663 bytes; 16 regular members; ZIP CRC/manifest PASS.
+SHA-256: 08848aa073c82f0ed7b4a219cdcbe550157d78a8a8bb5502473a061659843f70
+
+Проверены все 15 manifest hashes/sizes, planning provenance и неизменность
+приложенного O3 review. Это snapshot документов из dirty worktree, не Git archive
+881c69b и не подтверждение текущего состояния VPS. Source в пакете отсутствует;
+новые runtime/tests не проверялись. Review выполнен offline, без изменений VPS.
+
+1. Приоритет и граница работ
+
+Согласовано: приостановить расширение непринятого paper/O4 и выделить
+изолированный FINAM signal-shadow для ALOR comparison. Принятые O2/O3,
+DB15/root/history/checkpoints и paper +1 сохранить. Shadow не продолжает +1,
+не импортирует ALOR broker position и не изменяет ALOR live/P0.
+Отложенный O4 сохраняется; его backlog не prerequisite signal-shadow.
+Новый общий recovery, lifecycle, scheduler или deployment framework не нужен.
+
+Цель r0: реальные данные → существующая модель → виртуальный feedback →
+наблюдения и comparator. Это проверка data/state/signal semantics, а не
+broker execution, PnL или гарантии отсутствия overnight на реальном счёте.
+
+2. Модель, входы и минимальный entry
+
+Один target: IMOEXF baseline07 BO-only, explicit no-riskgate. MR entry подавлен
+ДО owner/pending. High180/lb120/ledger rebuild не условие readiness.
+Candidate09, его weekend-state/current-close policy, RI и USDRUBF вне r0.
+Полный выбранный model/config/profile и reference ALOR version закрепить hashes.
+Сентябрьский freeze — историческая reference; без actual ALOR config/export
+нельзя объявлять его снимком текущего ALOR live.
+
+Warmup: bounded window по четырёхсессионному ALOR reference с доказанными
+required anchors и необходимым закрытым current-session prefix. Точные session
+dates/range закрепить в source config/test; это не четыре календарных дня/бара.
+Одинаковая предыстория/coverage/seed для обоих comparison contexts.
+Нет многомесячного fallback, lookahead текущего дня или fabricated candles.
+
+Документированные reuse candidates:
+- broker-cli finam-ws-shadow-loop;
+- broker-cli finam-paper-runtime-consume --strategy-invocation-shadow.
+Они исторически давали transport/unseeded projection evidence. Их пригодность
+для stateful shadow сейчас НЕ подтверждена. В source handoff показать выбранный
+executable и реальный model invocation. Если кандидаты недостаточны — один
+тонкий отдельный signal-shadow command/adapter, без запуска существующего P0.
+
+Затронуть только необходимые слои:
+(a) existing read-only FINAM REST/WS, normalization/finality/M1→M10;
+(b) fixed profile/common warmup;
+(c) shadow coordinator: model state + virtual feedback + input frontier;
+(d) append-only observer/comparator, readiness и bounded stop.
+Не подключать retained Stage6/7 paper owner, DB15 или весь O4 coordinator.
+
+3. Данные, время и выходные наблюдения
+
+Зафиксировать FINAM/ALOR mapping одного инструмента/контракта, price/tick/volume
+units, session/calendar и timestamp convention. IMOEXF@RTSX — reference label
+из checklist, не замена проверки actual provider mapping.
+Model M10 label — начало; nominal close/available_at = label+600s.
+Имя legacy close_time_utc не меняет эту семантику.
+
+Принимать только закрытые доказанные ranges. Provisional M1 updates не дают
+model step. Exact duplicate REST/WS не даёт второго шага, feedback или сигнала.
+Same-label conflict после выбора canonical input → HOLD, без тихого пересчёта.
+Sparse допускается existing confirmed closed-range contract; silence не proof
+пустой минуты. Подтверждённый range не требует обязательного повторного GET.
+Обязательный пустой/недоказанный bucket, gap, inconsistent overlap → HOLD.
+Текущий provider finality/end-boundary contract проверить для выбранного build
+до operational применения; неизвестную finality нельзя закрыть зелёной WS health.
+
+Режимы WARMUP / BACKFILL-REPLAY / LIVE_OBSERVED раздельны.
+Исторический результат не попадает в live signal count/latency.
+При восстановлении virtual state replay может воспроизводить feedback, но его
+intents не публикуются как новые live observations.
+
+На каждом model step записывать:
+run/segment/model/config/source/feedback identities; instrument; model label,
+nominal close, provider/receive/canonical-ready/model-start/result times;
+canonical input hash и raw M1 provenance; before/after anchors, BO levels,
+side-used, owner, virtual pending/position; enter/exit/suppress и reason.
+Hypothetical feedback имеет собственные event times, IDs и origin; broker IDs
+не используются как ключ семантического сравнения. Нужны и «нет сигнала» строки.
+
+Lmax, clock uncertainty, WS silence/reconnect budget, bounded input/cache/output
+size, run deadline и stop timeout обязательны в exact config, без silent defaults.
+Применимый принятый threshold можно переиспользовать с явной ссылкой.
+30s из незавершённого O4 автоматически принятым shadow threshold не считается.
+Держать отдельно source lateness, processing latency и publication latency.
+
+4. Виртуальное состояние и feedback — обязательный контракт
+
+FINAM и reference ALOR model contexts изолированы. На общих входах они получают
+одинаковый заявленный seed, warmup, config и feedback policy. Начальный virtual
+book flat допускается как НОВЫЙ shadow seed, не как reset O3 или broker truth.
+Для native-feed comparison каждый context обрабатывает свой feed; расхождения
+цен/состояния сохраняются, а не маскируются общим результатом.
+
+Reference привязать к проверяемому ALOR model/config/export или принятому freeze.
+Два запуска FINAM/сравнение файла с собой подтверждают лишь self-check.
+Если model core общий и неизменённый, подтвердить его идентичность ALOR,
+а adapter/config/input/state bindings проверить отдельно.
+
+Intents нельзя просто логировать/отбрасывать. Локальный детерминированный feedback
+должен менять pending/owner, position, side-used и последующую exit eligibility
+через поддерживаемый model interface. Один logical feedback effect на intent;
+порядок применения feedback относительно следующего model step фиксирован.
+
+До source acceptance выбрать и проверить существующий baseline07-compatible
+feedback/matching component либо минимальный adapter к нему. Зафиксировать
+fill_assumption_id: causal fill event, price rule, qty rule, rounding, costs,
+pending/terminal transitions. Все эти правила входят в fingerprint и одинаковы
+для обоих contexts. В r0 допустим явно идеализированный full-fill на exact intent
+quantity; partial-fill economics и реальные broker fills не квалифицируются.
+Zero fee/slippage допустимы только как общая явно указанная гипотеза.
+
+Не подставлять current-close policy candidate09 в baseline07 по умолчанию.
+Docs-only пакет не даёт основания объявить конкретный fill kernel пригодным.
+Выбор fill rule — обязательная строка source handoff с тестом entry→feedback→exit,
+не новый самостоятельный этап. Если rule отличается от actual ALOR fills,
+сравнение с ALOR live маркировать conditional; execution parity не заявлять.
+Реальные ALOR broker fills хранить отдельно и не использовать как скрытое
+внешнее управление FINAM shadow model.
+
+5. Restart и EOD без нового paper recovery
+
+Для r0 разрешён NEW_SEGMENT restart: закрыть старый segment как разрыв,
+сохранить его output/frontier, повторно создать сопоставимый seed/warmup обоим
+contexts и лишь затем новую readiness. Нельзя назвать cold-flat reset в середине
+дня продолжением BO owner/side-used state. При неизвестном reference state —
+NOT_COMPARABLE. Предпочтительный старт comparison — граница полной сессии;
+mid-session initialization должен восстановить нужный prefix/state либо явно
+оставить неполный сегмент вне full-session acceptance.
+
+Если готовый snapshot interface уже есть, допускается CONTINUE с model+virtual
+book/pending и input/output frontier. Это не обязанность строить новый engine.
+Выбран ровно один проверяемый restart mode; при ошибке восстановления нет
+автоматического fallback на flat/healthy.
+
+Новая segment_id не делает старые timestamps свежими: prior frontier/output
+identity сохраняются либо прошлые inputs/outputs явно classified replay.
+Ключ logical observation включает run/segment/profile/instrument/model label;
+также фиксируется связь с предыдущим segment, чтобы replay не скрывал дубль.
+
+EOD проверять без ожидания следующего бара. Для baseline07 модельный 23:30 M10
+становится closed около 23:40 МСК; новые entries на/после EOD запрещены.
+Timer должен сделать due/missing-data status видимым даже без новых bars.
+При наличии требуемых closed данных оценить EOD decision вовремя.
+Нет late bar/causal fill prerequisite → EOD_INPUT_MISSING/INCOMPLETE или
+unresolved virtual pending, без fabricated candle, backdated fill/flat.
+Exit intent и virtual fill — отдельные факты; shadow не доказывает broker flatten.
+Состояние следующей сессии определяется выбранной моделью/feedback, не
+безусловным обнулением. Unresolved previous state не превращается в READY.
+
+6. Минимальная acceptance matrix
+
+L — направленный local test/replay; O — реально собранное observation.
+Это одна матрица текущего slice, не новый roadmap.
+
+| ID | Уровень | Сценарий | Критерий PASS |
+| --- | --- | --- | --- |
+| S1 | L | Executable/profile/warmup | Выбранный entry реально вызывает модель; BO-only/no-riskgate; MR не захватывает owner; bounded warmup по четырёхсессионному reference, exact range и required anchors, без High180 prerequisite/lookahead. |
+| S2 | L | Общий canonical dataset+seed | Совпадают anchors, BO levels, side-used/owner, enter/exit/suppress/reasons и state evolution при одинаковом feedback; ноль необъяснённого model drift. |
+| S3 | L | Entry→feedback→следующий сигнал→exit | Virtual position/pending действительно влияют на модель; один effect на intent; hypothetical fills отдельно от actual broker fills. |
+| S4 | L+O | Finality/overlap/dedup/gap | Equal duplicate не повторяет step/output; provisional не final; conflict/required missing range останавливает advancement; sparse только с accepted proof. |
+| S5 | O | WS subscribe + один controlled reconnect | Exact endpoint/instrument/M1 response и actual final data; bounded resubscribe без двух активных подписок/повторного model step; auth/silence failure видимы. |
+| S6 | L+O | Timing/readiness | Реальные receive/result timestamps, применённый Lmax и clock bound; late history не считается timely LIVE; socket/heartbeat одни не дают READY. |
+| S7 | L+O | Один restart выбранного mode | L: virtual nonflat/pending case; O: restart в фактически наблюдённом состоянии. Доказанный CONTINUE либо честный NEW_SEGMENT, без скрытой непрерывности/повторного live output; сравнение только после seed/state eligibility. |
+| S8 | L+O | EOD, missing late bar, следующий старт | EOD не ждёт утро; no new late entries; missing prerequisite явно INCOMPLETE, без ложного flat; session transition state корректен. |
+| S9 | O | Две полные configured sessions | Два EOD и минимум один EOD→следующий session start; все интервалы/разрывы видимы. Третий полный день автоматически не требуется. |
+| S10 | L+O | Изоляция и stop | Ноль order send/dispatch; отдельные state/output; нет shadow writes в DB0/DB15/P0/O2/O3; bounded stop и нет post-stop model work; secrets не попали в evidence. |
+
+Естественно отсутствующий BO/exit можно отметить NOT_OBSERVED и закрыть L-case.
+NOT_OBSERVED не заменяет actual WS subscription, reconnect, EOD, isolation.
+Planned interruption/потерянные live intervals отражать, не скрывать исключениями.
+Две сессии — минимальное наблюдение, не статистическое доказательство.
+
+7. Parity verdict, изоляция и handoff
+
+Отчёт разделяет: data quality, same-input model parity, native-feed signal
+comparison и feedback/execution assumptions. Цена-driven несовпадение остаётся
+несовпадением, даже если объяснено. Оно не объявляется ни model bug, ни
+автоматическим доказательством parity. Material missing/extra/side/time drift,
+нарушенный latency bound или неизвестная причинность → HOLD/INCOMPLETE.
+Ноль необъяснённых same-input state/signal differences; суммарный PnL не PASS.
+Actual ALOR late/next-day bars и oracle limitations сохранять как фактические.
+
+Отдельные service/state/output namespace и observation authorization/deadline.
+Read-only market-data/auth transport с проверенной endpoint allowlist;
+order client/dispatch не подключён. Не выпускать shadow с live-send switch
+или торговыми credentials/roles. Shadow READY никогда не означает trade READY.
+Проверять отсутствие shadow write paths в operational namespaces; глобальный
+before/after hash меняющегося market-data DB0 не нужен — P0 продолжает работу.
+
+Следующий immutable source ZIP должен содержать exact commit/config/profile,
+выбранные CLI/model/feedback/data/dedup/restart/observer dependencies, intentional
+diff к принятому baseline и список переносимых изменений из dirty O4 tree.
+Непринятый O4 не повышать до accepted dependency. Необходимые shared изменения
+включить явно с узкими regression checks. Actual entry и fill rule показываются
+кодом; их пригодность не угадывается по старым именам CLI.
+
+После source acceptance — отдельно разрешённые installation/observation,
+затем compact parity report: exact identities/config/seed, raw/canonical
+inputs, outputs/state/feedback, timestamps, reconnect/restart/EOD/stop,
+coverage и diff verifier. Без дублирования старых больших handoffs/секретов.
+Исходники модели ALOR/ref и current config предоставить в объёме comparator;
+одного итогового CSV/PnL для parity недостаточно.
+
+Перед micro-live отдельно проверить выбранный реальный execution path:
+request identity/dedup, ambiguous send без слепого retry, ACK/reconciliation,
+restart с позицией/pending, quantity/risk limits и emergency stop.
+No-riskgate не означает отсутствие execution risk limits. Типы заявок и
+cancel/expiry проверять по реально выбранному micro scope; полный O4 backlog
+при этом автоматически не возвращается. Live orders — только отдельное решение.
+
+Итог: смена приоритета принята. Следующий результат — узкий stateful
+signal-shadow source slice по S1–S10; O4 сохранён и отложен, O3 +1 не трогать.
+

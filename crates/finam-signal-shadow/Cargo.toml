@@ -1,0 +1,25 @@
+[package]
+name = "finam-signal-shadow"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+broker-core = { path = "../broker-core" }
+broker-finam = { path = "../broker-finam" }
+strategy-runtime-core = { path = "../strategy-runtime-core" }
+chrono.workspace = true
+rust_decimal.workspace = true
+tokio = { workspace = true, features = ["sync", "net", "io-util"] }
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
+
+[dev-dependencies]
+runtime-durable-service = { path = "../runtime-durable-service" }
+csv.workspace = true
+

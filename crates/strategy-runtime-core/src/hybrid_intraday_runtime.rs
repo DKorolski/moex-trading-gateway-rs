@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 mod session_catchup;
+mod signal_shadow;
 
 use broker_core::{BrokerOrderId, BrokerStopOrderId, StrategyRequestId};
 use chrono::{

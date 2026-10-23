@@ -1,6 +1,6 @@
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 
-use super::intraday_breakout::IntradayBreakoutEngine;
+use super::intraday_breakout::{EntryNoSignal, IntradayBreakoutEngine};
 use super::mean_reversion::MeanReversionEngine;
 use super::types::{Action, EntrySignal, Owner, ReasonCode, Side};
 
@@ -52,6 +52,8 @@ pub struct HybridOrchestrator {
     current_side: Option<Side>,
     pending_entry: Option<EntrySignal>,
     overnight_exit_armed_date: Option<NaiveDate>,
+    // Ephemeral diagnostic only: deliberately absent from HybridSnapshot.
+    last_no_intent: Option<(NaiveDateTime, EntryNoSignal)>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -82,10 +84,12 @@ impl HybridOrchestrator {
             current_side: None,
             pending_entry: None,
             overnight_exit_armed_date: None,
+            last_no_intent: None,
         }
     }
 
     pub fn reset(&mut self) {
+        self.last_no_intent = None;
         self.state = HybridState::Flat;
         self.current_owner = None;
         self.current_side = None;
@@ -104,6 +108,7 @@ impl HybridOrchestrator {
     }
 
     pub fn restore(&mut self, snapshot: HybridSnapshot) {
+        self.last_no_intent = None;
         self.state = snapshot.state;
         self.current_owner = snapshot.current_owner;
         self.current_side = snapshot.current_side;
@@ -135,6 +140,7 @@ impl HybridOrchestrator {
         mr_entry_signal: Option<EntrySignal>,
         mr_exit_reason: Option<ReasonCode>,
     ) -> Vec<Action> {
+        self.last_no_intent = None;
         let mut actions = Vec::new();
         self.intraday_breakout
             .on_bar(bar.dt, bar.open, bar.high, bar.low, bar.close);
@@ -154,6 +160,7 @@ impl HybridOrchestrator {
 
         if bar.has_open_position && self.current_owner == Some(Owner::MeanReversion) {
             let Some(reason) = mr_exit_reason else {
+                self.last_no_intent = Some((bar.dt, EntryNoSignal::gate("mr_position_hold")));
                 return actions;
             };
             actions.push(Action::SubmitExit {
@@ -191,6 +198,15 @@ impl HybridOrchestrator {
         }
 
         if bar.has_open_position || bar.has_live_orders || self.state == HybridState::Pending {
+            // Preserve the existing short-circuit gate priority.
+            let reason = if bar.has_open_position {
+                "position_hold"
+            } else if bar.has_live_orders {
+                "live_orders_hold"
+            } else {
+                "pending_entry_hold"
+            };
+            self.last_no_intent = Some((bar.dt, EntryNoSignal::gate(reason)));
             return actions;
         }
 
@@ -198,6 +214,7 @@ impl HybridOrchestrator {
         if matches!(self.config.breakout_eod_mode, BreakoutEodMode::SameDay)
             && (bar.dt.hour() > 23 || (bar.dt.hour() == 23 && bar.dt.minute() >= 30))
         {
+            self.last_no_intent = Some((bar.dt, EntryNoSignal::gate("eod_entry_cutoff")));
             return actions;
         }
 
@@ -205,16 +222,26 @@ impl HybridOrchestrator {
             return self.emit_entry_action(signal);
         }
 
-        if let Some(signal) = self.intraday_breakout.evaluate_entry(bar.dt, bar.close) {
+        let (signal, no_signal) = self
+            .intraday_breakout
+            .evaluate_entry_traced(bar.dt, bar.close);
+        if let Some(signal) = signal {
             return self.emit_entry_action(signal);
         }
+        self.last_no_intent = no_signal.map(|reason| (bar.dt, reason));
 
         actions
     }
 
     pub fn warm_bar(&mut self, bar: BarInput) {
+        self.last_no_intent = None;
         self.intraday_breakout
             .on_bar(bar.dt, bar.open, bar.high, bar.low, bar.close);
+    }
+
+    /// Actual most-recent empty-action branch. Not restored or recomputed.
+    pub fn last_no_intent(&self) -> Option<&(NaiveDateTime, EntryNoSignal)> {
+        self.last_no_intent.as_ref()
     }
 
     pub fn on_order_filled(&mut self, role: &str, owner: Owner, side: Option<Side>) {
