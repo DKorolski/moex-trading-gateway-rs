@@ -180,6 +180,7 @@ impl RunPlan {
 
 enum Event {
     Snapshot(Box<AdmittedClosedM1Snapshot>, Vec<DateTime<Utc>>),
+    Witness(crate::s5::Receipt),
     Socket(Observation),
     Reconnected(i64, u64),
 }
@@ -312,8 +313,16 @@ async fn run_start(
         let bars_lease = lease.clone();
         jobs.spawn(async move {
             let (mut frames, mut consumed) = (0, false);
+            let mut witness = crate::s5::Witness::new(crate::s5::Channel::Bars, 1);
             loop {
                 let observation = bars.observe().await.map_err(|_| "runner_bars_observe")?;
+                if let Some(receipt) = witness.observe(&observation, Utc::now().timestamp_millis())
+                {
+                    sender
+                        .send(Event::Witness(receipt))
+                        .await
+                        .map_err(|_| "runner_queue")?;
+                }
                 let reconnect = count_reconnect_frame(
                     reconnect_after,
                     &mut frames,
@@ -334,6 +343,7 @@ async fn run_start(
                     if started.elapsed() > Duration::from_millis(reconnect_budget) {
                         return Err("runner_reconnect_budget");
                     }
+                    witness = crate::s5::Witness::new(crate::s5::Channel::Bars, 2);
                     sender
                         .send(Event::Reconnected(Utc::now().timestamp_millis(), frames))
                         .await
@@ -349,11 +359,19 @@ async fn run_start(
             .map_err(|_| "runner_quotes_connect")?;
         let sender = tx.clone();
         jobs.spawn(async move {
+            let mut witness = crate::s5::Witness::new(crate::s5::Channel::Quotes, 1);
             loop {
                 let observation = quotes
                     .observe()
                     .await
                     .map_err(|_| "runner_quotes_observe")?;
+                if let Some(receipt) = witness.observe(&observation, Utc::now().timestamp_millis())
+                {
+                    sender
+                        .send(Event::Witness(receipt))
+                        .await
+                        .map_err(|_| "runner_queue")?;
+                }
                 sender
                     .send(Event::Socket(observation))
                     .await
@@ -393,6 +411,9 @@ async fn run_start(
                 event = rx.recv() => {
                     if stop.is_stopped() { return Err("runner_stopped"); }
                     match event.ok_or("runner_queue_closed")? {
+                        Event::Witness(receipt) => {
+                            session.record_transport(&receipt).map_err(|_| "runner_transport_receipt")?;
+                        }
                         Event::Reconnected(at, frames) => {
                             session.record_transport(&serde_json::json!({
                                 "channel":"BARS", "event":"controlled_reconnect_socket_open",

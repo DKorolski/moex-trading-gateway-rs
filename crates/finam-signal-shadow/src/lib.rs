@@ -12,6 +12,7 @@ pub mod profile;
 pub mod quote;
 pub mod replay;
 pub mod runner;
+mod s5;
 pub mod seed;
 pub mod segment;
 pub mod session;
