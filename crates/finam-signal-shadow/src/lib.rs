@@ -2,6 +2,7 @@
 //! Read-only transports are connected only by the explicitly invoked runner.
 //! Config validation does not establish warmup, reference parity or readiness.
 
+pub mod auth;
 mod config;
 pub mod feedback;
 pub mod input;

@@ -1,4 +1,4 @@
-//! Explicit, single-segment read-only source runner. No auth discovery/renewal,
+//! Explicit, single-segment read-only source runner. No auth discovery,
 //! automatic retry, order route, recovery or trade switch.
 //!
 //! Historical-prefix startup requires a source-admitted reconstruction capability.
@@ -11,17 +11,18 @@
 //! checks are not actual two-session observed qualification or full S8/S9.
 //! Raw quote frames are retained before feedback. This is not proof of a complete
 //! restart inventory or collected operational qualification across downtime.
+use crate::auth::AuthLifecycle;
 use crate::{
     segment::SeededSegment, session::ObservedSession, transport::ConfiguredTransports,
     ws::Observation, ValidatedConfig,
 };
 use broker_finam::{
     sparse_m10::{AdmittedClosedM1Snapshot, ClosedM1RequestPlan},
-    AccessTokenLease, Stage8bP1fO2GetOnlyClientV1,
+    Stage8bP1fO2GetOnlyClientV1,
 };
 use chrono::{DateTime, Datelike, Timelike, Utc};
 use serde::{Deserialize, Serialize};
-use std::{path::Path, time::Duration};
+use std::{path::Path, sync::Arc, time::Duration};
 use tokio::{sync::mpsc, task::JoinSet};
 
 /// All fields mandatory; input file contains no credential. The read-only-role
@@ -32,7 +33,7 @@ pub struct RunPlan {
     pub config_sha256: String,
     pub account_id: String,
     pub read_only_credentials: bool,
-    pub token_expires_at: DateTime<Utc>,
+    pub auth_policy: String,
     pub eod_check_at: DateTime<Utc>,
     pub reconnect_after_data_frames: Option<u64>,
     pub requests: Vec<Request>,
@@ -125,7 +126,7 @@ impl RunPlan {
             || self.requests.len() as u64 > c.max_cache_bars
             || cutoff > c.run_deadline_utc_ms
             || cutoff <= c.observation_start_utc_ms
-            || self.token_expires_at <= self.eod_check_at
+            || self.auth_policy != "provider_expiry_readonly_rtsx_v1"
         {
             return Err("runner_plan_binding");
         }
@@ -179,6 +180,7 @@ impl RunPlan {
 }
 
 enum Event {
+    AuthValidated(u64, DateTime<Utc>),
     Snapshot(Box<AdmittedClosedM1Snapshot>, Vec<DateTime<Utc>>),
     Witness(crate::s5::Receipt),
     Socket(Observation),
@@ -215,14 +217,14 @@ pub async fn run(
     segment: SeededSegment,
     config: &ValidatedConfig,
     plan: RunPlan,
-    lease: AccessTokenLease,
+    auth: Arc<AuthLifecycle>,
     output: &Path,
 ) -> Result<(), &'static str> {
     run_start(
         Start::Seed(Box::new(segment)),
         config,
         plan,
-        lease,
+        auth,
         Some(output),
         None,
     )
@@ -235,14 +237,14 @@ pub async fn run_prefix(
     prefix: crate::prefix::ReconstructedPrefix,
     config: &ValidatedConfig,
     plan: PrefixRunPlan,
-    lease: AccessTokenLease,
+    auth: Arc<AuthLifecycle>,
 ) -> Result<(), &'static str> {
     plan.validate(&prefix)?;
     run_start(
         Start::Prefix(Box::new(prefix)),
         config,
         plan.plan.clone(),
-        lease,
+        auth,
         None,
         Some(plan),
     )
@@ -258,7 +260,7 @@ async fn run_start(
     start: Start,
     config: &ValidatedConfig,
     plan: RunPlan,
-    lease: AccessTokenLease,
+    auth: Arc<AuthLifecycle>,
     output: Option<&Path>,
     prefix_plan: Option<PrefixRunPlan>,
 ) -> Result<(), &'static str> {
@@ -276,8 +278,8 @@ async fn run_start(
     if fingerprint != config.fingerprint() {
         return Err("runner_segment_binding");
     }
-    if lease.token().is_empty() || lease.should_refresh(std::time::Instant::now()) {
-        return Err("runner_credential_expired");
+    if !auth.binds(&plan.account_id) {
+        return Err("runner_auth_account_binding");
     }
     let mut transports =
         ConfiguredTransports::new(config).map_err(|_| "runner_transport_config")?;
@@ -305,17 +307,60 @@ async fn run_start(
     let work = async {
         let client =
             Stage8bP1fO2GetOnlyClientV1::new(plan.account_id).map_err(|_| "runner_client")?;
+        let mut bars_grant = auth.grant().await?;
+        session
+            .record_transport(&serde_json::json!({
+                "event":"auth_validated", "generation":bars_grant.generation,
+                "expires_at":bars_grant.expires_at, "readonly":true,
+                "selected_account_matches":true, "rtsx_zero_delay":true
+            }))
+            .map_err(|_| "runner_auth_receipt")?;
         let mut bars = transports
-            .connect_bars(lease.clone())
+            .connect_bars(bars_grant.lease.clone())
             .await
             .map_err(|_| "runner_bars_connect")?;
         let sender = tx.clone();
-        let bars_lease = lease.clone();
+        let bars_auth = auth.clone();
         jobs.spawn(async move {
             let (mut frames, mut consumed) = (0, false);
+            let mut connection = 1;
             let mut witness = crate::s5::Witness::new(crate::s5::Channel::Bars, 1);
             loop {
-                let observation = bars.observe().await.map_err(|_| "runner_bars_observe")?;
+                let current = bars_auth.grant().await?;
+                if current.generation != bars_grant.generation {
+                    let started = std::time::Instant::now();
+                    bars = bars
+                        .rotate_auth(current.lease.clone())
+                        .await
+                        .map_err(|_| "runner_bars_auth_rotate")?;
+                    if started.elapsed() > Duration::from_millis(reconnect_budget) {
+                        return Err("runner_auth_reconnect_budget");
+                    }
+                    connection += 1;
+                    witness = crate::s5::Witness::new_auth(
+                        crate::s5::Channel::Bars,
+                        connection,
+                        current.generation,
+                    );
+                    bars_grant = current;
+                    sender
+                        .send(Event::AuthValidated(
+                            bars_grant.generation,
+                            bars_grant.expires_at,
+                        ))
+                        .await
+                        .map_err(|_| "runner_queue")?;
+                }
+                let Some(observation) = bars
+                    .observe_until(bars_grant.renew_at)
+                    .await
+                    .map_err(|_| "runner_bars_observe")?
+                else {
+                    continue;
+                };
+                if !bars_grant.valid(Utc::now(), std::time::Instant::now()) {
+                    return Err("runner_bars_auth_expired");
+                }
                 if let Some(receipt) = witness.observe(&observation, Utc::now().timestamp_millis())
                 {
                     sender
@@ -334,16 +379,21 @@ async fn run_start(
                     .await
                     .map_err(|_| "runner_queue")?;
                 if reconnect {
+                    // Do not turn a due auth rotation into a successful S5 reconnect.
+                    if !bars_grant.current(Utc::now(), std::time::Instant::now()) {
+                        return Err("runner_s5_auth_overlap");
+                    }
                     let started = std::time::Instant::now();
                     bars = bars
-                        .reconnect(bars_lease.clone())
+                        .reconnect(bars_grant.lease.clone())
                         .await
                         .map_err(|_| "runner_bars_reconnect")?;
                     // Budget includes connection establishment, not just its start.
                     if started.elapsed() > Duration::from_millis(reconnect_budget) {
                         return Err("runner_reconnect_budget");
                     }
-                    witness = crate::s5::Witness::new(crate::s5::Channel::Bars, 2);
+                    connection += 1;
+                    witness = crate::s5::Witness::new(crate::s5::Channel::Bars, connection);
                     sender
                         .send(Event::Reconnected(Utc::now().timestamp_millis(), frames))
                         .await
@@ -353,18 +403,45 @@ async fn run_start(
             #[allow(unreachable_code)]
             Ok::<(), &'static str>(())
         });
+        let mut quotes_grant = auth.grant().await?;
         let mut quotes = transports
-            .connect_quotes(lease.clone())
+            .connect_quotes(quotes_grant.lease.clone())
             .await
             .map_err(|_| "runner_quotes_connect")?;
         let sender = tx.clone();
+        let quotes_auth = auth.clone();
         jobs.spawn(async move {
+            let mut connection = 1;
             let mut witness = crate::s5::Witness::new(crate::s5::Channel::Quotes, 1);
             loop {
-                let observation = quotes
-                    .observe()
+                let current = quotes_auth.grant().await?;
+                if current.generation != quotes_grant.generation {
+                    let started = std::time::Instant::now();
+                    quotes = quotes
+                        .rotate_auth(current.lease.clone())
+                        .await
+                        .map_err(|_| "runner_quotes_auth_rotate")?;
+                    if started.elapsed() > Duration::from_millis(reconnect_budget) {
+                        return Err("runner_auth_reconnect_budget");
+                    }
+                    connection += 1;
+                    witness = crate::s5::Witness::new_auth(
+                        crate::s5::Channel::Quotes,
+                        connection,
+                        current.generation,
+                    );
+                    quotes_grant = current;
+                }
+                let Some(observation) = quotes
+                    .observe_until(quotes_grant.renew_at)
                     .await
-                    .map_err(|_| "runner_quotes_observe")?;
+                    .map_err(|_| "runner_quotes_observe")?
+                else {
+                    continue;
+                };
+                if !quotes_grant.valid(Utc::now(), std::time::Instant::now()) {
+                    return Err("runner_quotes_auth_expired");
+                }
                 if let Some(receipt) = witness.observe(&observation, Utc::now().timestamp_millis())
                 {
                     sender
@@ -383,16 +460,17 @@ async fn run_start(
         jobs.spawn(async move {
             for request in plan.requests {
                 wait_until(request.request_at).await;
-                if lease.should_refresh(std::time::Instant::now()) {
-                    return Err("runner_credential_expired");
-                }
+                let grant = auth.grant().await?;
                 let plan = ClosedM1RequestPlan::new(request.start, request.end, request.part_ends)
                     .map_err(|_| "runner_closed_range")?;
                 plan.preflight(Utc::now()).map_err(|_| "runner_preflight")?;
                 let snapshot = transports
-                    .collect(&client, lease.token(), &plan)
+                    .collect(&client, grant.lease.token(), &plan)
                     .await
                     .map_err(|_| "runner_rest")?;
+                if !grant.valid(Utc::now(), std::time::Instant::now()) {
+                    return Err("runner_rest_auth_expired");
+                }
                 tx.send(Event::Snapshot(Box::new(snapshot), request.required))
                     .await
                     .map_err(|_| "runner_queue")?;
@@ -411,6 +489,13 @@ async fn run_start(
                 event = rx.recv() => {
                     if stop.is_stopped() { return Err("runner_stopped"); }
                     match event.ok_or("runner_queue_closed")? {
+                        Event::AuthValidated(generation, expires_at) => {
+                            session.record_transport(&serde_json::json!({
+                                "event":"auth_validated", "generation":generation,
+                                "expires_at":expires_at, "readonly":true,
+                                "selected_account_matches":true, "rtsx_zero_delay":true
+                            })).map_err(|_| "runner_auth_receipt")?;
+                        }
                         Event::Witness(receipt) => {
                             session.record_transport(&receipt).map_err(|_| "runner_transport_receipt")?;
                         }
@@ -531,7 +616,7 @@ mod tests {
             config_sha256: config.fingerprint().into(),
             account_id: "synthetic".into(),
             read_only_credentials: true,
-            token_expires_at: eod + chrono::Duration::hours(1),
+            auth_policy: "provider_expiry_readonly_rtsx_v1".into(),
             eod_check_at: eod + chrono::Duration::seconds(5),
             reconnect_after_data_frames: Some(2),
             requests,

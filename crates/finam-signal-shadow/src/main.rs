@@ -91,7 +91,7 @@ async fn observe(args: &[std::ffi::OsString]) -> Result<(), &'static str> {
     let with_prefix = args.first().is_some_and(|arg| arg == "observe-prefix");
     let offset = if with_prefix { 2 } else { 0 };
     if args.len() != 9 + offset {
-        return Err("usage: finam-signal-shadow observe[-prefix] CONFIG REFERENCE MAPPING CALENDAR SEED [PREFIX_BINDING PREFIX] PLAN READ_ONLY_TOKEN_FILE NEW_OUTPUT");
+        return Err("usage: finam-signal-shadow observe[-prefix] CONFIG REFERENCE MAPPING CALENDAR SEED [PREFIX_BINDING PREFIX] PLAN READ_ONLY_SECRET_FILE NEW_OUTPUT");
     }
     let config = read_bounded(Path::new(&args[1]), &mut 16_384)?;
     let config = ValidatedConfig::parse(&config).map_err(|_| "config_invalid")?;
@@ -127,8 +127,16 @@ async fn observe(args: &[std::ffi::OsString]) -> Result<(), &'static str> {
     if !with_prefix {
         plan.validate(&config)?;
     }
-    // No env discovery, account lookup, refresh, token logging or auth endpoint.
-    // File must contain an externally provisioned read-only access token.
+    // Explicit protected secret, not an access token or environment discovery.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let meta =
+            std::fs::symlink_metadata(Path::new(&args[7 + offset])).map_err(|_| "credential_io")?;
+        if !meta.is_file() || meta.permissions().mode() & 0o077 != 0 {
+            return Err("credential_permissions");
+        }
+    }
     let token = read_bounded(Path::new(&args[7 + offset]), &mut 16_384)?;
     let token = std::str::from_utf8(&token)
         .map_err(|_| "credential_invalid")?
@@ -136,20 +144,10 @@ async fn observe(args: &[std::ffi::OsString]) -> Result<(), &'static str> {
     if token.is_empty() || token.chars().any(char::is_whitespace) {
         return Err("credential_invalid");
     }
-    let ttl = (plan.token_expires_at - chrono::Utc::now())
-        .to_std()
-        .map_err(|_| "credential_expired")?;
-    if ttl.is_zero() || ttl > std::time::Duration::from_secs(86_400) {
-        return Err("credential_lifetime");
-    }
-    let lease = broker_finam::AccessTokenLease::new(
-        broker_finam::AccessToken::new(token),
-        std::time::Instant::now(),
-        broker_finam::FinamAuthPolicy {
-            token_ttl: ttl,
-            renew_before: std::time::Duration::ZERO,
-        },
-    );
+    let auth = finam_signal_shadow::auth::AuthLifecycle::new(
+        broker_finam::SecretToken::new(token),
+        plan.account_id.clone(),
+    )?;
     let segment = SeededSegment::from_inputs(
         ValidatedConfig::validate(config.config().clone()).map_err(|_| "config_invalid")?,
         &reference,
@@ -170,7 +168,7 @@ async fn observe(args: &[std::ffi::OsString]) -> Result<(), &'static str> {
             prefix,
             &config,
             prefix_plan.ok_or("prefix_plan_invalid")?,
-            lease,
+            auth,
         )
         .await
     } else {
@@ -178,7 +176,7 @@ async fn observe(args: &[std::ffi::OsString]) -> Result<(), &'static str> {
             segment,
             &config,
             fresh_plan.ok_or("plan_invalid")?,
-            lease,
+            auth,
             Path::new(&args[8]),
         )
         .await

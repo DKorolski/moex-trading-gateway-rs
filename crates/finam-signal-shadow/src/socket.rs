@@ -70,6 +70,13 @@ struct Session<S> {
 
 impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
     async fn observe(&mut self) -> Result<Observation, TransportError> {
+        self.observe_until(None).await?.ok_or(TransportError::Fetch)
+    }
+
+    async fn observe_until(
+        &mut self,
+        rotate_at: Option<std::time::Instant>,
+    ) -> Result<Option<Observation>, TransportError> {
         // The local owner drops the socket on any error OR cancellation.
         let mut socket = self.socket.take().ok_or(TransportError::Held)?;
         lease_valid(&self.lease)?;
@@ -83,11 +90,22 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
         let observation = self
             .budget
             .bounded_wait(remaining_silence, async {
-                let frame = socket
-                    .next()
-                    .await
-                    .ok_or(TransportError::Fetch)?
-                    .map_err(|_| TransportError::Fetch)?;
+                // Rotation interrupts only the cancel-safe Stream::next, not
+                // subscription send, state mutation or the owning budget future.
+                let rotation = async {
+                    if let Some(at) = rotate_at {
+                        tokio::time::sleep_until(at.into()).await;
+                    } else {
+                        std::future::pending::<()>().await;
+                    }
+                };
+                let frame = tokio::select! {
+                    biased;
+                    _ = rotation => return Ok(None),
+                    frame = socket.next() => frame,
+                }
+                .ok_or(TransportError::Fetch)?
+                .map_err(|_| TransportError::Fetch)?;
                 lease_valid(lease)?;
                 match frame {
                     Message::Text(text) => {
@@ -106,7 +124,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
                                 .subscription_sent(connection)
                                 .map_err(|_| TransportError::Fetch)?;
                         }
-                        Ok(observation)
+                        Ok(Some(observation))
                     }
                     Message::Ping(_) => {
                         // tungstenite queues the matching pong; flush under the same bound.
@@ -114,13 +132,13 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
                         protocol
                             .check_silence(Utc::now())
                             .map_err(|_| TransportError::Fetch)?;
-                        Ok(Observation::Ignore)
+                        Ok(Some(Observation::Ignore))
                     }
                     Message::Pong(_) => {
                         protocol
                             .check_silence(Utc::now())
                             .map_err(|_| TransportError::Fetch)?;
-                        Ok(Observation::Ignore)
+                        Ok(Some(Observation::Ignore))
                     }
                     _ => Err(TransportError::Fetch),
                 }
@@ -173,9 +191,28 @@ impl BarsSocket {
         self.0.observe().await
     }
 
+    pub(crate) async fn observe_until(
+        &mut self,
+        at: std::time::Instant,
+    ) -> Result<Option<Observation>, TransportError> {
+        self.0.observe_until(Some(at)).await
+    }
+
     /// Explicit, consuming reconnect. Drop old transport before starting another.
     /// Faulted/cancelled sessions cannot heal through this method.
     pub async fn reconnect(self, lease: AccessTokenLease) -> Result<Self, TransportError> {
+        self.reconnect_kind(lease, false).await
+    }
+
+    pub(crate) async fn rotate_auth(self, lease: AccessTokenLease) -> Result<Self, TransportError> {
+        self.reconnect_kind(lease, true).await
+    }
+
+    async fn reconnect_kind(
+        self,
+        lease: AccessTokenLease,
+        auth: bool,
+    ) -> Result<Self, TransportError> {
         let Session {
             socket,
             mut protocol,
@@ -188,9 +225,12 @@ impl BarsSocket {
         protocol
             .disconnected(&connection, Utc::now())
             .map_err(|_| TransportError::Fetch)?;
-        let connection = protocol
-            .connected(Utc::now())
-            .map_err(|_| TransportError::Fetch)?;
+        let connection = if auth {
+            protocol.connected_for_auth(Utc::now())
+        } else {
+            protocol.connected(Utc::now())
+        }
+        .map_err(|_| TransportError::Fetch)?;
         let socket = open(&lease, &mut budget).await?;
         protocol
             .check_silence(Utc::now())
@@ -215,6 +255,15 @@ impl BarsSocket {
 pub struct QuotesSocket(BarsSocket);
 
 impl QuotesSocket {
+    pub(crate) async fn observe_until(
+        &mut self,
+        at: std::time::Instant,
+    ) -> Result<Option<Observation>, TransportError> {
+        self.0.observe_until(at).await
+    }
+    pub(crate) async fn rotate_auth(self, lease: AccessTokenLease) -> Result<Self, TransportError> {
+        Ok(Self(self.0.rotate_auth(lease).await?))
+    }
     pub async fn connect(
         lease: AccessTokenLease,
         budget: ReadOnlyCollector,
@@ -248,6 +297,76 @@ mod tests {
     use std::time::Duration;
     use tokio::io::DuplexStream;
     use tokio_tungstenite::tungstenite::protocol::Role;
+
+    #[tokio::test]
+    async fn rotation_timer_is_not_a_cancelled_or_held_observe() {
+        let (_stop, mut client, mut server) = pair().await;
+        assert!(client
+            .observe_until(Some(std::time::Instant::now()))
+            .await
+            .unwrap()
+            .is_none());
+        assert!(client.socket.is_some());
+        server
+            .send(Message::Text(
+                r#"{"type":"EVENT","eventInfo":{"event":"HANDSHAKE_SUCCESS"}}"#.into(),
+            ))
+            .await
+            .unwrap();
+        assert!(matches!(
+            client.observe().await.unwrap(),
+            Observation::Handshake
+        ));
+        assert!(server.next().await.unwrap().is_ok());
+    }
+
+    #[tokio::test]
+    async fn auth_reconnect_sends_new_token_and_preserves_quote_dedup() {
+        let (_stop, mut client, mut server) =
+            pair_with_protocol(BarsProtocol::new_quotes(5000, 1000, 5000, 32).unwrap()).await;
+        let handshake = r#"{"type":"EVENT","eventInfo":{"event":"HANDSHAKE_SUCCESS"}}"#;
+        server.send(Message::Text(handshake.into())).await.unwrap();
+        client.observe().await.unwrap();
+        server.next().await.unwrap().unwrap();
+        let data = serde_json::json!({"type":"DATA","subscriptionType":"QUOTES","subscriptionKey":"old",
+            "payload":{"quote":[{"symbol":"IMOEXF@RTSX","timestamp":Utc::now().to_rfc3339(),"last":{"value":"2200.5"}}]}}).to_string();
+        server.send(Message::Text(data.clone())).await.unwrap();
+        let Observation::Quotes(q) = client.observe().await.unwrap() else {
+            panic!("quotes")
+        };
+        assert_eq!(q.len(), 1);
+        client.socket.take();
+        drop(server);
+        client
+            .protocol
+            .disconnected(&client.connection, Utc::now())
+            .unwrap();
+        client.connection = client.protocol.connected_for_auth(Utc::now()).unwrap();
+        let (a, b) = tokio::io::duplex(16384);
+        client.socket =
+            Some(WebSocketStream::from_raw_socket(a, Role::Client, Some(config())).await);
+        let mut server = WebSocketStream::from_raw_socket(b, Role::Server, Some(config())).await;
+        client.lease = AccessTokenLease::new(
+            AccessToken::new("rotated-fixture"),
+            std::time::Instant::now(),
+            FinamAuthPolicy::default(),
+        );
+        server.send(Message::Text(handshake.into())).await.unwrap();
+        client.observe().await.unwrap();
+        let Message::Text(wire) = server.next().await.unwrap().unwrap() else {
+            panic!("subscription")
+        };
+        let wire: serde_json::Value = serde_json::from_str(&wire).unwrap();
+        assert_eq!(wire["token"], "rotated-fixture");
+        server
+            .send(Message::Text(data.replace("\"old\"", "\"new\"")))
+            .await
+            .unwrap();
+        let Observation::Quotes(q) = client.observe().await.unwrap() else {
+            panic!("quotes")
+        };
+        assert!(q.is_empty());
+    }
 
     async fn pair() -> (
         StopHandle,

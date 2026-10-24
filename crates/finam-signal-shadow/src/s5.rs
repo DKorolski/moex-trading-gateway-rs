@@ -15,6 +15,8 @@ pub(crate) struct Receipt {
     schema: &'static str,
     channel: Channel,
     connection_generation: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auth_generation: Option<u64>,
     at_ms: i64,
     event: &'static str,
     instrument: &'static str,
@@ -28,6 +30,7 @@ pub(crate) struct Witness {
     generation: u64,
     sent: bool,
     data_seen: bool,
+    auth_generation: Option<u64>,
 }
 
 impl Witness {
@@ -37,7 +40,14 @@ impl Witness {
             generation,
             sent: false,
             data_seen: false,
+            auth_generation: None,
         }
+    }
+
+    pub(crate) fn new_auth(channel: Channel, connection: u64, auth_generation: u64) -> Self {
+        let mut witness = Self::new(channel, connection);
+        witness.auth_generation = Some(auth_generation);
+        witness
     }
 
     pub(crate) fn observe(&mut self, observation: &Observation, at_ms: i64) -> Option<Receipt> {
@@ -68,9 +78,14 @@ impl Witness {
             _ => return None,
         };
         Some(Receipt {
-            schema: "signal-shadow-s5-v1",
+            schema: if self.auth_generation.is_some() {
+                "signal-shadow-auth-ws-v1"
+            } else {
+                "signal-shadow-s5-v1"
+            },
             channel: self.channel,
             connection_generation: self.generation,
+            auth_generation: self.auth_generation,
             at_ms,
             event,
             instrument: "IMOEXF@RTSX",
@@ -84,6 +99,17 @@ impl Witness {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn rotation_witness_is_not_a_controlled_s5_witness() {
+        let mut witness = Witness::new_auth(Channel::Bars, 3, 2);
+        let receipt = witness.observe(&Observation::Handshake, 1).unwrap();
+        let value = serde_json::to_value(receipt).unwrap();
+        assert_eq!(value["schema"], "signal-shadow-auth-ws-v1");
+        assert_eq!(value["auth_generation"], 2);
+        assert_eq!(value["connection_generation"], 3);
+        assert_eq!(value["provider_subscription_ack"], false);
+        assert!(witness.observe(&Observation::Handshake, 2).is_none());
+    }
     #[test]
     fn data_is_once_per_generation_and_raw_secrets_are_not_serialized() {
         let data = Observation::Quotes(crate::ws::QuoteFrame {

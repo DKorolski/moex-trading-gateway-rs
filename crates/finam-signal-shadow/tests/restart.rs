@@ -546,7 +546,7 @@ fn approval(prefix: &ReconstructedPrefix) -> finam_signal_shadow::runner::Prefix
             config_sha256: prefix.config().fingerprint().into(),
             account_id: "test-not-an-account".into(),
             read_only_credentials: true,
-            token_expires_at: time(last + 3_600_000),
+            auth_policy: "provider_expiry_readonly_rtsx_v1".into(),
             eod_check_at: time(last + 600_000 + 500),
             reconnect_after_data_frames: None,
             requests,

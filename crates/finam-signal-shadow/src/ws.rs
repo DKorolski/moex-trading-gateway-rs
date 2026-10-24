@@ -77,6 +77,8 @@ pub struct BarsProtocol {
     owner: Arc<()>,
     generation: u64,
     state: State,
+    controlled_connections: u64,
+    auth_connections: u64,
     last_clock: Option<DateTime<Utc>>,
     last_data: Option<DateTime<Utc>>,
     connected_at: Option<DateTime<Utc>>,
@@ -100,6 +102,8 @@ impl BarsProtocol {
             owner: Arc::new(()),
             generation: 0,
             state: State::Idle,
+            controlled_connections: 0,
+            auth_connections: 0,
             last_clock: None,
             last_data: None,
             connected_at: None,
@@ -129,11 +133,20 @@ impl BarsProtocol {
     /// Handshake completion is still required before subscription.
     /// At most one controlled reconnect (generation 2) in this qualification slice.
     pub fn connected(&mut self, now: DateTime<Utc>) -> Result<Connection, WsError> {
+        self.connect_kind(now, false)
+    }
+
+    pub(crate) fn connected_for_auth(&mut self, now: DateTime<Utc>) -> Result<Connection, WsError> {
+        self.connect_kind(now, true)
+    }
+
+    fn connect_kind(&mut self, now: DateTime<Utc>, auth: bool) -> Result<Connection, WsError> {
         if !matches!(self.state, State::Idle | State::Disconnected) {
             return Err(WsError::State);
         }
         self.clock(now)?;
-        if self.generation >= 2
+        if (!auth && self.controlled_connections >= 2)
+            || (auth && (self.auth_connections >= 127 || self.generation == 0))
             || self
                 .disconnected_at
                 .is_some_and(|t| now - t > self.reconnect)
@@ -142,9 +155,17 @@ impl BarsProtocol {
             return Err(WsError::Budget);
         }
         self.generation += 1;
+        if auth {
+            self.auth_connections += 1;
+        } else {
+            self.controlled_connections += 1;
+        }
         self.state = State::Handshake;
-        self.connected_at = Some(now);
-        self.last_data = None;
+        // Rotation cannot reset the silence clock or discard quote dedup.
+        if !auth {
+            self.connected_at = Some(now);
+            self.last_data = None;
+        }
         self.key = None;
         Ok(Connection {
             owner: self.owner.clone(),
@@ -384,5 +405,47 @@ impl BarsProtocol {
         }
         self.last_clock = Some(now);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod auth_rotation_tests {
+    use super::*;
+    #[test]
+    fn auth_rotations_do_not_consume_controlled_reconnect_or_reset_silence() {
+        let now = Utc::now();
+        let mut p = BarsProtocol::new(5000, 1000).unwrap();
+        let mut c = p.connected(now).unwrap();
+        for ms in [1, 2, 3] {
+            let at = now + Duration::milliseconds(ms);
+            p.disconnected(&c, at).unwrap();
+            let old = c;
+            c = p.connected_for_auth(at).unwrap();
+            assert!(matches!(p.require(&old), Err(WsError::Connection)));
+            assert_eq!(p.controlled_connections, 1);
+            assert_eq!(
+                p.remaining_silence(at).unwrap().as_millis(),
+                5000 - ms as u128
+            );
+        }
+        p.disconnected(&c, now + Duration::milliseconds(4)).unwrap();
+        c = p.connected(now + Duration::milliseconds(4)).unwrap();
+        assert_eq!(p.controlled_connections, 2);
+        p.disconnected(&c, now + Duration::milliseconds(5)).unwrap();
+        assert!(p.connected(now + Duration::milliseconds(5)).is_err());
+    }
+
+    #[test]
+    fn auth_rotation_does_not_heal_faulted_protocol() {
+        let now = Utc::now();
+        let mut p = BarsProtocol::new(1000, 500).unwrap();
+        let c = p.connected(now).unwrap();
+        assert!(p.check_silence(now + Duration::milliseconds(1000)).is_err());
+        assert!(p
+            .disconnected(&c, now + Duration::milliseconds(1000))
+            .is_err());
+        assert!(p
+            .connected_for_auth(now + Duration::milliseconds(1000))
+            .is_err());
     }
 }
