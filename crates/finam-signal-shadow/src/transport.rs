@@ -41,7 +41,7 @@ pub struct ReadOnlyCollector {
 }
 
 impl ReadOnlyCollector {
-    fn sibling(&self) -> Self {
+    pub(crate) fn sibling(&self) -> Self {
         Self {
             stop: self.stop.clone(),
             deadline: self.deadline,

@@ -4,6 +4,7 @@
 
 pub mod auth;
 mod config;
+pub mod diagnostic;
 pub mod feedback;
 pub mod input;
 pub mod model;

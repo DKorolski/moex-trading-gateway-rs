@@ -176,6 +176,32 @@ async fn observe(args: &[std::ffi::OsString]) -> Result<(), &'static str> {
     }
 }
 
+async fn diagnostic(args: &[std::ffi::OsString]) -> Result<u8, &'static str> {
+    if args.len() != 4 {
+        return Err(
+            "usage: finam-signal-shadow auth-ws-diagnostic PLAN READ_ONLY_SECRET_FILE NEW_OUTPUT",
+        );
+    }
+    let bytes = read_bounded(Path::new(&args[1]), &mut 16384)?;
+    let plan: finam_signal_shadow::diagnostic::Plan =
+        serde_json::from_slice(&bytes).map_err(|_| "diagnostic_plan")?;
+    plan.validate(chrono::Utc::now())?;
+    credential_permissions::validate_diagnostic(Path::new(&args[2]))?;
+    let secret = read_bounded(Path::new(&args[2]), &mut 16384)?;
+    let secret = std::str::from_utf8(&secret)
+        .map_err(|_| "credential_invalid")?
+        .trim();
+    if secret.is_empty() || secret.chars().any(char::is_whitespace) {
+        return Err("credential_invalid");
+    }
+    let auth = finam_signal_shadow::auth::AuthLifecycle::new(
+        broker_finam::SecretToken::new(secret),
+        plan.account_id.clone(),
+    )?;
+    finam_signal_shadow::diagnostic::run(plan, auth, Path::new(&args[3]), tokio::signal::ctrl_c())
+        .await
+}
+
 fn restart(args: &[std::ffi::OsString]) -> Result<bool, &'static str> {
     if args.len() != 9 {
         return Err("usage: finam-signal-shadow restart CONFIG REFERENCE MAPPING CALENDAR SEED PREFIX_BINDING PREFIX NEW_OUTPUT");
@@ -213,6 +239,15 @@ async fn main() -> ExitCode {
             }
             Err(code) => {
                 eprintln!("{code}");
+                ExitCode::from(1)
+            }
+        };
+    }
+    if args.first().is_some_and(|arg| arg == "auth-ws-diagnostic") {
+        return match diagnostic(&args).await {
+            Ok(code) => ExitCode::from(code),
+            Err(reason) => {
+                eprintln!("{reason}");
                 ExitCode::from(1)
             }
         };

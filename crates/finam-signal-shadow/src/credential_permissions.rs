@@ -5,11 +5,16 @@ use std::path::Path;
 const DIRECTORY: &str = "/run/credentials/signal-shadow.service";
 const FILE: &str = "/run/credentials/signal-shadow.service/finam-read-only-secret";
 
+#[cfg(test)]
 fn protected_mount(text: &str) -> bool {
+    protected_mount_at(text, DIRECTORY)
+}
+
+fn protected_mount_at(text: &str, directory: &str) -> bool {
     let mut matches = text.lines().filter_map(|line| {
         let (left, right) = line.split_once(" - ")?;
         let fields: Vec<_> = left.split_whitespace().collect();
-        (fields.get(4) == Some(&DIRECTORY)).then_some((fields, right))
+        (fields.get(4) == Some(&directory)).then_some((fields, right))
     });
     let Some((fields, right)) = matches.next() else {
         return false;
@@ -38,6 +43,18 @@ fn protected_metadata(
 }
 
 pub(crate) fn validate(path: &Path) -> Result<(), &'static str> {
+    validate_at(path, DIRECTORY, FILE)
+}
+
+pub(crate) fn validate_diagnostic(path: &Path) -> Result<(), &'static str> {
+    validate_at(
+        path,
+        "/run/credentials/signal-shadow-auth-ws-diagnostic.service",
+        "/run/credentials/signal-shadow-auth-ws-diagnostic.service/finam-read-only-secret",
+    )
+}
+
+fn validate_at(path: &Path, directory: &str, file: &str) -> Result<(), &'static str> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
@@ -51,13 +68,13 @@ pub(crate) fn validate(path: &Path) -> Result<(), &'static str> {
         // Only Linux systemd provides this exact mount contract. The environment
         // alone is not proof: check path, owner, mode and the actual VFS mount.
         if !cfg!(target_os = "linux")
-            || path.as_os_str() != std::ffi::OsStr::new(FILE)
+            || path.as_os_str() != std::ffi::OsStr::new(file)
             || std::env::var_os("CREDENTIALS_DIRECTORY").as_deref()
-                != Some(std::ffi::OsStr::new(DIRECTORY))
+                != Some(std::ffi::OsStr::new(directory))
         {
             return Err("credential_permissions");
         }
-        let dir = std::fs::symlink_metadata(DIRECTORY).map_err(|_| "credential_permissions")?;
+        let dir = std::fs::symlink_metadata(directory).map_err(|_| "credential_permissions")?;
         if !dir.is_dir()
             || !protected_metadata(
                 meta.mode() & 0o7777,
@@ -73,7 +90,7 @@ pub(crate) fn validate(path: &Path) -> Result<(), &'static str> {
         }
         let mounts = std::fs::read_to_string("/proc/self/mountinfo")
             .map_err(|_| "credential_permissions")?;
-        if !protected_mount(&mounts) {
+        if !protected_mount_at(&mounts, directory) {
             return Err("credential_permissions");
         }
     }
@@ -89,6 +106,18 @@ mod tests {
         // Superblock rw is normal; per-mount ro is the access restriction.
         assert!(protected_mount(MOUNT));
         assert!(protected_metadata(0o440, 0, 0, 0o550, 0, 0));
+    }
+    #[test]
+    fn diagnostic_and_production_mount_bindings_do_not_cross() {
+        let directory = "/run/credentials/signal-shadow-auth-ws-diagnostic.service";
+        let mount = MOUNT.replace(DIRECTORY, directory);
+        assert!(protected_mount_at(&mount, directory));
+        assert!(!protected_mount_at(MOUNT, directory));
+        assert!(!protected_mount(&mount));
+        assert!(!protected_mount_at(
+            &mount.replace(directory, "/run/credentials/untrusted.service"),
+            directory
+        ));
     }
     #[test]
     fn writable_wrong_or_ambiguous_mounts_are_denied() {
