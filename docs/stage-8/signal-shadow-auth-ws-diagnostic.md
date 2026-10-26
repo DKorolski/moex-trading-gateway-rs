@@ -46,6 +46,23 @@ or missing rotation/DATA yields INCOMPLETE/exit2. Worker/protocol/auth error,
 missing external guard at deadline, join timeout or overrun yields FAILED/exit1.
 Abort after join timeout is cleanup only, never graceful success. No auto-retry.
 
+R1 final-flush correction: the durable success candidate is explicitly
+`DIAGNOSTIC_PENDING_EXIT`, never an unconditional `DIAGNOSTIC_PASS`.
+`requires_successful_process_exit=true` requires independently captured normal
+process exit0; missing exit evidence, crash, signal termination or exit1 cannot
+qualify. After the last mandatory write_all/sync_data, BOTH wall and monotonic
+clocks are checked again. Equality with or passage beyond either deadline returns
+`diagnostic_final_flush_deadline` (CLI FAILED/exit1), overriding pending evidence
+without relying on another potentially failing write. `record_prepared_at` is
+the pre-flush record preparation time, NOT completion. Actual process/cgroup
+completion before finish must still be established by external native/run evidence.
+An output-only reader MUST NOT interpret the pending record as PASS.
+
+Duration limits use exact chrono durations (including subsecond precision), not
+truncated whole seconds. Private final-clock tests simulate final flush crossing
+the deadline on each clock independently, with complete coverage, expected stop
+and both jobs joined; the no-overrun control retains exit0 qualification.
+
 Source tests cover coordinator synthetic event schedules, cancellation/drop of
 pending futures, sibling failure, missing/old generation and duplicate-only
 witness refusal, output limits, timing/budget checks and credential path separation.

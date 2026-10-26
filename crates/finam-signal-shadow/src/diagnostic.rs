@@ -56,9 +56,9 @@ impl Plan {
             || now < self.start_at
             || now > self.latest_start_at
             || self.latest_start_at < self.start_at
-            || (self.latest_start_at - self.start_at).num_seconds() > 30
-            || (self.finish_at - self.start_at).num_seconds() > 1500
-            || (self.finish_at - self.latest_start_at).num_seconds() < 60
+            || self.latest_start_at - self.start_at > chrono::Duration::seconds(30)
+            || self.finish_at - self.start_at > chrono::Duration::seconds(1500)
+            || self.finish_at - self.latest_start_at < chrono::Duration::seconds(60)
             || self.request_budget_ms != 15000
             || self.silence_ms != 60000
             || self.reconnect_ms != 5000
@@ -382,9 +382,23 @@ struct Fleet {
 
 async fn coordinate(
     p: Arc<Plan>,
+    writer: Writer,
+    fleet: Fleet,
+    interrupt: impl std::future::Future<Output = std::io::Result<()>>,
+) -> Result<u8, &'static str> {
+    coordinate_with_post_flush_clock(p, writer, fleet, interrupt, || {
+        (Utc::now(), tokio::time::Instant::now())
+    })
+    .await
+}
+
+// Private seam: the clock is sampled only AFTER the final real write + sync_data.
+async fn coordinate_with_post_flush_clock(
+    p: Arc<Plan>,
     mut writer: Writer,
     fleet: Fleet,
     interrupt: impl std::future::Future<Output = std::io::Result<()>>,
+    post_flush_clock: impl FnOnce() -> (DateTime<Utc>, tokio::time::Instant),
 ) -> Result<u8, &'static str> {
     let Fleet {
         mut jobs,
@@ -457,10 +471,19 @@ async fn coordinate(
     } else {
         2
     };
-    writer.put(&serde_json::json!({"event":"diagnostic_terminal","result":match code{0=>"DIAGNOSTIC_PASS",1=>"DIAGNOSTIC_FAILED",_=>"DIAGNOSTIC_INCOMPLETE"},
+    // No durable PASS before the last flush: qualification is a two-part receipt.
+    // Pending output alone (including a crash or missing exit status) never passes.
+    writer.put(&serde_json::json!({"event":"diagnostic_terminal","result":match code{0=>"DIAGNOSTIC_PENDING_EXIT",1=>"DIAGNOSTIC_FAILED",_=>"DIAGNOSTIC_INCOMPLETE"},
+        "requires_successful_process_exit":true,
         "reason":failure.unwrap_or(if expected_stop{"bounded_stop"}else{"early_interrupt"}),
         "both_socket_owners_active_before_stop":owners_active,"joined_jobs":joined,"expected_guard_window":expected_stop,
-        "finished_at":Utc::now(),"model_invoked":false}))?;
+        "record_prepared_at":Utc::now(),"model_invoked":false}))?;
+    let (wall, monotonic) = post_flush_clock();
+    if wall >= p.finish_at || monotonic >= deadline {
+        // CLI maps this fixed error to FAILED/exit 1, overriding pending evidence.
+        // Do not require another synchronous write to report a failed final flush.
+        return Err("diagnostic_final_flush_deadline");
+    }
     Ok(code)
 }
 
@@ -566,6 +589,22 @@ mod tests {
         assert!(p.validate(Utc::now()).is_err());
     }
     #[test]
+    fn duration_limits_are_exact_not_truncated_seconds() {
+        let mut p = plan();
+        p.latest_start_at = p.start_at + chrono::Duration::seconds(30);
+        p.finish_at = p.start_at + chrono::Duration::seconds(1500);
+        assert!(p.validate(p.start_at).is_ok());
+        p.latest_start_at += chrono::Duration::nanoseconds(1);
+        assert!(p.validate(p.start_at).is_err());
+        p.latest_start_at -= chrono::Duration::nanoseconds(1);
+        p.finish_at += chrono::Duration::nanoseconds(1);
+        assert!(p.validate(p.start_at).is_err());
+        p.finish_at = p.latest_start_at + chrono::Duration::seconds(60);
+        assert!(p.validate(p.start_at).is_ok());
+        p.finish_at -= chrono::Duration::nanoseconds(1);
+        assert!(p.validate(p.start_at).is_err());
+    }
+    #[test]
     fn both_generations_and_channels_required_no_secrets() {
         let file = path();
         let mut writer = Writer::new(&file, 1048576).unwrap();
@@ -647,6 +686,15 @@ mod tests {
         fault: Option<&'static str>,
         early: bool,
     ) -> (u8, String) {
+        coordinate_flush_fixture(complete, fault, early, false, false).await
+    }
+    async fn coordinate_flush_fixture(
+        complete: bool,
+        fault: Option<&'static str>,
+        early: bool,
+        wall_overrun: bool,
+        monotonic_overrun: bool,
+    ) -> (u8, String) {
         let mut p = plan();
         p.finish_at = Utc::now() + chrono::Duration::seconds(if early { 60 } else { 19 });
         let file = path();
@@ -682,7 +730,8 @@ mod tests {
             ));
         }
         drop(tx);
-        let code = coordinate(
+        let finish = p.finish_at;
+        let code = coordinate_with_post_flush_clock(
             Arc::new(p),
             writer,
             Fleet {
@@ -696,9 +745,21 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(20)).await;
                 Ok(())
             },
+            || {
+                // Simulate final flush reaching D on either clock independently.
+                let wall = if wall_overrun { finish } else { Utc::now() };
+                let monotonic = tokio::time::Instant::now()
+                    + Duration::from_secs(if monotonic_overrun { 3600 } else { 0 });
+                (wall, monotonic)
+            },
         )
-        .await
-        .unwrap();
+        .await;
+        let code = if wall_overrun || monotonic_overrun {
+            assert_eq!(code, Err("diagnostic_final_flush_deadline"));
+            1 // Same error-to-exit mapping as the diagnostic CLI.
+        } else {
+            code.unwrap()
+        };
         assert!(active.iter().all(|v| !v.load(Ordering::SeqCst)));
         let text = std::fs::read_to_string(&file).unwrap();
         std::fs::remove_file(file).unwrap();
@@ -711,6 +772,20 @@ mod tests {
         assert!(text.contains("\"joined_jobs\":2"));
         assert_eq!(coordinate_fixture(false, None, false).await.0, 2);
         assert_eq!(coordinate_fixture(true, None, true).await.0, 2);
+    }
+    #[tokio::test]
+    async fn final_flush_overrun_on_either_clock_cannot_qualify() {
+        for (wall, monotonic) in [(false, false), (true, false), (false, true), (true, true)] {
+            let (code, text) = coordinate_flush_fixture(true, None, false, wall, monotonic).await;
+            assert_eq!(code, if wall || monotonic { 1 } else { 0 });
+            assert!(text.contains("\"joined_jobs\":2"));
+            assert!(text.contains("\"both_socket_owners_active_before_stop\":true"));
+            assert!(text.contains("\"expected_guard_window\":true"));
+            assert!(text.contains("DIAGNOSTIC_PENDING_EXIT"));
+            assert!(text.contains("\"requires_successful_process_exit\":true"));
+            assert!(!text.contains("DIAGNOSTIC_PASS"));
+            assert!(!text.contains("finished_at"));
+        }
     }
     #[tokio::test]
     async fn failures_win_even_after_rotation_and_stop_sibling() {
