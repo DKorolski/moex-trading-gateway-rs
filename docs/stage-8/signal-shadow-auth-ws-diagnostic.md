@@ -1,5 +1,39 @@
 # Model-free auth/WS diagnostic — source candidate
 
+## Structured error correction (26 October, source candidate)
+
+Correction baseline: cf2fb58af2865e9feaecb6c7fc5bcd7a82748f25.
+The 16:00 attempt is accepted FAILED evidence, not auth/WS qualification.
+Its original root cause cannot be recovered; this change does not claim to fix
+an assumed FINAM payload format.
+
+Socket failures now retain a finite stage/code, including lease, request/connect,
+EOF/read/close/unexpected-message, protocol receive, subscription build/send/commit,
+pong flush and silence. Existing WsError variants and QuoteError variants survive;
+parser-owned Frame branches use fixed FrameCode values. Dynamic provider, mapper,
+HTTP and tungstenite error payloads are discarded, never formatted into evidence.
+Budget/Stopped/Deadline/Held/Clock errors retain their existing transport class.
+
+Diagnostic worker errors attach channel, auth_generation and connection_generation.
+A connection not established yet is null, including a failed rotation connection.
+The terminal primary_error carries this structured context; non-WS failures retain
+their previous fixed reason and may have null primary_error. The first coordinator
+failure is not overwritten by sibling cancellation, drain failure or deadline
+cleanup. Final-flush rejection remains unchanged and cannot qualify a run.
+
+Local duplex tests exercise malformed protocol/provider/validation failures in
+both channels through the actual Session and terminal coordinator, with two jobs
+joined and FAILED/exit1. Sentinel payloads are absent from the recorded JSONL.
+EOF/read conversion and actual Close reception are separately checked; existing
+transport and successful/incomplete/stop/final-flush tests remain required.
+These are local fixtures, not operational rotation or graceful-stop evidence.
+
+No strategy, admission predicate, auth policy, retry, reconnect, output budget,
+stop budget or timing gate is relaxed. Source review is required before release
+qualification, installation or a separately authorized new run.
+
+## Original diagnostic contract
+
 Accepted predecessor: `6f1fb5df187051739e5a4e26d71270a7cc46da81`.
 Scope: reviewer AUTH/WS DIAGNOSTIC scope acceptance dated 26 October 2026.
 No source/release/operational acceptance of this new mode is claimed.

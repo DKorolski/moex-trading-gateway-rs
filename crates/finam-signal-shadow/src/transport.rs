@@ -27,6 +27,7 @@ pub enum TransportError {
     Deadline,
     Held,
     Fetch,
+    Socket(crate::socket::SocketFailure),
     Admission,
     Clock,
 }

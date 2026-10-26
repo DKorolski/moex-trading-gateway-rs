@@ -120,6 +120,71 @@ impl Writer {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize)]
+enum ErrorCode {
+    Bounds,
+    Stopped,
+    Deadline,
+    Held,
+    Fetch,
+    Admission,
+    Clock,
+    Socket(crate::socket::SocketCode),
+}
+#[derive(Debug, Clone, Copy, Serialize)]
+struct ErrorReceipt {
+    channel: Channel,
+    stage: crate::socket::SocketStage,
+    code: ErrorCode,
+    auth_generation: Option<u64>,
+    connection_generation: Option<u64>,
+}
+#[derive(Debug, Clone, Copy)]
+struct Failure {
+    reason: &'static str,
+    detail: Option<ErrorReceipt>,
+}
+impl From<&'static str> for Failure {
+    fn from(reason: &'static str) -> Self {
+        Self {
+            reason,
+            detail: None,
+        }
+    }
+}
+impl Failure {
+    fn ws(
+        reason: &'static str,
+        channel: Channel,
+        stage: crate::socket::SocketStage,
+        auth_generation: Option<u64>,
+        connection_generation: Option<u64>,
+        error: crate::transport::TransportError,
+    ) -> Self {
+        use crate::transport::TransportError as E;
+        let (stage, code) = match error {
+            E::Socket(e) => (e.stage, ErrorCode::Socket(e.code)),
+            E::Bounds => (stage, ErrorCode::Bounds),
+            E::Stopped => (stage, ErrorCode::Stopped),
+            E::Deadline => (stage, ErrorCode::Deadline),
+            E::Held => (stage, ErrorCode::Held),
+            E::Fetch => (stage, ErrorCode::Fetch),
+            E::Admission => (stage, ErrorCode::Admission),
+            E::Clock => (stage, ErrorCode::Clock),
+        };
+        Self {
+            reason,
+            detail: Some(ErrorReceipt {
+                channel,
+                stage,
+                code,
+                auth_generation,
+                connection_generation,
+            }),
+        }
+    }
+}
+
 enum Socket {
     Bars(BarsSocket),
     Quotes(QuotesSocket),
@@ -128,19 +193,20 @@ impl Socket {
     async fn observe(
         &mut self,
         at: Instant,
-    ) -> Result<Option<crate::ws::Observation>, &'static str> {
+    ) -> Result<Option<crate::ws::Observation>, crate::transport::TransportError> {
         match self {
             Self::Bars(s) => s.observe_until(at).await,
             Self::Quotes(s) => s.observe_until(at).await,
         }
-        .map_err(|_| "diagnostic_ws_observe")
     }
-    async fn rotate(self, lease: broker_finam::AccessTokenLease) -> Result<Self, &'static str> {
+    async fn rotate(
+        self,
+        lease: broker_finam::AccessTokenLease,
+    ) -> Result<Self, crate::transport::TransportError> {
         match self {
             Self::Bars(s) => s.rotate_auth(lease).await.map(Self::Bars),
             Self::Quotes(s) => s.rotate_auth(lease).await.map(Self::Quotes),
         }
-        .map_err(|_| "diagnostic_ws_rotate")
     }
 }
 struct Active(Arc<AtomicBool>);
@@ -156,10 +222,10 @@ async fn cancelled(rx: &mut watch::Receiver<bool>) {
     }
     let _ = rx.changed().await;
 }
-async fn guarded<F: std::future::Future<Output = Result<(), &'static str>>>(
+async fn guarded<E, F: std::future::Future<Output = Result<(), E>>>(
     work: F,
     mut cancel: watch::Receiver<bool>,
-) -> Result<(), &'static str> {
+) -> Result<(), E> {
     tokio::select! { biased; result=work=>result, _=cancelled(&mut cancel)=>Ok(()) }
 }
 
@@ -170,7 +236,7 @@ async fn worker(
     budget: ReadOnlyCollector,
     tx: mpsc::Sender<Event>,
     active: Arc<AtomicBool>,
-) -> Result<(), &'static str> {
+) -> Result<(), Failure> {
     let _active = Active(active.clone());
     let mut grant = auth.grant().await.map_err(|_| "diagnostic_auth")?;
     let send_grant = |g: &crate::auth::Grant| {
@@ -191,7 +257,16 @@ async fn worker(
         Channel::Bars => Socket::Bars(
             BarsSocket::connect(grant.lease.clone(), budget, p.silence_ms, p.reconnect_ms)
                 .await
-                .map_err(|_| "diagnostic_ws_connect")?,
+                .map_err(|e| {
+                    Failure::ws(
+                        "diagnostic_ws_connect",
+                        channel,
+                        crate::socket::SocketStage::Connect,
+                        Some(grant.generation),
+                        None,
+                        e,
+                    )
+                })?,
         ),
         Channel::Quotes => Socket::Quotes(
             QuotesSocket::connect(
@@ -203,7 +278,16 @@ async fn worker(
                 p.dedup_capacity,
             )
             .await
-            .map_err(|_| "diagnostic_ws_connect")?,
+            .map_err(|e| {
+                Failure::ws(
+                    "diagnostic_ws_connect",
+                    channel,
+                    crate::socket::SocketStage::Connect,
+                    Some(grant.generation),
+                    None,
+                    e,
+                )
+            })?,
         ),
     };
     active.store(true, Ordering::SeqCst);
@@ -214,9 +298,18 @@ async fn worker(
         if current.generation != grant.generation {
             active.store(false, Ordering::SeqCst);
             let began = Instant::now();
-            socket = socket.rotate(current.lease.clone()).await?;
+            socket = socket.rotate(current.lease.clone()).await.map_err(|e| {
+                Failure::ws(
+                    "diagnostic_ws_rotate",
+                    channel,
+                    crate::socket::SocketStage::Reconnect,
+                    Some(current.generation),
+                    None,
+                    e,
+                )
+            })?;
             if began.elapsed() > Duration::from_millis(p.reconnect_ms) {
-                return Err("diagnostic_reconnect_budget");
+                return Err("diagnostic_reconnect_budget".into());
             }
             active.store(true, Ordering::SeqCst);
             connection += 1;
@@ -226,11 +319,21 @@ async fn worker(
                 .await
                 .map_err(|_| "diagnostic_queue")?;
         }
-        let Some(observation) = socket.observe(grant.renew_at).await? else {
+        let Some(observation) = socket.observe(grant.renew_at).await.map_err(|e| {
+            Failure::ws(
+                "diagnostic_ws_observe",
+                channel,
+                crate::socket::SocketStage::Receive,
+                Some(grant.generation),
+                Some(connection),
+                e,
+            )
+        })?
+        else {
             continue;
         };
         if !grant.valid(Utc::now(), Instant::now()) {
-            return Err("diagnostic_auth_expired");
+            return Err("diagnostic_auth_expired".into());
         }
         if let Some(r) = witness.observe(&observation, Utc::now().timestamp_millis()) {
             tx.send(Event::Witness(r))
@@ -373,7 +476,7 @@ pub async fn run(
 }
 
 struct Fleet {
-    jobs: JoinSet<Result<(), &'static str>>,
+    jobs: JoinSet<Result<(), Failure>>,
     rx: mpsc::Receiver<Event>,
     active: [Arc<AtomicBool>; 2],
     cancel: watch::Sender<bool>,
@@ -416,18 +519,18 @@ async fn coordinate_with_post_flush_clock(
     tokio::pin!(interrupt);
     loop {
         tokio::select! { biased;
-            result=jobs.join_next()=>{joined+=1;failure=Some(match result {Some(Ok(Err(e)))=>e,_=>"diagnostic_worker_exit"});break;},
+            result=jobs.join_next()=>{joined+=1;failure=Some(match result {Some(Ok(Err(e)))=>e,_=>"diagnostic_worker_exit".into()});break;},
             signal=&mut interrupt=>{
-                if signal.is_err(){failure=Some("diagnostic_signal");}
+                if signal.is_err(){failure=Some("diagnostic_signal".into());}
                 let left=(p.finish_at-Utc::now()).num_milliseconds();
                 expected_stop=(5000..=20000).contains(&left);
                 break;
             },
-            _=tokio::time::sleep_until(deadline)=>{failure=Some("diagnostic_guard_missing");break;},
+            _=tokio::time::sleep_until(deadline)=>{failure=Some("diagnostic_guard_missing".into());break;},
             event=rx.recv()=>{
                 match event {
-                    Some(e)=>if let Err(e)=coverage.record(&e,&mut writer){failure=Some(e);break;},
-                    None=>{failure=Some("diagnostic_queue_closed");break;}
+                    Some(e)=>if let Err(e)=coverage.record(&e,&mut writer){failure=Some(e.into());break;},
+                    None=>{failure=Some("diagnostic_queue_closed".into());break;}
                 }
             }
         }
@@ -438,7 +541,7 @@ async fn coordinate_with_post_flush_clock(
     let drain = async {
         while let Some(result) = jobs.join_next().await {
             joined += 1;
-            if let Err(e) = result.unwrap_or(Err("diagnostic_worker_panic")) {
+            if let Err(e) = result.unwrap_or(Err("diagnostic_worker_panic".into())) {
                 failure.get_or_insert(e);
             }
         }
@@ -447,7 +550,7 @@ async fn coordinate_with_post_flush_clock(
         .await
         .is_err()
     {
-        failure = Some("diagnostic_stop_timeout");
+        failure.get_or_insert("diagnostic_stop_timeout".into());
         jobs.abort_all();
         while jobs.join_next().await.is_some() {
             joined += 1;
@@ -455,14 +558,14 @@ async fn coordinate_with_post_flush_clock(
     }
     while let Ok(e) = rx.try_recv() {
         if let Err(e) = coverage.record(&e, &mut writer) {
-            failure.get_or_insert(e);
+            failure.get_or_insert(e.into());
         }
     }
     if Utc::now() >= p.finish_at || tokio::time::Instant::now() >= deadline {
-        failure = Some("diagnostic_deadline_overrun");
+        failure.get_or_insert("diagnostic_deadline_overrun".into());
     }
     if joined != 2 || active.iter().any(|a| a.load(Ordering::SeqCst)) {
-        failure = Some("diagnostic_jobs_unaccounted");
+        failure.get_or_insert("diagnostic_jobs_unaccounted".into());
     }
     let code = if failure.is_some() {
         1
@@ -475,7 +578,8 @@ async fn coordinate_with_post_flush_clock(
     // Pending output alone (including a crash or missing exit status) never passes.
     writer.put(&serde_json::json!({"event":"diagnostic_terminal","result":match code{0=>"DIAGNOSTIC_PENDING_EXIT",1=>"DIAGNOSTIC_FAILED",_=>"DIAGNOSTIC_INCOMPLETE"},
         "requires_successful_process_exit":true,
-        "reason":failure.unwrap_or(if expected_stop{"bounded_stop"}else{"early_interrupt"}),
+        "reason":failure.as_ref().map(|e|e.reason).unwrap_or(if expected_stop{"bounded_stop"}else{"early_interrupt"}),
+        "primary_error":failure.as_ref().and_then(|e|e.detail),
         "both_socket_owners_active_before_stop":owners_active,"joined_jobs":joined,"expected_guard_window":expected_stop,
         "record_prepared_at":Utc::now(),"model_invoked":false}))?;
     let (wall, monotonic) = post_flush_clock();
@@ -695,6 +799,22 @@ mod tests {
         wall_overrun: bool,
         monotonic_overrun: bool,
     ) -> (u8, String) {
+        coordinate_error_fixture(
+            complete,
+            fault.map(Failure::from),
+            early,
+            wall_overrun,
+            monotonic_overrun,
+        )
+        .await
+    }
+    async fn coordinate_error_fixture(
+        complete: bool,
+        fault: Option<Failure>,
+        early: bool,
+        wall_overrun: bool,
+        monotonic_overrun: bool,
+    ) -> (u8, String) {
         let mut p = plan();
         p.finish_at = Utc::now() + chrono::Duration::seconds(if early { 60 } else { 19 });
         let file = path();
@@ -724,7 +844,7 @@ mod tests {
                             return Err(e);
                         }
                     }
-                    std::future::pending::<Result<(), &'static str>>().await
+                    std::future::pending::<Result<(), Failure>>().await
                 },
                 rx_cancel.clone(),
             ));
@@ -764,6 +884,76 @@ mod tests {
         let text = std::fs::read_to_string(&file).unwrap();
         std::fs::remove_file(file).unwrap();
         (code, text)
+    }
+    #[tokio::test]
+    async fn provider_validation_and_budget_failures_survive_terminal_redacted() {
+        for channel in [Channel::Bars, Channel::Quotes] {
+            for case in 1..=3 {
+                let error =
+                    crate::socket::tests::error_fixture(matches!(channel, Channel::Quotes), case)
+                        .await;
+                let expected = match case {
+                    1 => serde_json::json!({"Socket":{"Protocol":"Provider"}}),
+                    2 if matches!(channel, Channel::Quotes) => {
+                        serde_json::json!({"Socket":{"Protocol":{"Quote":"Price"}}})
+                    }
+                    2 => serde_json::json!({"Socket":{"Protocol":{"FrameAt":"PayloadIdentity"}}}),
+                    _ => serde_json::json!("Stopped"),
+                };
+                let failure = Failure::ws(
+                    "diagnostic_ws_observe",
+                    channel,
+                    crate::socket::SocketStage::Receive,
+                    Some(1),
+                    Some(1),
+                    error,
+                );
+                let (exit, text) =
+                    coordinate_error_fixture(false, Some(failure), false, false, false).await;
+                assert_eq!(exit, 1);
+                assert!(!text.contains("SECRET_RAW_ACCOUNT_TOKEN"));
+                let terminal: serde_json::Value =
+                    serde_json::from_str(text.lines().last().unwrap()).unwrap();
+                assert_eq!(terminal["joined_jobs"], 2);
+                assert_eq!(terminal["primary_error"]["code"], expected);
+                assert_eq!(
+                    terminal["primary_error"]["channel"],
+                    serde_json::to_value(channel).unwrap()
+                );
+            }
+        }
+    }
+    #[tokio::test]
+    async fn actual_protocol_failures_reach_terminal_with_both_workers_joined() {
+        for channel in [Channel::Bars, Channel::Quotes] {
+            let error =
+                crate::socket::tests::protocol_error_fixture(matches!(channel, Channel::Quotes))
+                    .await;
+            let failure = Failure::ws(
+                "diagnostic_ws_observe",
+                channel,
+                crate::socket::SocketStage::Receive,
+                Some(1),
+                Some(1),
+                error,
+            );
+            let (code, text) =
+                coordinate_error_fixture(true, Some(failure), false, false, false).await;
+            assert_eq!(code, 1);
+            assert!(!text.contains("SECRET_RAW_ACCOUNT_TOKEN"));
+            let terminal: serde_json::Value =
+                serde_json::from_str(text.lines().last().unwrap()).unwrap();
+            assert_eq!(terminal["joined_jobs"], 2);
+            let primary = &terminal["primary_error"];
+            assert_eq!(primary["stage"], "ProtocolReceive");
+            assert_eq!(primary["auth_generation"], 1);
+            assert_eq!(primary["connection_generation"], 1);
+            assert_eq!(primary["channel"], serde_json::to_value(channel).unwrap());
+            assert_eq!(
+                primary["code"]["Socket"]["Protocol"]["FrameAt"],
+                "EnvelopeJson"
+            );
+        }
     }
     #[tokio::test]
     async fn coordinator_stop_accounts_for_both_jobs_and_complete_evidence() {

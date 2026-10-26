@@ -15,15 +15,36 @@ pub struct Connection {
     generation: u64,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum WsError {
     State,
     Connection,
     Clock,
     Silence,
     Frame,
+    FrameAt(FrameCode),
+    Quote(crate::quote::QuoteError),
     Provider,
     Budget,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum FrameCode {
+    Size,
+    EnvelopeJson,
+    Binding,
+    SubscriptionKey,
+    PayloadJson,
+    MissingPayload,
+    PayloadIdentity,
+    Rows,
+    RowCount,
+    TimestampMissing,
+    TimestampParse,
+    TimestampBounds,
+    Mapper,
+    EventKind,
+    Ohlcv,
 }
 
 #[derive(Debug)]
@@ -223,9 +244,10 @@ impl BarsProtocol {
     fn decode(&mut self, text: &str, now: DateTime<Utc>) -> Result<Observation, WsError> {
         self.check_silence(now)?;
         if text.len() > 256 * 1024 {
-            return Err(WsError::Frame);
+            return Err(WsError::FrameAt(FrameCode::Size));
         }
-        let e: FinamWsEnvelope = serde_json::from_str(text).map_err(|_| WsError::Frame)?;
+        let e: FinamWsEnvelope =
+            serde_json::from_str(text).map_err(|_| WsError::FrameAt(FrameCode::EnvelopeJson))?;
         if e.envelope_type == "ERROR" || e.error_info.is_some() {
             return Err(WsError::Provider);
         }
@@ -254,15 +276,15 @@ impl BarsProtocol {
                     "BARS"
                 })
         {
-            return Err(WsError::Frame);
+            return Err(WsError::FrameAt(FrameCode::Binding));
         }
         if let Some(key) = &e.subscription_key {
             if key.is_empty() || key.len() > 256 || self.key.as_ref().is_some_and(|k| k != key) {
-                return Err(WsError::Frame);
+                return Err(WsError::FrameAt(FrameCode::SubscriptionKey));
             }
         }
         if let Some(quotes) = &mut self.quotes {
-            let observed = quotes.receive(text, now).map_err(|_| WsError::Frame)?;
+            let observed = quotes.receive(text, now).map_err(WsError::Quote)?;
             self.key = e.subscription_key.or_else(|| self.key.clone());
             // Replayed quotes cannot indefinitely refresh the data-silence budget.
             if !observed.is_empty() {
@@ -275,11 +297,10 @@ impl BarsProtocol {
             }));
         }
         let payload = match &e.payload {
-            Some(Value::String(s)) => {
-                serde_json::from_str::<Value>(s).map_err(|_| WsError::Frame)?
-            }
+            Some(Value::String(s)) => serde_json::from_str::<Value>(s)
+                .map_err(|_| WsError::FrameAt(FrameCode::PayloadJson))?,
             Some(v) => v.clone(),
-            None => return Err(WsError::Frame),
+            None => return Err(WsError::FrameAt(FrameCode::MissingPayload)),
         };
         if payload.get("error").is_some_and(|v| !v.is_null())
             || payload
@@ -289,23 +310,23 @@ impl BarsProtocol {
                 .get("timeframe")
                 .is_some_and(|v| v.as_str() != Some(TIMEFRAME))
         {
-            return Err(WsError::Frame);
+            return Err(WsError::FrameAt(FrameCode::PayloadIdentity));
         }
         let rows = payload
             .get("bars")
             .or_else(|| payload.get("bar"))
             .and_then(Value::as_array)
-            .ok_or(WsError::Frame)?;
+            .ok_or(WsError::FrameAt(FrameCode::Rows))?;
         if rows.is_empty() || rows.len() > 512 {
-            return Err(WsError::Frame);
+            return Err(WsError::FrameAt(FrameCode::RowCount));
         }
         for row in rows {
             let t: DateTime<Utc> = row
                 .get("timestamp")
                 .and_then(Value::as_str)
-                .ok_or(WsError::Frame)?
+                .ok_or(WsError::FrameAt(FrameCode::TimestampMissing))?
                 .parse()
-                .map_err(|_| WsError::Frame)?;
+                .map_err(|_| WsError::FrameAt(FrameCode::TimestampParse))?;
             if t > now
                 || t.timestamp() % 60 != 0
                 || t.timestamp_subsec_nanos() != 0
@@ -313,15 +334,15 @@ impl BarsProtocol {
                 || t.checked_add_signed(Duration::minutes(1))
                     .is_some_and(|close| now - close > self.silence)
             {
-                return Err(WsError::Frame);
+                return Err(WsError::FrameAt(FrameCode::TimestampBounds));
             }
         }
         let events = broker_finam::map_ws_market_data_events(&e, Some(SYMBOL), 60, now)
-            .map_err(|_| WsError::Frame)?;
+            .map_err(|_| WsError::FrameAt(FrameCode::Mapper))?;
         let mut bars = Vec::new();
         for event in events {
             let MarketDataEvent::Bar(mut bar) = event else {
-                return Err(WsError::Frame);
+                return Err(WsError::FrameAt(FrameCode::EventKind));
             };
             if bar.instrument.venue_symbol.as_deref() != Some(SYMBOL)
                 || bar.low > bar.open
@@ -331,7 +352,7 @@ impl BarsProtocol {
                 || bar.low <= 0.into()
                 || bar.volume < 0.into()
             {
-                return Err(WsError::Frame);
+                return Err(WsError::FrameAt(FrameCode::Ohlcv));
             }
             bar.instrument.market = broker_core::Market::Futures;
             bar.is_final = false; // clock-based mapper finality is NOT source proof

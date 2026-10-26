@@ -240,7 +240,7 @@ fn invalid_later_quote_row_emits_no_partially_normalized_frame() {
     rows.push(bad);
     assert!(matches!(
         p.receive(&c, &raw.to_string(), now()),
-        Err(WsError::Frame)
+        Err(WsError::Quote(_))
     ));
     assert!(matches!(
         p.receive(&c, &quote_data(), now()),
@@ -298,7 +298,7 @@ fn reconnect_after_eviction_retains_frontier_duplicate_and_conflict_checks() {
                 Err(WsError::Silence)
             );
         } else {
-            assert!(matches!(replay, Err(WsError::Frame)));
+            assert!(matches!(replay, Err(WsError::Quote(_))));
             assert!(matches!(
                 p.receive(&new, &data_at(34, "2200.5"), resumed),
                 Err(WsError::State)

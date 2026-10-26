@@ -14,7 +14,7 @@ pub const QUOTE_DEDUP_CAPACITY: usize = 4096;
 pub const QUOTE_DEDUP_POLICY: &str =
     "moex.shadow.quote-dedup.evict-oldest-4096.monotonic-frontier.old-hold.v1";
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum QuoteError {
     Frame,
     Identity,

@@ -18,6 +18,52 @@ use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum SocketStage {
+    Lease,
+    Connect,
+    Receive,
+    ProtocolReceive,
+    SubscriptionBuild,
+    SubscriptionSend,
+    SubscriptionCommit,
+    PongFlush,
+    Silence,
+    Reconnect,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum SocketCode {
+    Lease,
+    Request,
+    Connect,
+    Eof,
+    Read,
+    Close,
+    UnexpectedMessage,
+    Protocol(crate::ws::WsError),
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct SocketFailure {
+    pub stage: SocketStage,
+    pub code: SocketCode,
+}
+fn failure(stage: SocketStage, code: SocketCode) -> TransportError {
+    TransportError::Socket(SocketFailure { stage, code })
+}
+fn protocol_failure(stage: SocketStage, e: crate::ws::WsError) -> TransportError {
+    failure(stage, SocketCode::Protocol(e))
+}
+// Drop every dynamic tungstenite payload; even error Debug/Display is forbidden.
+fn incoming(
+    frame: Option<Result<Message, tokio_tungstenite::tungstenite::Error>>,
+) -> Result<Message, TransportError> {
+    match frame {
+        None => Err(failure(SocketStage::Receive, SocketCode::Eof)),
+        Some(Err(_)) => Err(failure(SocketStage::Receive, SocketCode::Read)),
+        Some(Ok(Message::Close(_))) => Err(failure(SocketStage::Receive, SocketCode::Close)),
+        Some(Ok(m)) => Ok(m),
+    }
+}
 const ENDPOINT: &str = "wss://api.finam.ru/ws";
 
 fn config() -> WebSocketConfig {
@@ -32,7 +78,7 @@ fn config() -> WebSocketConfig {
 
 fn lease_valid(lease: &AccessTokenLease) -> Result<(), TransportError> {
     if lease.token().is_empty() || lease.should_refresh(std::time::Instant::now()) {
-        return Err(TransportError::Fetch);
+        return Err(failure(SocketStage::Lease, SocketCode::Lease));
     }
     Ok(())
 }
@@ -44,9 +90,9 @@ async fn open(
     lease_valid(lease)?;
     let mut request = ENDPOINT
         .into_client_request()
-        .map_err(|_| TransportError::Fetch)?;
-    let mut token =
-        HeaderValue::from_str(lease.token().as_str()).map_err(|_| TransportError::Fetch)?;
+        .map_err(|_| failure(SocketStage::Connect, SocketCode::Request))?;
+    let mut token = HeaderValue::from_str(lease.token().as_str())
+        .map_err(|_| failure(SocketStage::Connect, SocketCode::Request))?;
     token.set_sensitive(true);
     request.headers_mut().insert("Authorization", token);
     // Never expose tungstenite/request errors; they can contain secrets.
@@ -55,7 +101,7 @@ async fn open(
             connect_async_with_config(request, Some(config()), true)
                 .await
                 .map(|(socket, _)| socket)
-                .map_err(|_| TransportError::Fetch)
+                .map_err(|_| failure(SocketStage::Connect, SocketCode::Connect))
         })
         .await
 }
@@ -83,7 +129,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
         let remaining_silence = self
             .protocol
             .remaining_silence(Utc::now())
-            .map_err(|_| TransportError::Fetch)?;
+            .map_err(|e| protocol_failure(SocketStage::Silence, e))?;
         let protocol = &mut self.protocol;
         let connection = &self.connection;
         let lease = &self.lease;
@@ -99,48 +145,51 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
                         std::future::pending::<()>().await;
                     }
                 };
-                let frame = tokio::select! {
+                let frame = incoming(tokio::select! {
                     biased;
                     _ = rotation => return Ok(None),
                     frame = socket.next() => frame,
-                }
-                .ok_or(TransportError::Fetch)?
-                .map_err(|_| TransportError::Fetch)?;
+                })?;
                 lease_valid(lease)?;
                 match frame {
                     Message::Text(text) => {
                         let observation = protocol
                             .receive(connection, &text, Utc::now())
-                            .map_err(|_| TransportError::Fetch)?;
+                            .map_err(|e| protocol_failure(SocketStage::ProtocolReceive, e))?;
                         if matches!(observation, Observation::Handshake) {
                             let request = protocol
                                 .subscription_request(connection, lease.token())
-                                .map_err(|_| TransportError::Fetch)?;
+                                .map_err(|e| protocol_failure(SocketStage::SubscriptionBuild, e))?;
                             socket
                                 .send(Message::Text(request.to_string()))
                                 .await
-                                .map_err(|_| TransportError::Fetch)?;
-                            protocol
-                                .subscription_sent(connection)
-                                .map_err(|_| TransportError::Fetch)?;
+                                .map_err(|_| {
+                                    failure(SocketStage::SubscriptionSend, SocketCode::Read)
+                                })?;
+                            protocol.subscription_sent(connection).map_err(|e| {
+                                protocol_failure(SocketStage::SubscriptionCommit, e)
+                            })?;
                         }
                         Ok(Some(observation))
                     }
                     Message::Ping(_) => {
                         // tungstenite queues the matching pong; flush under the same bound.
-                        socket.flush().await.map_err(|_| TransportError::Fetch)?;
+                        socket
+                            .flush()
+                            .await
+                            .map_err(|_| failure(SocketStage::PongFlush, SocketCode::Read))?;
                         protocol
                             .check_silence(Utc::now())
-                            .map_err(|_| TransportError::Fetch)?;
+                            .map_err(|e| protocol_failure(SocketStage::Silence, e))?;
                         Ok(Some(Observation::Ignore))
                     }
                     Message::Pong(_) => {
                         protocol
                             .check_silence(Utc::now())
-                            .map_err(|_| TransportError::Fetch)?;
+                            .map_err(|e| protocol_failure(SocketStage::Silence, e))?;
                         Ok(Some(Observation::Ignore))
                     }
-                    _ => Err(TransportError::Fetch),
+                    _ => Err(failure(SocketStage::Receive, SocketCode::UnexpectedMessage)),
                 }
             })
             .await?;
@@ -173,11 +222,11 @@ impl BarsSocket {
     ) -> Result<Self, TransportError> {
         let connection = protocol
             .connected(Utc::now())
-            .map_err(|_| TransportError::Fetch)?;
+            .map_err(|e| protocol_failure(SocketStage::Connect, e))?;
         let socket = open(&lease, &mut budget).await?;
         protocol
             .check_silence(Utc::now())
-            .map_err(|_| TransportError::Fetch)?;
+            .map_err(|e| protocol_failure(SocketStage::Silence, e))?;
         Ok(Self(Session {
             socket: Some(socket),
             protocol,
@@ -224,17 +273,17 @@ impl BarsSocket {
         drop(socket);
         protocol
             .disconnected(&connection, Utc::now())
-            .map_err(|_| TransportError::Fetch)?;
+            .map_err(|e| protocol_failure(SocketStage::Reconnect, e))?;
         let connection = if auth {
             protocol.connected_for_auth(Utc::now())
         } else {
             protocol.connected(Utc::now())
         }
-        .map_err(|_| TransportError::Fetch)?;
+        .map_err(|e| protocol_failure(SocketStage::Reconnect, e))?;
         let socket = open(&lease, &mut budget).await?;
         protocol
             .check_silence(Utc::now())
-            .map_err(|_| TransportError::Fetch)?;
+            .map_err(|e| protocol_failure(SocketStage::Silence, e))?;
         Ok(Self(Session {
             socket: Some(socket),
             protocol,
@@ -290,7 +339,7 @@ impl QuotesSocket {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::transport::StopHandle;
     use broker_finam::{AccessToken, FinamAuthPolicy};
@@ -366,6 +415,106 @@ mod tests {
             panic!("quotes")
         };
         assert!(q.is_empty());
+    }
+
+    pub(crate) async fn protocol_error_fixture(quotes: bool) -> TransportError {
+        error_fixture(quotes, 0).await
+    }
+    pub(crate) async fn error_fixture(quotes: bool, case: u8) -> TransportError {
+        let protocol = if quotes {
+            BarsProtocol::new_quotes(5000, 1000, 5000, 32).unwrap()
+        } else {
+            BarsProtocol::new(5000, 1000).unwrap()
+        };
+        let (stop, mut client, mut server) = pair_with_protocol(protocol).await;
+        if case == 3 {
+            stop.stop();
+            return client.observe().await.unwrap_err();
+        }
+        if case == 2 {
+            server
+                .send(Message::Text(
+                    r#"{"type":"EVENT","eventInfo":{"event":"HANDSHAKE_SUCCESS"}}"#.into(),
+                ))
+                .await
+                .unwrap();
+            client.observe().await.unwrap();
+            server.next().await.unwrap().unwrap();
+            let payload = if quotes {
+                serde_json::json!({"quote":[{"symbol":"IMOEXF@RTSX",
+                    "timestamp":Utc::now().to_rfc3339(),"last":{"value":"2200.25"}}]})
+            } else {
+                serde_json::json!({"symbol":"SECRET_RAW_ACCOUNT_TOKEN","bars":[]})
+            };
+            server
+                .send(Message::Text(
+                    serde_json::json!({
+                        "type":"DATA", "subscriptionType":if quotes {"QUOTES"} else {"BARS"},
+                        "subscriptionKey":"SECRET_RAW_ACCOUNT_TOKEN", "payload":payload
+                    })
+                    .to_string(),
+                ))
+                .await
+                .unwrap();
+            return client.observe().await.unwrap_err();
+        }
+        if case == 1 {
+            server
+                .send(Message::Text(
+                    r#"{"type":"ERROR","errorInfo":{"message":"SECRET_RAW_ACCOUNT_TOKEN"}}"#.into(),
+                ))
+                .await
+                .unwrap();
+            return client.observe().await.unwrap_err();
+        }
+        server
+            .send(Message::Text(
+                "SECRET_RAW_ACCOUNT_TOKEN invalid JSON".into(),
+            ))
+            .await
+            .unwrap();
+        client.observe().await.unwrap_err()
+    }
+
+    #[tokio::test]
+    async fn socket_failure_classes_remain_distinct_and_redacted() {
+        for quotes in [false, true] {
+            let error = protocol_error_fixture(quotes).await;
+            assert!(matches!(
+                error,
+                TransportError::Socket(SocketFailure {
+                    stage: SocketStage::ProtocolReceive,
+                    code: SocketCode::Protocol(crate::ws::WsError::FrameAt(
+                        crate::ws::FrameCode::EnvelopeJson
+                    ))
+                })
+            ));
+        }
+        assert!(matches!(
+            incoming(None),
+            Err(TransportError::Socket(SocketFailure {
+                code: SocketCode::Eof,
+                ..
+            }))
+        ));
+        assert!(matches!(
+            incoming(Some(Err(tokio_tungstenite::tungstenite::Error::Io(
+                std::io::Error::other("SECRET_RAW_ACCOUNT_TOKEN")
+            )))),
+            Err(TransportError::Socket(SocketFailure {
+                code: SocketCode::Read,
+                ..
+            }))
+        ));
+        let (_stop, mut client, mut server) = pair().await;
+        server.send(Message::Close(None)).await.unwrap();
+        assert!(matches!(
+            client.observe().await,
+            Err(TransportError::Socket(SocketFailure {
+                code: SocketCode::Close,
+                ..
+            }))
+        ));
     }
 
     async fn pair() -> (
@@ -514,7 +663,10 @@ mod tests {
         assert_eq!(client.observe().await.unwrap_err(), TransportError::Held);
         let (_stop, mut client, mut server) = pair().await;
         server.send(Message::Binary(vec![1])).await.unwrap();
-        assert_eq!(client.observe().await.unwrap_err(), TransportError::Fetch);
+        assert_eq!(
+            client.observe().await.unwrap_err(),
+            failure(SocketStage::Receive, SocketCode::UnexpectedMessage)
+        );
         assert!(client.socket.is_none());
     }
 }
