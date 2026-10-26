@@ -635,6 +635,56 @@ pub(crate) mod tests {
         );
     }
 
+    pub(crate) async fn history_error_fixture(cap: bool) -> TransportError {
+        let (stop, mut client, mut server) = pair().await;
+        server
+            .send(Message::Text(
+                r#"{"type":"EVENT","eventInfo":{"event":"HANDSHAKE_SUCCESS"}}"#.into(),
+            ))
+            .await
+            .unwrap();
+        client.observe().await.unwrap();
+        server.next().await.unwrap().unwrap();
+        let frame = serde_json::json!({
+            "type":"DATA","subscriptionType":"BARS","subscriptionKey":"SECRET",
+            "payload":{"symbol":"IMOEXF@RTSX","timeframe":"TIME_FRAME_M1","bars":[{
+                "timestamp":"2026-01-01T00:00:00Z","open":"2200","high":"2201",
+                "low":"2199","close":"2200","volume":"1","is_data_snapshot":true
+            }]}
+        })
+        .to_string();
+        for _ in 0..if cap { 512 } else { 1 } {
+            server.send(Message::Text(frame.clone())).await.unwrap();
+            let observation = client.observe().await.unwrap();
+            assert!(matches!(observation, Observation::InitialHistory { .. }));
+            assert!(observation.live_bars().is_empty());
+        }
+        if cap {
+            server.send(Message::Text(frame)).await.unwrap();
+            let error = client.observe().await.unwrap_err();
+            assert_eq!(client.observe().await.unwrap_err(), TransportError::Held);
+            return error;
+        }
+        let task = tokio::spawn(async move {
+            let error = client.observe().await.unwrap_err();
+            assert_eq!(client.observe().await.unwrap_err(), TransportError::Held);
+            error
+        });
+        stop.stop();
+        let error = task.await.unwrap();
+        assert_eq!(error, TransportError::Stopped);
+        let eof = tokio::time::timeout(Duration::from_secs(1), server.next())
+            .await
+            .unwrap();
+        assert!(eof.is_none() || eof.unwrap().is_err());
+        error
+    }
+
+    #[tokio::test]
+    async fn snapshot_discard_then_stop_drops_real_duplex_transport() {
+        assert_eq!(history_error_fixture(false).await, TransportError::Stopped);
+    }
+
     #[tokio::test]
     async fn stop_while_reading_drops_transport_and_prevents_reuse() {
         let (stop, mut client, mut server) = pair().await;

@@ -361,8 +361,7 @@ async fn run_start(
                 if !bars_grant.valid(Utc::now(), std::time::Instant::now()) {
                     return Err("runner_bars_auth_expired");
                 }
-                if let Some(receipt) = witness.observe(&observation, Utc::now().timestamp_millis())
-                {
+                for receipt in witness.receipts(&observation, Utc::now().timestamp_millis()) {
                     sender
                         .send(Event::Witness(receipt))
                         .await
@@ -372,7 +371,7 @@ async fn run_start(
                     reconnect_after,
                     &mut frames,
                     &mut consumed,
-                    matches!(&observation, Observation::ProvisionalBars(bars) if !bars.is_empty()),
+                    !observation.live_bars().is_empty(),
                 );
                 sender
                     .send(Event::Socket(observation))

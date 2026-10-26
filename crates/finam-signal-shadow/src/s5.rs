@@ -23,6 +23,8 @@ pub(crate) struct Receipt {
     data_items: usize,
     provider_subscription_ack: bool,
     finality_proven: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    initial_history: Option<crate::ws::SnapshotReceipt>,
 }
 
 pub(crate) struct Witness {
@@ -34,6 +36,35 @@ pub(crate) struct Witness {
 }
 
 impl Witness {
+    pub(crate) fn receipts(&mut self, observation: &Observation, at_ms: i64) -> Vec<Receipt> {
+        let mut receipts = Vec::new();
+        if let Observation::InitialHistory { history, .. } = observation {
+            if self.channel == Channel::Bars && self.sent {
+                receipts.push(Receipt {
+                    schema: if self.auth_generation.is_some() {
+                        "signal-shadow-auth-ws-v1"
+                    } else {
+                        "signal-shadow-s5-v1"
+                    },
+                    channel: self.channel,
+                    connection_generation: self.generation,
+                    auth_generation: self.auth_generation,
+                    at_ms,
+                    event: "snapshot_discarded",
+                    instrument: "IMOEXF@RTSX",
+                    data_items: 0,
+                    provider_subscription_ack: false,
+                    finality_proven: false,
+                    initial_history: Some(history.clone()),
+                });
+            }
+        }
+        if let Some(receipt) = self.observe(observation, at_ms) {
+            receipts.push(receipt);
+        }
+        receipts
+    }
+
     pub(crate) fn new(channel: Channel, generation: u64) -> Self {
         Self {
             channel,
@@ -57,7 +88,7 @@ impl Witness {
                 self.sent = true;
                 ("handshake_and_subscription_sent", 0)
             }
-            Observation::ProvisionalBars(rows)
+            Observation::ProvisionalBars(rows) | Observation::InitialHistory { live: rows, .. }
                 if self.channel == Channel::Bars
                     && self.sent
                     && !self.data_seen
@@ -92,6 +123,7 @@ impl Witness {
             data_items: count,
             provider_subscription_ack: false,
             finality_proven: false,
+            initial_history: None,
         })
     }
 }

@@ -335,7 +335,7 @@ async fn worker(
         if !grant.valid(Utc::now(), Instant::now()) {
             return Err("diagnostic_auth_expired".into());
         }
-        if let Some(r) = witness.observe(&observation, Utc::now().timestamp_millis()) {
+        for r in witness.receipts(&observation, Utc::now().timestamp_millis()) {
             tx.send(Event::Witness(r))
                 .await
                 .map_err(|_| "diagnostic_queue")?;
@@ -376,6 +376,13 @@ impl Coverage {
                     return Err("diagnostic_receipt_generation");
                 }
                 match v["event"].as_str() {
+                    Some("snapshot_discarded") if ch == "Bars" => {
+                        if !self.sent.get(&key).is_some_and(|sent| at >= *sent)
+                            || self.data.contains_key(&key)
+                        {
+                            return Err("diagnostic_receipt_order");
+                        }
+                    }
                     Some("handshake_and_subscription_sent") => {
                         self.sent.insert(key, at);
                     }
@@ -709,6 +716,45 @@ mod tests {
         assert!(p.validate(p.start_at).is_err());
     }
     #[test]
+    fn history_receipts_never_complete_either_auth_generation() {
+        let file = path();
+        let mut writer = Writer::new(&file, 1048576).unwrap();
+        let mut coverage = Coverage::default();
+        for event in events() {
+            if let Event::Witness(ref receipt) = event {
+                let value = serde_json::to_value(receipt).unwrap();
+                if value["event"] == "first_validated_data" && value["channel"] == "BARS" {
+                    let g = value["auth_generation"].as_u64().unwrap();
+                    let mut witness = Witness::new_auth(Channel::Bars, g, g);
+                    witness.receipts(&Observation::Handshake, 1);
+                    for r in witness.receipts(
+                        &Observation::InitialHistory {
+                            live: vec![],
+                            history: crate::ws::SnapshotReceipt {
+                                rows: 300,
+                                min_timestamp_ms: 0,
+                                max_timestamp_ms: 60_000,
+                            },
+                        },
+                        2,
+                    ) {
+                        coverage.record(&Event::Witness(r), &mut writer).unwrap();
+                    }
+                    continue;
+                }
+            }
+            coverage.record(&event, &mut writer).unwrap();
+        }
+        assert!(!coverage.complete());
+        assert!(coverage.data.keys().all(|key| key.0 == "Quotes"));
+        drop(writer);
+        let raw = std::fs::read_to_string(&file).unwrap();
+        assert!(raw.contains("snapshot_discarded"));
+        assert!(!raw.contains("SECRET"));
+        std::fs::remove_file(file).unwrap();
+    }
+
+    #[test]
     fn both_generations_and_channels_required_no_secrets() {
         let file = path();
         let mut writer = Writer::new(&file, 1048576).unwrap();
@@ -885,6 +931,36 @@ mod tests {
         std::fs::remove_file(file).unwrap();
         (code, text)
     }
+    #[tokio::test]
+    async fn history_cap_and_stop_fail_without_false_pass_and_join_both_jobs() {
+        for cap in [false, true] {
+            let error = crate::socket::tests::history_error_fixture(cap).await;
+            let failure = Failure::ws(
+                "diagnostic_ws_observe",
+                Channel::Bars,
+                crate::socket::SocketStage::Receive,
+                Some(2),
+                Some(2),
+                error,
+            );
+            let (exit, text) =
+                coordinate_error_fixture(false, Some(failure), false, false, false).await;
+            assert_eq!(exit, 1);
+            assert!(!text.contains("SECRET"));
+            let terminal: serde_json::Value =
+                serde_json::from_str(text.lines().last().unwrap()).unwrap();
+            assert_eq!(terminal["joined_jobs"], 2);
+            assert_eq!(
+                terminal["primary_error"]["code"],
+                if cap {
+                    serde_json::json!({"Socket":{"Protocol":"Budget"}})
+                } else {
+                    serde_json::json!("Stopped")
+                }
+            );
+        }
+    }
+
     #[tokio::test]
     async fn provider_validation_and_budget_failures_survive_terminal_redacted() {
         for channel in [Channel::Bars, Channel::Quotes] {

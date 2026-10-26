@@ -45,6 +45,8 @@ pub enum FrameCode {
     Mapper,
     EventKind,
     Ohlcv,
+    SnapshotFlag,
+    UnexpectedSnapshot,
 }
 
 #[derive(Debug)]
@@ -78,7 +80,35 @@ pub enum Observation {
     Handshake,
     Ignore,
     ProvisionalBars(Vec<Bar>),
+    InitialHistory {
+        live: Vec<Bar>,
+        history: SnapshotReceipt,
+    },
     Quotes(QuoteFrame),
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SnapshotReceipt {
+    pub rows: usize,
+    pub min_timestamp_ms: i64,
+    pub max_timestamp_ms: i64,
+}
+
+impl Observation {
+    pub fn live_bars(&self) -> &[Bar] {
+        match self {
+            Self::ProvisionalBars(bars) | Self::InitialHistory { live: bars, .. } => bars,
+            _ => &[],
+        }
+    }
+}
+
+// FINAM Bar's proto3 bool: omitted means false; both ProtoJSON field spellings
+// are supported. Null, coercions and simultaneous aliases are rejected.
+#[derive(serde::Deserialize)]
+struct SnapshotFlag {
+    #[serde(default, alias = "isDataSnapshot")]
+    is_data_snapshot: bool,
 }
 
 #[derive(PartialEq)]
@@ -107,6 +137,9 @@ pub struct BarsProtocol {
     key: Option<String>,
     silence: Duration,
     reconnect: Duration,
+    snapshot_rows: usize,
+    snapshot_bytes: usize,
+    live_seen: bool,
 }
 
 impl BarsProtocol {
@@ -132,6 +165,9 @@ impl BarsProtocol {
             key: None,
             silence: Duration::milliseconds(silence_ms as i64),
             reconnect: Duration::milliseconds(reconnect_ms as i64),
+            snapshot_rows: 0,
+            snapshot_bytes: 0,
+            live_seen: false,
         })
     }
 
@@ -188,6 +224,9 @@ impl BarsProtocol {
             self.last_data = None;
         }
         self.key = None;
+        self.snapshot_rows = 0;
+        self.snapshot_bytes = 0;
+        self.live_seen = false;
         Ok(Connection {
             owner: self.owner.clone(),
             generation: self.generation,
@@ -320,7 +359,16 @@ impl BarsProtocol {
         if rows.is_empty() || rows.len() > 512 {
             return Err(WsError::FrameAt(FrameCode::RowCount));
         }
+        let mut flags = Vec::with_capacity(rows.len());
+        let mut history: Option<SnapshotReceipt> = None;
         for row in rows {
+            let flag: SnapshotFlag = serde_json::from_value(row.clone())
+                .map_err(|_| WsError::FrameAt(FrameCode::SnapshotFlag))?;
+            let snapshot = flag.is_data_snapshot;
+            if snapshot && self.live_seen {
+                return Err(WsError::FrameAt(FrameCode::UnexpectedSnapshot));
+            }
+            flags.push(snapshot);
             let t: DateTime<Utc> = row
                 .get("timestamp")
                 .and_then(Value::as_str)
@@ -331,16 +379,37 @@ impl BarsProtocol {
                 || t.timestamp() % 60 != 0
                 || t.timestamp_subsec_nanos() != 0
                 || t.checked_add_signed(Duration::minutes(1)).is_none()
-                || t.checked_add_signed(Duration::minutes(1))
-                    .is_some_and(|close| now - close > self.silence)
+                || (!snapshot
+                    && t.checked_add_signed(Duration::minutes(1))
+                        .is_some_and(|close| now - close > self.silence))
             {
                 return Err(WsError::FrameAt(FrameCode::TimestampBounds));
             }
+            if snapshot {
+                let h = history.get_or_insert(SnapshotReceipt {
+                    rows: 0,
+                    min_timestamp_ms: t.timestamp_millis(),
+                    max_timestamp_ms: t.timestamp_millis(),
+                });
+                h.rows += 1;
+                h.min_timestamp_ms = h.min_timestamp_ms.min(t.timestamp_millis());
+                h.max_timestamp_ms = h.max_timestamp_ms.max(t.timestamp_millis());
+            }
+        }
+        // Conservatively charge the entire wire frame (including mixed live rows
+        // and envelope) to the bootstrap byte budget; never undercount payload.
+        if history.as_ref().is_some_and(|h| {
+            self.snapshot_rows + h.rows > 512 || self.snapshot_bytes + text.len() > 256 * 1024
+        }) {
+            return Err(WsError::Budget);
         }
         let events = broker_finam::map_ws_market_data_events(&e, Some(SYMBOL), 60, now)
             .map_err(|_| WsError::FrameAt(FrameCode::Mapper))?;
+        if events.len() != flags.len() {
+            return Err(WsError::FrameAt(FrameCode::RowCount));
+        }
         let mut bars = Vec::new();
-        for event in events {
+        for (event, snapshot) in events.into_iter().zip(flags) {
             let MarketDataEvent::Bar(mut bar) = event else {
                 return Err(WsError::FrameAt(FrameCode::EventKind));
             };
@@ -356,11 +425,25 @@ impl BarsProtocol {
             }
             bar.instrument.market = broker_core::Market::Futures;
             bar.is_final = false; // clock-based mapper finality is NOT source proof
-            bars.push(bar);
+            if !snapshot {
+                bars.push(bar);
+            }
         }
         self.key = e.subscription_key.or_else(|| self.key.clone());
-        self.last_data = Some(now);
-        Ok(Observation::ProvisionalBars(bars))
+        if !bars.is_empty() {
+            self.last_data = Some(now);
+            self.live_seen = true;
+        }
+        if let Some(history) = history {
+            self.snapshot_rows += history.rows;
+            self.snapshot_bytes += text.len();
+            Ok(Observation::InitialHistory {
+                live: bars,
+                history,
+            })
+        } else {
+            Ok(Observation::ProvisionalBars(bars))
+        }
     }
 
     pub fn check_silence(&mut self, now: DateTime<Utc>) -> Result<(), WsError> {
@@ -426,6 +509,239 @@ impl BarsProtocol {
         }
         self.last_clock = Some(now);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod snapshot_tests {
+    use super::*;
+    use serde_json::json;
+    fn now() -> DateTime<Utc> {
+        "2026-10-26T15:40:00Z".parse().unwrap()
+    }
+    fn subscribe(p: &mut BarsProtocol, c: &Connection, at: DateTime<Utc>) {
+        p.receive(
+            c,
+            r#"{"type":"EVENT","eventInfo":{"event":"HANDSHAKE_SUCCESS"}}"#,
+            at,
+        )
+        .unwrap();
+        p.subscription_request(c, &AccessToken::new("SECRET_TOKEN"))
+            .unwrap();
+        p.subscription_sent(c).unwrap();
+    }
+    fn setup() -> (BarsProtocol, Connection) {
+        let mut p = BarsProtocol::new(60_000, 5_000).unwrap();
+        let c = p.connected(now()).unwrap();
+        subscribe(&mut p, &c, now());
+        (p, c)
+    }
+    fn row(snapshot: bool, at: DateTime<Utc>) -> Value {
+        json!({"timestamp":at.to_rfc3339(),"open":"2200","high":"2201",
+            "low":"2199","close":"2200.5","volume":"12","is_data_snapshot":snapshot})
+    }
+    fn frame(rows: Vec<Value>) -> String {
+        json!({"type":"DATA","subscriptionType":"BARS","subscriptionKey":"SECRET_KEY",
+            "payload":{"symbol":SYMBOL,"timeframe":TIMEFRAME,"bars":rows}})
+        .to_string()
+    }
+    fn old() -> Value {
+        row(true, now() - Duration::hours(5))
+    }
+    fn live() -> Value {
+        row(false, now())
+    }
+
+    #[test]
+    fn synthetic_300_history_then_live_and_late_snapshot() {
+        let (mut p, c) = setup();
+        let rows = (0..300)
+            .map(|m| row(true, now() - Duration::minutes(300 - m)))
+            .collect();
+        let history = p
+            .receive(&c, &frame(rows), now() + Duration::seconds(1))
+            .unwrap();
+        assert!(history.live_bars().is_empty());
+        assert!(p.last_data.is_none());
+        assert_eq!(p.snapshot_rows, 300);
+        let mut witness = crate::s5::Witness::new_auth(crate::s5::Channel::Bars, 1, 1);
+        witness.receipts(&Observation::Handshake, now().timestamp_millis());
+        let receipts = witness.receipts(&history, now().timestamp_millis() + 1000);
+        let encoded = serde_json::to_string(&receipts).unwrap();
+        assert!(encoded.contains("snapshot_discarded"));
+        assert!(!encoded.contains("first_validated_data"));
+        assert!(!encoded.contains("SECRET"));
+        let data = p
+            .receive(&c, &frame(vec![live()]), now() + Duration::seconds(2))
+            .unwrap();
+        assert_eq!(data.live_bars().len(), 1);
+        assert!(!data.live_bars()[0].is_final);
+        assert!(
+            serde_json::to_string(&witness.receipts(&data, now().timestamp_millis() + 2000))
+                .unwrap()
+                .contains("first_validated_data")
+        );
+        assert!(matches!(
+            p.receive(&c, &frame(vec![old()]), now() + Duration::seconds(3)),
+            Err(WsError::FrameAt(FrameCode::UnexpectedSnapshot))
+        ));
+    }
+
+    #[test]
+    fn mixed_is_atomic_and_only_live_survives_mapping() {
+        let (mut p, c) = setup();
+        let observed = p
+            .receive(&c, &frame(vec![old(), live(), row(true, now())]), now())
+            .unwrap();
+        assert_eq!(observed.live_bars().len(), 1);
+        assert_eq!(p.snapshot_rows, 2);
+        assert!(p.live_seen);
+        let mut witness = crate::s5::Witness::new_auth(crate::s5::Channel::Bars, 2, 2);
+        witness.receipts(&Observation::Handshake, 0);
+        let receipts = witness.receipts(&observed, 1);
+        assert_eq!(receipts.len(), 2);
+        let value = serde_json::to_value(receipts).unwrap();
+        assert_eq!(value[0]["event"], "snapshot_discarded");
+        assert_eq!(value[1]["event"], "first_validated_data");
+        assert_eq!(value[1]["data_items"], 1);
+        assert_eq!(value[0]["auth_generation"], 2);
+        for (field, value) in [
+            ("timestamp", json!("2026-10-26T15:41:00Z")),
+            ("timestamp", json!("2026-10-26T10:40:00.001Z")),
+            ("timestamp", json!("2026-10-26T10:40:01Z")),
+            ("timestamp", json!("invalid")),
+            ("timestamp", json!("+262142-12-31T23:59:00Z")),
+            ("open", json!("SECRET_BAD_DECIMAL")),
+            ("low", json!("2300")),
+            ("volume", json!("-1")),
+        ] {
+            let (mut p, c) = setup();
+            let mut bad = old();
+            bad[field] = value;
+            assert!(p.receive(&c, &frame(vec![live(), bad]), now()).is_err());
+            assert!(p.last_data.is_none());
+            assert_eq!(p.snapshot_rows, 0);
+            assert!(!p.live_seen);
+            assert!(p.receive(&c, &frame(vec![live()]), now()).is_err());
+        }
+    }
+
+    #[test]
+    fn history_identity_and_key_checks_are_not_exempt() {
+        for corrupt in ["symbol", "timeframe", "channel", "key"] {
+            let (mut p, c) = setup();
+            p.receive(&c, &frame(vec![old()]), now()).unwrap();
+            let mut bad: Value = serde_json::from_str(&frame(vec![old()])).unwrap();
+            match corrupt {
+                "symbol" => bad["payload"]["symbol"] = json!("SECRET_OTHER"),
+                "timeframe" => bad["payload"]["timeframe"] = json!("TIME_FRAME_M10"),
+                "channel" => bad["subscriptionType"] = json!("QUOTES"),
+                _ => bad["subscriptionKey"] = json!("CHANGED_KEY"),
+            }
+            assert!(p.receive(&c, &bad.to_string(), now()).is_err());
+            assert_eq!(p.snapshot_rows, 1);
+            assert!(p.last_data.is_none());
+        }
+    }
+
+    #[test]
+    fn flag_contract_is_strict_and_stale_live_never_falls_back() {
+        for flag in [Value::Null, json!("true"), json!(1), json!({})] {
+            let (mut p, c) = setup();
+            let mut bad = old();
+            bad["is_data_snapshot"] = flag;
+            assert!(matches!(
+                p.receive(&c, &frame(vec![bad]), now()),
+                Err(WsError::FrameAt(FrameCode::SnapshotFlag))
+            ));
+        }
+        let (mut p, c) = setup();
+        let mut conflict = old();
+        conflict["isDataSnapshot"] = json!(true);
+        assert!(matches!(
+            p.receive(&c, &frame(vec![conflict]), now()),
+            Err(WsError::FrameAt(FrameCode::SnapshotFlag))
+        ));
+        for omitted in [true, false] {
+            let (mut p, c) = setup();
+            let mut stale = old();
+            if omitted {
+                stale.as_object_mut().unwrap().remove("is_data_snapshot");
+            } else {
+                stale["is_data_snapshot"] = json!(false);
+            }
+            assert!(matches!(
+                p.receive(&c, &frame(vec![stale]), now()),
+                Err(WsError::FrameAt(FrameCode::TimestampBounds))
+            ));
+        }
+        let (mut p, c) = setup();
+        let mut camel = old();
+        camel.as_object_mut().unwrap().remove("is_data_snapshot");
+        camel["isDataSnapshot"] = json!(true);
+        assert!(p
+            .receive(&c, &frame(vec![camel]), now())
+            .unwrap()
+            .live_bars()
+            .is_empty());
+    }
+
+    #[test]
+    fn split_history_caps_and_silence_do_not_reset() {
+        let (mut p, c) = setup();
+        for _ in 0..2 {
+            p.receive(&c, &frame(vec![old(); 256]), now()).unwrap();
+        }
+        assert!(matches!(
+            p.receive(&c, &frame(vec![old()]), now()),
+            Err(WsError::Budget)
+        ));
+        let (mut p, c) = setup();
+        let mut padded = old();
+        padded["ignored"] = json!("x".repeat(140_000));
+        p.receive(&c, &frame(vec![padded.clone()]), now()).unwrap();
+        assert!(matches!(
+            p.receive(&c, &frame(vec![padded]), now()),
+            Err(WsError::Budget)
+        ));
+        let (mut p, c) = setup();
+        p.receive(
+            &c,
+            &frame(vec![row(true, now())]),
+            now() + Duration::seconds(59),
+        )
+        .unwrap();
+        assert!(p.last_data.is_none());
+        assert_eq!(
+            p.check_silence(now() + Duration::seconds(60)),
+            Err(WsError::Silence)
+        );
+    }
+
+    #[test]
+    fn auth_rotation_resets_only_quota_and_owner_not_silence() {
+        let (mut p, c) = setup();
+        p.receive(&c, &frame(vec![old(); 512]), now()).unwrap();
+        p.disconnected(&c, now() + Duration::seconds(1)).unwrap();
+        let next = p.connected_for_auth(now() + Duration::seconds(2)).unwrap();
+        subscribe(&mut p, &next, now() + Duration::seconds(2));
+        assert_eq!(p.snapshot_rows, 0);
+        assert!(matches!(
+            p.receive(&c, &frame(vec![old()]), now()),
+            Err(WsError::Connection)
+        ));
+        p.receive(&next, &frame(vec![old()]), now() + Duration::seconds(3))
+            .unwrap();
+        assert_eq!(
+            p.remaining_silence(now() + Duration::seconds(3))
+                .unwrap()
+                .as_secs(),
+            57
+        );
+        p.stop();
+        assert!(p
+            .receive(&next, &frame(vec![live()]), now() + Duration::seconds(4))
+            .is_err());
     }
 }
 
