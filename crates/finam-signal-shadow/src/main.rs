@@ -7,6 +7,7 @@ use finam_signal_shadow::{
 };
 use serde::Deserialize;
 use std::{fs::File, io::Read, path::Path, process::ExitCode};
+mod credential_permissions;
 
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -128,15 +129,7 @@ async fn observe(args: &[std::ffi::OsString]) -> Result<(), &'static str> {
         plan.validate(&config)?;
     }
     // Explicit protected secret, not an access token or environment discovery.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let meta =
-            std::fs::symlink_metadata(Path::new(&args[7 + offset])).map_err(|_| "credential_io")?;
-        if !meta.is_file() || meta.permissions().mode() & 0o077 != 0 {
-            return Err("credential_permissions");
-        }
-    }
+    credential_permissions::validate(Path::new(&args[7 + offset]))?;
     let token = read_bounded(Path::new(&args[7 + offset]), &mut 16_384)?;
     let token = std::str::from_utf8(&token)
         .map_err(|_| "credential_invalid")?
