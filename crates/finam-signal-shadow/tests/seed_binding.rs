@@ -693,6 +693,296 @@ fn replay_bar(f: &Fixture) -> HybridRuntimeBarEvent {
     bar
 }
 
+fn candle_fixture() -> Fixture {
+    let mut f = fixture();
+    f.config.feedback_policy_sha256 = feedback::candle_policy_fingerprint();
+    f.config.run_id = "candle-only-test".into();
+    f.config.segment_id = "candle-new".into();
+    f.config.run_deadline_utc_ms = f.config.observation_start_utc_ms + 86_400_000;
+    f
+}
+
+fn candle_bar(f: &Fixture, minutes: i64, close: f64) -> HybridRuntimeBarEvent {
+    let mut bar = replay_bar(f);
+    bar.close_time_utc += minutes * 60;
+    bar.open = close;
+    bar.close = close;
+    bar.high = close + 0.5;
+    bar.low = close - 0.5;
+    bar
+}
+
+fn candle_step(
+    replay: &mut finam_signal_shadow::replay::OfflineReplay,
+    bar: HybridRuntimeBarEvent,
+) -> Option<feedback::Request> {
+    let time = (bar.close_time_utc + 600) * 1000 + 17;
+    replay.step(bar, &"a".repeat(64), time).unwrap()
+}
+
+#[test]
+fn candle_digest_explicit_selection_and_quote_profile_not_comparable() {
+    let quote = fixture();
+    let candle = candle_fixture();
+    assert!(!ValidatedConfig::validate(quote.config.clone())
+        .unwrap()
+        .candle_only());
+    assert!(ValidatedConfig::validate(candle.config.clone())
+        .unwrap()
+        .candle_only());
+    let q = segment(&quote).unwrap().seed_observation();
+    let c = segment(&candle).unwrap().seed_observation();
+    assert_eq!(q.model_sha256, c.model_sha256);
+    assert_ne!(q.semantic_config_sha256, c.semantic_config_sha256);
+    assert!(!finam_signal_shadow::observer::report_identities_compatible(&q, &c));
+    let mut bad = candle_fixture();
+    bad.config.feedback_policy_sha256 = "0".repeat(64);
+    assert!(segment(&bad).is_err());
+}
+
+#[test]
+fn candle_long_short_stop2_feedback_before_next_bar_no_quotes_or_reversal() {
+    use finam_signal_shadow::{feedback::Action, replay::OfflineReplay};
+    for (entry, exit, action, position) in [
+        (2202.0, 2199.0, Action::EnterLong, 1),
+        (2199.0, 2202.0, Action::EnterShort, -1),
+    ] {
+        let f = candle_fixture();
+        let dir = ReplayDir::new();
+        let path = dir.0.join("candle.jsonl");
+        let mut r = OfflineReplay::create(segment(&f).unwrap(), &path).unwrap();
+        assert!(candle_step(&mut r, candle_bar(&f, 0, 2200.5)).is_none());
+        assert_eq!(
+            candle_step(&mut r, candle_bar(&f, 180, entry))
+                .unwrap()
+                .action,
+            action
+        );
+        assert_eq!(
+            r.observation()["last_position_qty"].as_f64(),
+            Some(position as f64)
+        );
+        assert!(r.observation()["pending_entry_request_id"].is_null());
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(candle_step(&mut r, candle_bar(&f, 180, entry)).is_none());
+        assert_eq!(
+            bytes,
+            std::fs::read(&path).unwrap(),
+            "duplicate must not fill again"
+        );
+        assert_eq!(
+            candle_step(&mut r, candle_bar(&f, 230, exit))
+                .unwrap()
+                .action,
+            Action::Exit
+        );
+        assert!(r.complete_flat());
+        assert!(r.observation()["pending_exit_request_id"].is_null());
+        r.finish().unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("\"quote\":"));
+        assert!(!text.contains("LIVE_OBSERVED"));
+        let rows: Vec<serde_json::Value> = text
+            .lines()
+            .map(|s| serde_json::from_str(s).unwrap())
+            .collect();
+        let fills: Vec<_> = rows
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r["kind"] == "hypothetical_candle_feedback")
+            .collect();
+        assert_eq!(fills.len(), 2);
+        for (i, row) in fills {
+            assert_eq!(rows[i - 1]["kind"], "model_step");
+            let fill = &row["event"]["fill"];
+            assert_eq!(fill["policy"], feedback::CANDLE_POLICY);
+            assert!(
+                fill["applied_at_ms"].as_i64().unwrap()
+                    >= fill["request"]["decision_at_ms"].as_i64().unwrap()
+            );
+            assert_eq!(
+                fill["raw_provenance_sha256"],
+                rows[i - 1]["event"]["raw_provenance_sha256"]
+            );
+            assert_eq!(
+                fill["canonical_input_sha256"],
+                rows[i - 1]["event"]["canonical_input_sha256"]
+            );
+        }
+        assert_eq!(
+            rows.iter()
+                .find(|r| r["event"]["decision"]["action"] == "Exit")
+                .unwrap()["event"]["decision"]["reason"],
+            if position == 1 {
+                "breakout_stop2_long"
+            } else {
+                "breakout_stop2_short"
+            }
+        );
+    }
+}
+
+#[test]
+fn candle_stop1_only_minute50_and_eod_no_reentry() {
+    use finam_signal_shadow::replay::OfflineReplay;
+    for side in [1, -1] {
+        let f = candle_fixture();
+        for eod in [false, true] {
+            let dir = ReplayDir::new();
+            let path = dir.0.join("out.jsonl");
+            let mut r = OfflineReplay::create(segment(&f).unwrap(), &path).unwrap();
+            candle_step(&mut r, candle_bar(&f, 0, 2200.5));
+            candle_step(
+                &mut r,
+                candle_bar(&f, 180, if side == 1 { 2202.0 } else { 2199.0 }),
+            );
+            if !eod {
+                assert!(candle_step(&mut r, candle_bar(&f, 220, 2200.5)).is_none());
+            }
+            let exit_minute = if eod { 990 } else { 230 };
+            let q = candle_step(&mut r, candle_bar(&f, exit_minute, 2200.5)).unwrap();
+            assert_eq!(q.action, feedback::Action::Exit);
+            assert!(r.complete_flat());
+            if eod {
+                assert!(candle_step(
+                    &mut r,
+                    candle_bar(&f, 1000, if side == 1 { 2198.0 } else { 2203.0 })
+                )
+                .is_none());
+                assert_eq!(
+                    r.observation()["no_intent_trace"]["reason"],
+                    "eod_entry_cutoff"
+                );
+            }
+            r.finish().unwrap();
+            let text = std::fs::read_to_string(path).unwrap();
+            assert!(text.contains(if eod {
+                "breakout_eod_exit"
+            } else if side == 1 {
+                "breakout_stop1_long"
+            } else {
+                "breakout_stop1_short"
+            }));
+        }
+    }
+}
+
+#[test]
+fn candle_bad_tick_or_incomplete_bar_fails_without_fabricated_fill() {
+    use finam_signal_shadow::replay::OfflineReplay;
+    for invalid in ["tick", "unclosed", "future", "provenance"] {
+        let f = candle_fixture();
+        let dir = ReplayDir::new();
+        let path = dir.0.join("out.jsonl");
+        let mut r = OfflineReplay::create(segment(&f).unwrap(), &path).unwrap();
+        candle_step(&mut r, candle_bar(&f, 0, 2200.5));
+        let mut bar = candle_bar(&f, 180, if invalid == "tick" { 2202.25 } else { 2202.0 });
+        bar.is_final = invalid != "unclosed";
+        let now = (bar.close_time_utc + 600) * 1000;
+        let raw_hash = "a".repeat(64);
+        assert!(r
+            .step(
+                bar,
+                if invalid == "provenance" {
+                    "bad"
+                } else {
+                    &raw_hash
+                },
+                if invalid == "future" { now - 1 } else { now }
+            )
+            .is_err());
+        assert!(r.closed());
+        assert!(!std::fs::read_to_string(path)
+            .unwrap()
+            .contains("hypothetical_candle_feedback"));
+    }
+}
+
+#[test]
+fn candle_rejects_quote_events_even_flat_and_preserves_old_pending_contract() {
+    use finam_signal_shadow::replay::{OfflineReplay, ReplayError};
+    let f = candle_fixture();
+    let dir = ReplayDir::new();
+    let mut r = OfflineReplay::create(segment(&f).unwrap(), &dir.0.join("candle.jsonl")).unwrap();
+    assert_eq!(
+        r.quote(
+            feedback::Quote {
+                instrument: "IMOEXF".into(),
+                source_id: "not-used".into(),
+                price_ticks: 4400,
+                event_at_ms: 1,
+                received_at_ms: 1,
+            },
+            1
+        ),
+        Err(ReplayError::Input)
+    );
+    let mut old = fixture();
+    old.config.run_deadline_utc_ms = old.config.observation_start_utc_ms + 86_400_000;
+    let mut q = OfflineReplay::create(segment(&old).unwrap(), &dir.0.join("quote.jsonl")).unwrap();
+    candle_step(&mut q, candle_bar(&old, 0, 2200.5));
+    candle_step(&mut q, candle_bar(&old, 180, 2202.0));
+    assert_eq!(q.observation()["last_position_qty"].as_f64(), Some(0.0));
+    assert!(!q.observation()["pending_entry_request_id"].is_null());
+    let next = candle_bar(&old, 190, 2202.0);
+    assert!(q
+        .step(
+            next.clone(),
+            &"a".repeat(64),
+            (next.close_time_utc + 600) * 1000
+        )
+        .is_err());
+}
+
+#[test]
+fn candle_eof_nonflat_not_completion_and_new_segment_not_resume() {
+    use finam_signal_shadow::replay::OfflineReplay;
+    let f = candle_fixture();
+    let dir = ReplayDir::new();
+    let path = dir.0.join("out.jsonl");
+    let mut r = OfflineReplay::create(segment(&f).unwrap(), &path).unwrap();
+    candle_step(&mut r, candle_bar(&f, 0, 2200.5));
+    candle_step(&mut r, candle_bar(&f, 180, 2202.0));
+    assert!(!r.complete_flat());
+    r.finish().unwrap();
+    let old_bytes = std::fs::read(&path).unwrap();
+    assert!(String::from_utf8_lossy(&old_bytes).contains("INCOMPLETE_virtual_nonflat"));
+    assert!(OfflineReplay::create(segment(&f).unwrap(), &path).is_err());
+    let mut new = candle_fixture();
+    new.config.segment_id = "new-independent-seed".into();
+    new.config.previous_segment_id = Some(f.config.segment_id.clone());
+    let header = segment(&new).unwrap().seed_observation();
+    assert_eq!(header.virtual_position_lots, 0);
+    assert_eq!(header.live_observation_count, 0);
+    assert_eq!(old_bytes, std::fs::read(path).unwrap());
+}
+
+#[test]
+fn candle_cli_executes_without_quote_events_and_names_simulation() {
+    let f = candle_fixture();
+    let dir = ReplayDir::new();
+    let events: Vec<_> = [(0, 2200.5), (180, 2202.0), (190, 2199.0)]
+        .into_iter()
+        .map(|(m, p)| {
+            let bar = candle_bar(&f, m, p);
+            serde_json::json!({"kind":"bar","virtual_result_at_ms":(bar.close_time_utc+600)*1000,
+            "bar":bar,"raw_provenance_sha256":"a".repeat(64)})
+        })
+        .collect();
+    let result = cli_fixture(&dir, &f, serde_json::json!(events))
+        .output()
+        .unwrap();
+    assert!(result.status.success(), "{result:?}");
+    let text = std::fs::read_to_string(dir.0.join("out.jsonl")).unwrap();
+    assert_eq!(
+        text.matches("\"kind\":\"hypothetical_candle_feedback\"")
+            .count(),
+        2
+    );
+    assert!(text.contains("accepted_closed_m10_close"));
+    assert!(!text.contains("LIVE_OBSERVED"));
+}
+
 #[test]
 fn unified_replay_records_model_step_once_without_live_rows() {
     use finam_signal_shadow::replay::{OfflineReplay, ReplayError};

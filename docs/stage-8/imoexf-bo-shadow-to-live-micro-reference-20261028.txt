@@ -1,0 +1,113 @@
+IMOEXF BO: reference для FINAM shadow и последующего live micro
+Дата сверки: 2026-10-28
+Статус: локальное дополнение к плану; не source/release/operational acceptance.
+
+1. Что принято как reference
+
+По указанию владельца переносим BO-часть основной ALOR live модели canonical07,
+а не один из альтернативных shadow-профилей. Новый live contract уточняет
+актуальную конфигурацию; freeze 2026-09-27 сохраняется как исторический fixture.
+Октябрьский paper-tick-v3 задаёт отдельное предположение shadow-исполнения,
+но не считается работающим ALOR live binary.
+
+Входной контракт владельца:
+  «IMOEXF live micro: технический контракт для FINAM», 2026-10-28;
+  SHA256 ff63daf32304340abb45ce561de613068e6bd1256ccc3504322221bdc5449039.
+В нём заявлен capture ALOR VPS в 16:34 MSK. В этой сверке VPS не опрашивался,
+его текущие позиции, ордера и deployed binary независимо не проверялись.
+
+Найдены локальные reference TOML в:
+  analiz_alpha_si/imoexf_shadow_tick_rollout_2026_10_25/build-context/alor-rs-main/configs/
+Побайтно подтверждены оба SHA256 из входного контракта:
+  runtime: c38cd89cb7d76f8833302e8e572e5cc47177bec73b06dcdd710132e5d531737d
+  gateway: 602b7283708542243db830f3960d7643a64edcaebdc8ca7a0af812873042884e
+Это проверка файлов, а не эквивалентности исходников развернутому образу ALOR.
+
+Проверенный FINAM source находится в составном дереве:
+  reports/operations/auth-ws-initial-quote-source-20261028/worktree/
+  source tree identity: 6d92d8a1ec66505781de4dfbfc8c680d390a87c9
+Это identity дерева принятого source package, не новый commit данного документа.
+  crates/finam-signal-shadow/src/profile.rs
+  docs/stage-8/stage8b-p1e-runtime-profile-v2.json
+  profile SHA256: b267f680d2d376d15c62d347acf89dc9dd26d8ce0a850a66f2dd7710d44282be
+
+2. Параметры модели — уже совпадают, перенастройка не требуется
+
+  Инструмент FINAM: IMOEXF@RTSX; tick=0.5; шаг количества=1.
+  Только IntradayBreakout; live_mr_entries_enabled=false.
+  Закрытые M10, 600 секунд; candle-start label, не время получения.
+  Model session: 07:00:00..23:49:59 MSK; выходные исключены.
+  bo_k=0.53; bo_stop1_range=0.51; bo_stop2_range=0.35.
+  bo_big_move_threshold=0.025.
+  bo_min_range=1.01, mode=absolute: пункты, не проценты.
+  bo_wait_hours=3.0 от actual today_start, не от запуска процесса.
+  orchestrator_breakout_eod_mode=same_day.
+
+Структурная сверка TOML с фиксированным FINAM profile: 14/14 выбранных параметров
+совпали (8 bo_*, MR flag, две границы model session, EOD mode, weekends, tick).
+Дополнительно подтверждены tf_sec=600 и три настройки запроса истории по 4.
+Фактическую полноту четырех завершенных модельных сессий проверять по данным:
+четыре календарных дня могут не содержать четыре допустимые сессии.
+Праздники проверять календарём; номинальные sparse M10 не заполнять фиктивными M1.
+
+По просмотренному FINAM source:
+  входы строго выше/ниже C +/- 0.53*R; равенство не является сигналом;
+  Stop2 проверяется раньше Stop1; Stop1 только на label minute=50;
+  EOD label 23:30; запрещены новые same-day entries на/после этой метки.
+  was_long_today/was_short_today, owner и pending сохраняют свой lifecycle.
+23:30 M10 закрывается в 23:40; время label/available/received/processed различается.
+Пропущенный EOD, поздний бар или недоступный execution не означают успешный flat.
+Это статическая сверка, не новый replay, не доказательство текущего ALOR binary.
+
+3. Явные отличия, которые сохраняем
+
+ALOR reference qty=6. FINAM shadow оставляем qty=1 (существующий профиль).
+Сравниваем сигналы, нормализованную сторону/позицию и points per contract;
+денежный PnL и raw qty не объявляем одинаковыми. FINAM live qty ещё не разрешён:
+его владелец согласует отдельно перед GO; qty6 автоматически не переносится.
+
+Новый контракт уточняет прежнее общее утверждение «в ALOR нет riskgate»:
+live MR отключён, но фоновый High180/lb120 учёт ALOR остаётся включён.
+В FINAM BO-only сохраняем Disabled gate/ledger/seed — это намеренное сужение
+до BO parity, не полная копия ALOR operational state. MR PnL не является BO stop.
+Не возвращаем 120-сессионный прогрев и не изменяем ALOR ledger/контуры.
+
+4. Следующий узкий source scope для reviewer
+
+Сохранить приведённые параметры и существующий Hybrid callback. Добавить
+отдельный candle-only shadow feedback: после принятого закрытого M10 и расчёта
+intent — условный full fill по close этого бара, затем обновление виртуальной
+позиции до следующего model step. Цена close — допущение симуляции, не обещание
+реальной цены Market. Время исполнения не датировать задним числом.
+Не выдавать это за наблюдаемую post-intent QUOTES: отдельные policy identity,
+provenance и новый shadow segment/state. Прежнее quote-based evidence сохранить.
+В replay обе стороны используют одинаковые начальное состояние и fill policy.
+
+QUOTES не должны блокировать новый candle-only shadow. Это не разрешение
+ослаблять freshness текущего quote-based профиля. Проверки реальных BARS,
+finality, dedup, gaps, auth rotation/reconnect и bounded stop сохраняются.
+Текущий установленный runner и его обязательные каналы здесь не менялись.
+Не добавлять MR, LIMIT/bracket simulator, новый Redis/recovery framework.
+
+Минимальная проверка: общие M10 -> anchors/state -> BO intents; long/short,
+строгие границы входа, обе stop-причины и приоритет, EOD/no re-entry, weekend,
+дубликаты, warmup без исторических live intents и явный restart segment.
+Онлайн-наблюдение подтверждает доставку баров/EOD отдельно от исторического replay.
+Отличия feed, alpha logic, virtual feedback и broker execution учитывать отдельно.
+
+5. Переход к live micro
+
+Параметры BO остаются теми же; виртуальный fill заменяется фактическими
+ACK/order/fill/position events через FINAM adapter, а не ALOR CWS протоколом.
+Accepted != Filled; частичные/поздние fills и uncertain send не разрешают
+слепой повтор полного Market. Нужны request identity, dedup, reconciliation,
+ограничение exit подтвержденным остатком, restart с pending и EOD runbook.
+Проверку цены/ликвидности для реальных заявок согласовать отдельно: независимость
+shadow от QUOTES не означает готовность отправлять live без необходимых checks.
+
+Последовательность: review узкой смены feedback -> source/tests -> отдельно
+разрешённые установка и shadow-наблюдение -> parity review -> отдельный micro GO.
+Shadow остаётся readonly; FINAM order submission/POST/DELETE, broker dispatch,
+реальные заявки и изменения действующих VPS/DB/ALOR state не разрешены этим файлом.
+В рамках данной сверки изменена только документация; Rust/конфиги запуска,
+установленные бинарники, таймеры, позиции и токены не изменялись.

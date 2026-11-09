@@ -1,0 +1,127 @@
+CANDLE-ONLY INTRADAY SOURCE R0 — 29 октября 2026, МСК
+
+Статус: implementation candidate / SOURCE REVIEW REQUIRED.
+Accepted predecessor composed tree: 7dd8bfbc6124affb18d26da4ed472cf64c56cf47.
+Не новый commit, не разрешение установки или запуска. Installed ELF не менялся.
+Пропущенное окно 29 октября 07:00–07:01 не возобновляется этим изменением.
+
+ГРАНИЦА
+Отдельная команда:
+finam-signal-shadow observe-candle-intraday CONFIG REFERENCE MAPPING CALENDAR
+  SEED HISTORY INTRADAY_PLAN READ_ONLY_SECRET_FILE NEW_OUTPUT
+
+CONFIG.observation_start_utc_ms остаётся началом MODEL SESSION 07:00.
+Обычный observe сохраняет прежний session-boundary guard; observe-prefix и
+старые quote-based prefixes не дают разрешения candle-only reconstruction.
+Это fresh new_segment (previous_segment_id=null), не импорт persisted state
+и не продолжение незавершённого старого output. Старый файл не дописывается.
+
+UNCHANGED
+baseline07 BO-only/no-riskgate, tick0.5/lot1, four-session seed, все параметры
+стратегии, model engine, auth lifecycle, sparse admission, close-fill policy,
+Cargo и live callback freshness остаются принятыми.
+Policy: moex.shadow.closed-m10-close.full-fill.one-lot.zero-cost.v1.
+Нет QUOTES, FINAM POST/DELETE orders, broker dispatch, Redis/DB0 или live orders.
+Виртуальная позиция не является позицией реального брокерского счёта.
+
+INPUT CONTRACT
+1. Обычные точные reference/mapping/calendar/четыре дня seed.
+2. HISTORY: retained ClosedM1SnapshotEvidenceV1 с raw REST M1, исходными
+   request/receive times, status/completeness/body length/hash. Не список
+   произвольных M10 и не модельное состояние. Сбор остаётся отдельным
+   read-only preparation действием; новый CLI читает файл, не делает
+   неограниченных bootstrap retries/автоматического расширения истории.
+3. INTRADAY_PLAN: schema_version=1; exact history_sha256; независимо заданные
+   history_part_ends; next_label_utc_ms; start_not_before/start_before;
+   max_reconstruction_ms (1..10000); вложенный обычный RunPlan.
+   RunPlan содержит весь оставшийся nominal tail до EOD, начиная ровно с
+   next_label. Операционное bounded STOP по-прежнему отдельный unit/guard.
+
+Новый input hash не авторизуется самим собой: exact plan/history являются
+trusted operator inputs и требуют обычной review/installation процедуры.
+Операционные dates/window/OUT/credentials сюда не включены. Будущий пакет
+должен закрепить фактическую историю и plan; поздний старт не разрешается
+автоматически предыдущим одобрением утреннего окна.
+
+COVERAGE / BOUNDARY
+История покрывает ровно [07:00, next_label), от 1 до 100 nominal M10.
+Required labels определены независимо от ответа. Пустой обязательный M10,
+повреждённый/обрезанный/конфликтующий ответ, неверный mapping или raw hash,
+будущие timestamps, неоконченный интервал — отказ до model callbacks.
+Sparse фактические M1 допустимы: без synthetic bars и сдвига labels.
+Admission выполняется production AdmittedClosedM1Snapshot по фактическим
+временам; freshness (900s для ответа) не отключается.
+
+next_label — начало текущего ещё не закрытого M10 при handoff.
+start window обязан целиком находиться в [next_label, next_label+10min).
+Если reconstruction/handoff опоздал, сегмент INCOMPLETE, не автоматический
+догоняющий retry. Для следующего окна нужна обновлённая история и новый OUT.
+Таким образом это внутридневной вход, но не произвольный поздний запуск
+устаревшего exact-input комплекта.
+
+MODEL RECONSTRUCTION
+После полной source admission последовательно вызывается тот же ShadowModel:
+bar -> durable decision -> accepted hypothetical close fill -> position feedback.
+Replay-модель использует виртуальное время nominal close каждого M10; это
+принятая offline close-fill симуляция, не воспроизведение неизвестной сетевой
+задержки ALOR. Все шаги и fills BACKFILL_REPLAY, не LIVE_OBSERVED.
+Существующие поля Step/Fill с times в replay являются VIRTUAL_NOMINAL_CLOSE;
+это явно объявлено в run_plan receipt и per-bar intraday_replay_clock.
+Исходные actual request/receive times находятся НЕИЗМЕНЁННЫМИ в source_snapshot;
+per-bar receipt отдельно содержит snapshot_received_at_ms/replayed_at_ms.
+Нет подмены historical receive times, фиктивной свежести или live latency.
+
+В durable intraday_reconstructed receipt закреплены history/plan hashes,
+последняя обработанная метка, следующая метка, состояние и виртуальная позиция.
+В handoff перемещаются ТЕ ЖЕ model/book/sequence/dedup adapter/observer.
+Ненулевая позиция сохраняется. Cold-flat mid-session путь не добавлен.
+Сначала historical receipt, затем handoff; только последующие measured closed
+REST callbacks используют LIVE_OBSERVED и прежний CallbackFence/LMAX.
+Сам handoff не доказывает подключение WS или DATA; это отдельно видно в
+transport receipts. Первый будущий close ещё не наступил при handoff.
+Exact overlap игнорируется без callback, conflicting overlap/пропуск — HOLD.
+
+No lost prefix, no double callback. Вне source-admitted capability нет
+Deserialize или public-конструктора ReconstructedCandleDay. На ошибке
+partial evidence сохраняется, старый output не удаляется ради повторения.
+Nonflat на остановке остаётся INCOMPLETE; фиктивный close не выполняется.
+
+CGROUP / STOP EVIDENCE
+Уточнение reviewer 29 октября реализовано отдельным read-only checker:
+scripts/signal_shadow_cgroup_preflight.py (root, host, без shell/сетевых запросов).
+A: валидная полностью прочитанная рекурсивная пустая cgroup.
+B: явный ENOENT в доступной cgroup2 hierarchy + expected Slice/path,
+terminal state, MainPID/ControlPID=0, нет job и процессов dedicated UID/ELF,
+включая '(deleted)', повтор unit/mount/group sample без изменения.
+Любая неизвестность/ошибка/гонка — UNKNOWN_HOLD. B не называется samples=[].
+Dummy process, mkdir cgroup, новая Slice или reset-failed не применяются.
+Этот checker НЕ является полным operational preflight.
+
+Минимальный stop capture для будущего exact window (без нового framework):
+- сохранить checker A/B непосредственно до старта;
+- после старта сохранить InvocationID, MainPID, /proc starttime, ControlGroup;
+- до SIGINT сохранить реальные BARS DATA witness и REST source/model receipts;
+  runner_workers_started доказывает создание задач, а не поступление DATA;
+- сохранить stop timer trigger, journal данного InvocationID, actual exit;
+  runner_end теперь явно сохраняет workers_drained и remaining_worker_tasks;
+- до exact deadline новый A/B sample + исчезновение прежних PID/starttime,
+  MainPID/ControlPID0, normal interruption и отсутствие SIGKILL.
+Раннее падение или отсутствие фактических evidence не даёт graceful-stop PASS.
+Окончательный host collection/stop schedule — в следующем operational package,
+не выполнялся и не считается квалифицированным этим source review.
+
+TEST SCOPE
+Synthetic file-only seed404; reconstruction19 -> virtual +1; сравнение всех
+последующих callbacks до EOD с непрерывным OfflineReplay, без сброса состояния.
+Это same-input implementation parity, НЕ доказательство current ALOR live.
+Отдельно: missing/empty/duplicate/conflict/partial/stale/future/hash/price errors;
+изменённый plan/profile/readonly/tail, cold-flat ordinary plan, missed window,
+failed handoff, output reuse, sparse first/last minute, dedup across handoff.
+Existing frozen ALOR oracle/regressions проверяются без изменения fixtures.
+Checker tests: absent/empty/nonempty/process/job/deleted-exe/access/race.
+
+NEXT
+Source review -> Linux release qualification -> exact intraday history/plan,
+new run/OUT + typed STOP and fresh preflight -> separate installation/start
+permission. Сегодняшний baseline, source acceptance и operator permission
+не переносятся автоматически на новый ELF/новое окно.

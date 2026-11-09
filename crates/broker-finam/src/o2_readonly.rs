@@ -13,6 +13,7 @@ use sha2::{Digest, Sha256};
 use crate::AccessToken;
 
 mod observed;
+pub use observed::PrimaryGetFailure;
 
 pub const STAGE8B_P1F_O2_FINAM_BASE_URL: &str = "https://api.finam.ru";
 pub const STAGE8B_P1F_O2_VENUE_SYMBOL: &str = "IMOEXF@RTSX";

@@ -7,6 +7,7 @@ pub mod account;
 pub mod bar_aggregation;
 pub mod bar_finalizer;
 pub mod broker;
+pub mod canonical_m1;
 pub mod command;
 pub mod envelope;
 pub mod event;

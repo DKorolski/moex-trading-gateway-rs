@@ -12,6 +12,29 @@ pub fn policy_fingerprint() -> String {
     format!("{:x}", Sha256::digest(POLICY.as_bytes()))
 }
 
+/// Conditional close-price simulation, never a post-intent market quote.
+pub const CANDLE_POLICY: &str = "moex.shadow.closed-m10-close.full-fill.one-lot.zero-cost.v1";
+
+pub fn candle_policy_fingerprint() -> String {
+    format!("{:x}", Sha256::digest(CANDLE_POLICY.as_bytes()))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CandleFill {
+    pub request: Request,
+    pub price_ticks: i64,
+    pub model_label_utc_ms: i64,
+    pub nominal_close_utc_ms: i64,
+    pub received_at_ms: i64,
+    /// Measured after the decision for observed runs; virtual for offline replay.
+    pub applied_at_ms: i64,
+    pub canonical_input_sha256: String,
+    pub raw_provenance_sha256: String,
+    pub position_lots: i64,
+    pub average_price_ticks: Option<i64>,
+    pub policy: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
     EnterLong,
@@ -116,6 +139,33 @@ impl VirtualBook {
     }
     pub fn average_price_ticks(&self) -> Option<i64> {
         self.average_price_ticks
+    }
+
+    /// Only the model bridge may settle its exact last-bar intent. No Quote is
+    /// synthesized and no quote freshness/causality rule is relaxed.
+    pub(crate) fn settle_close(
+        &mut self,
+        expected: &Request,
+        price_ticks: i64,
+        applied_at_ms: i64,
+    ) -> Result<(), Error> {
+        if self.pending.as_ref() != Some(expected) || price_ticks <= 0 {
+            return Err(Error::InvalidRequest);
+        }
+        if applied_at_ms < expected.decision_at_ms
+            || self.last_effect_at_ms.is_some_and(|t| applied_at_ms < t)
+        {
+            return Err(Error::Clock);
+        }
+        self.position_lots = match expected.action {
+            Action::EnterLong => i64::from(expected.quantity_lots),
+            Action::EnterShort => -i64::from(expected.quantity_lots),
+            Action::Exit => 0,
+        };
+        self.average_price_ticks = (self.position_lots != 0).then_some(price_ticks);
+        self.last_effect_at_ms = Some(applied_at_ms);
+        self.pending = None;
+        Ok(())
     }
 
     pub fn submit(&mut self, request: Request) -> Result<(), Error> {

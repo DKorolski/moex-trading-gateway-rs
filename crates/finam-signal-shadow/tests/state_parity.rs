@@ -160,6 +160,132 @@ fn compare(expected: &Value, actual: &Value, path: &str) -> Result<(), String> {
 }
 
 #[test]
+fn candle_only_five_sessions_match_frozen_python_without_synthetic_quotes() {
+    use finam_signal_shadow::{
+        feedback, replay::OfflineReplay, seed::*, segment::SeededSegment, ValidatedConfig,
+    };
+    let all = bars();
+    let dates = ["2026-09-15", "2026-09-16", "2026-09-17", "2026-09-18"];
+    let local = |b: &HybridRuntimeBarEvent| {
+        chrono::DateTime::from_timestamp(b.close_time_utc, 0).unwrap() + chrono::Duration::hours(3)
+    };
+    let history: Vec<_> = all
+        .iter()
+        .filter(|b| {
+            dates.contains(&local(b).date_naive().to_string().as_str()) && local(b).hour() >= 7
+        })
+        .cloned()
+        .map(|mut b| {
+            b.origin = HybridRuntimeBarOrigin::History;
+            b
+        })
+        .collect();
+    assert_eq!(history.len(), 404);
+    let seed = serde_json::to_vec(&history).unwrap();
+    let mapping = serde_json::to_vec(&InstrumentMapping {
+        instrument: instrument(),
+        tick_size: "0.5".into(),
+        lot_size: 1,
+    })
+    .unwrap();
+    let calendar = serde_json::to_vec(&CalendarInventory {
+        sessions: dates.map(|d| SessionInventory {
+            date: d.into(),
+            required_m10_labels_utc: history
+                .iter()
+                .filter(|b| local(b).date_naive().to_string() == d)
+                .map(|b| b.close_time_utc)
+                .collect(),
+        }),
+    })
+    .unwrap();
+    let start = chrono::DateTime::parse_from_rfc3339("2026-09-21T07:00:00+03:00")
+        .unwrap()
+        .timestamp_millis();
+    let model = ShadowModel::baseline07(context(), 1000).unwrap();
+    let config=ValidatedConfig::parse(&serde_json::to_vec(&serde_json::json!({
+        "schema_version":1,"reference":"alor_freeze_2026_09_27","restart_mode":"new_segment",
+        "model_profile":"imoexf-baseline07-bo-only-no-riskgate","model_sha256":model.model_config_fingerprint(),
+        "reference_sha256":digest(REFERENCE.as_bytes()),"feedback_policy_sha256":feedback::candle_policy_fingerprint(),
+        "instrument_mapping_sha256":digest(&mapping),"calendar_sha256":digest(&calendar),"seed_sha256":digest(&seed),
+        "instrument":"IMOEXF@RTSX","run_id":"candle-independent-oracle","segment_id":"new","previous_segment_id":null,
+        "warmup_session_dates":dates,"warmup_range_start_utc_ms":history[0].close_time_utc*1000,
+        "warmup_range_end_utc_ms":(history.last().unwrap().close_time_utc+600)*1000,
+        "observation_start_utc_ms":start,"run_deadline_utc_ms":start+5*86_400_000,
+        "lmax_ms":1000,"max_quote_age_ms":1000,"clock_uncertainty_ms":10,
+        "ws_silence_budget_ms":1000,"reconnect_budget_ms":1000,"stop_timeout_ms":1000,
+        "max_input_bytes":4_000_000,"max_cache_bars":4096,"max_output_bytes":16_000_000,
+    })).unwrap()).unwrap();
+    let segment =
+        SeededSegment::from_inputs(config, REFERENCE.as_bytes(), &mapping, &calendar, &seed)
+            .unwrap();
+    let path = std::env::temp_dir().join(format!("candle-oracle-{}.jsonl", std::process::id()));
+    let mut replay = OfflineReplay::create(segment, &path).unwrap();
+    let reference: Value = serde_json::from_str(REFERENCE).unwrap();
+    compare(&reference["seed_after"], &replay.observation(), "seed").unwrap();
+    let selected: Vec<_> = all
+        .into_iter()
+        .filter(|b| {
+            let t = local(b);
+            t.year() == 2026 && t.month() == 9 && (21..=25).contains(&t.day()) && t.hour() >= 7
+        })
+        .collect();
+    assert_eq!(selected.len(), 505);
+    let mut expected_fills = 0;
+    for (mut b, expected) in selected
+        .into_iter()
+        .zip(reference["steps"].as_array().unwrap())
+    {
+        let label = local(&b).format("%Y-%m-%dT%H:%M:%S").to_string();
+        b.origin = HybridRuntimeBarOrigin::Replay;
+        let now = (b.close_time_utc + 600) * 1000 + 17;
+        let request = replay.step(b, &digest(INPUT), now).unwrap();
+        let action = match request.as_ref().map(|r| r.action) {
+            Some(Action::EnterLong) => "enter_long",
+            Some(Action::EnterShort) => "enter_short",
+            Some(Action::Exit) => "exit",
+            None => "none",
+        };
+        assert_eq!(action, expected["action"], "{label}");
+        expected_fills += usize::from(request.is_some());
+        compare(&expected["after_feedback"], &replay.observation(), &label).unwrap();
+    }
+    assert!(replay.complete_flat());
+    replay.finish().unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    let rows: Vec<Value> = text
+        .lines()
+        .map(|s| serde_json::from_str(s).unwrap())
+        .collect();
+    assert_eq!(
+        rows.iter().filter(|r| r["kind"] == "model_step").count(),
+        505
+    );
+    let fills: Vec<_> = rows
+        .iter()
+        .filter(|r| r["kind"] == "hypothetical_candle_feedback")
+        .collect();
+    assert_eq!(fills.len(), expected_fills);
+    assert_eq!(expected_fills, 10);
+    assert!(!text.contains("\"quote\":"));
+    assert!(!text.contains("LIVE_OBSERVED"));
+    // Compare immediate pre-feedback decisions/reasons too, not just final positions.
+    for (row, expected) in rows
+        .iter()
+        .filter(|r| r["kind"] == "model_step")
+        .zip(reference["steps"].as_array().unwrap())
+    {
+        let reason = if expected["action"] == "none" {
+            &expected["no_intent_trace"]["reason"]
+        } else {
+            &expected["reason"]
+        };
+        assert_eq!(&row["event"]["decision"]["reason"], reason);
+    }
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn historical_five_sessions_independent_states_and_decisions() {
     let reference: Value = serde_json::from_str(REFERENCE).unwrap();
     assert_eq!(

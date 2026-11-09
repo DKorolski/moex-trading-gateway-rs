@@ -5,6 +5,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::{
     fs::{File, OpenOptions},
     io::{self, Write},
@@ -120,6 +121,14 @@ pub struct Observer {
     sequence: u64,
     last_label: Option<i64>,
     terminal: bool,
+    pending_canonical: Option<(i64, String)>,
+    last_retained_source: Option<String>,
+    journal_hash: Sha256,
+    sealed: bool,
+    #[cfg(test)]
+    fail_kind: Option<&'static str>,
+    #[cfg(test)]
+    crash_pause: Option<(&'static str, bool, std::path::PathBuf)>,
 }
 
 impl Observer {
@@ -169,6 +178,14 @@ impl Observer {
             sequence: 0,
             last_label: None,
             terminal: false,
+            pending_canonical: None,
+            last_retained_source: None,
+            journal_hash: Sha256::new_with_prefix(&line),
+            sealed: false,
+            #[cfg(test)]
+            fail_kind: None,
+            #[cfg(test)]
+            crash_pause: None,
         })
     }
 
@@ -200,7 +217,9 @@ impl Observer {
                 "evidence": snapshot.evidence(),
                 "accounting": snapshot.accounting(),
             }),
-        )
+        )?;
+        self.last_retained_source = Some(snapshot.sha256().into());
+        Ok(())
     }
 
     pub fn record_step(&mut self, step: &Step) -> Result<(), Error> {
@@ -208,6 +227,12 @@ impl Observer {
             return Err(Error::Closed);
         }
         if !valid_step(step)
+            || self
+                .pending_canonical
+                .as_ref()
+                .is_some_and(|(label, hash)| {
+                    *label != step.model_label_utc_ms || hash != &step.raw_provenance_sha256
+                })
             || self
                 .last_label
                 .is_some_and(|label| step.model_label_utc_ms <= label)
@@ -240,6 +265,145 @@ impl Observer {
         )
     }
 
+    pub fn record_candle_feedback(
+        &mut self,
+        mode: ObservationMode,
+        fill: &crate::feedback::CandleFill,
+        state_after: &Value,
+    ) -> Result<(), Error> {
+        if self.terminal {
+            return Err(Error::Closed);
+        }
+        if self.header.feedback_policy_sha256 != crate::feedback::candle_policy_fingerprint()
+            || fill.policy != crate::feedback::CANDLE_POLICY
+            || self.last_label != Some(fill.model_label_utc_ms)
+            || fill.model_label_utc_ms.checked_add(600_000) != Some(fill.nominal_close_utc_ms)
+            || fill.received_at_ms < fill.nominal_close_utc_ms
+            || fill.request.decision_at_ms < fill.received_at_ms
+            || fill.applied_at_ms < fill.request.decision_at_ms
+            || fill.price_ticks <= 0
+            || fill.request.quantity_lots != 1
+            || !hash(&fill.canonical_input_sha256)
+            || !hash(&fill.raw_provenance_sha256)
+            || !state_after.is_object()
+        {
+            self.terminal = true;
+            return Err(Error::Invalid);
+        }
+        self.append(
+            "hypothetical_candle_feedback",
+            &serde_json::json!({
+                "mode":mode, "fill":fill, "state_after":state_after,
+                "price_assumption":"accepted_closed_m10_close",
+                "broker_execution":false, "quotes_observed":false
+            }),
+        )
+    }
+
+    pub(crate) fn record_canonical_source(
+        &mut self,
+        input: &crate::primary::AdmittedCanonicalM10,
+    ) -> Result<String, Error> {
+        if self.terminal {
+            return Err(Error::Closed);
+        }
+        let receipt = input.receipt();
+        if self.pending_canonical.is_some()
+            || receipt.config_sha256 != self.header.config_sha256
+            || self
+                .last_label
+                .is_some_and(|label| receipt.label_ms <= label)
+        {
+            return Err(Error::Invalid);
+        }
+        let hash = input.provenance_sha256().map_err(|_| Error::Invalid)?;
+        self.append(
+            "canonical_source",
+            &serde_json::json!({
+                "source_sha256":hash,"receipt":receipt,"rest_evidence":input.rest_evidence(),
+            }),
+        )?;
+        self.pending_canonical = Some((receipt.label_ms, hash.clone()));
+        Ok(hash)
+    }
+
+    pub(crate) fn record_recovery_source(
+        &mut self,
+        input: &crate::primary::RecoveryInput,
+        source: &broker_finam::sparse_m10::AdmittedClosedM1Snapshot,
+    ) -> Result<String, Error> {
+        let receipt = input.receipt();
+        let canonical = &receipt.canonical;
+        if self.terminal
+            || self.pending_canonical.is_some()
+            || canonical.config_sha256 != self.header.config_sha256
+            || canonical.origin != "RECOVERY_BACKFILL"
+            || canonical.rest_snapshot_sha256.as_deref() != Some(source.sha256())
+            || self
+                .last_label
+                .is_some_and(|label| canonical.label_ms <= label)
+        {
+            return Err(Error::Invalid);
+        }
+        if self.last_retained_source.as_deref() != Some(source.sha256()) {
+            self.record_source(source)?;
+        }
+        let hash = input.provenance_sha256().map_err(|_| Error::Invalid)?;
+        self.append(
+            "canonical_source",
+            &serde_json::json!({"source_sha256":hash,"receipt":receipt,
+            "retained_rest_snapshot_sha256":source.sha256(),"rest_evidence":null}),
+        )?;
+        self.pending_canonical = Some((canonical.label_ms, hash.clone()));
+        Ok(hash)
+    }
+
+    pub(crate) fn record_canonical_commit(
+        &mut self,
+        label: i64,
+        source_sha256: &str,
+        model_result_at_ms: i64,
+        published_at_ms: i64,
+    ) -> Result<(), Error> {
+        if self.terminal {
+            return Err(Error::Closed);
+        }
+        if self.last_label != Some(label)
+            || self.pending_canonical.as_ref() != Some(&(label, source_sha256.to_owned()))
+            || published_at_ms < model_result_at_ms
+        {
+            return Err(Error::Invalid);
+        }
+        self.append(
+            "canonical_commit",
+            &serde_json::json!({"model_label_utc_ms":label,
+            "source_sha256":source_sha256,"model_result_at_ms":model_result_at_ms,
+            "publication_checked_at_ms":published_at_ms,"feedback_complete":true}),
+        )?;
+        self.pending_canonical = None;
+        Ok(())
+    }
+
+    pub(crate) fn record_restart_source(
+        &mut self,
+        source: &crate::primary::restart::RestartSource,
+    ) -> Result<String, Error> {
+        if self.terminal
+            || self.pending_canonical.is_some()
+            || source.config_sha256 != self.header.config_sha256
+            || self.last_label.is_some_and(|l| source.label_ms <= l)
+        {
+            return Err(Error::Invalid);
+        }
+        let hash = crate::seed::digest(&serde_json::to_vec(source).map_err(Error::Json)?);
+        self.append(
+            "restart_source",
+            &serde_json::json!({"source_sha256":hash,"receipt":source}),
+        )?;
+        self.pending_canonical = Some((source.label_ms, hash.clone()));
+        Ok(hash)
+    }
+
     pub fn finish(&mut self, reason: &str) -> Result<(), Error> {
         if self.terminal {
             return Err(Error::Closed);
@@ -248,13 +412,37 @@ impl Observer {
             self.terminal = true;
             return Err(Error::Invalid);
         }
+        let reason = if self.pending_canonical.is_some() {
+            "INCOMPLETE_canonical_operation"
+        } else {
+            reason
+        };
         self.append("segment_end", &serde_json::json!({"reason":reason}))?;
         self.terminal = true;
+        self.sealed = true;
         Ok(())
     }
 
+    /// Only a completed fsync journal has a seal. This does NOT attest that its
+    /// writer thread has joined; that fact is captured separately by the parent.
+    pub(crate) fn seal(&self) -> Option<crate::primary::eod::JournalSeal> {
+        (self.sealed && self.pending_canonical.is_none()).then(|| {
+            crate::primary::eod::JournalSeal {
+                sha256: format!("{:x}", self.journal_hash.clone().finalize()),
+                bytes: self.bytes,
+                last_sequence: self.sequence,
+            }
+        })
+    }
+
     fn append<T: Serialize>(&mut self, kind: &str, event: &T) -> Result<(), Error> {
+        #[cfg(test)]
+        self.crash_pause(kind, true);
         let result = (|| {
+            #[cfg(test)]
+            if self.fail_kind == Some(kind) {
+                return Err(Error::Io(io::Error::other("fixture-only write failure")));
+            }
             let sequence = self.sequence.checked_add(1).ok_or(Error::Limit)?;
             let line = encode(&serde_json::json!({
                 "sequence":sequence, "kind":kind,
@@ -278,12 +466,50 @@ impl Observer {
                 .map_err(Error::Io)?;
             self.sequence = sequence;
             self.bytes = bytes;
+            self.journal_hash.update(&line);
             Ok(())
         })();
+        #[cfg(test)]
+        if result.is_ok() {
+            self.crash_pause(kind, false);
+        }
         if result.is_err() {
             self.terminal = true;
         }
         result
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_on_kind(&mut self, kind: &'static str) {
+        self.fail_kind = Some(kind);
+    }
+
+    /// Child-process crash instrumentation, compiled out of every release.
+    #[cfg(test)]
+    pub(crate) fn pause_for_crash(
+        &mut self,
+        kind: &'static str,
+        before: bool,
+        marker: std::path::PathBuf,
+    ) {
+        self.crash_pause = Some((kind, before, marker));
+    }
+    #[cfg(test)]
+    fn crash_pause(&self, kind: &str, before: bool) {
+        if let Some((target, phase, marker)) = &self.crash_pause {
+            if *target == kind && *phase == before {
+                let mut file = OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(marker)
+                    .unwrap();
+                file.write_all(b"DURABLE_CRASH_FRONTIER\n").unwrap();
+                file.sync_all().unwrap();
+                loop {
+                    std::thread::park_timeout(std::time::Duration::from_secs(1));
+                }
+            }
+        }
     }
 }
 
@@ -300,7 +526,7 @@ fn hash(value: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-fn valid_step(step: &Step) -> bool {
+pub(crate) fn valid_step(step: &Step) -> bool {
     let trace_bound = step
         .after
         .get("no_intent_trace")

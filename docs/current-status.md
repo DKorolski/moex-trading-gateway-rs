@@ -1,5 +1,36 @@
 # Current status — FINAM migration / ALOR parity
 
+## WS-primary review candidate — 2026-11-04
+
+This isolated R2 snapshot implements the WS-primary R0 source contract, with the
+remaining R3/P2 correction to the 2026-11-04 SOURCE HOLD on R1 tree
+`f3466825d72257829368d593b0d0e55849d71c7b`, against
+accepted predecessor tree `73ac00b63b792d3e812b70846c64c7788e55190a`.
+It is NOT an accepted replacement, published main commit, Linux release or
+operational activation. Exact candidate identity and final extracted-source
+reproduction receipts are in the outer review package, not the inherited
+`handoff-commit.txt` / historical handoff evidence below.
+
+Start with [implementation progress and remaining qualifications](stage-8/finam-ws-primary-implementation-progress-20261103.md),
+[the R0 contract](stage-8/finam-ws-primary-review-and-tz-20261102-r0.md),
+and [entry/export semantics](stage-8/finam-ws-primary-entry-and-export-20261103.md).
+The T01–T40 mapping is local evidence inventory, not independent acceptance.
+Strategy baseline07 BO-only/no-riskgate and close-fill policy are unchanged.
+Historical fixture parity is not current ALOR operational parity.
+Reviewer closed R1/P1, R2/P1 and R4/P2 in the R1 delta; the R1 snapshot itself
+remains SOURCE HOLD because of R3/P2. R2 keeps elapsed-but-unassessed timer actions
+and adds intra-command IO-clock regression coverage. See the
+[R2 correction map](stage-8/finam-ws-primary-r2-due-cursor-20261104.md).
+This is a developer correction pending independent re-review, not SOURCE ACCEPT.
+
+No VPS state was queried/changed by this source work. New source installation,
+FINAM execution/POST/DELETE, real orders, Redis/DB0 and runtime-live remain closed.
+The CLI is single-runtime; bounded same-config cohort library tests do not open
+aggregate multi-journal EOD/restart qualification. New native/cgroup/FINAM
+qualification remains a separate post-source-review step.
+
+## Retained predecessor status (historical, not current candidate status)
+
 Status date: 2026-10-12.
 
 Latest release review (`45a3f1b`): **HOLD**, one installer P1; source/native

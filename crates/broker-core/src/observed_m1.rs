@@ -201,29 +201,21 @@ impl ObservedM1Receipt {
         let start = self.value.bars.partition_point(|b| b.open_ts < open);
         let end = self.value.bars.partition_point(|b| b.open_ts < close);
         let actual_m1 = self.value.bars[start..end].to_vec();
-        let mut bar = actual_m1
-            .first()
-            .ok_or(ObservedM1Error::EmptyBucket)?
-            .clone();
-        bar.open_ts = open;
-        bar.close_ts = close;
-        bar.timeframe_sec = 600;
-        bar.close = actual_m1.last().ok_or(ObservedM1Error::EmptyBucket)?.close;
-        bar.volume = Decimal::ZERO;
-        let mut minute_bitmap = 0;
-        for b in &actual_m1 {
-            bar.high = bar.high.max(b.high);
-            bar.low = bar.low.min(b.low);
-            bar.volume = bar
-                .volume
-                .checked_add(b.volume)
-                .ok_or(ObservedM1Error::Bar)?;
-            minute_bitmap |= 1 << ((b.open_ts - open).num_seconds() / 60);
-        }
+        let values =
+            crate::canonical_m1::aggregate_m1_window(&self.value.instrument, open, &actual_m1)
+                .map_err(|e| match e {
+                    crate::canonical_m1::AggregationError::Empty => ObservedM1Error::EmptyBucket,
+                    crate::canonical_m1::AggregationError::Range => ObservedM1Error::Range,
+                    crate::canonical_m1::AggregationError::Bar => ObservedM1Error::Bar,
+                })?;
+        // The REST receipt, not source-neutral arithmetic, owns these claims.
+        let mut bar = values.provisional_bar;
+        bar.is_final = true;
+        bar.source_kind = MarketDataSourceKind::HistoricalPoll;
         Ok(ObservedM10Derivation {
             bar,
             actual_m1,
-            minute_bitmap,
+            minute_bitmap: values.minute_bitmap,
         })
     }
 }

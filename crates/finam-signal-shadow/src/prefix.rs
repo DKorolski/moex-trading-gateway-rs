@@ -131,6 +131,11 @@ pub fn reconstruct(
     let wall = Utc::now().timestamp_millis();
     let header = segment.seed_observation();
     let (config, mut model) = segment.into_replay_parts();
+    // Old prefixes contain quote-derived fills. They cannot continue a new
+    // candle-only simulation; use a new session-boundary seed/segment.
+    if config.candle_only() {
+        return Err(PrefixError::Binding);
+    }
     let c = config.config();
     if bytes.len() as u64 > c.max_input_bytes.min(16 * 1024 * 1024) {
         return Err(PrefixError::Bounds);

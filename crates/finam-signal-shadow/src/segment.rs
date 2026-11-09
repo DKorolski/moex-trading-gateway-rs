@@ -30,7 +30,8 @@ pub enum ObservationMode {
 }
 
 /// Read-only initial observation; no readiness or lifecycle authority.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SeedObservation {
     pub mode: ObservationMode,
     pub run_id: String,
@@ -119,7 +120,7 @@ impl SeededSegment {
         // The inner constructor hashes the canonical decoded representation;
         // receipt above retains the exact original input-byte hash as well.
         let canonical = serde_json::to_vec(&history).map_err(|_| SegmentError::Decode)?;
-        let model = ShadowModel::baseline07_warmed(
+        let mut model = ShadowModel::baseline07_warmed(
             context,
             &history,
             dates,
@@ -127,6 +128,9 @@ impl SeededSegment {
             quote_age,
         )
         .map_err(|_| SegmentError::Warmup)?;
+        if config.candle_only() {
+            model.select_candle_only();
+        }
         if model.model_config_fingerprint() != c.model_sha256 {
             return Err(SegmentError::Warmup);
         }

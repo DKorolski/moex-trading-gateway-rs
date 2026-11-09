@@ -65,9 +65,33 @@ pub struct ValidatedConfig {
     config: ShadowConfig,
     fingerprint: String,
     semantic_fingerprint: String,
+    primary: Option<crate::primary::PrimaryPolicy>,
 }
 
 impl ValidatedConfig {
+    /// Explicit construction only. The legacy JSON parser remains v1-only so
+    /// unfinished WS-primary cannot accidentally execute the REST-driven runner.
+    pub fn from_ws_primary(value: &crate::primary::WsPrimaryConfig) -> Result<Self, ConfigError> {
+        let fingerprint = value.fingerprint().map_err(|_| ConfigError::Profile)?;
+        let semantic_fingerprint = value
+            .semantic_fingerprint()
+            .map_err(|_| ConfigError::Profile)?;
+        let mut config = Self::validate(value.base.clone())?;
+        config.fingerprint = fingerprint;
+        config.semantic_fingerprint = semantic_fingerprint;
+        config.primary = Some(value.primary.clone());
+        Ok(config)
+    }
+
+    pub fn primary_policy(&self) -> Option<&crate::primary::PrimaryPolicy> {
+        self.primary.as_ref()
+    }
+
+    /// Existing policy digest is the explicit selector; no implicit mode switch.
+    pub fn candle_only(&self) -> bool {
+        self.config.feedback_policy_sha256 == crate::feedback::candle_policy_fingerprint()
+    }
+
     pub fn parse(bytes: &[u8]) -> Result<Self, ConfigError> {
         // Bound parsing even before a configured input budget exists.
         if bytes.len() > 16_384 {
@@ -154,9 +178,15 @@ impl ValidatedConfig {
         // Re-serialization removes JSON whitespace/key-order differences. All
         // required config fields, including feedback assumptions, are bound.
         let canonical = serde_json::to_vec(&config).map_err(|_| ConfigError::Json)?;
+        let input_policy =
+            if config.feedback_policy_sha256 == crate::feedback::candle_policy_fingerprint() {
+                crate::feedback::CANDLE_POLICY
+            } else {
+                crate::quote::QUOTE_DEDUP_POLICY
+            };
         let mut hash = Sha256::new();
         hash.update(b"moex.signal-shadow.config.v1\0");
-        hash.update(crate::quote::QUOTE_DEDUP_POLICY.as_bytes());
+        hash.update(input_policy.as_bytes());
         hash.update([0]);
         hash.update(canonical);
         // Derive from the complete serialized config, removing ONLY attribution.
@@ -168,13 +198,14 @@ impl ValidatedConfig {
         }
         let mut semantic_hash = Sha256::new();
         semantic_hash.update(b"moex.signal-shadow.semantic-config.v1\0");
-        semantic_hash.update(crate::quote::QUOTE_DEDUP_POLICY.as_bytes());
+        semantic_hash.update(input_policy.as_bytes());
         semantic_hash.update([0]);
         semantic_hash.update(serde_json::to_vec(&semantic).map_err(|_| ConfigError::Json)?);
         Ok(Self {
             config,
             fingerprint: format!("{:x}", hash.finalize()),
             semantic_fingerprint: format!("{:x}", semantic_hash.finalize()),
+            primary: None,
         })
     }
 
@@ -240,6 +271,27 @@ mod tests {
         assert_eq!(
             validated.fingerprint(),
             format!("{:x}", old_hash.finalize())
+        );
+        let old_policy =
+            b"moex.shadow.quote-dedup.evict-oldest-4096.monotonic-frontier.old-hold.v1";
+        let mut h = Sha256::new();
+        h.update(b"moex.signal-shadow.config.v1\0");
+        h.update(old_policy);
+        h.update([0]);
+        h.update(serde_json::to_vec(&original).unwrap());
+        assert_ne!(validated.fingerprint(), format!("{:x}", h.finalize()));
+        let mut semantic = serde_json::to_value(&original).unwrap();
+        for k in ["run_id", "segment_id", "previous_segment_id"] {
+            semantic.as_object_mut().unwrap().remove(k);
+        }
+        let mut h = Sha256::new();
+        h.update(b"moex.signal-shadow.semantic-config.v1\0");
+        h.update(old_policy);
+        h.update([0]);
+        h.update(serde_json::to_vec(&semantic).unwrap());
+        assert_ne!(
+            validated.semantic_fingerprint(),
+            format!("{:x}", h.finalize())
         );
         assert_eq!(
             validated.semantic_fingerprint(),

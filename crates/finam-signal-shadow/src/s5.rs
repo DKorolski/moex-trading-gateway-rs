@@ -12,6 +12,10 @@ pub(crate) enum Channel {
 
 #[derive(Serialize, Debug)]
 pub(crate) struct Receipt {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    initial_discard: Option<crate::quote::InitialDiscard>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auxiliary_total: Option<u64>,
     schema: &'static str,
     channel: Channel,
     connection_generation: u64,
@@ -28,6 +32,7 @@ pub(crate) struct Receipt {
 }
 
 pub(crate) struct Witness {
+    auxiliary_reported: bool,
     channel: Channel,
     generation: u64,
     sent: bool,
@@ -35,12 +40,78 @@ pub(crate) struct Witness {
     auth_generation: Option<u64>,
 }
 
+#[cfg(test)]
+impl Receipt {
+    pub(crate) fn test_variant(
+        mut self,
+        event: &'static str,
+        channel: Channel,
+        data_items: usize,
+        total: Option<u64>,
+    ) -> Self {
+        self.event = event;
+        self.channel = channel;
+        self.data_items = data_items;
+        self.auxiliary_total = total;
+        self
+    }
+}
+
 impl Witness {
     pub(crate) fn receipts(&mut self, observation: &Observation, at_ms: i64) -> Vec<Receipt> {
         let mut receipts = Vec::new();
+        if let Observation::Quotes(frame) = observation {
+            if self.channel == Channel::Quotes && self.sent {
+                if let Some(discard) = &frame.initial_discard {
+                    receipts.push(Receipt {
+                        initial_discard: Some(discard.clone()),
+                        auxiliary_total: None,
+                        schema: "signal-shadow-auth-ws-v1",
+                        channel: self.channel,
+                        connection_generation: self.generation,
+                        auth_generation: self.auth_generation,
+                        at_ms,
+                        event: "discarded_initial_stale_candidate",
+                        instrument: "IMOEXF@RTSX",
+                        data_items: 0,
+                        provider_subscription_ack: false,
+                        finality_proven: false,
+                        initial_history: None,
+                    });
+                }
+            }
+            if self.channel == Channel::Quotes
+                && self.sent
+                && !self.auxiliary_reported
+                && frame.auxiliary_total > 0
+            {
+                self.auxiliary_reported = true;
+                receipts.push(Receipt {
+                    initial_discard: None,
+                    schema: if self.auth_generation.is_some() {
+                        "signal-shadow-auth-ws-v1"
+                    } else {
+                        "signal-shadow-s5-v1"
+                    },
+                    channel: self.channel,
+                    connection_generation: self.generation,
+                    auth_generation: self.auth_generation,
+                    at_ms,
+                    event: "auxiliary_updates_observed",
+                    instrument: "IMOEXF@RTSX",
+                    data_items: 0,
+                    provider_subscription_ack: false,
+                    finality_proven: false,
+                    initial_history: None,
+                    auxiliary_total: Some(frame.auxiliary_total),
+                });
+            }
+        }
         if let Observation::InitialHistory { history, .. } = observation {
             if self.channel == Channel::Bars && self.sent {
                 receipts.push(Receipt {
+                    initial_discard: None,
+                    auxiliary_total: None,
                     schema: if self.auth_generation.is_some() {
                         "signal-shadow-auth-ws-v1"
                     } else {
@@ -67,6 +138,7 @@ impl Witness {
 
     pub(crate) fn new(channel: Channel, generation: u64) -> Self {
         Self {
+            auxiliary_reported: false,
             channel,
             generation,
             sent: false,
@@ -109,6 +181,8 @@ impl Witness {
             _ => return None,
         };
         Some(Receipt {
+            initial_discard: None,
+            auxiliary_total: None,
             schema: if self.auth_generation.is_some() {
                 "signal-shadow-auth-ws-v1"
             } else {
@@ -145,6 +219,8 @@ mod tests {
     #[test]
     fn data_is_once_per_generation_and_raw_secrets_are_not_serialized() {
         let data = Observation::Quotes(crate::ws::QuoteFrame {
+            initial_discard: None,
+            auxiliary_total: 0,
             raw_frame: "SECRET_TOKEN_AND_PROVIDER_FIELDS".into(),
             received_at_ms: 10,
             quotes: vec![crate::feedback::Quote {

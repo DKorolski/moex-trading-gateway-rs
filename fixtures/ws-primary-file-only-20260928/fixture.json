@@ -1,0 +1,19 @@
+{
+  "canonical_labels": 101,
+  "cgroup_qualified": false,
+  "files_sha256": {
+    "completion.json": "a15c2cecf5d36540b35e3b1e5a4528b6d94fd7df741559e207a8085f8056e82f",
+    "config.json": "6f631159bdfb31a22e7bd17ef5e0e5d2213e38e89558f773a07e693bb219f0c9",
+    "evidence-binding.json": "9a0b323c585bffa85b2f7be8edb56e90610d474114d8585302bb32e7ac19a407",
+    "journal.jsonl": "99dc74aa2af86c8cc7b142bf6e70577da951c26bb980784eaac862891f093c44"
+  },
+  "full_session_qualified": false,
+  "network_qualified": false,
+  "parity_accepted": false,
+  "rest_exception_labels": 1,
+  "schema_version": 1,
+  "scope": "SYNTHETIC_HISTORICAL_FILE_ONLY_NOT_FINAM_NOT_LIVE_PARITY",
+  "session_date": "2026-09-28",
+  "source": "generated fake calendar/M1 and actual shadow model, not re-timestamped provider data",
+  "ws_live_labels": 100
+}

@@ -1,0 +1,53 @@
+{
+  "schema_version": 2,
+  "market_data_mode": "ws_primary_v1",
+  "source_policy": "moex.signal-shadow.ws-primary-m10.v1",
+  "base": {
+    "schema_version": 1,
+    "reference": "alor_freeze_2026_09_27",
+    "restart_mode": "new_segment",
+    "model_profile": "imoexf-baseline07-bo-only-no-riskgate",
+    "model_sha256": "665f18112142f6c9aee1b613e341870f0d559d783fe41df725e26415507e6290",
+    "reference_sha256": "048d10d71431efd02fc1bd0ce9edf19d3e070235496213544c5ab4c967241347",
+    "feedback_policy_sha256": "391eaa566a45e64fb673ce711289f5b161369999cd978c30316710ef53e6e9bb",
+    "instrument_mapping_sha256": "6790b381bc694d5ebd5984b8253e997a4355956f36012ab53bb3b9aca35b55c8",
+    "calendar_sha256": "d9fa25bb94900cb563c77977faee954c7869dc0eba573fe7dec519bdd6461d17",
+    "seed_sha256": "5fd29e23f4d108ffeb885ce4ebb60ffe9f914e4b7a65ec0823f9a5b04fdf7ace",
+    "instrument": "IMOEXF@RTSX",
+    "run_id": "intraday-test",
+    "segment_id": "new",
+    "previous_segment_id": null,
+    "warmup_session_dates": [
+      "2026-09-22",
+      "2026-09-23",
+      "2026-09-24",
+      "2026-09-25"
+    ],
+    "warmup_range_start_utc_ms": 1790049600000,
+    "warmup_range_end_utc_ms": 1790369400000,
+    "observation_start_utc_ms": 1790568000000,
+    "run_deadline_utc_ms": 1790629200000,
+    "lmax_ms": 10000,
+    "max_quote_age_ms": 1000,
+    "clock_uncertainty_ms": 100,
+    "ws_silence_budget_ms": 1000,
+    "reconnect_budget_ms": 1000,
+    "stop_timeout_ms": 1000,
+    "max_input_bytes": 2000000,
+    "max_cache_bars": 4096,
+    "max_output_bytes": 20000000
+  },
+  "primary": {
+    "close_grace_ms": 1000,
+    "exception_wait_ms": 3000,
+    "proof_timeout_ms": 5000,
+    "ingress_capacity": 128,
+    "max_ingress_age_ms": 2000,
+    "max_cache_m1": 4096,
+    "bootstrap_max_rows": 512,
+    "bootstrap_max_bytes": 262144,
+    "audit_every_commits": null,
+    "recovery_overlap_m10": 2,
+    "recovery_max_gap_ms": 21600000
+  }
+}

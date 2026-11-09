@@ -120,6 +120,30 @@ impl OfflineReplay {
         if self.observer.record_step(&step).is_err() {
             return self.stop(ReplayError::Evidence);
         }
+        if self.config.candle_only() {
+            if let Some(request) = &request {
+                let fill = match self.model.on_candle_close(
+                    request,
+                    virtual_result_at_ms,
+                    virtual_result_at_ms,
+                    raw_provenance_sha256,
+                ) {
+                    Ok(fill) => fill,
+                    Err(_) => return self.stop(ReplayError::Model),
+                };
+                if self
+                    .observer
+                    .record_candle_feedback(
+                        ObservationMode::BackfillReplay,
+                        &fill,
+                        &self.model.observation(),
+                    )
+                    .is_err()
+                {
+                    return self.stop(ReplayError::Evidence);
+                }
+            }
+        }
         self.last_bar = Some(bar);
         self.last_clock_ms = Some(virtual_result_at_ms);
         self.steps += 1;
@@ -133,6 +157,9 @@ impl OfflineReplay {
     ) -> Result<Option<Fill>, ReplayError> {
         if self.closed {
             return Err(ReplayError::Closed);
+        }
+        if self.config.candle_only() {
+            return self.stop(ReplayError::Input);
         }
         if virtual_applied_at_ms >= self.config.config().run_deadline_utc_ms
             || self

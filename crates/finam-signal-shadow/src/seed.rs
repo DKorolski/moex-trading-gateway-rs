@@ -85,7 +85,7 @@ pub fn bind_seed(
     let fixed = profile::baseline07_config().map_err(|_| SeedError::Identity)?;
     let model = HybridIntradayRuntimeStrategy::new(fixed);
     if model.stage5c_config_fingerprint() != c.model_sha256
-        || feedback::policy_fingerprint() != c.feedback_policy_sha256
+        || (feedback::policy_fingerprint() != c.feedback_policy_sha256 && !validated.candle_only())
     {
         return Err(SeedError::Identity);
     }

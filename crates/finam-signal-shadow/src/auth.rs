@@ -1,5 +1,6 @@
 //! Single-flight, fixed-origin authentication. No order surface, fallback account,
-//! synthetic TTL or logging of provider errors. Failure/cancellation latches HOLD.
+//! synthetic TTL or logging of provider errors. Legacy failure/cancellation
+//! latches HOLD; the explicit primary module classifies completed unavailability.
 use broker_finam::{
     AccessToken, AccessTokenLease, FinamAuthPolicy, FinamRestClient, SecretToken,
     TokenDetailsResponse,
@@ -10,6 +11,11 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::Mutex;
+mod primary;
+pub use primary::{
+    PrimaryAuthClass, PrimaryAuthFailure, PrimaryAuthGrant, PrimaryAuthReadiness, PrimaryAuthStage,
+    PrimaryAuthStatus,
+};
 
 const MARGIN: Duration = Duration::from_secs(120);
 const MAX_TTL: Duration = Duration::from_secs(86_400);
@@ -35,6 +41,7 @@ struct State {
     grant: Option<Grant>,
     held: bool,
     last_wall: DateTime<Utc>,
+    primary_status: PrimaryAuthStatus,
 }
 
 /// Account is an exact operator-selected identifier, never selected from a list.
@@ -60,6 +67,7 @@ impl AuthLifecycle {
                 grant: None,
                 held: false,
                 last_wall: Utc::now(),
+                primary_status: PrimaryAuthStatus::NotIssued,
             }),
         }))
     }
@@ -229,6 +237,26 @@ mod tests {
             .unwrap();
         assert_eq!(g.generation, 2);
         assert_eq!(g.lease.token().as_str(), "renewed-fixture");
+    }
+
+    #[tokio::test]
+    async fn rest_grant_refresh_preserves_established_bars_connection() {
+        let auth = owner();
+        assert_eq!(auth.grant_with(issue).await.unwrap().generation, 1);
+        crate::socket::tests::refresh_without_socket_replacement(async {
+            auth.state.lock().await.grant.as_mut().unwrap().renew_at = Instant::now();
+            let grant = auth
+                .grant_with(|| async {
+                    let mut d = details(Utc::now());
+                    d.expires_at = Some((Utc::now() + chrono::Duration::minutes(30)).to_rfc3339());
+                    Ok((AccessToken::new("rest-refreshed-fixture"), d))
+                })
+                .await
+                .unwrap();
+            assert_eq!(grant.generation, 2);
+            assert!(grant.current(Utc::now(), Instant::now()));
+        })
+        .await;
     }
 
     #[tokio::test]

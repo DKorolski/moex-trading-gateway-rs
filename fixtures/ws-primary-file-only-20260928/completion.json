@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "config_sha256": "a0aebd94dffa30b85b34e5bec1421b41eef9fb1650ee7e48e6bad67694b04ce0",
+  "calendar_sha256": "3a126a339a0059a8ed0f708ec299c9f0621ba34a46a5d52695be8e3cad157ee1",
+  "journal": {
+    "sha256": "99dc74aa2af86c8cc7b142bf6e70577da951c26bb980784eaac862891f093c44",
+    "bytes": 996422,
+    "last_sequence": 413
+  },
+  "calendar_eod_trigger": true,
+  "eod_check_at_ms": 1790628609900,
+  "stop_started_at_ms": 1790628609900,
+  "joined_at_ms": 1790628609900,
+  "stop_budget_ms": 1000,
+  "elapsed_stop_ms": 9,
+  "clock_consistent": true,
+  "socket_drained": true,
+  "http_drained": true,
+  "writer_drained": true,
+  "fault_free": true,
+  "continuity_resolved": true,
+  "recovery_resolved": true,
+  "model_prepared": true,
+  "semantic_eod_passed": true,
+  "cgroup_qualified": false,
+  "network_qualified": false
+}

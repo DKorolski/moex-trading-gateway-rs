@@ -26,6 +26,8 @@ use tokio::{
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Plan {
+    #[serde(default)]
+    pub initial_quote_discard: bool,
     pub schema_version: u32,
     pub run_id: String,
     pub account_id: String,
@@ -131,15 +133,21 @@ enum ErrorCode {
     Clock,
     Socket(crate::socket::SocketCode),
 }
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 struct ErrorReceipt {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timestamp_bounds: Option<crate::socket::TimestampBoundsDetail>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    quote_conflict: Option<Box<crate::quote::QuoteConflictDetail>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    quote_time: Option<Box<crate::quote::QuoteTimeDetail>>,
     channel: Channel,
     stage: crate::socket::SocketStage,
     code: ErrorCode,
     auth_generation: Option<u64>,
     connection_generation: Option<u64>,
 }
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct Failure {
     reason: &'static str,
     detail: Option<ErrorReceipt>,
@@ -162,6 +170,18 @@ impl Failure {
         error: crate::transport::TransportError,
     ) -> Self {
         use crate::transport::TransportError as E;
+        let timestamp_bounds = match &error {
+            E::Socket(e) => e.timestamp_bounds,
+            _ => None,
+        };
+        let quote_conflict = match &error {
+            E::Socket(e) => e.quote_conflict.clone(),
+            _ => None,
+        };
+        let quote_time = match &error {
+            E::Socket(e) => e.quote_time.clone(),
+            _ => None,
+        };
         let (stage, code) = match error {
             E::Socket(e) => (e.stage, ErrorCode::Socket(e.code)),
             E::Bounds => (stage, ErrorCode::Bounds),
@@ -175,6 +195,9 @@ impl Failure {
         Self {
             reason,
             detail: Some(ErrorReceipt {
+                timestamp_bounds,
+                quote_conflict,
+                quote_time,
                 channel,
                 stage,
                 code,
@@ -269,13 +292,14 @@ async fn worker(
                 })?,
         ),
         Channel::Quotes => Socket::Quotes(
-            QuotesSocket::connect(
+            QuotesSocket::connect_diagnostic_initial(
                 grant.lease.clone(),
                 budget,
                 p.silence_ms,
                 p.reconnect_ms,
                 p.quote_age_ms,
                 p.dedup_capacity,
+                p.initial_quote_discard,
             )
             .await
             .map_err(|e| {
@@ -376,6 +400,38 @@ impl Coverage {
                     return Err("diagnostic_receipt_generation");
                 }
                 match v["event"].as_str() {
+                    Some("discarded_initial_stale_candidate")
+                        if ch == "Quotes"
+                            && key.1 == 1
+                            && key.2 == 1
+                            && v["data_items"].as_u64() == Some(0)
+                            && v["initial_discard"]["rows"]
+                                .as_u64()
+                                .is_some_and(|n| n > 0 && n <= 512)
+                            && v["initial_discard"]["cumulative_rows"]
+                                .as_u64()
+                                .is_some_and(|n| n > 0 && n <= 512)
+                            && v["initial_discard"]["cumulative_bytes"]
+                                .as_u64()
+                                .is_some_and(|n| n > 0 && n <= 262144) =>
+                    {
+                        if !self.sent.get(&key).is_some_and(|sent| at >= *sent)
+                            || self.data.contains_key(&key)
+                        {
+                            return Err("diagnostic_receipt_order");
+                        }
+                    }
+                    Some("auxiliary_updates_observed")
+                        if ch == "Quotes"
+                            && v["data_items"].as_u64() == Some(0)
+                            && v["auxiliary_total"].as_u64().is_some_and(|n| n > 0) =>
+                    {
+                        // Cumulative across reconnects, not fresh DATA in this generation.
+                        // Allowed before or after DATA, but never before subscription.
+                        if !self.sent.get(&key).is_some_and(|sent| at >= *sent) {
+                            return Err("diagnostic_receipt_order");
+                        }
+                    }
                     Some("snapshot_discarded") if ch == "Bars" => {
                         if !self.sent.get(&key).is_some_and(|sent| at >= *sent)
                             || self.data.contains_key(&key)
@@ -430,6 +486,8 @@ pub async fn run(
     );
     writer.put(
         &serde_json::json!({"event":"diagnostic_start","schema":1,"run_id":plan.run_id,
+            "initial_quote_discard":plan.initial_quote_discard,
+            "initial_quote_policy":"diagnostic.first-handshake.pre-fresh.512rows.262144bytes.v1",
         "start_at":plan.start_at,"latest_start_at":plan.latest_start_at,"finish_at":plan.finish_at,
         "model_invoked":false,"controlled_reconnect":false,"canonical_private_plan_sha256":plan_sha256,
         "workers":["BARS","QUOTES"],"request_budget_ms":plan.request_budget_ms,"silence_ms":plan.silence_ms,
@@ -586,7 +644,7 @@ async fn coordinate_with_post_flush_clock(
     writer.put(&serde_json::json!({"event":"diagnostic_terminal","result":match code{0=>"DIAGNOSTIC_PENDING_EXIT",1=>"DIAGNOSTIC_FAILED",_=>"DIAGNOSTIC_INCOMPLETE"},
         "requires_successful_process_exit":true,
         "reason":failure.as_ref().map(|e|e.reason).unwrap_or(if expected_stop{"bounded_stop"}else{"early_interrupt"}),
-        "primary_error":failure.as_ref().and_then(|e|e.detail),
+        "primary_error":failure.as_ref().and_then(|e|e.detail.as_ref()),
         "both_socket_owners_active_before_stop":owners_active,"joined_jobs":joined,"expected_guard_window":expected_stop,
         "record_prepared_at":Utc::now(),"model_invoked":false}))?;
     let (wall, monotonic) = post_flush_clock();
@@ -604,6 +662,194 @@ mod tests {
     use crate::ws::{Observation, QuoteFrame};
     use std::sync::atomic::AtomicUsize;
     static SEQ: AtomicUsize = AtomicUsize::new(0);
+    #[test]
+    fn initial_protocol_witness_coverage_and_output_budget() {
+        let file = path();
+        let mut w = Writer::new(&file, 1048576).unwrap();
+        let mut c = Coverage::default();
+        for e in events()
+            .into_iter()
+            .filter(|e| matches!(e, Event::Grant(_)))
+        {
+            c.record(&e, &mut w).unwrap();
+        }
+        let mut witness = Witness::new_auth(Channel::Quotes, 1, 1);
+        for (i, o) in crate::ws::initial_quote_tests::observations()
+            .iter()
+            .enumerate()
+        {
+            for r in witness.receipts(o, i as i64 + 1) {
+                c.record(&Event::Witness(r), &mut w).unwrap();
+            }
+            if i < 2 {
+                assert!(c.data.is_empty());
+            }
+            assert!(!c.complete());
+        }
+        assert_eq!(c.data.len(), 1);
+        drop(w);
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(text.matches("discarded_initial_stale_candidate").count(), 1);
+        assert_eq!(text.matches("first_validated_data").count(), 1);
+        std::fs::remove_file(file).unwrap();
+        let file = path();
+        let mut w = Writer::new(&file, 1).unwrap();
+        let mut witness = Witness::new_auth(Channel::Quotes, 1, 1);
+        let obs = crate::ws::initial_quote_tests::observations();
+        witness.receipts(&obs[0], 1);
+        let r = witness.receipts(&obs[1], 2).pop().unwrap();
+        assert!(w.put(&r).is_err());
+        drop(w);
+        std::fs::remove_file(file).unwrap();
+    }
+    #[test]
+    fn initial_plan_is_explicit_opt_in() {
+        let p = plan();
+        let mut v = serde_json::to_value(&p).unwrap();
+        v.as_object_mut().unwrap().remove("initial_quote_discard");
+        assert!(
+            !serde_json::from_value::<Plan>(v.clone())
+                .unwrap()
+                .initial_quote_discard
+        );
+        v["initial_quote_discard"] = serde_json::json!(true);
+        assert!(
+            serde_json::from_value::<Plan>(v.clone())
+                .unwrap()
+                .initial_quote_discard
+        );
+        v["initial_quote_discard"] = serde_json::json!("true");
+        assert!(serde_json::from_value::<Plan>(v).is_err());
+    }
+    #[test]
+    fn last_projection_protocol_witness_coverage_writer_chain() {
+        let file = path();
+        let mut writer = Writer::new(&file, 1048576).unwrap();
+        let mut c = Coverage::default();
+        for e in events()
+            .into_iter()
+            .filter(|e| matches!(e, Event::Grant(_)))
+        {
+            c.record(&e, &mut writer).unwrap();
+        }
+        let mut witness = Witness::new_auth(Channel::Quotes, 1, 1);
+        for (i, o) in crate::ws::snapshot_tests::last_projection_observations()
+            .into_iter()
+            .enumerate()
+        {
+            if i == 3 {
+                witness = Witness::new_auth(Channel::Quotes, 2, 2);
+            }
+            let before = c.data.clone();
+            let sent = c.sent.clone();
+            for receipt in witness.receipts(&o, i as i64 + 1) {
+                c.record(&Event::Witness(receipt), &mut writer).unwrap();
+            }
+            if i == 2 || i == 4 {
+                assert_eq!(c.data, before);
+                assert_eq!(c.sent, sent);
+            }
+            if i == 4 {
+                assert!(!c.data.contains_key(&("Quotes".into(), 2, 2)));
+            }
+            assert!(!c.complete());
+        }
+        assert!(c.data.contains_key(&("Quotes".into(), 2, 2)));
+        drop(writer);
+        let raw = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(raw.matches("auxiliary_updates_observed").count(), 2);
+        assert_eq!(raw.matches("first_validated_data").count(), 2);
+        assert!(!raw.contains("SECRET"));
+        std::fs::remove_file(file).unwrap();
+    }
+
+    #[test]
+    fn mixed_aux_and_data_reaches_writer_and_aux_is_budgeted() {
+        let mixed = crate::ws::snapshot_tests::last_projection_observations()
+            .pop()
+            .unwrap();
+        for budget in [1, 1048576] {
+            let file = path();
+            let mut writer = Writer::new(&file, 1048576).unwrap();
+            let mut c = Coverage::default();
+            for e in events()
+                .into_iter()
+                .filter(|e| matches!(e, Event::Grant(_)))
+            {
+                c.record(&e, &mut writer).unwrap();
+            }
+            let mut w = Witness::new_auth(Channel::Quotes, 2, 2);
+            for r in w.receipts(&Observation::Handshake, 1) {
+                c.record(&Event::Witness(r), &mut writer).unwrap();
+            }
+            writer.left = budget;
+            let receipts = w.receipts(&mixed, 2);
+            assert_eq!(receipts.len(), 2);
+            let mut results = receipts
+                .into_iter()
+                .map(|r| c.record(&Event::Witness(r), &mut writer));
+            if budget == 1 {
+                assert_eq!(results.next().unwrap(), Err("diagnostic_output_budget"));
+                drop(results);
+                assert!(c.data.is_empty());
+            } else {
+                assert!(results.all(|r| r.is_ok()));
+                assert_eq!(c.data.len(), 1);
+            }
+            std::fs::remove_file(file).unwrap();
+        }
+    }
+
+    #[test]
+    fn auxiliary_receipt_order_generation_and_shape_fail_closed() {
+        for case in 0..8 {
+            let file = path();
+            let mut writer = Writer::new(&file, 1048576).unwrap();
+            let mut c = Coverage::default();
+            let mut w = Witness::new_auth(Channel::Quotes, 2, 2);
+            for e in events()
+                .into_iter()
+                .filter(|e| matches!(e, Event::Grant(g) if case != 1 || g.generation != 2))
+            {
+                c.record(&e, &mut writer).unwrap();
+            }
+            let handshake = w.receipts(&Observation::Handshake, 2).pop().unwrap();
+            if case != 0 && case != 1 {
+                c.record(&Event::Witness(handshake), &mut writer).unwrap();
+            }
+            let o = crate::ws::snapshot_tests::last_projection_observations().remove(2);
+            let r = w
+                .receipts(&o, if case == 7 { 1 } else { 3 })
+                .pop()
+                .unwrap()
+                .test_variant(
+                    if case == 2 {
+                        "unknown_event"
+                    } else {
+                        "auxiliary_updates_observed"
+                    },
+                    if case == 3 {
+                        Channel::Bars
+                    } else {
+                        Channel::Quotes
+                    },
+                    usize::from(case == 4),
+                    if case == 5 {
+                        None
+                    } else {
+                        Some(if case == 6 { 0 } else { 1 })
+                    },
+                );
+            let left = writer.left;
+            assert!(
+                c.record(&Event::Witness(r), &mut writer).is_err(),
+                "case {case}"
+            );
+            assert!(c.data.is_empty());
+            assert_eq!(writer.left, left);
+            std::fs::remove_file(file).unwrap();
+        }
+    }
     fn path() -> std::path::PathBuf {
         std::env::temp_dir().join(format!(
             "shadow-diagnostic-{}-{}",
@@ -614,6 +860,7 @@ mod tests {
     fn plan() -> Plan {
         let now = Utc::now();
         Plan {
+            initial_quote_discard: false,
             schema_version: 1,
             run_id: "diagnostic-test".into(),
             account_id: "PRIVATE_ACCOUNT_SENTINEL".into(),
@@ -633,6 +880,8 @@ mod tests {
     fn observation(channel: Channel) -> Observation {
         match channel {
             Channel::Quotes => Observation::Quotes(QuoteFrame {
+                initial_discard: None,
+                auxiliary_total: 0,
                 raw_frame: "SECRET_FRAME".into(),
                 received_at_ms: 3,
                 quotes: vec![crate::feedback::Quote {
@@ -781,6 +1030,8 @@ mod tests {
         assert!(w
             .observe(
                 &Observation::Quotes(QuoteFrame {
+                    initial_discard: None,
+                    auxiliary_total: 0,
                     raw_frame: "duplicate".into(),
                     received_at_ms: 3,
                     quotes: vec![]
@@ -881,6 +1132,7 @@ mod tests {
         for (i, a) in active.iter().enumerate() {
             let guard = Active(a.clone());
             let sender = tx.clone();
+            let fault = fault.clone();
             jobs.spawn(guarded(
                 async move {
                     let _guard = guard;
@@ -1030,6 +1282,99 @@ mod tests {
                 "EnvelopeJson"
             );
         }
+    }
+    #[tokio::test]
+    async fn actual_bars_timestamp_bounds_survives_terminal_redacted() {
+        let error = crate::socket::tests::error_fixture(false, 4).await;
+        let failure = Failure::ws(
+            "diagnostic_ws_observe",
+            Channel::Bars,
+            crate::socket::SocketStage::Receive,
+            Some(2),
+            Some(3),
+            error,
+        );
+        let (code, text) = coordinate_error_fixture(true, Some(failure), false, false, false).await;
+        assert_eq!(code, 1);
+        assert!(!text.contains("SECRET_RAW_ACCOUNT_TOKEN"));
+        let terminal: serde_json::Value =
+            serde_json::from_str(text.lines().last().unwrap()).unwrap();
+        assert_eq!(terminal["joined_jobs"], 2);
+        let p = &terminal["primary_error"];
+        assert_eq!(p["stage"], "ProtocolReceive");
+        assert_eq!(p["auth_generation"], 2);
+        assert_eq!(p["connection_generation"], 3);
+        assert_eq!(
+            p["code"]["Socket"]["Protocol"]["FrameAt"],
+            "TimestampBounds"
+        );
+        let d = &p["timestamp_bounds"];
+        assert_eq!(d["row"], 0);
+        assert_eq!(d["future"], true);
+        assert_eq!(d["snapshot"], true);
+        assert_eq!(d["silence_ms"], 5000);
+        assert!(d["timestamp_ms"].as_i64().unwrap() > d["received_at_ms"].as_i64().unwrap());
+    }
+    #[tokio::test]
+    async fn actual_quote_conflict_pair_survives_terminal_redacted() {
+        let error = crate::socket::tests::error_fixture(true, 5).await;
+        let failure = Failure::ws(
+            "diagnostic_ws_observe",
+            Channel::Quotes,
+            crate::socket::SocketStage::Receive,
+            Some(2),
+            Some(3),
+            error,
+        );
+        let (code, text) = coordinate_error_fixture(true, Some(failure), false, false, false).await;
+        assert_eq!(code, 1);
+        assert!(!text.contains("SECRET_RAW_ACCOUNT_TOKEN"));
+        let terminal: serde_json::Value =
+            serde_json::from_str(text.lines().last().unwrap()).unwrap();
+        assert_eq!(terminal["joined_jobs"], 2);
+        let p = &terminal["primary_error"];
+        assert_eq!(p["code"]["Socket"]["Protocol"]["Quote"], "Conflict");
+        assert_eq!(p["channel"], "QUOTES");
+        assert_eq!(p["stage"], "ProtocolReceive");
+        assert_eq!(p["auth_generation"], 2);
+        assert_eq!(p["connection_generation"], 3);
+        assert!(p.get("timestamp_bounds").is_none());
+        let d = &p["quote_conflict"];
+        assert_eq!(d["row"], 0);
+        assert_eq!(d["previous_from_same_frame"], false);
+        assert_ne!(d["previous"]["last"], d["current"]["last"]);
+        assert_eq!(d["previous"]["bid"], d["current"]["bid"]);
+        assert_eq!(d["previous"]["ask"], d["current"]["ask"]);
+        assert!(d.to_string().len() < 1200);
+    }
+    #[tokio::test]
+    async fn actual_quote_time_survives_socket_and_terminal_redacted() {
+        let error = crate::socket::tests::error_fixture(true, 6).await;
+        let failure = Failure::ws(
+            "diagnostic_ws_observe",
+            Channel::Quotes,
+            crate::socket::SocketStage::Receive,
+            Some(1),
+            Some(1),
+            error,
+        );
+        let (code, text) = coordinate_error_fixture(true, Some(failure), false, false, false).await;
+        assert_eq!(code, 1);
+        assert!(!text.contains("SECRET_RAW_ACCOUNT_TOKEN"));
+        let terminal: serde_json::Value =
+            serde_json::from_str(text.lines().last().unwrap()).unwrap();
+        assert_eq!(terminal["joined_jobs"], 2);
+        let p = &terminal["primary_error"];
+        assert_eq!(p["code"]["Socket"]["Protocol"]["Quote"], "Time");
+        assert_eq!(p["channel"], "QUOTES");
+        assert_eq!(p["stage"], "ProtocolReceive");
+        assert!(p.get("timestamp_bounds").is_none());
+        assert!(p.get("quote_conflict").is_none());
+        assert_eq!(p["quote_time"]["reason"], "StaleSource");
+        assert_eq!(p["quote_time"]["row"], 0);
+        assert!(p["quote_time"]["age_ms"].as_i64().unwrap() >= 30000);
+        assert_eq!(p["quote_time"]["max_age_ms"], 5000);
+        assert!(p["quote_time"].to_string().len() < 1200);
     }
     #[tokio::test]
     async fn coordinator_stop_accounts_for_both_jobs_and_complete_evidence() {

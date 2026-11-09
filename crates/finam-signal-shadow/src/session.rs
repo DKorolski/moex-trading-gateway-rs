@@ -13,8 +13,10 @@ use broker_core::HybridRuntimeBarOrigin;
 use broker_finam::sparse_m10::AdmittedClosedM1Snapshot;
 use chrono::{DateTime, Utc};
 use std::path::Path;
+mod primary_recovery;
+mod primary_restart;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum SessionError {
     Closed,
     Input,
@@ -37,7 +39,131 @@ pub struct ObservedSession {
     prefix_quote_floor_ms: Option<i64>,
 }
 
+/// Only the session writer can mint successful model/feedback publication.
+/// The coordinator consumes the data capability after receiving this result.
+#[derive(Debug)]
+pub struct CanonicalPublication {
+    pub(crate) label_ms: i64,
+    pub(crate) source_sha256: String,
+    pub(crate) committed_at_ms: i64,
+    model_result_at_ms: i64,
+}
+
 impl ObservedSession {
+    /// A shared-feed barrier includes every consumer's callback/feedback/fsync.
+    /// Rechecking an earlier consumer never calls its model a second time.
+    pub(crate) fn check_shared_publication(
+        &mut self,
+        close_ms: i64,
+        replay_deadline_ms: Option<i64>,
+    ) -> Result<(), SessionError> {
+        self.check()?;
+        if replay_deadline_ms.is_some() {
+            self.fence.check_now().map_err(|_| SessionError::Timing)?;
+        } else {
+            self.fence.check_live().map_err(|_| SessionError::Timing)?;
+        }
+        let now = crate::timing::now_ms();
+        match replay_deadline_ms {
+            Some(deadline) if now > deadline => Err(SessionError::Timing),
+            Some(_) => Ok(()),
+            None => self.check_publication_latency(close_ms, now),
+        }
+    }
+    pub(crate) fn eod_model_ready(&self) -> bool {
+        !self.closed
+            && !self.model.held()
+            && self.model.pending().is_none()
+            && self.model.position_lots() == 0
+            && self.config.primary_policy().is_some()
+    }
+    pub(crate) fn journal_seal(&self) -> Option<crate::primary::eod::JournalSeal> {
+        self.observer.seal()
+    }
+    pub(crate) fn eod_snapshot(&self) -> serde_json::Value {
+        serde_json::json!({"position_lots":self.model.position_lots(),
+        "pending":self.model.pending().is_some(),"held":self.model.held(),"next_label_ms":self.next_label_ms})
+    }
+    pub(crate) fn bind_live_continuity(&mut self, gate: crate::primary::ContinuityGate) {
+        self.fence.attach_live_continuity(gate);
+    }
+    pub(crate) fn primary_runtime(&self) -> Option<(&ValidatedConfig, StopHandle)> {
+        self.config
+            .primary_policy()
+            .map(|_| (&self.config, self.stop.clone()))
+    }
+    pub(crate) fn primary_binding(&self) -> Option<(&str, i64, &crate::primary::PrimaryPolicy)> {
+        self.config
+            .primary_policy()
+            .map(|policy| (self.config.fingerprint(), self.next_label_ms, policy))
+    }
+    pub(crate) fn resume_intraday(
+        day: crate::intraday::ReconstructedCandleDay,
+        stop: StopHandle,
+        approval: &crate::intraday::IntradayRunPlan,
+    ) -> Result<Self, SessionError> {
+        Self::resume_intraday_clock(day, stop, approval, || Utc::now().timestamp_millis())
+    }
+
+    pub(crate) fn resume_intraday_clock(
+        mut day: crate::intraday::ReconstructedCandleDay,
+        stop: StopHandle,
+        approval: &crate::intraday::IntradayRunPlan,
+        mut clock: impl FnMut() -> i64,
+    ) -> Result<Self, SessionError> {
+        let began = clock();
+        let ready = (|| {
+            approval
+                .validate_reconstructed(&day)
+                .map_err(|_| SessionError::Input)?;
+            approval
+                .validate_now(&day.config, began)
+                .map_err(|_| SessionError::Timing)?;
+            if stop.is_stopped() || day.model.pending().is_some() {
+                return Err(SessionError::Incomplete);
+            }
+            let fence =
+                CallbackFence::new(&day.config, stop.clone()).map_err(|_| SessionError::Timing)?;
+            day.observer.record_transport(&serde_json::json!({
+                "event":"intraday_handoff","at_ms":began,"intraday_plan_sha256":day.plan_sha256,
+                "next_label_utc_ms":day.next_label_ms,"last_processed_label_utc_ms":day.next_label_ms-600_000,
+                "position_lots":day.model.position_lots(),"state":day.model.observation(),
+                "historical_mode":ObservationMode::BackfillReplay,
+                "subsequent_mode":ObservationMode::LiveObserved,
+                "ws_connected":false,"history_proves_live_readiness":false,
+            })).map_err(|_| SessionError::Evidence)?;
+            let after = clock();
+            approval
+                .validate_now(&day.config, after)
+                .map_err(|_| SessionError::Timing)?;
+            if after < began || stop.is_stopped() {
+                return Err(SessionError::Timing);
+            }
+            Ok(fence)
+        })();
+        let fence = match ready {
+            Ok(fence) => fence,
+            Err(error) => {
+                stop.stop();
+                let _ = day.observer.finish("INCOMPLETE_intraday_handoff");
+                return Err(error);
+            }
+        };
+        day.model.select_observed();
+        Ok(Self {
+            config: day.config,
+            model: day.model,
+            adapter: day.adapter,
+            observer: day.observer,
+            fence,
+            stop,
+            next_label_ms: day.next_label_ms,
+            closed: false,
+            last_quote_ms: None,
+            prefix_quote_floor_ms: None,
+        })
+    }
+
     /// Consume only a fully source-admitted NEW_SEGMENT reconstruction. Replay
     /// evidence stays BACKFILL; only subsequent measured callbacks are LIVE.
     /// Pending reconstruction is retained in evidence but cannot be continued
@@ -128,6 +254,21 @@ impl ObservedSession {
         }
         Ok(())
     }
+    pub(crate) fn record_primary_reference(
+        &mut self,
+        source: &AdmittedClosedM1Snapshot,
+    ) -> Result<(), SessionError> {
+        if self.closed {
+            return Err(SessionError::Closed);
+        }
+        if self.config.primary_policy().is_none() {
+            return self.fail(SessionError::Input);
+        }
+        if self.observer.record_source(source).is_err() {
+            return self.fail(SessionError::Evidence);
+        }
+        Ok(())
+    }
     pub fn record_run_plan(&mut self, plan: &impl serde::Serialize) -> Result<(), SessionError> {
         if self.closed {
             return Err(SessionError::Closed);
@@ -144,7 +285,9 @@ impl ObservedSession {
     ) -> Result<Self, SessionError> {
         let header = segment.seed_observation();
         let (config, mut model) = segment.into_replay_parts();
-        let now = Utc::now().timestamp_millis();
+        let now = crate::timing::now_ms();
+        // Same production UTC clock as CallbackFence; its private cfg(test)
+        // sample permits historical component tests, never executable overrides.
         // This source entry is a fresh session-boundary start. Mid-session start
         // is refused rather than silently discarding the missing prefix.
         let start = config.config().observation_start_utc_ms;
@@ -200,6 +343,9 @@ impl ObservedSession {
         required: &[DateTime<Utc>],
         received_ms: i64,
     ) -> Result<(), SessionError> {
+        if self.config.primary_policy().is_some() {
+            return Err(SessionError::Input);
+        }
         self.check()?;
         // Receive frontier is taken from the admitted REST evidence, never WS
         // heartbeat or a caller's nominal candle time.
@@ -223,71 +369,186 @@ impl ObservedSession {
                 .map_err(|_| SessionError::Evidence)?;
         }
         for input in inputs {
-            let mut bar = input.bar;
-            let label = bar
-                .close_time_utc
-                .checked_mul(1000)
-                .ok_or(SessionError::Input)?;
-            if label != self.next_label_ms {
-                return Err(SessionError::Incomplete);
-            }
-            let ready = Utc::now().timestamp_millis();
-            let close = label.checked_add(600_000).ok_or(SessionError::Input)?;
-            let encoded = serde_json::to_vec(&bar).map_err(|_| SessionError::Input)?;
-            if encoded.len() as u64 > self.config.config().max_input_bytes {
-                return Err(SessionError::Input);
-            }
-            let before = self.model.observation();
-            bar.origin = HybridRuntimeBarOrigin::Live;
-            let (request, timing) = self
-                .model
-                .on_bar_measured(bar.clone(), received_ms, ready, &mut self.fence)
-                .map_err(|_| SessionError::Model)?;
-            let after = self.model.observation();
-            let decision = Decision::from_model_observation(
-                request.as_ref().map(|r| r.action),
-                request.as_ref().map_or(0, |r| r.quantity_lots),
-                &after,
-            )
-            .map_err(|_| SessionError::Model)?;
-            self.observer
-                .record_step(&Step {
-                    mode: ObservationMode::LiveObserved,
-                    instrument: bar.instrument.symbol.clone(),
-                    model_label_utc_ms: label,
-                    nominal_close_utc_ms: close,
-                    provider_at_ms: None,
-                    received_at_ms: timing.received_at_ms,
-                    canonical_ready_at_ms: timing.canonical_ready_at_ms,
-                    model_start_at_ms: timing.model_start_at_ms,
-                    result_at_ms: timing.result_at_ms,
-                    canonical_input_sha256: crate::input::canonical_digest(&bar)
-                        .map_err(|_| SessionError::Input)?,
-                    raw_provenance_sha256: input.snapshot_sha256,
-                    before,
-                    after,
-                    decision,
-                })
-                .map_err(|_| SessionError::Evidence)?;
-            let published_ms = Utc::now().timestamp_millis();
-            self.observer
-                .record_transport(&serde_json::json!({
-                    "event": "model_step_durable_publication",
-                    "model_label_utc_ms": label,
-                    "published_at_ms": published_ms,
-                }))
-                .map_err(|_| SessionError::Evidence)?;
-            self.fence.check_now().map_err(|_| SessionError::Timing)?;
-            let latency = published_ms
-                .checked_sub(close)
-                .and_then(|v| u64::try_from(v).ok())
-                .and_then(|v| v.checked_add(self.config.config().clock_uncertainty_ms));
-            if latency.map_or(true, |v| v > self.config.config().lmax_ms) {
-                return Err(SessionError::Timing);
-            }
-            self.next_label_ms = next_label(label).ok_or(SessionError::Input)?;
+            let publication =
+                self.apply_model_input(input.bar, &input.snapshot_sha256, received_ms)?;
+            self.next_label_ms = next_label(publication.label_ms).ok_or(SessionError::Input)?;
         }
         Ok(())
+    }
+
+    /// WS and bounded REST exceptions have one model entry. A caller cannot
+    /// replace this capability with a bare Bar or a deserialized receipt.
+    pub fn canonical(
+        &mut self,
+        input: &crate::primary::AdmittedCanonicalM10,
+    ) -> Result<CanonicalPublication, SessionError> {
+        if self.closed {
+            return Err(SessionError::Closed);
+        }
+        let result = self.canonical_inner(input);
+        match result {
+            Ok(value) => Ok(value),
+            Err(error) => self.fail(error),
+        }
+    }
+
+    fn canonical_inner(
+        &mut self,
+        input: &crate::primary::AdmittedCanonicalM10,
+    ) -> Result<CanonicalPublication, SessionError> {
+        self.check()?;
+        let policy = self.config.primary_policy().ok_or(SessionError::Input)?;
+        if self.model.pending().is_some() {
+            return Err(SessionError::Incomplete);
+        }
+        let receipt = input.receipt();
+        if receipt.config_sha256 != self.config.fingerprint()
+            || receipt.policy_sha256 != policy.fingerprint().map_err(|_| SessionError::Input)?
+            || receipt.label_ms != self.next_label_ms
+            || receipt.canonical_digest
+                != crate::input::canonical_digest(input.model_bar())
+                    .map_err(|_| SessionError::Input)?
+            || receipt.canonical_ready_at_ms > crate::timing::now_ms()
+            || input.received_at_ms() < receipt.close_ms
+        {
+            return Err(SessionError::Input);
+        }
+        let source_sha256 = self
+            .observer
+            .record_canonical_source(input)
+            .map_err(|_| SessionError::Evidence)?;
+        let mut publication = self.apply_model_input(
+            input.model_bar().clone(),
+            &source_sha256,
+            input.received_at_ms(),
+        )?;
+        if self.model.pending().is_some() {
+            return Err(SessionError::Incomplete);
+        }
+        self.observer
+            .record_canonical_commit(
+                publication.label_ms,
+                &source_sha256,
+                publication.model_result_at_ms,
+                publication.committed_at_ms,
+            )
+            .map_err(|_| SessionError::Evidence)?;
+        // Commit fsync is included in the same original live fence. Failure is
+        // terminal; neither this input nor its partially changed model is retried.
+        self.fence.check_live().map_err(|_| SessionError::Timing)?;
+        let committed = crate::timing::now_ms();
+        self.check_publication_latency(receipt.close_ms, committed)?;
+        publication.committed_at_ms = committed;
+        self.next_label_ms = next_label(receipt.label_ms).ok_or(SessionError::Input)?;
+        Ok(publication)
+    }
+
+    fn check_publication_latency(&self, close: i64, published_ms: i64) -> Result<(), SessionError> {
+        let latency = published_ms
+            .checked_sub(close)
+            .and_then(|v| u64::try_from(v).ok())
+            .and_then(|v| v.checked_add(self.config.config().clock_uncertainty_ms));
+        let limit = self.config.config().lmax_ms.min(
+            if self
+                .config
+                .primary_policy()
+                .is_some_and(|p| p.observed_bo())
+            {
+                2000
+            } else {
+                u64::MAX
+            },
+        );
+        if latency.map_or(true, |v| v > limit) {
+            return Err(SessionError::Timing);
+        }
+        Ok(())
+    }
+
+    fn apply_model_input(
+        &mut self,
+        mut bar: broker_core::HybridRuntimeBarEvent,
+        provenance: &str,
+        received_ms: i64,
+    ) -> Result<CanonicalPublication, SessionError> {
+        let label = bar
+            .close_time_utc
+            .checked_mul(1000)
+            .ok_or(SessionError::Input)?;
+        if label != self.next_label_ms {
+            return Err(SessionError::Incomplete);
+        }
+        let ready = crate::timing::now_ms();
+        let close = label.checked_add(600_000).ok_or(SessionError::Input)?;
+        let encoded = serde_json::to_vec(&bar).map_err(|_| SessionError::Input)?;
+        if encoded.len() as u64 > self.config.config().max_input_bytes {
+            return Err(SessionError::Input);
+        }
+        let before = self.model.observation();
+        bar.origin = HybridRuntimeBarOrigin::Live;
+        let (request, timing) = self
+            .model
+            .on_bar_measured(bar.clone(), received_ms, ready, &mut self.fence)
+            .map_err(|_| SessionError::Model)?;
+        let after = self.model.observation();
+        let decision = Decision::from_model_observation(
+            request.as_ref().map(|r| r.action),
+            request.as_ref().map_or(0, |r| r.quantity_lots),
+            &after,
+        )
+        .map_err(|_| SessionError::Model)?;
+        self.observer
+            .record_step(&Step {
+                mode: ObservationMode::LiveObserved,
+                instrument: bar.instrument.symbol.clone(),
+                model_label_utc_ms: label,
+                nominal_close_utc_ms: close,
+                provider_at_ms: None,
+                received_at_ms: timing.received_at_ms,
+                canonical_ready_at_ms: timing.canonical_ready_at_ms,
+                model_start_at_ms: timing.model_start_at_ms,
+                result_at_ms: timing.result_at_ms,
+                canonical_input_sha256: crate::input::canonical_digest(&bar)
+                    .map_err(|_| SessionError::Input)?,
+                raw_provenance_sha256: provenance.to_owned(),
+                before,
+                after,
+                decision,
+            })
+            .map_err(|_| SessionError::Evidence)?;
+        if self.config.candle_only() {
+            if let Some(request) = &request {
+                self.fence.check_live().map_err(|_| SessionError::Timing)?;
+                let fill = self
+                    .model
+                    .on_candle_close(request, received_ms, crate::timing::now_ms(), provenance)
+                    .map_err(|_| SessionError::Model)?;
+                self.observer
+                    .record_candle_feedback(
+                        ObservationMode::LiveObserved,
+                        &fill,
+                        &self.model.observation(),
+                    )
+                    .map_err(|_| SessionError::Evidence)?;
+            }
+        }
+        let published_ms = crate::timing::now_ms();
+        self.observer
+            .record_transport(&serde_json::json!({
+                "event": "model_step_durable_publication",
+                "model_label_utc_ms": label,
+                "published_at_ms": published_ms,
+            }))
+            .map_err(|_| SessionError::Evidence)?;
+        self.fence.check_live().map_err(|_| SessionError::Timing)?;
+        let durable_at = crate::timing::now_ms();
+        self.check_publication_latency(close, durable_at)?;
+        Ok(CanonicalPublication {
+            label_ms: label,
+            source_sha256: provenance.to_owned(),
+            committed_at_ms: durable_at,
+            model_result_at_ms: timing.result_at_ms,
+        })
     }
 
     /// Persist raw source before feedback, including empty deduplicated frames.
@@ -296,10 +557,14 @@ impl ObservedSession {
         if self.closed {
             return Err(SessionError::Closed);
         }
+        if self.config.candle_only() {
+            return self.fail(SessionError::Input);
+        }
         if let Err(error) = self.check() {
             return self.fail(error);
         }
-        if frame.raw_frame.len() > 256 * 1024
+        if frame.initial_discard.is_some()
+            || frame.raw_frame.len() > 256 * 1024
             || frame.received_at_ms < 0
             || frame.received_at_ms > Utc::now().timestamp_millis()
             || frame
@@ -330,6 +595,9 @@ impl ObservedSession {
     pub fn quote(&mut self, quote: Quote) -> Result<(), SessionError> {
         if self.closed {
             return Err(SessionError::Closed);
+        }
+        if self.config.candle_only() {
+            return self.fail(SessionError::Input);
         }
         if let Err(e) = self.check() {
             return self.fail(e);
@@ -375,7 +643,7 @@ impl ObservedSession {
 
     fn check(&self) -> Result<(), SessionError> {
         if self.stop.is_stopped()
-            || Utc::now().timestamp_millis() >= self.config.config().run_deadline_utc_ms
+            || crate::timing::now_ms() >= self.config.config().run_deadline_utc_ms
         {
             return Err(SessionError::Closed);
         }
@@ -394,10 +662,7 @@ impl ObservedSession {
             .next_label_ms
             .checked_add(600_000)
             .map_or(true, |close| {
-                close
-                    <= Utc::now()
-                        .timestamp_millis()
-                        .min(self.config.config().run_deadline_utc_ms)
+                close <= crate::timing::now_ms().min(self.config.config().run_deadline_utc_ms)
             });
         let result = if pending {
             "INCOMPLETE_virtual_pending"
@@ -451,7 +716,10 @@ fn next_label(label_ms: i64) -> Option<i64> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod primary_tests;
+
+#[cfg(test)]
+pub(crate) mod tests {
     use super::*;
     #[test]
     fn nominal_eod_advances_to_next_start_without_inventing_night_bars() {
@@ -468,7 +736,17 @@ mod tests {
     // Inject the composition directly to test a recently closed real-clock
     // bucket at any time of day. This intentionally does NOT bypass production
     // create() or claim warmup/readiness acceptance: the fixture model is cold.
-    fn composition_fixture() -> (
+    pub(crate) fn composition_fixture() -> (
+        ObservedSession,
+        AdmittedClosedM1Snapshot,
+        std::path::PathBuf,
+    ) {
+        composition_fixture_policy(false)
+    }
+
+    pub(crate) fn composition_fixture_policy(
+        candle_only: bool,
+    ) -> (
         ObservedSession,
         AdmittedClosedM1Snapshot,
         std::path::PathBuf,
@@ -478,7 +756,7 @@ mod tests {
         use broker_finam::sparse_m10::*;
         use std::sync::atomic::{AtomicUsize, Ordering};
         static NEXT: AtomicUsize = AtomicUsize::new(0);
-        let now = Utc::now();
+        let now = DateTime::from_timestamp_millis(crate::timing::now_ms()).unwrap();
         let close_ms = now.timestamp_millis().div_euclid(600_000) * 600_000;
         let start = DateTime::from_timestamp_millis(close_ms - 600_000).unwrap();
         let end = DateTime::from_timestamp_millis(close_ms).unwrap();
@@ -488,7 +766,7 @@ mod tests {
             exchange: Exchange::Moex,
             market: Market::Futures,
         };
-        let model = ShadowModel::baseline07(
+        let mut model = ShadowModel::baseline07(
             HybridRuntimeStrategyContext {
                 strategy_id: "composition-test".into(),
                 request_namespace_account: BrokerAccountId("shadow-test".into()),
@@ -506,11 +784,19 @@ mod tests {
             1000,
         )
         .unwrap();
+        if candle_only {
+            model.select_candle_only();
+        }
+        let policy = if candle_only {
+            crate::feedback::candle_policy_fingerprint()
+        } else {
+            crate::feedback::policy_fingerprint()
+        };
         let config = ValidatedConfig::parse(&serde_json::to_vec(&serde_json::json!({
             "schema_version":1, "reference":"alor_freeze_2026_09_27", "restart_mode":"new_segment",
             "model_profile":"imoexf-baseline07-bo-only-no-riskgate",
             "model_sha256":model.model_config_fingerprint(), "reference_sha256":"a".repeat(64),
-            "feedback_policy_sha256":crate::feedback::policy_fingerprint(),
+            "feedback_policy_sha256":policy,
             "instrument_mapping_sha256":"b".repeat(64), "calendar_sha256":"c".repeat(64), "seed_sha256":"d".repeat(64),
             "instrument":"IMOEXF@RTSX", "run_id":"composition-test", "segment_id":"s1", "previous_segment_id":null,
             "warmup_session_dates":["2026-09-22","2026-09-23","2026-09-24","2026-09-25"],
@@ -545,7 +831,7 @@ mod tests {
         ));
         let observer = Observer::create(&path, header, 100_000, 20_000).unwrap();
         let (stop, _) = crate::transport::ReadOnlyCollector::new(
-            now + chrono::Duration::seconds(60),
+            Utc::now() + chrono::Duration::seconds(60),
             std::time::Duration::from_secs(1),
         )
         .unwrap();
@@ -593,6 +879,149 @@ mod tests {
         )
         .unwrap();
         (session, snapshot, path)
+    }
+
+    /// Actual cold model + test-only clock. This is not warmup, network or
+    /// operational evidence. The production constructor remains unchanged.
+    pub(crate) fn primary_fixture() -> (
+        ObservedSession,
+        crate::primary::WsPrimaryConfig,
+        AdmittedClosedM1Snapshot,
+        std::path::PathBuf,
+    ) {
+        let label = crate::timing::now_ms().div_euclid(600000) * 600000 - 600000;
+        primary_fixture_at(label)
+    }
+
+    pub(crate) fn primary_fixture_at(
+        label: i64,
+    ) -> (
+        ObservedSession,
+        crate::primary::WsPrimaryConfig,
+        AdmittedClosedM1Snapshot,
+        std::path::PathBuf,
+    ) {
+        primary_fixture_mode(label, true)
+    }
+    pub(crate) fn primary_fixture_mode(
+        label: i64,
+        audit: bool,
+    ) -> (
+        ObservedSession,
+        crate::primary::WsPrimaryConfig,
+        AdmittedClosedM1Snapshot,
+        std::path::PathBuf,
+    ) {
+        primary_fixture_delivery(
+            label,
+            audit,
+            crate::primary::DeliveryPolicy::StrictBoundaryV1,
+        )
+    }
+    pub(crate) fn primary_fixture_delivery(
+        label: i64,
+        audit: bool,
+        delivery: crate::primary::DeliveryPolicy,
+    ) -> (
+        ObservedSession,
+        crate::primary::WsPrimaryConfig,
+        AdmittedClosedM1Snapshot,
+        std::path::PathBuf,
+    ) {
+        let (mut session, source, old_path) = composition_fixture_policy(true);
+        let mut base = session.config.config().clone();
+        base.observation_start_utc_ms = label;
+        session.next_label_ms = base.observation_start_utc_ms;
+        base.lmax_ms = 10000;
+        base.clock_uncertainty_ms = 100;
+        base.max_cache_bars = 4096;
+        base.run_deadline_utc_ms = base.observation_start_utc_ms + 17 * 60 * 60 * 1000;
+        base.max_output_bytes = 4 * 1024 * 1024;
+        let primary = crate::primary::WsPrimaryConfig {
+            schema_version: 2,
+            market_data_mode: "ws_primary_v1".into(),
+            source_policy: crate::primary::WS_PRIMARY_POLICY.into(),
+            base,
+            primary: crate::primary::PrimaryPolicy {
+                delivery,
+                audit_every_commits: audit.then_some(6),
+                ..Default::default()
+            },
+        };
+        let config = ValidatedConfig::from_ws_primary(&primary).unwrap();
+        let c = config.config();
+        let header = crate::segment::SeedObservation {
+            mode: ObservationMode::Warmup,
+            run_id: c.run_id.clone(),
+            segment_id: c.segment_id.clone(),
+            previous_segment_id: None,
+            config_sha256: config.fingerprint().into(),
+            semantic_config_sha256: config.semantic_fingerprint().into(),
+            seed_sha256: c.seed_sha256.clone(),
+            model_sha256: c.model_sha256.clone(),
+            reference_sha256: c.reference_sha256.clone(),
+            feedback_policy_sha256: c.feedback_policy_sha256.clone(),
+            last_history_label_utc: 0,
+            observation_start_utc_ms: c.observation_start_utc_ms,
+            virtual_position_lots: 0,
+            live_observation_count: 0,
+            state: session.model.observation(),
+        };
+        let path = old_path.with_extension("primary.jsonl");
+        session.observer = Observer::create(&path, header, c.max_output_bytes, 1_048_576).unwrap();
+        session.fence = CallbackFence::new(&config, session.stop.clone()).unwrap();
+        session.config = config;
+        std::fs::remove_file(old_path).unwrap();
+        (session, primary, source, path)
+    }
+
+    #[test]
+    fn candle_observed_sparse_snapshot_dedup_and_quote_rejection() {
+        let (mut session, snapshot, path) = composition_fixture_policy(true);
+        let labels = [snapshot.evidence().start];
+        let received = snapshot.evidence().parts[0].received_at.timestamp_millis();
+        session.snapshot(&snapshot, &labels, received).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        session.snapshot(&snapshot, &labels, received).unwrap();
+        assert_eq!(before, std::fs::read(&path).unwrap());
+        let text = String::from_utf8(before).unwrap();
+        assert!(text.contains("source_snapshot"));
+        assert!(text.contains("model_step"));
+        assert!(text.contains(&crate::feedback::candle_policy_fingerprint()));
+        assert_eq!(
+            session.quote(Quote {
+                instrument: "IMOEXF".into(),
+                source_id: "rejected".into(),
+                price_ticks: 4400,
+                event_at_ms: received,
+                received_at_ms: received,
+            }),
+            Err(SessionError::Input)
+        );
+        assert!(session.stop.is_stopped());
+        assert!(session.closed);
+        drop(session);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn candle_transports_cannot_connect_quotes() {
+        let (session, _, path) = composition_fixture_policy(true);
+        let mut transports = crate::transport::ConfiguredTransports::new(&session.config).unwrap();
+        let lease = broker_finam::AccessTokenLease::new(
+            broker_finam::AccessToken::new("never-sent"),
+            tokio::time::Instant::now().into_std(),
+            broker_finam::FinamAuthPolicy::default(),
+        );
+        let result = transports.connect_quotes(lease).await;
+        assert!(matches!(
+            result,
+            Err(crate::transport::TransportError::Held)
+        ));
+        assert!(!transports.stop_handle().is_stopped());
+        drop(transports);
+        drop(session);
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
@@ -658,6 +1087,8 @@ mod tests {
                 assert!(normalizer.receive(&raw, received).unwrap().is_empty());
                 session
                     .quote_frame(crate::ws::QuoteFrame {
+                        initial_discard: None,
+                        auxiliary_total: 0,
                         raw_frame: raw,
                         received_at_ms: received.timestamp_millis(),
                         quotes,
@@ -732,6 +1163,8 @@ mod tests {
         // The protocol owns normalization; this is its duplicate-only result.
         session
             .quote_frame(QuoteFrame {
+                initial_discard: None,
+                auxiliary_total: 0,
                 raw_frame: raw.into(),
                 received_at_ms: received,
                 quotes: vec![],
@@ -754,6 +1187,8 @@ mod tests {
         let before = session.model.observation();
         assert_eq!(
             session.quote_frame(QuoteFrame {
+                initial_discard: None,
+                auxiliary_total: 0,
                 raw_frame: "x".repeat(21_000),
                 received_at_ms: received,
                 quotes: vec![Quote {
@@ -768,6 +1203,56 @@ mod tests {
         );
         assert_eq!(session.model.observation(), before);
         assert!(session.closed && session.stop.is_stopped());
+        drop(session);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn diagnostic_initial_frame_cannot_enter_model_or_feedback() {
+        let (mut session, _, path) = composition_fixture();
+        let before = session.model.observation();
+        let mut observations = crate::ws::initial_quote_tests::observations();
+        let crate::ws::Observation::Quotes(mut frame) = observations.remove(1) else {
+            panic!("expected diagnostic discard");
+        };
+        frame.received_at_ms = Utc::now().timestamp_millis();
+        assert_eq!(session.quote_frame(frame), Err(SessionError::Input));
+        assert_eq!(session.model.observation(), before);
+        assert!(session.closed && session.stop.is_stopped());
+        drop(session);
+        std::fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn projected_auxiliary_frame_preserves_raw_without_model_effect() {
+        let (mut session, _, path) = composition_fixture();
+        let now = Utc::now();
+        let mut input = crate::quote::QuoteInput::new(5000, 4096).unwrap();
+        let row = |aux: bool| {
+            let mut r = serde_json::json!({"symbol":"IMOEXF@RTSX","timestamp":now.to_rfc3339(),"last":{"value":"2535.5"}});
+            if aux {
+                r["bid"] = serde_json::json!({"value":"2535"});
+            }
+            serde_json::json!({"type":"DATA","subscriptionType":"QUOTES","payload":{"quote":[r]}})
+                .to_string()
+        };
+        assert_eq!(input.receive(&row(false), now).unwrap().len(), 1);
+        let raw = row(true);
+        let quotes = input.receive(&raw, now).unwrap();
+        assert!(quotes.is_empty());
+        let before = session.model.observation();
+        session
+            .quote_frame(crate::ws::QuoteFrame {
+                initial_discard: None,
+                auxiliary_total: input.auxiliary_total(),
+                raw_frame: raw.clone(),
+                received_at_ms: now.timestamp_millis(),
+                quotes,
+            })
+            .unwrap();
+        assert_eq!(session.model.observation(), before);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let last: serde_json::Value = serde_json::from_str(text.lines().last().unwrap()).unwrap();
+        assert_eq!(last["event"]["raw_frame"], raw);
         drop(session);
         std::fs::remove_file(path).unwrap();
     }

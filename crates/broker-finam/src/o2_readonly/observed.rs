@@ -1,6 +1,8 @@
 //! Completion metadata for the additive observed-M1 input, collected by the
 //! same closed-route, GET-only client. No retries, redirects or new scheduler.
 use chrono::{SecondsFormat, Utc};
+mod primary;
+pub use primary::PrimaryGetFailure;
 
 use super::*;
 use crate::sparse_m10::{

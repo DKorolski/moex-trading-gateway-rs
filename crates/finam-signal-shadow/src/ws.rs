@@ -51,6 +51,9 @@ pub enum FrameCode {
 
 #[derive(Debug)]
 pub struct QuoteFrame {
+    pub initial_discard: Option<crate::quote::InitialDiscard>,
+    /// Committed cumulative auxiliary rows, saturating; not fresh price DATA.
+    pub auxiliary_total: u64,
     /// Exact admitted text, not a reserialization. Record before quote effects,
     /// including duplicate-only frames whose normalized quotes are empty.
     pub raw_frame: String,
@@ -124,6 +127,8 @@ enum State {
 }
 
 pub struct BarsProtocol {
+    candle_liveness: bool,
+    diagnostic_initial: bool,
     quotes: Option<crate::quote::QuoteInput>,
     owner: Arc<()>,
     generation: u64,
@@ -143,6 +148,9 @@ pub struct BarsProtocol {
 }
 
 impl BarsProtocol {
+    pub(crate) fn reconnect_budget_ms(&self) -> u64 {
+        self.reconnect.num_milliseconds() as u64
+    }
     pub fn new(silence_ms: u64, reconnect_ms: u64) -> Result<Self, WsError> {
         if silence_ms == 0
             || reconnect_ms == 0
@@ -152,6 +160,8 @@ impl BarsProtocol {
             return Err(WsError::Budget);
         }
         Ok(Self {
+            candle_liveness: false,
+            diagnostic_initial: false,
             quotes: None,
             owner: Arc::new(()),
             generation: 0,
@@ -186,6 +196,11 @@ impl BarsProtocol {
         Ok(protocol)
     }
 
+    pub(crate) fn diagnostic_initial_quotes(mut self) -> Self {
+        self.diagnostic_initial = true;
+        self
+    }
+
     /// Reserve a connection attempt; old socket must already be closed.
     /// Handshake completion is still required before subscription.
     /// At most one controlled reconnect (generation 2) in this qualification slice.
@@ -212,6 +227,11 @@ impl BarsProtocol {
             return Err(WsError::Budget);
         }
         self.generation += 1;
+        if self.generation > 1 {
+            if let Some(quotes) = &mut self.quotes {
+                quotes.close_initial();
+            }
+        }
         if auth {
             self.auth_connections += 1;
         } else {
@@ -260,6 +280,14 @@ impl BarsProtocol {
         Ok(())
     }
 
+    pub(crate) fn quote_conflict_detail(&self) -> Option<crate::quote::QuoteConflictDetail> {
+        self.quotes.as_ref().and_then(|q| q.conflict_detail())
+    }
+
+    pub(crate) fn quote_time_detail(&self) -> Option<crate::quote::QuoteTimeDetail> {
+        self.quotes.as_ref().and_then(|q| q.time_detail())
+    }
+
     pub fn receive(
         &mut self,
         c: &Connection,
@@ -298,6 +326,11 @@ impl BarsProtocol {
                 .and_then(Value::as_str)
             {
                 Some("HANDSHAKE_SUCCESS") if self.state == State::Handshake => {
+                    if self.diagnostic_initial && self.generation == 1 {
+                        if let Some(quotes) = &mut self.quotes {
+                            quotes.initial_at_handshake(now);
+                        }
+                    }
                     self.state = State::Due;
                     Ok(Observation::Handshake)
                 }
@@ -330,6 +363,8 @@ impl BarsProtocol {
                 self.last_data = Some(now);
             }
             return Ok(Observation::Quotes(QuoteFrame {
+                initial_discard: quotes.initial_discard(),
+                auxiliary_total: quotes.auxiliary_total(),
                 raw_frame: text.to_owned(),
                 received_at_ms: now.timestamp_millis(),
                 quotes: observed,
@@ -454,15 +489,21 @@ impl BarsProtocol {
             return Err(WsError::State);
         }
         self.clock(now)?;
-        if self
-            .last_data
-            .or(self.connected_at)
-            .is_some_and(|t| now - t >= self.silence)
+        if !self.candle_liveness
+            && self
+                .last_data
+                .or(self.connected_at)
+                .is_some_and(|t| now - t >= self.silence)
         {
             self.state = State::Held;
             return Err(WsError::Silence);
         }
         Ok(())
+    }
+
+    pub(crate) fn enable_candle_liveness(&mut self) {
+        // QUOTES always retains its accepted data freshness/silence checks.
+        self.candle_liveness = self.quotes.is_none();
     }
 
     pub(crate) fn remaining_silence(
@@ -513,9 +554,50 @@ impl BarsProtocol {
 }
 
 #[cfg(test)]
-mod snapshot_tests {
+pub(crate) mod snapshot_tests {
     use super::*;
     use serde_json::json;
+    pub(crate) fn last_projection_observations() -> Vec<Observation> {
+        let now = now();
+        let mut p = BarsProtocol::new_quotes(5000, 1000, 5000, 1).unwrap();
+        let mut c = p.connected(now).unwrap();
+        let mut out = Vec::new();
+        let row = |t: DateTime<Utc>, aux: bool| {
+            let mut r = json!({"symbol":"IMOEXF@RTSX","timestamp":t.to_rfc3339(),"last":{"value":"2535.5"}});
+            if aux {
+                r["bid"] = json!({"value":"2535.0"});
+                r["ask"] = json!({"value":"2535.5"});
+            }
+            r
+        };
+        for (ms, rows) in [
+            (1, vec![row(now, false)]),
+            (2, vec![row(now, true)]),
+            (5, vec![row(now, true)]),
+            (
+                6,
+                vec![row(now, true), row(now + Duration::milliseconds(6), true)],
+            ),
+        ] {
+            if ms == 1 || ms == 5 {
+                if ms == 5 {
+                    p.disconnected(&c, now + Duration::milliseconds(3)).unwrap();
+                    c = p
+                        .connected_for_auth(now + Duration::milliseconds(4))
+                        .unwrap();
+                }
+                subscribe(&mut p, &c, now + Duration::milliseconds(ms - 1));
+                out.push(Observation::Handshake);
+            }
+            let raw = json!({"type":"DATA","subscriptionType":"QUOTES","payload":{"quote":rows}})
+                .to_string();
+            out.push(
+                p.receive(&c, &raw, now + Duration::milliseconds(ms))
+                    .unwrap(),
+            );
+        }
+        out
+    }
     fn now() -> DateTime<Utc> {
         "2026-10-26T15:40:00Z".parse().unwrap()
     }
@@ -749,6 +831,74 @@ mod snapshot_tests {
 mod auth_rotation_tests {
     use super::*;
     #[test]
+    fn auxiliary_after_rotation_never_refreshes_silence_or_generation_readiness() {
+        let now = Utc::now();
+        let mut p = BarsProtocol::new_quotes(5000, 1000, 5000, 1).unwrap();
+        let c = p.connected(now).unwrap();
+        let subscribe = |p: &mut BarsProtocol, c: &Connection, t| {
+            p.receive(
+                c,
+                r#"{"type":"EVENT","eventInfo":{"event":"HANDSHAKE_SUCCESS"}}"#,
+                t,
+            )
+            .unwrap();
+            p.subscription_request(c, &AccessToken::new("SECRET"))
+                .unwrap();
+            p.subscription_sent(c).unwrap();
+        };
+        subscribe(&mut p, &c, now);
+        let frame = |aux: bool| {
+            let mut row = serde_json::json!({"symbol":"IMOEXF@RTSX","timestamp":now.to_rfc3339(),"last":{"value":"2535.5"}});
+            if aux {
+                row["bid"] = serde_json::json!({"value":"2535"});
+            }
+            serde_json::json!({"type":"DATA","subscriptionType":"QUOTES","payload":{"quote":[row]}})
+                .to_string()
+        };
+        let Observation::Quotes(q) = p.receive(&c, &frame(false), now).unwrap() else {
+            panic!()
+        };
+        assert_eq!(q.len(), 1);
+        p.disconnected(&c, now + Duration::milliseconds(1)).unwrap();
+        let c = p
+            .connected_for_auth(now + Duration::milliseconds(2))
+            .unwrap();
+        subscribe(&mut p, &c, now + Duration::milliseconds(2));
+        for auth in [false, true] {
+            let mut witness = if auth {
+                crate::s5::Witness::new_auth(crate::s5::Channel::Quotes, 2, 2)
+            } else {
+                crate::s5::Witness::new(crate::s5::Channel::Quotes, 2)
+            };
+            witness.receipts(&Observation::Handshake, now.timestamp_millis());
+            for ms in [3, 4] {
+                let o = p
+                    .receive(
+                        &c,
+                        &frame(true),
+                        now + Duration::milliseconds(ms + if auth { 2 } else { 0 }),
+                    )
+                    .unwrap();
+                let Observation::Quotes(q) = &o else { panic!() };
+                assert!(q.is_empty());
+                let r = serde_json::to_string(&witness.receipts(&o, now.timestamp_millis() + ms))
+                    .unwrap();
+                assert!(!r.contains("first_validated_data"));
+                if ms == 3 {
+                    assert!(r.contains("auxiliary_updates_observed"));
+                } else {
+                    assert_eq!(r, "[]");
+                }
+            }
+        }
+        assert_eq!(p.last_data, Some(now));
+        assert_eq!(p.quotes.as_ref().unwrap().retained_len(), 1);
+        assert_eq!(
+            p.check_silence(now + Duration::milliseconds(5000)),
+            Err(WsError::Silence)
+        );
+    }
+    #[test]
     fn auth_rotations_do_not_consume_controlled_reconnect_or_reset_silence() {
         let now = Utc::now();
         let mut p = BarsProtocol::new(5000, 1000).unwrap();
@@ -783,6 +933,115 @@ mod auth_rotation_tests {
             .is_err());
         assert!(p
             .connected_for_auth(now + Duration::milliseconds(1000))
+            .is_err());
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod initial_quote_tests {
+    use super::*;
+    use serde_json::json;
+    fn now() -> DateTime<Utc> {
+        DateTime::from_timestamp(1793181600, 687828728).unwrap()
+    }
+    fn frame(t: DateTime<Utc>) -> String {
+        json!({"type":"DATA","subscriptionType":"QUOTES","payload":{"quotes":[{
+            "symbol":"IMOEXF@RTSX","timestamp":t.to_rfc3339(),"last":{"value":"2535.5"}
+        }]}})
+        .to_string()
+    }
+    fn handshake(p: &mut BarsProtocol, c: &Connection, t: DateTime<Utc>) -> Observation {
+        let out = p
+            .receive(
+                c,
+                r#"{"type":"EVENT","eventInfo":{"event":"HANDSHAKE_SUCCESS"}}"#,
+                t,
+            )
+            .unwrap();
+        p.subscription_request(c, &AccessToken::new("TEST"))
+            .unwrap();
+        p.subscription_sent(c).unwrap();
+        out
+    }
+    pub(crate) fn observations() -> Vec<Observation> {
+        let mut p = BarsProtocol::new_quotes(60000, 5000, 5000, 4096)
+            .unwrap()
+            .diagnostic_initial_quotes();
+        let c = p.connected(now()).unwrap();
+        vec![
+            handshake(&mut p, &c, now()),
+            p.receive(&c, &frame(now() - Duration::seconds(9)), now())
+                .unwrap(),
+            p.receive(&c, &frame(now()), now()).unwrap(),
+        ]
+    }
+    #[test]
+    fn initial_silence_not_extended_and_reconnect_never_reopens() {
+        for auth in [false, true] {
+            let mut p = BarsProtocol::new_quotes(60000, 5000, 5000, 4096)
+                .unwrap()
+                .diagnostic_initial_quotes();
+            let c = p.connected(now()).unwrap();
+            handshake(&mut p, &c, now());
+            p.receive(&c, &frame(now() - Duration::seconds(9)), now())
+                .unwrap();
+            assert!(p.last_data.is_none());
+            p.disconnected(&c, now() + Duration::seconds(1)).unwrap();
+            let c = if auth {
+                p.connected_for_auth(now() + Duration::seconds(2))
+            } else {
+                p.connected(now() + Duration::seconds(2))
+            }
+            .unwrap();
+            handshake(&mut p, &c, now() + Duration::seconds(2));
+            assert!(p
+                .receive(
+                    &c,
+                    &frame(now() - Duration::seconds(9)),
+                    now() + Duration::seconds(2)
+                )
+                .is_err());
+        }
+        let mut p = BarsProtocol::new_quotes(60000, 5000, 5000, 4096)
+            .unwrap()
+            .diagnostic_initial_quotes();
+        let c = p.connected(now()).unwrap();
+        handshake(&mut p, &c, now());
+        p.receive(
+            &c,
+            &frame(now() - Duration::seconds(9)),
+            now() + Duration::seconds(59),
+        )
+        .unwrap();
+        assert!(p.last_data.is_none());
+        assert!(matches!(
+            p.check_silence(now() + Duration::seconds(60)),
+            Err(WsError::Silence)
+        ));
+    }
+    #[test]
+    fn initial_anchor_is_handshake_not_connection_or_frame() {
+        let mut p = BarsProtocol::new_quotes(60000, 5000, 5000, 4096)
+            .unwrap()
+            .diagnostic_initial_quotes();
+        let c = p.connected(now()).unwrap();
+        handshake(&mut p, &c, now() + Duration::seconds(2));
+        let o = p
+            .receive(
+                &c,
+                &frame(now() + Duration::seconds(1)),
+                now() + Duration::seconds(9),
+            )
+            .unwrap();
+        assert!(
+            matches!(o, Observation::Quotes(f) if f.quotes.is_empty() && f.initial_discard.is_some())
+        );
+        assert!(p
+            .receive(
+                &c,
+                &frame(now() + Duration::seconds(2)),
+                now() + Duration::seconds(9)
+            )
             .is_err());
     }
 }

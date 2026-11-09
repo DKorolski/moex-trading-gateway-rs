@@ -1,4 +1,6 @@
-//! Replay is file-only. Explicit `observe` binds read-only REST/BARS/QUOTES.
+//! Replay is file-only. Explicit `observe` binds read-only REST/BARS and
+//! QUOTES only for the original quote-feedback policy. Candle-close simulation
+//! is explicitly selected by its separate config feedback-policy digest.
 //! `restart` is file-only admitted prefix reconstruction, not an observe switch.
 //! `observe-prefix` additionally requires a separately approved PrefixRunPlan.
 use broker_core::HybridRuntimeBarEvent;
@@ -8,6 +10,7 @@ use finam_signal_shadow::{
 use serde::Deserialize;
 use std::{fs::File, io::Read, path::Path, process::ExitCode};
 mod credential_permissions;
+mod primary_cli;
 
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -202,6 +205,49 @@ async fn diagnostic(args: &[std::ffi::OsString]) -> Result<u8, &'static str> {
         .await
 }
 
+async fn observe_candle_intraday(args: &[std::ffi::OsString]) -> Result<(), &'static str> {
+    if args.len() != 10 {
+        return Err("usage: finam-signal-shadow observe-candle-intraday CONFIG REFERENCE MAPPING CALENDAR SEED HISTORY INTRADAY_PLAN READ_ONLY_SECRET_FILE NEW_OUTPUT");
+    }
+    let bytes = read_bounded(Path::new(&args[1]), &mut 16_384)?;
+    let config = ValidatedConfig::parse(&bytes).map_err(|_| "config_invalid")?;
+    let mut budget = config.config().max_input_bytes.min(16 * 1024 * 1024);
+    let reference = read_bounded(Path::new(&args[2]), &mut budget)?;
+    let mapping = read_bounded(Path::new(&args[3]), &mut budget)?;
+    let calendar = read_bounded(Path::new(&args[4]), &mut budget)?;
+    let seed = read_bounded(Path::new(&args[5]), &mut budget)?;
+    let history = read_bounded(Path::new(&args[6]), &mut budget)?;
+    let bytes = read_bounded(Path::new(&args[7]), &mut budget)?;
+    let plan: finam_signal_shadow::intraday::IntradayRunPlan =
+        serde_json::from_slice(&bytes).map_err(|_| "intraday_plan_invalid")?;
+    plan.validate_now(&config, chrono::Utc::now().timestamp_millis())
+        .map_err(|_| "intraday_window_or_binding")?;
+    credential_permissions::validate(Path::new(&args[8]))?;
+    let secret = read_bounded(Path::new(&args[8]), &mut 16_384)?;
+    let secret = std::str::from_utf8(&secret)
+        .map_err(|_| "credential_invalid")?
+        .trim();
+    if secret.is_empty() || secret.chars().any(char::is_whitespace) {
+        return Err("credential_invalid");
+    }
+    let auth = finam_signal_shadow::auth::AuthLifecycle::new(
+        broker_finam::SecretToken::new(secret),
+        plan.plan.account_id.clone(),
+    )?;
+    let segment = SeededSegment::from_inputs(
+        ValidatedConfig::validate(config.config().clone()).map_err(|_| "config_invalid")?,
+        &reference,
+        &mapping,
+        &calendar,
+        &seed,
+    )
+    .map_err(|_| "seed_invalid")?;
+    let day =
+        finam_signal_shadow::intraday::reconstruct(segment, &plan, &history, Path::new(&args[9]))
+            .map_err(|_| "intraday_reconstruction_failed")?;
+    finam_signal_shadow::runner::run_intraday(day, &config, plan, auth).await
+}
+
 fn restart(args: &[std::ffi::OsString]) -> Result<bool, &'static str> {
     if args.len() != 9 {
         return Err("usage: finam-signal-shadow restart CONFIG REFERENCE MAPPING CALENDAR SEED PREFIX_BINDING PREFIX NEW_OUTPUT");
@@ -227,6 +273,27 @@ fn restart(args: &[std::ffi::OsString]) -> Result<bool, &'static str> {
 #[tokio::main]
 async fn main() -> ExitCode {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
+    if primary_cli::handles(&args) {
+        return match primary_cli::run(&args).await {
+            Ok(code) => ExitCode::from(code),
+            Err(code) => {
+                eprintln!("{code}");
+                ExitCode::from(1)
+            }
+        };
+    }
+    if args
+        .first()
+        .is_some_and(|arg| arg == "observe-candle-intraday")
+    {
+        return match observe_candle_intraday(&args).await {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(reason) => {
+                eprintln!("{reason}");
+                ExitCode::from(1)
+            }
+        };
+    }
     if args.first().is_some_and(|arg| arg == "restart") {
         return match restart(&args) {
             Ok(flat) => {

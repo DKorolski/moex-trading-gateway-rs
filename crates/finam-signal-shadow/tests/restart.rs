@@ -256,6 +256,24 @@ fn semantic(mut state: serde_json::Value) -> serde_json::Value {
 }
 
 #[test]
+fn candle_policy_cannot_resume_an_accepted_quote_prefix() {
+    let mut f = fixture();
+    let dir = Dir::new();
+    let input = events(&f, true, false);
+    let (binding, bytes) = f.binding(&input);
+    let control = reconstruct(f.segment(), binding, &bytes, &dir.0.join("quote")).unwrap();
+    assert_eq!(control.position_lots(), 1);
+    f.config.feedback_policy_sha256 = feedback::candle_policy_fingerprint();
+    let (binding, bytes) = f.binding(&input);
+    let path = dir.0.join("candle");
+    assert!(matches!(
+        reconstruct(f.segment(), binding, &bytes, &path),
+        Err(PrefixError::Binding)
+    ));
+    assert!(!path.exists());
+}
+
+#[test]
 fn uninterrupted_and_reconstructed_actual_feedback_pending_nonflat_and_side_used() {
     let f = fixture();
     let dir = Dir::new();

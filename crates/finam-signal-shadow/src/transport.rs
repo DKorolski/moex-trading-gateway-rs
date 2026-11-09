@@ -10,7 +10,27 @@ use tokio::{sync::watch, time::Instant};
 #[derive(Clone)]
 pub struct StopHandle(watch::Sender<bool>);
 
+impl Default for StopHandle {
+    fn default() -> Self {
+        Self(watch::channel(false).0)
+    }
+}
+
 impl StopHandle {
+    pub(crate) fn same_run(&self, other: &Self) -> bool {
+        self.0.same_channel(&other.0)
+    }
+    /// Owned by one managed connection. Its wrapper must relay the independent
+    /// run STOP; stopping/replacing this scope never resets or stops the run.
+    pub(crate) fn connection_scope() -> Self {
+        Self::default()
+    }
+    pub(crate) async fn cancelled(&self) {
+        let mut rx = self.0.subscribe();
+        if !*rx.borrow() {
+            let _ = rx.changed().await;
+        }
+    }
     pub fn is_stopped(&self) -> bool {
         *self.0.borrow()
     }
@@ -20,7 +40,7 @@ impl StopHandle {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum TransportError {
     Bounds,
     Stopped,
@@ -42,6 +62,18 @@ pub struct ReadOnlyCollector {
 }
 
 impl ReadOnlyCollector {
+    pub(crate) fn for_shared_stop(
+        stop: &StopHandle,
+        deadline: DateTime<Utc>,
+        budget: Duration,
+    ) -> Result<Self, TransportError> {
+        let (_, mut value) = Self::new(deadline, budget)?;
+        value.stop = stop.0.subscribe();
+        Ok(value)
+    }
+    pub(crate) fn io_budget(&self) -> Duration {
+        self.request_budget
+    }
     pub(crate) fn sibling(&self) -> Self {
         Self {
             stop: self.stop.clone(),
@@ -197,7 +229,8 @@ impl ConfiguredTransports {
             fingerprint: config.fingerprint().into(),
             stop,
             bars: Some(rest.sibling()),
-            quotes: Some(rest.sibling()),
+            // No QUOTES transport capability exists in the candle-only profile.
+            quotes: (!config.candle_only()).then(|| rest.sibling()),
             rest,
             silence_ms: c.ws_silence_budget_ms,
             reconnect_ms: c.reconnect_budget_ms,

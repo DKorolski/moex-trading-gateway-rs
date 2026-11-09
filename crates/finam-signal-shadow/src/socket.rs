@@ -5,7 +5,14 @@ use crate::{
 };
 use broker_finam::AccessTokenLease;
 use chrono::Utc;
+mod candle;
+mod liveness;
+pub mod primary;
+mod timestamp;
 use futures_util::{SinkExt, StreamExt};
+pub(crate) use liveness::policy as candle_liveness_policy;
+pub use liveness::{Snapshot as LivenessSnapshot, TimeoutKind as LivenessTimeout};
+pub use timestamp::TimestampBoundsDetail;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     net::TcpStream,
@@ -30,6 +37,7 @@ pub enum SocketStage {
     PongFlush,
     Silence,
     Reconnect,
+    Heartbeat,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum SocketCode {
@@ -40,18 +48,62 @@ pub enum SocketCode {
     Read,
     Close,
     UnexpectedMessage,
+    IoTimeout,
+    Liveness(liveness::TimeoutKind),
     Protocol(crate::ws::WsError),
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct SocketFailure {
     pub stage: SocketStage,
     pub code: SocketCode,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp_bounds: Option<TimestampBoundsDetail>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quote_conflict: Option<Box<crate::quote::QuoteConflictDetail>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quote_time: Option<Box<crate::quote::QuoteTimeDetail>>,
 }
 fn failure(stage: SocketStage, code: SocketCode) -> TransportError {
-    TransportError::Socket(SocketFailure { stage, code })
+    TransportError::Socket(SocketFailure {
+        stage,
+        code,
+        timestamp_bounds: None,
+        quote_conflict: None,
+        quote_time: None,
+    })
 }
 fn protocol_failure(stage: SocketStage, e: crate::ws::WsError) -> TransportError {
     failure(stage, SocketCode::Protocol(e))
+}
+
+fn decode_text(
+    protocol: &mut BarsProtocol,
+    connection: &Connection,
+    text: &str,
+    silence_ms: u64,
+) -> Result<Observation, TransportError> {
+    let now = Utc::now();
+    protocol.receive(connection, text, now).map_err(|e| {
+        let timestamp_bounds = (e
+            == crate::ws::WsError::FrameAt(crate::ws::FrameCode::TimestampBounds))
+        .then(|| timestamp::detail(text, now, silence_ms))
+        .flatten();
+        TransportError::Socket(SocketFailure {
+            stage: SocketStage::ProtocolReceive,
+            code: SocketCode::Protocol(e),
+            timestamp_bounds,
+            quote_time: if e == crate::ws::WsError::Quote(crate::quote::QuoteError::Time) {
+                protocol.quote_time_detail().map(Box::new)
+            } else {
+                None
+            },
+            quote_conflict: if e == crate::ws::WsError::Quote(crate::quote::QuoteError::Conflict) {
+                protocol.quote_conflict_detail().map(Box::new)
+            } else {
+                None
+            },
+        })
+    })
 }
 // Drop every dynamic tungstenite payload; even error Debug/Display is forbidden.
 fn incoming(
@@ -107,6 +159,11 @@ async fn open(
 }
 
 struct Session<S> {
+    watchdog: liveness::Watchdog,
+    // Only enabled by the candle-only runner. Never authorizes a new command.
+    independent_subscription: bool,
+    subscription_sent: bool,
+    silence_ms: u64,
     socket: Option<WebSocketStream<S>>,
     protocol: BarsProtocol,
     connection: Connection,
@@ -115,6 +172,13 @@ struct Session<S> {
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
+    fn receive_lease_valid(&self) -> Result<(), TransportError> {
+        if self.independent_subscription && self.subscription_sent {
+            Ok(())
+        } else {
+            lease_valid(&self.lease)
+        }
+    }
     async fn observe(&mut self) -> Result<Observation, TransportError> {
         self.observe_until(None).await?.ok_or(TransportError::Fetch)
     }
@@ -123,9 +187,12 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
         &mut self,
         rotate_at: Option<std::time::Instant>,
     ) -> Result<Option<Observation>, TransportError> {
+        if self.independent_subscription {
+            return self.observe_candle().await;
+        }
         // The local owner drops the socket on any error OR cancellation.
         let mut socket = self.socket.take().ok_or(TransportError::Held)?;
-        lease_valid(&self.lease)?;
+        self.receive_lease_valid()?;
         let remaining_silence = self
             .protocol
             .remaining_silence(Utc::now())
@@ -133,6 +200,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
         let protocol = &mut self.protocol;
         let connection = &self.connection;
         let lease = &self.lease;
+        let independent = self.independent_subscription;
+        let subscription_sent = &mut self.subscription_sent;
+        let silence_ms = self.silence_ms;
         let observation = self
             .budget
             .bounded_wait(remaining_silence, async {
@@ -150,13 +220,15 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
                     _ = rotation => return Ok(None),
                     frame = socket.next() => frame,
                 })?;
-                lease_valid(lease)?;
+                if !independent || !*subscription_sent {
+                    lease_valid(lease)?;
+                }
                 match frame {
                     Message::Text(text) => {
-                        let observation = protocol
-                            .receive(connection, &text, Utc::now())
-                            .map_err(|e| protocol_failure(SocketStage::ProtocolReceive, e))?;
+                        let observation = decode_text(protocol, connection, &text, silence_ms)?;
                         if matches!(observation, Observation::Handshake) {
+                            // CONNECT validation does not authorize a delayed SUBSCRIBE.
+                            lease_valid(lease)?;
                             let request = protocol
                                 .subscription_request(connection, lease.token())
                                 .map_err(|e| protocol_failure(SocketStage::SubscriptionBuild, e))?;
@@ -169,6 +241,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
                             protocol.subscription_sent(connection).map_err(|e| {
                                 protocol_failure(SocketStage::SubscriptionCommit, e)
                             })?;
+                            *subscription_sent = true;
                         }
                         Ok(Some(observation))
                     }
@@ -193,13 +266,84 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
                 }
             })
             .await?;
-        lease_valid(&self.lease)?;
+        self.receive_lease_valid()?;
         self.socket = Some(socket);
         Ok(observation)
     }
 }
 
 pub struct BarsSocket(Session<MaybeTlsStream<TcpStream>>);
+
+/// A fresh bounded receive owner after a classified fault, never a reset of a
+/// held request or reuse of the old socket. Absolute deadline/stop are inherited.
+pub(crate) struct RecoveryFactory {
+    budget: ReadOnlyCollector,
+    silence_ms: u64,
+    reconnect_ms: u64,
+    #[cfg(test)]
+    endpoint: Option<std::net::SocketAddr>,
+}
+
+impl RecoveryFactory {
+    pub(crate) async fn connect(
+        &self,
+        lease: AccessTokenLease,
+    ) -> Result<BarsSocket, TransportError> {
+        #[cfg(test)]
+        if let Some(endpoint) = self.endpoint {
+            lease_valid(&lease)?;
+            let mut budget = self.budget.sibling();
+            let socket = budget
+                .bounded(async {
+                    let tcp = TcpStream::connect(endpoint)
+                        .await
+                        .map_err(|_| failure(SocketStage::Connect, SocketCode::Connect))?;
+                    tokio_tungstenite::client_async(
+                        "ws://local.fixture/ws",
+                        MaybeTlsStream::Plain(tcp),
+                    )
+                    .await
+                    .map(|(ws, _)| ws)
+                    .map_err(|_| failure(SocketStage::Connect, SocketCode::Connect))
+                })
+                .await?;
+            let mut protocol = BarsProtocol::new(self.silence_ms, self.reconnect_ms)
+                .map_err(|_| TransportError::Bounds)?;
+            let connection = protocol
+                .connected(Utc::now())
+                .map_err(|e| protocol_failure(SocketStage::Connect, e))?;
+            return Ok(BarsSocket(Session {
+                watchdog: liveness::Watchdog::new(),
+                independent_subscription: true,
+                subscription_sent: false,
+                silence_ms: self.silence_ms,
+                socket: Some(socket),
+                protocol,
+                connection,
+                lease,
+                budget,
+            }));
+        }
+        BarsSocket::connect(
+            lease,
+            self.budget.sibling(),
+            self.silence_ms,
+            self.reconnect_ms,
+        )
+        .await
+        .map(BarsSocket::independent_subscription)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn local_fixture(budget: ReadOnlyCollector, endpoint: std::net::SocketAddr) -> Self {
+        Self {
+            budget,
+            silence_ms: 60000,
+            reconnect_ms: 5000,
+            endpoint: Some(endpoint),
+        }
+    }
+}
 
 impl BarsSocket {
     /// Caller retains the StopHandle returned when constructing budget.
@@ -212,13 +356,14 @@ impl BarsSocket {
     ) -> Result<Self, TransportError> {
         let protocol =
             BarsProtocol::new(silence_ms, reconnect_ms).map_err(|_| TransportError::Bounds)?;
-        Self::connect_protocol(lease, budget, protocol).await
+        Self::connect_protocol(lease, budget, protocol, silence_ms).await
     }
 
     async fn connect_protocol(
         lease: AccessTokenLease,
         mut budget: ReadOnlyCollector,
         mut protocol: BarsProtocol,
+        silence_ms: u64,
     ) -> Result<Self, TransportError> {
         let connection = protocol
             .connected(Utc::now())
@@ -228,6 +373,10 @@ impl BarsSocket {
             .check_silence(Utc::now())
             .map_err(|e| protocol_failure(SocketStage::Silence, e))?;
         Ok(Self(Session {
+            watchdog: liveness::Watchdog::new(),
+            independent_subscription: false,
+            subscription_sent: false,
+            silence_ms,
             socket: Some(socket),
             protocol,
             connection,
@@ -238,6 +387,32 @@ impl BarsSocket {
 
     pub async fn observe(&mut self) -> Result<Observation, TransportError> {
         self.0.observe().await
+    }
+
+    /// Candle-only receive policy; CONNECT and SUBSCRIBE still require a lease.
+    pub(crate) fn independent_subscription(mut self) -> Self {
+        self.0.independent_subscription = true;
+        self
+    }
+
+    pub(crate) fn liveness(&self) -> Option<LivenessSnapshot> {
+        self.0
+            .independent_subscription
+            .then(|| self.0.watchdog.snapshot())
+    }
+
+    pub(crate) fn recovery_factory(&self) -> Option<RecoveryFactory> {
+        self.0.independent_subscription.then(|| RecoveryFactory {
+            budget: self.0.budget.sibling(),
+            silence_ms: self.0.silence_ms,
+            reconnect_ms: self.0.protocol.reconnect_budget_ms(),
+            #[cfg(test)]
+            endpoint: None,
+        })
+    }
+
+    pub(crate) fn take_liveness_event(&mut self) -> Option<serde_json::Value> {
+        self.0.watchdog.take_event()
     }
 
     pub(crate) async fn observe_until(
@@ -263,10 +438,13 @@ impl BarsSocket {
         auth: bool,
     ) -> Result<Self, TransportError> {
         let Session {
+            independent_subscription,
+            silence_ms,
             socket,
             mut protocol,
             connection,
             mut budget,
+            mut watchdog,
             ..
         } = self.0;
         let socket = socket.ok_or(TransportError::Held)?;
@@ -281,10 +459,15 @@ impl BarsSocket {
         }
         .map_err(|e| protocol_failure(SocketStage::Reconnect, e))?;
         let socket = open(&lease, &mut budget).await?;
+        watchdog.reconnected();
         protocol
             .check_silence(Utc::now())
             .map_err(|e| protocol_failure(SocketStage::Silence, e))?;
         Ok(Self(Session {
+            watchdog,
+            independent_subscription,
+            subscription_sent: false,
+            silence_ms,
             socket: Some(socket),
             protocol,
             connection,
@@ -304,6 +487,27 @@ impl BarsSocket {
 pub struct QuotesSocket(BarsSocket);
 
 impl QuotesSocket {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn connect_diagnostic_initial(
+        lease: AccessTokenLease,
+        budget: ReadOnlyCollector,
+        silence_ms: u64,
+        reconnect_ms: u64,
+        quote_age_ms: u64,
+        capacity: usize,
+        enabled: bool,
+    ) -> Result<Self, TransportError> {
+        let protocol = BarsProtocol::new_quotes(silence_ms, reconnect_ms, quote_age_ms, capacity)
+            .map_err(|_| TransportError::Bounds)?;
+        let protocol = if enabled {
+            protocol.diagnostic_initial_quotes()
+        } else {
+            protocol
+        };
+        Ok(Self(
+            BarsSocket::connect_protocol(lease, budget, protocol, silence_ms).await?,
+        ))
+    }
     pub(crate) async fn observe_until(
         &mut self,
         at: std::time::Instant,
@@ -324,7 +528,7 @@ impl QuotesSocket {
         let protocol = BarsProtocol::new_quotes(silence_ms, reconnect_ms, quote_age_ms, capacity)
             .map_err(|_| TransportError::Bounds)?;
         Ok(Self(
-            BarsSocket::connect_protocol(lease, budget, protocol).await?,
+            BarsSocket::connect_protocol(lease, budget, protocol, silence_ms).await?,
         ))
     }
     pub async fn observe(&mut self) -> Result<Observation, TransportError> {
@@ -346,6 +550,208 @@ pub(crate) mod tests {
     use std::time::Duration;
     use tokio::io::DuplexStream;
     use tokio_tungstenite::tungstenite::protocol::Role;
+
+    fn expired_lease() -> AccessTokenLease {
+        AccessTokenLease::new(
+            AccessToken::new("expired-fixture"),
+            std::time::Instant::now() - Duration::from_secs(2),
+            FinamAuthPolicy {
+                token_ttl: Duration::from_secs(1),
+                renew_before: Duration::ZERO,
+            },
+        )
+    }
+
+    pub(super) async fn subscribed_pair() -> (
+        StopHandle,
+        Session<DuplexStream>,
+        WebSocketStream<DuplexStream>,
+    ) {
+        let (stop, mut client, mut server) = pair().await;
+        client.independent_subscription = true;
+        server
+            .send(Message::Text(
+                r#"{"type":"EVENT","eventInfo":{"event":"HANDSHAKE_SUCCESS"}}"#.into(),
+            ))
+            .await
+            .unwrap();
+        assert!(matches!(
+            client.observe().await.unwrap(),
+            Observation::Handshake
+        ));
+        assert!(matches!(
+            server.next().await.unwrap().unwrap(),
+            Message::Text(_)
+        ));
+        (stop, client, server)
+    }
+
+    pub(crate) fn fresh_bar() -> Message {
+        Message::Text(
+            serde_json::json!({
+                "type":"DATA", "subscriptionType":"BARS", "subscriptionKey":"fixture",
+                "payload":{"symbol":"IMOEXF@RTSX","timeframe":"TIME_FRAME_M1","bars":[{
+                "timestamp":chrono::DateTime::from_timestamp(Utc::now().timestamp()/60*60,0).unwrap().to_rfc3339(),"open":"2200","high":"2201",
+                    "low":"2199","close":"2200","volume":"1"
+                }]}
+            })
+            .to_string(),
+        )
+    }
+
+    pub(crate) async fn refresh_without_socket_replacement<F: std::future::Future<Output = ()>>(
+        refresh: F,
+    ) {
+        let (_stop, mut client, mut server) = subscribed_pair().await;
+        let original_connection = client.connection.clone();
+        let Message::Text(frame) = fresh_bar() else {
+            unreachable!()
+        };
+        server.send(Message::Text(frame.clone())).await.unwrap();
+        assert_eq!(client.observe().await.unwrap().live_bars().len(), 1);
+        refresh.await;
+        // Keep the expired subscription credential, not the new REST grant.
+        client.lease = expired_lease();
+        // Reusing the original connection capability still passes the protocol's
+        // exact-generation check. Provisional bars never drive model finality.
+        assert_eq!(
+            client
+                .protocol
+                .receive(&original_connection, &frame, Utc::now())
+                .unwrap()
+                .live_bars()
+                .len(),
+            1
+        );
+        server.send(fresh_bar()).await.unwrap();
+        assert_eq!(client.observe().await.unwrap().live_bars().len(), 1);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), server.next())
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn candle_subscription_receives_after_real_expiry_without_resubscribe() {
+        let (_stop, mut client, mut server) = subscribed_pair().await;
+        client.lease = AccessTokenLease::new(
+            AccessToken::new("short-fixture"),
+            std::time::Instant::now(),
+            FinamAuthPolicy {
+                token_ttl: Duration::from_millis(10),
+                renew_before: Duration::ZERO,
+            },
+        );
+        let observation = client.observe();
+        let publish = async {
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            server.send(fresh_bar()).await.unwrap();
+        };
+        let (result, ()) = tokio::join!(observation, publish);
+        assert_eq!(result.unwrap().live_bars().len(), 1);
+        assert!(lease_valid(&client.lease).is_err());
+        assert!(client.socket.is_some());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), server.next())
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn expired_connect_and_delayed_subscribe_remain_forbidden() {
+        let (_stop, mut client, mut server) = pair().await;
+        client.independent_subscription = true;
+        client.lease = expired_lease();
+        assert!(matches!(
+            open(&client.lease, &mut client.budget).await,
+            Err(TransportError::Socket(SocketFailure {
+                code: SocketCode::Lease,
+                ..
+            }))
+        ));
+        server
+            .send(Message::Text(
+                r#"{"type":"EVENT","eventInfo":{"event":"HANDSHAKE_SUCCESS"}}"#.into(),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(
+            client.observe().await.unwrap_err(),
+            failure(SocketStage::Lease, SocketCode::Lease)
+        );
+        assert!(!client.subscription_sent);
+        assert!(client.socket.is_none());
+    }
+
+    #[tokio::test]
+    async fn established_candle_bad_frame_close_eof_and_provider_error_still_fail() {
+        for case in 0..4 {
+            let (_stop, mut client, mut server) = subscribed_pair().await;
+            client.lease = expired_lease();
+            match case {
+                0 => server.send(Message::Text("not-json".into())).await.unwrap(),
+                1 => server.send(Message::Close(None)).await.unwrap(),
+                2 => {
+                    drop(server);
+                }
+                _ => server
+                    .send(Message::Text(
+                        r#"{"type":"ERROR","errorInfo":{"code":"fixture"}}"#.into(),
+                    ))
+                    .await
+                    .unwrap(),
+            }
+            let error = client.observe().await.unwrap_err();
+            assert_ne!(error, failure(SocketStage::Lease, SocketCode::Lease));
+            assert!(client.socket.is_none());
+            assert_eq!(client.observe().await.unwrap_err(), TransportError::Held);
+        }
+    }
+
+    #[tokio::test]
+    async fn expiry_does_not_turn_bootstrap_into_live_or_disable_silence() {
+        let (_stop, mut client, mut server) = subscribed_pair().await;
+        client.lease = expired_lease();
+        let Message::Text(frame) = fresh_bar() else {
+            unreachable!()
+        };
+        let mut frame: serde_json::Value = serde_json::from_str(&frame).unwrap();
+        frame["payload"]["bars"][0]["isDataSnapshot"] = true.into();
+        frame["payload"]["bars"][0]["timestamp"] = "2026-01-01T00:00:00Z".into();
+        server.send(Message::Text(frame.to_string())).await.unwrap();
+        let observation = client.observe().await.unwrap();
+        assert!(matches!(observation, Observation::InitialHistory { .. }));
+        assert!(observation.live_bars().is_empty());
+        let error = client.observe().await.unwrap_err();
+        assert_ne!(error, failure(SocketStage::Lease, SocketCode::Lease));
+        assert!(client.socket.is_none());
+    }
+
+    #[tokio::test]
+    async fn established_candle_stop_does_not_need_auth_or_valid_jwt() {
+        let (stop, mut client, mut server) = subscribed_pair().await;
+        client.lease = expired_lease();
+        let job = tokio::spawn(async move { client.observe().await });
+        stop.stop();
+        assert_eq!(job.await.unwrap().unwrap_err(), TransportError::Stopped);
+        let peer = tokio::time::timeout(Duration::from_secs(1), server.next())
+            .await
+            .unwrap();
+        assert!(peer.is_none() || peer.unwrap().is_err());
+    }
+
+    #[tokio::test]
+    async fn legacy_receive_policy_still_rejects_expiry() {
+        let (_stop, mut client, _server) = subscribed_pair().await;
+        client.independent_subscription = false;
+        client.lease = expired_lease();
+        assert_eq!(
+            client.observe().await.unwrap_err(),
+            failure(SocketStage::Lease, SocketCode::Lease)
+        );
+    }
 
     #[tokio::test]
     async fn rotation_timer_is_not_a_cancelled_or_held_observe() {
@@ -431,7 +837,7 @@ pub(crate) mod tests {
             stop.stop();
             return client.observe().await.unwrap_err();
         }
-        if case == 2 {
+        if case == 2 || case == 4 || case == 5 || case == 6 {
             server
                 .send(Message::Text(
                     r#"{"type":"EVENT","eventInfo":{"event":"HANDSHAKE_SUCCESS"}}"#.into(),
@@ -440,9 +846,34 @@ pub(crate) mod tests {
                 .unwrap();
             client.observe().await.unwrap();
             server.next().await.unwrap().unwrap();
-            let payload = if quotes {
+            let stamp = Utc::now().to_rfc3339();
+            if case == 5 {
+                server.send(Message::Text(serde_json::json!({
+                    "type":"DATA", "subscriptionType":"QUOTES", "subscriptionKey":"SECRET_RAW_ACCOUNT_TOKEN",
+                    "payload":{"quote":[{"symbol":"IMOEXF@RTSX", "timestamp":stamp,
+                    "last":{"value":"2200"}, "bid":{"value":"2199"}, "ask":{"value":"2201"}}]}
+                }).to_string())).await.unwrap();
+                let Observation::Quotes(q) = client.observe().await.unwrap() else {
+                    panic!("quotes");
+                };
+                assert_eq!(q.len(), 1);
+            }
+            let payload = if case == 6 {
+                serde_json::json!({"quote":[{"symbol":"IMOEXF@RTSX",
+                    "timestamp":(Utc::now()-chrono::Duration::seconds(30)).to_rfc3339(),
+                    "last":{"value":"2200"},"ignored":"SECRET_RAW_ACCOUNT_TOKEN"}]})
+            } else if case == 5 {
+                serde_json::json!({"quote":[{"symbol":"IMOEXF@RTSX", "timestamp":stamp,
+                    "last":{"value":"2200.5"}, "bid":{"value":"2199"}, "ask":{"value":"2201"}, "ignored":"SECRET_RAW_ACCOUNT_TOKEN"}]})
+            } else if quotes {
                 serde_json::json!({"quote":[{"symbol":"IMOEXF@RTSX",
                     "timestamp":Utc::now().to_rfc3339(),"last":{"value":"2200.25"}}]})
+            } else if case == 4 {
+                serde_json::json!({"symbol":"IMOEXF@RTSX","bars":[{
+                    "timestamp":(Utc::now()+chrono::Duration::minutes(2)).to_rfc3339(),
+                    "isDataSnapshot":true,"open":"2200","high":"2201","low":"2199",
+                    "close":"2200","volume":"1","ignored":"SECRET_RAW_ACCOUNT_TOKEN"
+                }]})
             } else {
                 serde_json::json!({"symbol":"SECRET_RAW_ACCOUNT_TOKEN","bars":[]})
             };
@@ -456,7 +887,10 @@ pub(crate) mod tests {
                 ))
                 .await
                 .unwrap();
-            return client.observe().await.unwrap_err();
+            let error = client.observe().await.unwrap_err();
+            assert!(client.socket.is_none());
+            assert_eq!(client.observe().await.unwrap_err(), TransportError::Held);
+            return error;
         }
         if case == 1 {
             server
@@ -486,7 +920,8 @@ pub(crate) mod tests {
                     stage: SocketStage::ProtocolReceive,
                     code: SocketCode::Protocol(crate::ws::WsError::FrameAt(
                         crate::ws::FrameCode::EnvelopeJson
-                    ))
+                    )),
+                    ..
                 })
             ));
         }
@@ -549,6 +984,10 @@ pub(crate) mod tests {
         (
             stop,
             Session {
+                watchdog: liveness::Watchdog::new(),
+                independent_subscription: false,
+                subscription_sent: false,
+                silence_ms: 5000,
                 socket: Some(socket),
                 protocol,
                 connection,

@@ -20,6 +20,7 @@ tokio-tungstenite.workspace = true
 futures-util.workspace = true
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 runtime-durable-service = { path = "../runtime-durable-service" }
 csv.workspace = true
 
