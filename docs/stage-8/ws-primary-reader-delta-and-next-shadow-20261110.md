@@ -54,6 +54,28 @@ NOT_EVALUATED_REQUIRES_OFFLINE_REPLAY.
 nonblocking REST, deadlines, HTTP/WS owner, auth и Cargo не меняются.
 Установленный ELF и прежние immutable packages не меняются.
 
+### Reader R1 — D2.1
+
+Review `FINAM_READER_DELTA_REVIEW_5ddb42728fb5_20261110_R0_RU.txt` сохранил
+BOUNDED RESULT ACCEPT, закрыл D1/D3 и оставил reader HOLD по D2.1.
+В R1 explicit unavailable/failure/cancelled outcome обрабатывается до nested
+assessment. Сохранённый assessment не становится доступным Match/VolumeRevision
+и не получает integrity/committed-basis аттестацию. Его reported kind/basis
+можно видеть только в UNAVAILABLE_UNATTESTED detail вместе со status, class,
+failure trace classes и reason. Failure trace + Audit outcome считается один
+раз как unavailable; явный failure не исчезает даже за противоречивым
+EvidenceOnly outcome. Приоритет тот же для object/list и Proof failure events.
+
+Фактические counts исходного fixture не меняются. Original result.json и
+его recorded verdict не переписываются. Изменены только Python-reader, его
+тесты и этот документ; Rust/Cargo относительно 5ddb4272 побайтно неизменны.
+539 Rust tests, fmt, strict clippy и legacy verifier наследуются от R0;
+заново выполняются Python tests, actual replay и предоставленный reviewer repro.
+
+Уточнение D1: Rust verifier вызывается и CLI, и post-join export через
+primary/entry/artifacts.rs. При новой сборке меняется verification/export path,
+но не model owner или precommit admission. Установленный ELF этим не изменён.
+
 ## Точность protected-state формулировок
 
 Доказано совпадение пяти выбранных unit states, 147 file hashes и activation

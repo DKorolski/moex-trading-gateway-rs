@@ -170,6 +170,59 @@ class Diagnostics(unittest.TestCase):
         self.assertEqual(r['roles']['Audit']['outcome_events'], 1)
         self.assertEqual(r['roles']['Audit']['unavailable_events'], 1)
 
+    def test_unavailable_and_cancelled_take_precedence_over_retained_assessment(self):
+        for status in ('EvidenceUnavailable', 'Unavailable', 'CancelledForStop'):
+            for as_list in (False, True):
+                for with_trace in (False, True):
+                    for kind in ('Match', 'VolumeRevision'):
+                        with self.subTest(status=status, as_list=as_list, trace=with_trace, kind=kind):
+                            a = assessment(kind)
+                            e = audit([a] if as_list else a, status=status)
+                            e['event'].update(source_sha256=None, **{'class': 'Integrity'})
+                            trace = dict(kind='transport_event', event=dict(event='primary_rest_nonblocking_failed',
+                                role='Audit', label_ms=T, nonblocking=True, **{'class': 'Integrity'}))
+                            r = run(chain() + ([trace] if with_trace else []) + [e])
+                            summary = r['roles']['Audit']
+                            self.assertEqual(summary['outcome_events'], 1)
+                            self.assertEqual(summary['unavailable_events'], 1)
+                            self.assertEqual(sum(summary['comparison_kinds'].values()), 0)
+                            self.assertEqual(summary['committed_basis_attestations'], 0)
+                            self.assertFalse(r['volume_revision_observed'])
+                            d = r['assessments'][0]
+                            self.assertFalse(d['integrity_valid'])
+                            self.assertFalse(d['committed_basis_attested'])
+                            self.assertEqual(d['status'], status)
+                            self.assertEqual(d['failure_class'], 'Integrity')
+                            self.assertEqual(d['reported_kind'], kind)
+                            self.assertEqual(d['classification'], 'UNAVAILABLE_UNATTESTED')
+
+    def test_failure_events_cannot_attest_retained_assessments(self):
+        for name in ('primary_rest_nonblocking_failed', 'primary_rest_proof_failed'):
+            for role in ('Proof', 'Audit'):
+                if name == 'primary_rest_proof_failed' and role != 'Proof':
+                    continue
+                for as_list in (False, True):
+                    with self.subTest(name=name, role=role, as_list=as_list):
+                        a = assessment()
+                        e = dict(kind='transport_event', event=dict(event=name, role=role, label_ms=T,
+                            assessment=[a] if as_list else a, **{'class': 'Cancelled'}))
+                        r = run(chain() + [e])
+                        self.assertEqual(r['roles'][role]['unavailable_events'], 1)
+                        self.assertEqual(sum(r['roles'][role]['comparison_kinds'].values()), 0)
+                        self.assertFalse(r['assessments'][0]['integrity_valid'])
+                        self.assertEqual(r['assessments'][0]['failure_class'], 'Cancelled')
+
+    def test_failure_trace_does_not_disappear_behind_contradictory_available_audit(self):
+        trace = dict(kind='transport_event', event=dict(event='primary_rest_nonblocking_failed',
+                     role='Audit', label_ms=T, **{'class': 'Integrity'}))
+        for status in ('EvidenceOnly', 'Match'):
+            r = run(chain() + [trace, audit(assessment(), status=status)])
+            self.assertEqual(r['roles']['Audit']['unavailable_events'], 1)
+            self.assertEqual(r['roles']['Audit']['outcome_events'], 1)
+            self.assertEqual(r['roles']['Audit']['comparison_kinds']['Match'], 0)
+            self.assertEqual(r['roles']['Audit']['committed_basis_attestations'], 0)
+            self.assertEqual(r['assessments'][0]['failure_trace_classes'], ['Integrity'])
+
     @unittest.skipUnless(os.environ.get('FINAM_BOUNDED_RESULT_ZIP'), 'set immutable public fixture path')
     def test_real_bounded_fixture_and_original_verdict_unchanged(self):
         body = Path(os.environ['FINAM_BOUNDED_RESULT_ZIP']).read_bytes()

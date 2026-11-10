@@ -157,6 +157,12 @@ def summarize(rows):
     details, outcomes, scheduled = [], {r: set() for r in roles}, {r: set() for r in roles}
     audit_results = {r.get('event', {}).get('label_ms') for r in rows
                      if r.get('event', {}).get('event') == 'primary_audit_result'}
+    failures = {}
+    for row in rows:
+        e = row.get('event', {})
+        if e.get('event') in ('primary_rest_nonblocking_failed', 'primary_rest_proof_failed'):
+            role = 'Proof' if e['event'] == 'primary_rest_proof_failed' else e.get('role')
+            failures.setdefault((role, e.get('label_ms')), []).append(e.get('class'))
     for index, row in enumerate(rows):
         e = row.get('event', {})
         name = e.get('event')
@@ -178,14 +184,31 @@ def summarize(rows):
         outcomes[role].add(e.get('label_ms'))
         a = e.get('assessment')
         assessments = a if isinstance(a, list) else [a] if isinstance(a, dict) else []
+        failure_classes = failures.get((role, e.get('label_ms')), [])
+        if (e.get('status') in UNAVAILABLE
+                or name in ('primary_rest_nonblocking_failed', 'primary_rest_proof_failed')
+                or failure_classes):
+            # Availability/failure is the outcome; retained assessments cannot
+            # override it. The deduplicated Audit inherits its failure trace.
+            summary['unavailable_events'] += 1
+            for retained in assessments:
+                summary['assessment_count'] += 1
+                summary['assessment_integrity_failures'] += 1
+                details.append(dict(event=name, role=role, event_sequence=row['sequence'],
+                    label_ms=e.get('label_ms'), kind=None, known_basis=None,
+                    classification='UNAVAILABLE_UNATTESTED', status=e.get('status'),
+                    failure_class=e.get('class'), failure_trace_classes=failure_classes,
+                    reported_kind=retained.get('kind') if isinstance(retained, dict) else None,
+                    reported_basis=retained.get('known_basis') if isinstance(retained, dict) else None,
+                    integrity_valid=False, committed_basis_attested=False,
+                    reason='EXPLICIT_UNAVAILABLE_OR_FAILURE_TAKES_PRECEDENCE'))
+            continue
         if not assessments:
             legacy = (name == 'primary_audit_result' and e.get('nonblocking') is not True
                       and 'assessment' not in e and e.get('status') in ('Match', 'VolumeRevision'))
             if legacy:
                 summary['comparison_kinds'][e['status']] += 1
                 summary['legacy_comparison_kinds'][e['status']] += 1
-            elif e.get('status') in UNAVAILABLE or name in ('primary_rest_nonblocking_failed', 'primary_rest_proof_failed'):
-                summary['unavailable_events'] += 1
             else:
                 summary['unassessed_events'] += 1
             continue
