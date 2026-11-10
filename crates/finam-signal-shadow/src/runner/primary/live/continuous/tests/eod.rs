@@ -443,6 +443,89 @@ fn nonblocking_rest_full_synthetic_day_evidence_is_recomputed_and_never_called_p
 }
 
 #[test]
+fn nonblocking_rest_committed_proof_basis_is_bound_to_its_preceding_real_commit() {
+    let mut f = Fixture::new();
+    f.config.primary.delivery = crate::primary::DeliveryPolicy::ObservedBoNonBlockingRestV3;
+    with_fixture_clock(f.open(), || {
+        runtime(async {
+            let (_, mut artifact) = day(f, None, false).await;
+            artifact.verify().unwrap();
+            artifact.change_journal(|rows| {
+                let at = rows
+                    .iter()
+                    .position(|r| r["event"]["event"] == "primary_rest_observation")
+                    .unwrap();
+                let mut proof = rows.remove(at);
+                let label = proof["event"]["label_ms"].as_i64().unwrap();
+                let receipt = &rows
+                    .iter()
+                    .find(|r| {
+                        r["kind"] == "canonical_source"
+                            && r["event"]["receipt"]["label_ms"] == label
+                    })
+                    .unwrap()["event"]["receipt"];
+                let expected = serde_json::from_value(receipt["actual_m1"].clone()).unwrap();
+                let actual =
+                    serde_json::from_value(proof["event"]["assessment"]["observed_m1"].clone())
+                        .unwrap();
+                proof["event"]["assessment"] =
+                    serde_json::to_value(crate::primary::rest_observation::assess(
+                        label,
+                        "COMMITTED_MODEL_INPUT",
+                        expected,
+                        actual,
+                    ))
+                    .unwrap();
+                let after = rows
+                    .iter()
+                    .position(|r| {
+                        r["kind"] == "canonical_commit" && r["event"]["model_label_utc_ms"] == label
+                    })
+                    .unwrap();
+                proof["event"]["recorded_at_ms"] = json!(
+                    rows[after]["event"]["publication_checked_at_ms"]
+                        .as_i64()
+                        .unwrap()
+                        + 1
+                );
+                rows.insert(after + 1, proof);
+                for (i, row) in rows.iter_mut().enumerate() {
+                    row["sequence"] = json!(i);
+                }
+            });
+            // Correct diagnostic after commit remains valid, including any
+            // disagreement with REST. This does not re-run a model callback.
+            artifact.verify().unwrap();
+            let mut forged = artifact.clone();
+            forged.change_journal(|rows| {
+                let a = &mut rows
+                    .iter_mut()
+                    .find(|r| r["event"]["event"] == "primary_rest_observation")
+                    .unwrap()["event"]["assessment"];
+                let mut expected: Vec<broker_core::event::Bar> =
+                    serde_json::from_value(a["expected_m1"].clone()).unwrap();
+                expected[0].volume += rust_decimal::Decimal::ONE;
+                let actual = serde_json::from_value(a["observed_m1"].clone()).unwrap();
+                *a = serde_json::to_value(crate::primary::rest_observation::assess(
+                    a["label_ms"].as_i64().unwrap(),
+                    "COMMITTED_MODEL_INPUT",
+                    expected,
+                    actual,
+                ))
+                .unwrap();
+            });
+            assert_eq!(forged.verify().unwrap_err(), verify::VerifyError::Source);
+            artifact.change_journal(|rows| {
+                rows.iter_mut()
+                    .find(|r| r["event"]["event"] == "primary_rest_observation")
+                    .unwrap()["event"]["assessment"]["known_basis"] = json!("PROVISIONAL_WS");
+            });
+            assert_eq!(artifact.verify().unwrap_err(), verify::VerifyError::Source);
+        })
+    });
+}
+
+#[test]
 fn ws_first_policy_full_synthetic_day_passes_independent_reader_without_live_claims() {
     let mut f = Fixture::new();
     f.config.primary.delivery = crate::primary::DeliveryPolicy::ObservedBoRestPrecommitWsFirstV2;

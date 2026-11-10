@@ -263,26 +263,19 @@ pub fn verify(
                     .get(string(event, "source_sha256")?)
                     .ok_or(VerifyError::Source)?;
                 let a = &event["assessment"];
-                let expected = serde_json::from_value(a["expected_m1"].clone())
-                    .map_err(|_| VerifyError::Source)?;
-                let basis = match a["known_basis"].as_str() {
-                    Some("COMMITTED_MODEL_INPUT") => "COMMITTED_MODEL_INPUT",
-                    Some("PROVISIONAL_WS") => "PROVISIONAL_WS",
-                    _ => return Err(VerifyError::Source),
-                };
-                let assessed = super::rest_observation::assess(
-                    label,
-                    basis,
-                    expected,
-                    source.bars().cloned().collect(),
-                );
+                // A future input in the complete scan cannot establish that
+                // the label was already committed when this event was written.
+                let committed = scan.inputs[..committed_so_far]
+                    .iter()
+                    .find(|i| i.step.model_label_utc_ms == label)
+                    .map(|i| i.actual_m1.as_slice());
+                verify_proof_assessment(label, a, source.bars().cloned().collect(), committed)?;
                 if !nonblocking
                     || event["nonblocking"] != true
                     || event["role"] != "Proof"
                     || !proof_jobs.contains_key(&label)
                     || source.evidence().start.timestamp_millis() != label
                     || source.evidence().end.timestamp_millis() != label + 600000
-                    || serde_json::to_value(assessed).map_err(|_| VerifyError::Source)? != *a
                 {
                     return Err(VerifyError::Source);
                 }
@@ -682,6 +675,33 @@ pub fn verify(
         parity_accepted: false,
     })
 }
+// File-only diagnostic attestation. This is not called by the runtime owner
+// and never changes nonblocking REST, model inputs or admission policy.
+fn verify_proof_assessment(
+    label: i64,
+    assessment: &Value,
+    actual: Vec<broker_core::event::Bar>,
+    committed: Option<&[broker_core::event::Bar]>,
+) -> Result<(), VerifyError> {
+    let (basis, expected) = match assessment["known_basis"].as_str() {
+        Some("COMMITTED_MODEL_INPUT") => (
+            "COMMITTED_MODEL_INPUT",
+            committed.ok_or(VerifyError::Source)?.to_vec(),
+        ),
+        Some("PROVISIONAL_WS") if committed.is_none() => (
+            "PROVISIONAL_WS",
+            serde_json::from_value(assessment["expected_m1"].clone())
+                .map_err(|_| VerifyError::Source)?,
+        ),
+        _ => return Err(VerifyError::Source),
+    };
+    let recomputed = super::rest_observation::assess(label, basis, expected, actual);
+    if serde_json::to_value(recomputed).map_err(|_| VerifyError::Source)? != *assessment {
+        return Err(VerifyError::Source);
+    }
+    Ok(())
+}
+
 fn rest_failure(value: &Value) -> bool {
     matches!(
         value.as_str(),
@@ -706,4 +726,88 @@ fn integer(value: &Value, key: &str) -> Result<i64, VerifyError> {
 }
 fn string<'a>(value: &'a Value, key: &str) -> Result<&'a str, VerifyError> {
     value[key].as_str().ok_or(VerifyError::Decode)
+}
+
+#[cfg(test)]
+mod proof_basis_tests {
+    use super::*;
+    use broker_core::event::Bar;
+    use serde_json::json;
+
+    fn bar() -> Bar {
+        serde_json::from_value(json!({
+            "instrument":{"exchange":"Moex","market":"Futures","symbol":"IMOEXF","venue_symbol":"IMOEXF@RTSX"},
+            "timeframe_sec":60,"open_ts":"2026-11-10T04:00:00Z","close_ts":"2026-11-10T04:01:00Z",
+            "open":"2469","high":"2470.5","low":"2461.5","close":"2464.5","volume":"5592",
+            "is_final":false,"source_kind":"LiveStream"
+        })).unwrap()
+    }
+
+    fn assessment(basis: &'static str, expected: Vec<Bar>, actual: Vec<Bar>) -> Value {
+        serde_json::to_value(super::super::rest_observation::assess(
+            1794283200000,
+            basis,
+            expected,
+            actual,
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn committed_basis_uses_real_input_not_a_self_consistent_forged_expected() {
+        let original = vec![bar()];
+        let mut forged = original.clone();
+        forged[0].volume += rust_decimal::Decimal::ONE;
+        let a = assessment("COMMITTED_MODEL_INPUT", forged, original.clone());
+        assert_eq!(
+            verify_proof_assessment(1794283200000, &a, original.clone(), Some(&original)),
+            Err(VerifyError::Source)
+        );
+    }
+
+    #[test]
+    fn committed_basis_requires_a_preceding_commit_of_the_same_label() {
+        let bars = vec![bar()];
+        let a = assessment("COMMITTED_MODEL_INPUT", bars.clone(), bars.clone());
+        assert_eq!(
+            verify_proof_assessment(1794283200000, &a, bars.clone(), None),
+            Err(VerifyError::Source)
+        );
+        assert_eq!(
+            verify_proof_assessment(1794283800000, &a, bars.clone(), Some(&bars)),
+            Err(VerifyError::Source)
+        );
+    }
+
+    #[test]
+    fn committed_match_and_volume_revision_attest_without_rewriting_inputs() {
+        let bars = vec![bar()];
+        for revision in [false, true] {
+            let mut actual = bars.clone();
+            if revision {
+                actual[0].volume += rust_decimal::Decimal::ONE;
+            }
+            let a = assessment("COMMITTED_MODEL_INPUT", bars.clone(), actual.clone());
+            assert_eq!(a["model_input_rewritten"], false);
+            assert_eq!(
+                verify_proof_assessment(1794283200000, &a, actual, Some(&bars)),
+                Ok(())
+            );
+        }
+        assert_eq!(bars[0].volume, rust_decimal::Decimal::from(5592));
+    }
+
+    #[test]
+    fn provisional_is_diagnostic_only_and_cannot_claim_an_already_committed_label() {
+        let bars = vec![bar()];
+        let a = assessment("PROVISIONAL_WS", bars.clone(), bars.clone());
+        assert_eq!(
+            verify_proof_assessment(1794283200000, &a, bars.clone(), None),
+            Ok(())
+        );
+        assert_eq!(
+            verify_proof_assessment(1794283200000, &a, bars.clone(), Some(&bars)),
+            Err(VerifyError::Source)
+        );
+    }
 }
