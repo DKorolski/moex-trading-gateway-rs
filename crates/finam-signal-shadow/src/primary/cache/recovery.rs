@@ -302,7 +302,9 @@ impl PrimaryProcessor {
                 .range(calendar.reference_start_ms()..self.required[0])
             {
                 if actual.get(key).map_or(true, |r| {
-                    !super::super::revisions::compatible(old, r, self.policy.observed_bo())
+                    !(super::super::revisions::compatible(old, r, self.policy.observed_bo())
+                        || (self.policy.consistent_sources()
+                            && super::super::revisions::same_slot(old, r)))
                 }) {
                     return self.hold(PrimaryError::ReferenceConflict);
                 }
@@ -335,13 +337,24 @@ impl PrimaryProcessor {
                     return self.hold(PrimaryError::CanonicalConflict);
                 }
                 if let Some((a, b)) = committed.iter().zip(rows).find(|(a, b)| {
-                    !super::super::revisions::compatible(a, b, self.policy.observed_bo())
+                    !(super::super::revisions::compatible(a, b, self.policy.observed_bo())
+                        || (self.policy.consistent_sources()
+                            && super::super::revisions::same_slot(a, b)))
                 }) {
                     self.note_change("RECOVERY_OVERLAP", Some(a), Some(b), Some(source.sha256()))?;
                     return self.hold(PrimaryError::CanonicalConflict);
                 }
                 for (a, b) in committed.iter().zip(rows) {
-                    self.note_change("RECOVERY_OVERLAP", Some(a), Some(b), Some(source.sha256()))?;
+                    self.note_change(
+                        if self.policy.consistent_sources() {
+                            "RECOVERY_OVERLAP_REVISION"
+                        } else {
+                            "RECOVERY_OVERLAP"
+                        },
+                        Some(a),
+                        Some(b),
+                        Some(source.sha256()),
+                    )?;
                 }
                 continue;
             }
@@ -367,14 +380,44 @@ impl PrimaryProcessor {
                     Some(final_row),
                     Some(source.sha256()),
                 )?;
-                if final_row.open != entry.bar.open
-                    || final_row.high < entry.bar.high
-                    || final_row.low > entry.bar.low
-                    || (final_row.volume < entry.bar.volume
-                        && !(self.policy.observed_bo()
-                            && super::super::revisions::same_prices(&entry.bar, final_row)))
+                if !self.policy.consistent_sources()
+                    && (final_row.open != entry.bar.open
+                        || final_row.high < entry.bar.high
+                        || final_row.low > entry.bar.low
+                        || (final_row.volume < entry.bar.volume
+                            && !(self.policy.observed_bo()
+                                && super::super::revisions::same_prices(&entry.bar, final_row))))
                 {
                     return self.hold(PrimaryError::CanonicalConflict);
+                }
+                if self.policy.consistent_sources() && !same_values(&entry.bar, final_row) {
+                    self.retain_ws(entry)?;
+                }
+            }
+            if self.policy.consistent_sources() {
+                let retained: Vec<_> = self
+                    .retained_ws
+                    .range(label..label + 600000)
+                    .flat_map(|(_, v)| v.iter().cloned())
+                    .collect();
+                for version in retained {
+                    if self
+                        .cache
+                        .get(&version.bar.open_ts.timestamp_millis())
+                        .is_some_and(|v| same_values(&v.bar, &version.bar))
+                    {
+                        continue;
+                    }
+                    let final_row = rows
+                        .iter()
+                        .find(|b| b.open_ts == version.bar.open_ts)
+                        .ok_or(PrimaryError::CanonicalConflict)?;
+                    self.note_change(
+                        "RECOVERY_PENDING",
+                        Some(&version.bar),
+                        Some(final_row),
+                        Some(source.sha256()),
+                    )?;
                 }
             }
             let mut bar = runtime_bar(bucket.bar())?;
@@ -467,7 +510,15 @@ impl PrimaryProcessor {
         }
         self.cache
             .retain(|key, _| *key < receipt.label_ms || *key >= receipt.close_ms);
+        if self.policy.consistent_sources() {
+            self.committed_sources
+                .insert(receipt.label_ms, input.provenance_sha256()?);
+        }
         for row in input.receipt.canonical.actual_m1 {
+            if self.policy.consistent_sources() {
+                self.committed_rest.insert(row.open_ts.timestamp_millis());
+                self.quarantined.remove(&row.open_ts.timestamp_millis());
+            }
             self.committed.insert(row.open_ts.timestamp_millis(), row);
         }
         self.next += 1;

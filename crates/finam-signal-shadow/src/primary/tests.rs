@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 
 const T: i64 = 1793640000000; // fixed M10 label, no dependence on wall-clock date
 const C: i64 = T + 600000;
+mod consistent_sources;
 mod resilience;
 fn at(ms: i64) -> DateTime<Utc> {
     DateTime::from_timestamp_millis(ms).unwrap()

@@ -14,9 +14,37 @@ use tokio_tungstenite::{
 type Peer = WebSocketStream<tokio::io::DuplexStream>;
 mod cleanup;
 mod cohort;
+mod consistent_sources;
 mod eod;
 mod nonblocking_rest;
 mod proof_race;
+
+#[test]
+fn consistent_v5_dequeued_stale_fault_closes_gate_synchronously_clock_does_not_retry() {
+    let policy = PrimaryPolicy {
+        delivery: crate::primary::DeliveryPolicy::ObservedBoConsistentSourcesV5,
+        ..PrimaryPolicy::default()
+    };
+    let gate = ContinuityGate::new(1);
+    let slot = FailureSlot::with_gate(gate.clone(), StopHandle::default());
+    let cause = ingress_failure(
+        &policy,
+        &gate,
+        &slot,
+        crate::primary::PrimaryError::Continuity,
+    );
+    assert!(
+        matches!(cause,Cause::Socket(ref f) if f.kind==crate::socket::primary::Kind::Source(crate::primary::PrimaryError::Continuity))
+    );
+    assert!(!gate.healthy());
+    assert!(gate.snapshot().failure.is_some());
+    assert!(matches!(
+        ingress_failure(&policy, &gate, &slot, crate::primary::PrimaryError::Clock),
+        Cause::Coordinator(CoordinatorError::Source(
+            crate::primary::PrimaryError::Clock
+        ))
+    ));
+}
 fn runtime(work: impl Future<Output = ()>) {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()

@@ -453,7 +453,7 @@ where
                 match result{Some(Ok(Some(outcome)))=>{self.totals.completed(&job.job,Some(&outcome));Operation::Rest(job.job,Box::new(outcome))},_=>{self.totals.completed(&job.job,None);return Err(Cause::HttpCancelled);}}
             }
             frame=self.connection.ingress.receive(&self.root),if !self.bootstrap_pending=>match frame{
-                Ok(Some(frame))=>Operation::Frame(frame),Ok(None)=>return Err(Cause::RequestedStop),Err(error)=>return Err(self.gate.snapshot().failure.map(|e|Cause::Socket(Box::new(e))).unwrap_or(Cause::Coordinator(CoordinatorError::Source(error)))),
+                Ok(Some(frame))=>Operation::Frame(frame),Ok(None)=>return Err(Cause::RequestedStop),Err(error)=>return Err(ingress_failure(&self.policy,&self.gate,&self.connection.slot,error)),
             },
             _=tokio::time::sleep_until(self.wake),if tick&&!self.bootstrap_pending=>Operation::Tick,
         };
@@ -906,3 +906,28 @@ where
 
 #[cfg(test)]
 mod tests;
+
+// Called only by the serial engine before submitting a frame to the writer.
+// A stale dequeued frame never reaches a callback. Clock faults are not loss
+// of transport continuity and must not be hidden behind reconnect retries.
+fn ingress_failure(
+    policy: &PrimaryPolicy,
+    gate: &ContinuityGate,
+    slot: &FailureSlot,
+    error: crate::primary::PrimaryError,
+) -> Cause {
+    if policy.consistent_sources() && error == crate::primary::PrimaryError::Clock {
+        return Cause::Coordinator(CoordinatorError::Source(error));
+    }
+    if policy.consistent_sources() && error == crate::primary::PrimaryError::Continuity {
+        slot.record(Failure {
+            generation: gate.snapshot().generation,
+            kind: crate::socket::primary::Kind::Source(error),
+            liveness: None,
+        });
+    }
+    gate.snapshot()
+        .failure
+        .map(|e| Cause::Socket(Box::new(e)))
+        .unwrap_or(Cause::Coordinator(CoordinatorError::Source(error)))
+}

@@ -30,6 +30,10 @@ pub(crate) struct SourceChange {
     pub model_input_rewritten: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expected_ws_version: Option<WsVersionWitness>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_canonical_source_sha256: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub superseded_ws_version: Option<WsVersionWitness>,
 }
 
 #[derive(Debug, Serialize)]
@@ -67,7 +71,9 @@ impl super::PrimaryProcessor {
         let volume_only = expected
             .zip(observed)
             .is_some_and(|(a, b)| same_prices(a, b));
-        let expected_ws_version = if context == "REST_PROOF" {
+        let expected_ws_version = if context == "REST_PROOF"
+            || (self.policy.consistent_sources() && context == "RECOVERY_PENDING")
+        {
             expected.and_then(|bar| self.rest_proof_ws_witness(bar))
         } else {
             None
@@ -89,6 +95,24 @@ impl super::PrimaryProcessor {
             observed_source_sha256: source.map(str::to_owned),
             model_input_rewritten: false,
             expected_ws_version,
+            original_canonical_source_sha256: if self.policy.consistent_sources()
+                && matches!(
+                    context,
+                    "WS_SUPERSEDED_REPEAT_DISCARDED" | "RECOVERY_OVERLAP_REVISION"
+                ) {
+                expected.and_then(|b| {
+                    self.committed_sources
+                        .get(&(b.open_ts.timestamp_millis().div_euclid(600000) * 600000))
+                        .cloned()
+                })
+            } else {
+                None
+            },
+            superseded_ws_version: if context == "WS_SUPERSEDED_REPEAT_DISCARDED" {
+                observed.and_then(|b| self.rest_proof_ws_witness(b))
+            } else {
+                None
+            },
         });
         Ok(())
     }

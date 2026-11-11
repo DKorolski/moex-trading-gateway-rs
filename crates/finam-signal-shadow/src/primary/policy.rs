@@ -21,6 +21,8 @@ pub enum DeliveryPolicy {
     /// Eligible WS remains first; historical bootstrap revisions are discarded,
     /// never imported as live data or used to rewrite committed model inputs.
     ObservedBoAdmittedRestV4,
+    /// Versioned observed sources; no rewrite of original canonical inputs.
+    ObservedBoConsistentSourcesV5,
 }
 
 fn strict_delivery(value: &DeliveryPolicy) -> bool {
@@ -85,6 +87,7 @@ impl PrimaryPolicy {
                 | DeliveryPolicy::ObservedBoRestPrecommitWsFirstV2
                 | DeliveryPolicy::ObservedBoNonBlockingRestV3
                 | DeliveryPolicy::ObservedBoAdmittedRestV4
+                | DeliveryPolicy::ObservedBoConsistentSourcesV5
         )
     }
 
@@ -94,18 +97,29 @@ impl PrimaryPolicy {
             DeliveryPolicy::ObservedBoRestPrecommitWsFirstV2
                 | DeliveryPolicy::ObservedBoNonBlockingRestV3
                 | DeliveryPolicy::ObservedBoAdmittedRestV4
+                | DeliveryPolicy::ObservedBoConsistentSourcesV5
         )
     }
 
     pub(crate) fn rest_nonblocking(&self) -> bool {
         matches!(
             self.delivery,
-            DeliveryPolicy::ObservedBoNonBlockingRestV3 | DeliveryPolicy::ObservedBoAdmittedRestV4
+            DeliveryPolicy::ObservedBoNonBlockingRestV3
+                | DeliveryPolicy::ObservedBoAdmittedRestV4
+                | DeliveryPolicy::ObservedBoConsistentSourcesV5
         )
     }
 
     pub(crate) fn admitted_rest_source(&self) -> bool {
-        self.delivery == DeliveryPolicy::ObservedBoAdmittedRestV4
+        matches!(
+            self.delivery,
+            DeliveryPolicy::ObservedBoAdmittedRestV4
+                | DeliveryPolicy::ObservedBoConsistentSourcesV5
+        )
+    }
+
+    pub(crate) fn consistent_sources(&self) -> bool {
+        self.delivery == DeliveryPolicy::ObservedBoConsistentSourcesV5
     }
 
     pub(crate) fn proof_wait_ms(&self) -> i64 {

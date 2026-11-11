@@ -174,6 +174,8 @@ async fn day_with_proof_failure(
                     matches!(&job,Job::Proof(t) if t.reason()==Some(ExceptionReason::SessionEnd))
                         || (f.config.primary.admitted_rest_source()
                             && matches!(&job,Job::Proof(t) if t.reason()==Some(ExceptionReason::BoundaryUnproven)))
+                        || (f.config.primary.consistent_sources()
+                            && matches!(&job,Job::Proof(t) if matches!(t.reason(),Some(ExceptionReason::WsGracePending|ExceptionReason::ProvisionalRevision))))
                         || (fault_minute.is_some()
                             && matches!(&job,Job::Recovery(p) if p.startup_anchor()==startup_recovery))
                         || (fault_minute.is_some()
@@ -182,6 +184,26 @@ async fn day_with_proof_failure(
                 );
                 let plan = job.plan().unwrap();
                 let mut admitted = f.rest(&plan);
+                if f.config.primary.consistent_sources()
+                    && matches!(&job,Job::Recovery(p) if !p.startup_anchor())
+                {
+                    let mut evidence = admitted.evidence().clone();
+                    let part = &mut evidence.parts[0];
+                    let mut raw: Value = serde_json::from_str(&part.raw_body).unwrap();
+                    raw["bars"][0]["close"] = json!({"value":"2200"});
+                    let n = raw["bars"].as_array().unwrap().len();
+                    raw["bars"][n - 1]["close"] = json!({"value":"2200"});
+                    raw["bars"][n - 1]["volume"] = json!({"value":"1"});
+                    part.raw_body = raw.to_string();
+                    part.declared_body_bytes = Some(part.raw_body.len() as u64);
+                    part.response_sha256 = crate::seed::digest(part.raw_body.as_bytes());
+                    admitted = broker_finam::sparse_m10::AdmittedClosedM1Snapshot::admit(
+                        evidence,
+                        &plan,
+                        at(crate::timing::now_ms()),
+                    )
+                    .unwrap();
+                }
                 if f.config.primary.admitted_rest_source()
                     && matches!(&job,Job::Proof(t) if t.reason()==Some(ExceptionReason::BoundaryUnproven))
                 {
@@ -269,9 +291,16 @@ async fn day_with_proof_failure(
     let minutes = if early_stop { 21 } else { 1010 };
     for minute in i64::from(startup_recovery)..minutes {
         let label = f.open() + minute * 60000;
-        if f.config.primary.admitted_rest_source() && minute == 50 {
+        if (f.config.primary.admitted_rest_source() && minute == 50)
+            || (f.config.primary.consistent_sources() && minute == 60)
+        {
             // No boundary row before the proof: the whole REST exception must
             // commit, then later DATA resumes in the same physical generation.
+            if minute == 60 {
+                go(label + 950);
+                peer.send(data(label)).await.unwrap();
+                accepted(&mut accepted_data, label + 950).await;
+            }
             go(label + 1000);
             // Wake the fixture-clock driver with a duplicate of the previous
             // minute, not a row from the new minute or a fabricated boundary.
@@ -281,14 +310,26 @@ async fn day_with_proof_failure(
                     .iter()
                     .filter(|r| r["kind"] == "canonical_commit")
                     .count()
-                    == 5
+                    == minute as usize / 10
             })
             .await;
             accepted_data.changed().await.unwrap();
             accepted_data.borrow_and_update();
+            if f.config.primary.consistent_sources() && minute == 50 {
+                go(label + 1100);
+                peer.send(Message::Text(json!({"type":"DATA","subscriptionType":"BARS","subscriptionKey":"fixture","payload":{"symbol":"IMOEXF@RTSX","bars":[f.row(label-60000)]}}).to_string())).await.unwrap();
+                until(|| {
+                    trace(&path).iter().any(|r| {
+                        r["event"]["change"]["context"] == "WS_SUPERSEDED_REPEAT_DISCARDED"
+                    })
+                })
+                .await;
+            }
             go(label + 1200);
             peer.send(Message::Text(json!({"type":"DATA","subscriptionType":"BARS","subscriptionKey":"fixture","payload":{"symbol":"IMOEXF@RTSX","bars":[f.row(label)]}}).to_string())).await.unwrap();
-            accepted(&mut accepted_data, label + 1200).await;
+            if minute == 50 {
+                accepted(&mut accepted_data, label + 1200).await;
+            }
             continue;
         }
         if let Some((_, early)) = proof_failure.filter(|_| minute == 10) {
@@ -377,9 +418,16 @@ async fn day_with_proof_failure(
         let wire=json!({"type":"DATA","subscriptionType":"BARS","subscriptionKey":"fixture","payload":{"symbol":"IMOEXF@RTSX","bars":[f.row(label)]}}).to_string();
         peer.send(Message::Text(wire.clone())).await.unwrap();
         accepted(&mut accepted_data, label + 100).await;
+        if f.config.primary.consistent_sources() && minute == 71 {
+            go(label + 200);
+            let mut revised = f.row(label);
+            revised["high"] = json!({"value":"2200.5"});
+            peer.send(Message::Text(json!({"type":"DATA","subscriptionType":"BARS","subscriptionKey":"fixture","payload":{"symbol":"IMOEXF@RTSX","bars":[revised]}}).to_string())).await.unwrap();
+            accepted(&mut accepted_data, label + 200).await;
+        }
         if minute > 0 && minute % 10 == 0 {
             go(label
-                + if fault_minute == Some(minute - 10) {
+                + if fault_minute == Some(minute - 10) && !f.config.primary.consistent_sources() {
                     3100
                 } else {
                     1100
@@ -448,6 +496,7 @@ async fn day_with_proof_failure(
 fn admitted_rest_v4_full_day_boundary_exception_and_independent_verifier_agree() {
     let mut f = Fixture::new();
     f.config.primary.delivery = crate::primary::DeliveryPolicy::ObservedBoAdmittedRestV4;
+    f.config.primary.audit_every_commits = Some(6);
     with_fixture_clock(f.open(), || {
         runtime(async {
             let (report, artifact) = day(f, None, false).await;
@@ -504,6 +553,134 @@ fn admitted_rest_v4_full_day_boundary_exception_and_independent_verifier_agree()
             }
         })
     });
+}
+
+#[test]
+fn consistent_v5_full_day_audit_six_repeats_and_recovery_reader_agree() {
+    for (failure, recover) in [
+        (None, false),
+        (Some(RestFailure::Unavailable), false),
+        (None, true),
+    ] {
+        // Use the existing historical synthetic calendar so the exported file
+        // fixture also verifies against actual UTC now, not a future test clock.
+        let mut f = Fixture::historical();
+        f.config.primary.delivery = crate::primary::DeliveryPolicy::ObservedBoConsistentSourcesV5;
+        f.config.primary.audit_every_commits = Some(6);
+        with_fixture_clock(f.open(), || {
+            runtime(async {
+                let (report, artifact) = if recover {
+                    day_with_recovery(f, failure, false, Some(30), false).await
+                } else {
+                    day(f, failure, false).await
+                };
+                assert_eq!(report.canonical_commits, 101);
+                assert_eq!(report.recovery.len(), usize::from(recover));
+                let verified = artifact.verify().unwrap();
+                assert!(verified.semantic_eod_passed);
+                assert!(!verified.parity_accepted);
+                let rows: Vec<Value> = std::str::from_utf8(&artifact.journal)
+                    .unwrap()
+                    .lines()
+                    .map(|s| serde_json::from_str(s).unwrap())
+                    .collect();
+                assert_eq!(
+                    rows.iter()
+                        .filter(|r| r["event"]["event"] == "primary_audit_scheduled")
+                        .count(),
+                    16
+                );
+                assert!(rows
+                    .iter()
+                    .any(|r| r["event"]["change"]["context"] == "WS_SUPERSEDED_REPEAT_DISCARDED"));
+                for reason in ["WsGracePending", "ProvisionalRevision"] {
+                    assert!(rows.iter().any(|r| r["kind"] == "canonical_source"
+                        && r["event"]["receipt"]["reason"] == reason));
+                }
+                if recover {
+                    assert!(rows
+                        .iter()
+                        .any(|r| r["event"]["change"]["context"] == "RECOVERY_OVERLAP_REVISION"));
+                }
+                // Optional local review fixture export; never used by runtime.
+                // All data/account identifiers/clocks here are synthetic.
+                if let Some(root) = std::env::var_os("FINAM_V5_REVIEW_EVIDENCE_DIR") {
+                    let dir = std::path::PathBuf::from(root).join(if recover {
+                        "recovery-price-overlap"
+                    } else if failure.is_some() {
+                        "audit-unavailable"
+                    } else {
+                        "audit-differences"
+                    });
+                    std::fs::create_dir(&dir).unwrap();
+                    for (name,bytes) in [
+                        ("config.json",serde_json::to_vec(&artifact.config).unwrap()),
+                        ("evidence-binding.json",serde_json::to_vec(&artifact.binding()).unwrap()),
+                        ("journal.jsonl",artifact.journal.clone()),
+                        ("completion.json",artifact.completion.clone()),
+                        ("synthetic-result.json",serde_json::to_vec(&json!({"synthetic_only":true,"provider_calls":false,"verified":verified,"commits":report.canonical_commits,"recovery_episodes":report.recovery.len(),"audit_every_commits":6,"parity_accepted":false})).unwrap()),
+                    ] {std::fs::write(dir.join(name),bytes).unwrap();}
+                }
+                for target in [
+                    "superseded_witness",
+                    "canonical_hash",
+                    "original_price",
+                    "overlap_witness",
+                    "grace_boundary",
+                    "quarantine_evidence",
+                ] {
+                    if target == "overlap_witness" && !recover {
+                        continue;
+                    }
+                    let mut bad = artifact.clone();
+                    bad.change_journal(|rows| {
+                        if target == "grace_boundary" {
+                            let row = rows
+                                .iter_mut()
+                                .find(|r| {
+                                    r["kind"] == "canonical_source"
+                                        && r["event"]["receipt"]["reason"] == "WsGracePending"
+                                })
+                                .unwrap();
+                            row["event"]["receipt"]["boundary_received_at_ms"] = Value::Null;
+                        } else if target == "quarantine_evidence" {
+                            let row = rows
+                                .iter_mut()
+                                .find(|r| {
+                                    r["event"]["change"]["context"] == "WS_PROVISIONAL_QUARANTINED"
+                                })
+                                .unwrap();
+                            row["event"]["change"]["context"] = json!("REST_AUDIT");
+                        } else if target == "original_price" {
+                            let row = rows
+                                .iter_mut()
+                                .find(|r| r["kind"] == "canonical_source")
+                                .unwrap();
+                            row["event"]["receipt"]["actual_m1"][0]["close"] = json!("2201");
+                        } else {
+                            let ctx = if target == "overlap_witness" {
+                                "RECOVERY_OVERLAP_REVISION"
+                            } else {
+                                "WS_SUPERSEDED_REPEAT_DISCARDED"
+                            };
+                            let row = rows
+                                .iter_mut()
+                                .find(|r| r["event"]["change"]["context"] == ctx)
+                                .unwrap();
+                            if target == "superseded_witness" {
+                                row["event"]["change"]["superseded_ws_version"]["frame_sha256"] =
+                                    json!("f".repeat(64));
+                            } else {
+                                row["event"]["change"]["original_canonical_source_sha256"] =
+                                    json!("f".repeat(64));
+                            }
+                        }
+                    });
+                    assert!(bad.verify().is_err(), "forgery accepted: {target}");
+                }
+            })
+        });
+    }
 }
 
 #[test]

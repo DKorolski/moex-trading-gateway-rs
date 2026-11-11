@@ -47,6 +47,7 @@ impl ProofWaitIo {
 
 pub(super) const T: i64 = 1793678400000; // synthetic fixture time; not operational evidence
 mod admitted_rest;
+mod consistent_sources;
 mod nonblocking_rest;
 mod resilience;
 mod ws_first;

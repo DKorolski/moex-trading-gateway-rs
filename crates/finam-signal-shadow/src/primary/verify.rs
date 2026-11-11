@@ -11,6 +11,7 @@ use crate::seed::digest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+mod versions;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -172,8 +173,12 @@ pub fn verify(
     let mut canonical_origins = BTreeMap::new();
     let nonblocking = config.primary.rest_nonblocking();
     let mut soft_failures = BTreeSet::new();
+    let mut versions = versions::Diagnostics::default();
     for row in &rows {
         let event = &row["event"];
+        if config.primary.consistent_sources() {
+            versions.inspect(row, &scan, committed_so_far)?;
+        }
         let name = event["event"].as_str();
         match name {
             Some("primary_subscription_sent") => {
@@ -341,7 +346,8 @@ pub fn verify(
                 {
                     return Err(VerifyError::Source);
                 }
-                for input in &scan.inputs[start..end] {
+                for (offset, input) in scan.inputs[start..end].iter().enumerate() {
+                    let committed_overlap = start + offset < committed_so_far;
                     let label =
                         chrono::DateTime::from_timestamp_millis(input.step.model_label_utc_ms)
                             .ok_or(VerifyError::Source)?;
@@ -352,17 +358,25 @@ pub fn verify(
                             .iter()
                             .zip(bucket.actual_m1())
                             .any(|(a, b)| {
-                                !super::revisions::compatible(
-                                    a,
-                                    b,
-                                    config.primary.observed_bo()
-                                        && input.step.model_label_utc_ms
-                                            < cal
-                                                .required()
-                                                .get(committed_so_far)
-                                                .copied()
-                                                .unwrap_or(i64::MAX),
-                                )
+                                !(config.primary.consistent_sources()
+                                    && committed_overlap
+                                    && super::revisions::same_slot(a, b)
+                                    && (super::wire::same_values(a, b)
+                                        || versions.overlap(
+                                            source.sha256(),
+                                            a.open_ts.timestamp_millis(),
+                                        )))
+                                    && !super::revisions::compatible(
+                                        a,
+                                        b,
+                                        config.primary.observed_bo()
+                                            && input.step.model_label_utc_ms
+                                                < cal
+                                                    .required()
+                                                    .get(committed_so_far)
+                                                    .copied()
+                                                    .unwrap_or(i64::MAX),
+                                    )
                             })
                     {
                         return Err(VerifyError::Source);

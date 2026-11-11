@@ -6,7 +6,11 @@ use broker_finam::sparse_m10::{
 use serde_json::{json, Value};
 const T: i64 = 1793678400000;
 fn processor() -> PrimaryProcessor {
+    processor_delivery(crate::primary::DeliveryPolicy::StrictBoundaryV1)
+}
+fn processor_delivery(delivery: crate::primary::DeliveryPolicy) -> PrimaryProcessor {
     let mut config = crate::primary::tests::config();
+    config["primary"]["delivery"] = json!(delivery);
     config["base"]["observation_start_utc_ms"] = json!(T);
     config["base"]["run_deadline_utc_ms"] = json!(T + 17 * 3600000);
     let config =
@@ -25,6 +29,73 @@ fn processor() -> PrimaryProcessor {
         T - 100,
     )
     .unwrap()
+}
+
+#[test]
+fn consistent_v5_recovery_uses_whole_final_rest_preserves_overlap_and_replays_only_gap() {
+    for delivery in [
+        crate::primary::DeliveryPolicy::ObservedBoAdmittedRestV4,
+        crate::primary::DeliveryPolicy::ObservedBoConsistentSourcesV5,
+    ] {
+        for bad_inventory in [false, true] {
+            let mut p = processor_delivery(delivery);
+            committed(&mut p, 2);
+            let original = p.committed.clone();
+            let original_sources = p.committed_sources.clone();
+            // Unpublished actual WS close+volume pair. This minute survives
+            // the generation fence and must not overrule a whole recovery GET.
+            let t = T + 2 * 600000 + 60000;
+            p.ingest(wire(t, t + 100), t + 100).unwrap();
+            let now = T + 3 * 600000 + 100;
+            p.begin_generation(2, now).unwrap();
+            let plan = p.plan_recovery(T + 3 * 600000, now).unwrap();
+            let mut values = rows(&plan);
+            values[0]["close"] = json!({"value":"2200"});
+            values[21]["close"] = json!({"value":"2200"});
+            values[21]["volume"] = json!({"value":"1"});
+            if bad_inventory {
+                values.remove(0);
+            }
+            let source = evidence(&plan, values, now);
+            let result = p.admit_recovery(&plan, &source, now);
+            if delivery != crate::primary::DeliveryPolicy::ObservedBoConsistentSourcesV5
+                || bad_inventory
+            {
+                assert!(result.is_err());
+                assert_eq!(p.counters.committed, 2);
+                continue;
+            }
+            let batch = result.unwrap();
+            assert_eq!(batch.steps(), 1);
+            for input in batch.inputs {
+                assert_eq!(input.receipt.canonical.origin, "RECOVERY_BACKFILL");
+                p.recovered(input, now).unwrap();
+            }
+            for (k, v) in original {
+                assert!(same_values(p.committed.get(&k).unwrap(), &v));
+            }
+            for (k, v) in original_sources {
+                assert_eq!(p.committed_sources.get(&k), Some(&v));
+            }
+            assert_eq!(p.counters.committed, 3);
+            assert_eq!(p.counters.recovery_committed, 1);
+            // The old actual WS version repeated by a new physical generation
+            // is discarded and cannot establish fresh DATA after recovery.
+            let mut frame = wire(t, now + 100);
+            frame.generation = 2;
+            p.ingest(frame, now + 100).unwrap();
+            assert!(p.last_live_data.is_none());
+            assert!(p.gap_unresolved());
+            assert!(p
+                .take_source_changes()
+                .iter()
+                .any(|c| c.context == "WS_SUPERSEDED_REPEAT_DISCARDED"));
+            assert!(p
+                .finish_recovery(&batch.completion, now + 100)
+                .unwrap()
+                .is_none());
+        }
+    }
 }
 fn committed(p: &mut PrimaryProcessor, count: i64) {
     for i in 0..=count * 10 {

@@ -647,6 +647,14 @@ fn canonical(
                         Some("StartupPartial" | "SparseUnproven" | "BoundaryUnproven")
                     )
                     || (session_end_allowed && r.reason.as_deref() == Some("SessionEnd")))
+                    && !(validated
+                        .primary_policy()
+                        .is_some_and(|p| p.consistent_sources())
+                        && !historical
+                        && matches!(
+                            r.reason.as_deref(),
+                            Some("WsGracePending" | "ProvisionalRevision")
+                        ))
             {
                 return Err(RestartError::Source);
             }
@@ -713,6 +721,22 @@ fn inline_proof(
         .first()
         .ok_or(RestartError::Source)?;
     let policy = validated.primary_policy().ok_or(RestartError::Binding)?;
+    if r.reason.as_deref() == Some("WsGracePending") {
+        let boundary = r.boundary_received_at_ms.ok_or(RestartError::Source)?;
+        if !policy.consistent_sources()
+            || boundary < r.close_ms
+            || boundary > r.canonical_ready_at_ms
+            || r.canonical_ready_at_ms
+                >= boundary
+                    .max(r.close_ms)
+                    .checked_add(policy.close_grace_ms as i64)
+                    .ok_or(RestartError::Source)?
+        {
+            return Err(RestartError::Source);
+        }
+    } else if policy.consistent_sources() && r.boundary_received_at_ms.is_some() {
+        return Err(RestartError::Source);
+    }
     if part.requested_at.timestamp_millis() < r.close_ms + policy.proof_wait_ms()
         || (part.received_at - part.requested_at).num_milliseconds() > 5000
         || (policy.observed_bo()

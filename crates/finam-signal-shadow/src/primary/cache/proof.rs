@@ -94,8 +94,16 @@ impl PrimaryProcessor {
             Some(ExceptionReason::StartupPartial)
         } else if entries.len() != 10 || entries.iter().any(|v| v.generation != self.generation) {
             Some(ExceptionReason::SparseUnproven)
+        } else if self.policy.consistent_sources()
+            && self.quarantined.range(label..close).next().is_some()
+        {
+            Some(ExceptionReason::ProvisionalRevision)
         } else if boundary.is_none() {
             Some(ExceptionReason::BoundaryUnproven)
+        } else if self.policy.consistent_sources()
+            && boundary.is_some_and(|b| now_ms < close.max(b) + self.policy.close_grace_ms as i64)
+        {
+            Some(ExceptionReason::WsGracePending)
         } else {
             None
         };
@@ -105,6 +113,15 @@ impl PrimaryProcessor {
             && required_reason != Some(reason)
             && !(reason == ExceptionReason::SparseUnproven
                 && required_reason == Some(ExceptionReason::BoundaryUnproven))
+            && !(self.policy.consistent_sources()
+                && !matches!(
+                    reason,
+                    ExceptionReason::StartupPartial | ExceptionReason::SessionEnd
+                )
+                && !matches!(
+                    required_reason,
+                    Some(ExceptionReason::StartupPartial | ExceptionReason::SessionEnd)
+                ))
         {
             return Err(PrimaryError::ReferenceUnproven);
         }
@@ -147,6 +164,38 @@ impl PrimaryProcessor {
             // and compares exact final rows before the eventual WS callback.
             return Ok(None);
         }
+        // Retain actual superseded versions, before any callback. Never invent
+        // an old version from an arbitrary later post-commit frame.
+        if self.policy.consistent_sources() {
+            for version in &entries {
+                if rows
+                    .iter()
+                    .any(|b| b.open_ts == version.bar.open_ts && !same_values(b, &version.bar))
+                {
+                    self.retain_ws(version.clone())?;
+                }
+            }
+            let retained: Vec<_> = self
+                .retained_ws
+                .range(label..close)
+                .flat_map(|(_, v)| v.iter().cloned())
+                .collect();
+            for version in retained {
+                if entries.iter().any(|v| same_values(&v.bar, &version.bar)) {
+                    continue;
+                }
+                let final_row = rows
+                    .iter()
+                    .find(|b| b.open_ts == version.bar.open_ts)
+                    .ok_or(PrimaryError::CanonicalConflict)?;
+                self.note_change(
+                    "REST_PROOF",
+                    Some(&version.bar),
+                    Some(final_row),
+                    Some(source.sha256()),
+                )?;
+            }
+        }
         let model_bar = runtime_bar(bucket.bar())?;
         let receipt = CanonicalReceipt {
             config_sha256: self.config_sha256.clone(),
@@ -158,7 +207,11 @@ impl PrimaryProcessor {
             generation: self.generation,
             subscribed_at_ms: self.subscribed_at_ms,
             last_component_received_at_ms: received,
-            boundary_received_at_ms: None,
+            boundary_received_at_ms: if required_reason == Some(ExceptionReason::WsGracePending) {
+                boundary
+            } else {
+                None
+            },
             proof_received_at_ms: Some(received),
             rest_snapshot_sha256: Some(source.sha256().to_owned()),
             canonical_ready_at_ms: now_ms,

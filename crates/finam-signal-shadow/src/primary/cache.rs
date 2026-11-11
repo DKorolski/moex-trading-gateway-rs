@@ -9,7 +9,10 @@ use broker_core::{
 use broker_finam::sparse_m10::AdmittedClosedM1Snapshot;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 mod calendar;
 mod proof;
 mod recovery;
@@ -34,6 +37,8 @@ pub enum ExceptionReason {
     SparseUnproven,
     BoundaryUnproven,
     SessionEnd,
+    WsGracePending,
+    ProvisionalRevision,
 }
 
 #[derive(Debug)]
@@ -177,8 +182,14 @@ pub struct PrimaryProcessor {
     bootstrap_bytes: usize,
     reference: BTreeMap<i64, Bar>,
     reference_hashes: Vec<String>,
+    reference_ranges: Vec<(i64, i64)>,
     cache: BTreeMap<i64, Version>,
     committed: BTreeMap<i64, Bar>,
+    // V5 only. Retained versions use the existing cache bound, not an unbounded log.
+    retained_ws: BTreeMap<i64, Vec<Version>>,
+    quarantined: BTreeSet<i64>,
+    committed_rest: BTreeSet<i64>,
+    pub(super) committed_sources: BTreeMap<i64, String>,
     in_flight: Option<Arc<()>>,
     gap_unresolved: bool,
     gap_owner: Option<Arc<()>>,
@@ -196,6 +207,9 @@ pub struct PrimaryProcessor {
 }
 
 impl PrimaryProcessor {
+    pub(crate) fn consistent_sources(&self) -> bool {
+        self.policy.consistent_sources()
+    }
     pub(crate) fn rest_nonblocking(&self) -> bool {
         self.policy.rest_nonblocking()
     }
@@ -260,10 +274,17 @@ impl PrimaryProcessor {
         &self,
         bar: &Bar,
     ) -> Option<super::revisions::WsVersionWitness> {
-        let version = self.cache.get(&bar.open_ts.timestamp_millis())?;
-        if !same_values(&version.bar, bar) {
-            return None;
-        }
+        let key = bar.open_ts.timestamp_millis();
+        let version = self
+            .cache
+            .get(&key)
+            .filter(|v| same_values(&v.bar, bar))
+            .or_else(|| {
+                self.retained_ws
+                    .get(&key)?
+                    .iter()
+                    .find(|v| same_values(&v.bar, bar))
+            })?;
         Some(super::revisions::WsVersionWitness {
             generation: version.generation,
             first_received_at_ms: version.first_received_ms,
@@ -389,8 +410,13 @@ impl PrimaryProcessor {
             bootstrap_bytes: 0,
             reference: BTreeMap::new(),
             reference_hashes: Vec::new(),
+            reference_ranges: Vec::new(),
             cache: BTreeMap::new(),
             committed: BTreeMap::new(),
+            retained_ws: BTreeMap::new(),
+            quarantined: BTreeSet::new(),
+            committed_rest: BTreeSet::new(),
+            committed_sources: BTreeMap::new(),
             in_flight: None,
             gap_unresolved: false,
             gap_owner: None,
@@ -473,6 +499,35 @@ impl PrimaryProcessor {
             return Err(PrimaryError::Held);
         }
         let mut candidate = self.reference.clone();
+        let range = (
+            source.evidence().start.timestamp_millis(),
+            source.evidence().end.timestamp_millis(),
+        );
+        if self.policy.consistent_sources()
+            && !self.reference_ranges.contains(&range)
+            && self.reference_ranges.len() >= self.policy.max_cache_m1
+        {
+            return self.hold(PrimaryError::CacheBudget);
+        }
+        if self.policy.consistent_sources() {
+            let start = source.evidence().start.timestamp_millis();
+            let end = source.evidence().end.timestamp_millis();
+            let incoming: BTreeSet<_> = source
+                .bars()
+                .map(|b| b.open_ts.timestamp_millis())
+                .collect();
+            if self
+                .reference
+                .range(start..end)
+                .any(|(k, _)| !incoming.contains(k))
+                || incoming.iter().any(|k| {
+                    self.reference_ranges.iter().any(|(a, b)| a <= k && k < b)
+                        && !self.reference.contains_key(k)
+                })
+            {
+                return self.hold(PrimaryError::ReferenceConflict);
+            }
+        }
         for bar in source.bars() {
             if bar.instrument != self.instrument {
                 return Err(PrimaryError::Identity);
@@ -480,12 +535,18 @@ impl PrimaryProcessor {
             let key = bar.open_ts.timestamp_millis();
             if let Some(old) = candidate.get(&key) {
                 self.note_change(
-                    "REST_REFERENCE",
+                    if self.policy.consistent_sources() {
+                        "REST_REFERENCE_VERSIONED"
+                    } else {
+                        "REST_REFERENCE"
+                    },
                     Some(old),
                     Some(bar),
                     Some(source.sha256()),
                 )?;
-                if !super::revisions::compatible(old, bar, self.policy.observed_bo()) {
+                if !(super::revisions::compatible(old, bar, self.policy.observed_bo())
+                    || (self.policy.consistent_sources() && super::revisions::same_slot(old, bar)))
+                {
                     self.state = PipelineState::Hold;
                     return Err(PrimaryError::ReferenceConflict);
                 }
@@ -506,6 +567,9 @@ impl PrimaryProcessor {
             self.reference_hashes.push(source.sha256().to_owned());
         }
         self.reference = candidate;
+        if self.policy.consistent_sources() && !self.reference_ranges.contains(&range) {
+            self.reference_ranges.push(range);
+        }
         Ok(())
     }
 
@@ -621,6 +685,35 @@ impl PrimaryProcessor {
             && bar.close_ts.timestamp_millis() <= received
     }
 
+    fn retain_ws(&mut self, version: Version) -> Result<(), PrimaryError> {
+        if !self.policy.consistent_sources() {
+            return Ok(());
+        }
+        let key = version.bar.open_ts.timestamp_millis();
+        if self
+            .retained_ws
+            .get(&key)
+            .is_some_and(|v| v.iter().any(|old| same_values(&old.bar, &version.bar)))
+        {
+            return Ok(());
+        }
+        if self.retained_ws.values().map(Vec::len).sum::<usize>() >= self.policy.max_cache_m1 {
+            return self.hold(PrimaryError::CacheBudget);
+        }
+        self.retained_ws.entry(key).or_default().push(version);
+        Ok(())
+    }
+
+    fn known_superseded_repeat(&self, bar: &Bar) -> bool {
+        let key = bar.open_ts.timestamp_millis();
+        self.policy.consistent_sources()
+            && self.committed_rest.contains(&key)
+            && self
+                .retained_ws
+                .get(&key)
+                .is_some_and(|versions| versions.iter().any(|v| same_values(&v.bar, bar)))
+    }
+
     fn ingest_checked(&mut self, frame: WireFrame) -> Result<(), PrimaryError> {
         let mut cache = self.cache.clone();
         let mut counters = self.counters.clone();
@@ -634,15 +727,22 @@ impl PrimaryProcessor {
             }
             let key = bar.open_ts.timestamp_millis();
             if let Some(old) = self.committed.get(&key).cloned() {
+                let superseded = self.known_superseded_repeat(bar);
                 if !same_values(&old, bar) {
                     self.note_change(
-                        "WS_AFTER_COMMIT",
+                        if superseded {
+                            "WS_SUPERSEDED_REPEAT_DISCARDED"
+                        } else {
+                            "WS_AFTER_COMMIT"
+                        },
                         Some(&old),
                         Some(bar),
                         Some(&frame.sha256),
                     )?;
                 }
-                if !super::revisions::compatible(&old, bar, self.policy.observed_bo()) {
+                if !super::revisions::compatible(&old, bar, self.policy.observed_bo())
+                    && !superseded
+                {
                     return Err(PrimaryError::CanonicalConflict);
                 }
                 if row.presence == SnapshotPresence::ExplicitTrue {
@@ -732,12 +832,20 @@ impl PrimaryProcessor {
                             && super::revisions::same_prices(&old.bar, bar)))
                 {
                     self.note_change(
-                        "WS_PROVISIONAL",
+                        if self.policy.consistent_sources() {
+                            "WS_PROVISIONAL_QUARANTINED"
+                        } else {
+                            "WS_PROVISIONAL"
+                        },
                         Some(&old.bar),
                         Some(bar),
                         Some(&frame.sha256),
                     )?;
-                    return Err(PrimaryError::CanonicalConflict);
+                    if !self.policy.consistent_sources() {
+                        return Err(PrimaryError::CanonicalConflict);
+                    }
+                    self.retain_ws(old.clone())?;
+                    self.quarantined.insert(key);
                 }
                 if bar.volume < old.bar.volume {
                     self.note_change(
@@ -944,8 +1052,16 @@ impl PrimaryProcessor {
             Some(ExceptionReason::StartupPartial)
         } else if entries.len() != 10 || entries.iter().any(|v| v.generation != self.generation) {
             Some(ExceptionReason::SparseUnproven)
+        } else if self.policy.consistent_sources()
+            && self.quarantined.range(label..close).next().is_some()
+        {
+            Some(ExceptionReason::ProvisionalRevision)
         } else if boundary.is_none() {
             Some(ExceptionReason::BoundaryUnproven)
+        } else if self.policy.consistent_sources()
+            && now_ms < close.max(boundary.unwrap()) + self.policy.close_grace_ms as i64
+        {
+            Some(ExceptionReason::WsGracePending)
         } else {
             None
         };
@@ -1031,8 +1147,25 @@ impl PrimaryProcessor {
         {
             self.session_end_committed = true;
         }
+        let is_rest = input.receipt.origin == "REST_EXCEPTION";
+        let label = input.receipt.label_ms;
+        let source_hash = if self.policy.consistent_sources() {
+            Some(input.provenance_sha256()?)
+        } else {
+            None
+        };
         for bar in input.receipt.actual_m1 {
+            let key = bar.open_ts.timestamp_millis();
+            if self.policy.consistent_sources() {
+                if is_rest {
+                    self.committed_rest.insert(key);
+                }
+                self.quarantined.remove(&key);
+            }
             self.committed.insert(bar.open_ts.timestamp_millis(), bar);
+        }
+        if let Some(source_hash) = source_hash {
+            self.committed_sources.insert(label, source_hash);
         }
         self.next += 1;
         self.counters.committed += 1;

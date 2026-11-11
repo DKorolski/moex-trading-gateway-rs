@@ -143,7 +143,17 @@ impl BootstrapBridge {
         self.failed = true;
         let outcome = Self::complete_inner(owner, ticket, frame, result);
         if outcome.is_err() {
-            owner.failed = true;
+            // Only this pre-callback stale-frame refusal is safe to recover.
+            // All IO, binding, clock and uncertain publication failures poison
+            // the writer exactly as before.
+            if !(owner.processor.consistent_sources()
+                && matches!(
+                    &outcome,
+                    Err(CoordinatorError::Source(PrimaryError::Continuity))
+                ))
+            {
+                owner.failed = true;
+            }
             owner.processor.break_continuity();
         } else {
             self.failed = false;

@@ -19,6 +19,7 @@ pub struct IngressReceiver {
     rx: mpsc::Receiver<WireFrame>,
     lost: Arc<AtomicBool>,
     max_age_ms: i64,
+    distinct_clock_fault: bool,
 }
 
 pub fn bounded_ingress(
@@ -41,6 +42,7 @@ pub fn bounded_ingress(
             rx,
             lost,
             max_age_ms: policy.max_ingress_age_ms as i64,
+            distinct_clock_fault: policy.consistent_sources(),
         },
     ))
 }
@@ -92,6 +94,9 @@ impl IngressReceiver {
             return Err(PrimaryError::Continuity);
         };
         let now = clock();
+        if self.distinct_clock_fault && now < frame.received_at_ms {
+            return Err(PrimaryError::Clock);
+        }
         if self.continuity_lost()
             || now < frame.received_at_ms
             || now - frame.received_at_ms > self.max_age_ms
@@ -166,6 +171,25 @@ mod tests {
         stop.stop();
         assert!(rx.receive(&stop).await.unwrap().is_none());
         assert!(!rx.continuity_lost());
+    }
+
+    #[tokio::test]
+    async fn consistent_v5_stale_queue_is_continuity_but_future_frame_is_clock() {
+        let policy = PrimaryPolicy {
+            delivery: super::super::DeliveryPolicy::ObservedBoConsistentSourcesV5,
+            ..PrimaryPolicy::default()
+        };
+        for age in [-1, 2000, 2001] {
+            let (tx, mut rx) = bounded_ingress(&policy, 1).unwrap();
+            tx.offer(frame(1)).unwrap();
+            let result = rx.receive_at(&stop(), || 10000 + age).await;
+            match age {
+                -1 => assert!(matches!(result, Err(PrimaryError::Clock))),
+                2001 => assert!(matches!(result, Err(PrimaryError::Continuity))),
+                _ => assert!(result.is_ok()),
+            }
+            assert_eq!(rx.continuity_lost(), age == 2001);
+        }
     }
 
     #[tokio::test]

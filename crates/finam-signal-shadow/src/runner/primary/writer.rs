@@ -337,6 +337,26 @@ impl Core {
                                 return Ok(update);
                             }
                         }
+                        if self.gate.is_some()
+                            && self.owner.processor.consistent_sources()
+                            && matches!(
+                                &result,
+                                Err(CoordinatorError::Source(PrimaryError::Continuity))
+                            )
+                            && self.owner.check().is_ok()
+                        {
+                            let failure = crate::socket::primary::Failure {
+                                generation: self.owner.processor.generation(),
+                                kind: crate::socket::primary::Kind::Source(
+                                    PrimaryError::Continuity,
+                                ),
+                                liveness: None,
+                            };
+                            self.socket_fault.record(failure.clone());
+                            let mut update = self.update();
+                            update.transport_failure = Some(failure);
+                            return Ok(update);
+                        }
                         result.map_err(Cause::Coordinator)?;
                     }
                     Job::Proof(ticket) => {

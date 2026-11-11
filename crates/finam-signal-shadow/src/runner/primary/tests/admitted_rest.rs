@@ -5,7 +5,7 @@ use crate::primary::{DeliveryPolicy, WsPrimaryConfig};
 
 const NEW: DeliveryPolicy = DeliveryPolicy::ObservedBoAdmittedRestV4;
 
-fn revised(label: i64, which: &str) -> Value {
+pub(super) fn revised(label: i64, which: &str) -> Value {
     let fixture: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../fixtures/ws-primary-rest-authority-20261111/closed-m1-pair.json"
@@ -18,7 +18,7 @@ fn revised(label: i64, which: &str) -> Value {
     row
 }
 
-fn pending(o: &mut Coordinator, sparse: bool) -> RestTicket {
+pub(super) fn pending(o: &mut Coordinator, sparse: bool) -> RestTicket {
     for i in 0..10 {
         if sparse && i == 5 {
             continue;
@@ -49,7 +49,7 @@ fn pending(o: &mut Coordinator, sparse: bool) -> RestTicket {
     ticket
 }
 
-fn rows() -> Vec<Value> {
+pub(super) fn rows() -> Vec<Value> {
     (0..10)
         .map(|i| {
             if i == 9 {
