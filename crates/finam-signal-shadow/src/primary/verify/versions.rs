@@ -3,6 +3,7 @@
 use super::*;
 use crate::primary::{revisions::same_slot, wire::same_values};
 use broker_core::event::Bar;
+type Installation = (u64, String, String, String); // generation, role, plan, source
 
 #[derive(Default)]
 pub(super) struct Diagnostics {
@@ -13,6 +14,10 @@ pub(super) struct Diagnostics {
     reference: BTreeMap<i64, Bar>,
     reference_ranges: Vec<(i64, i64)>,
     quarantined: BTreeSet<i64>,
+    current_generation: Option<u64>,
+    bootstrap_requests: BTreeMap<(u64, String), Value>,
+    installations: BTreeSet<Installation>,
+    pending_anchors: BTreeSet<Installation>,
 }
 
 #[cfg(test)]
@@ -26,8 +31,26 @@ impl Diagnostics {
         row: &Value,
         scan: &super::super::restart::journal::JournalScan,
         committed: usize,
+        now: i64,
     ) -> Result<(), VerifyError> {
         let event = &row["event"];
+        if event["event"] == "primary_subscription_sent" {
+            self.current_generation = Some(number(event, "generation")?);
+        }
+        if event["event"] == "primary_bootstrap_proof_required" {
+            let generation = number(event, "generation")?;
+            if self.current_generation != Some(generation)
+                || self
+                    .bootstrap_requests
+                    .insert(
+                        (generation, string(event, "plan_sha256")?.into()),
+                        event.clone(),
+                    )
+                    .is_some()
+            {
+                return Err(VerifyError::Source);
+            }
+        }
         if row["kind"] == "canonical_source" {
             let r = &event["receipt"];
             if r["reason"] == "ProvisionalRevision"
@@ -48,15 +71,64 @@ impl Diagnostics {
             self.seen_sources
                 .insert(string(event, "snapshot_sha256")?.into());
         }
-        if event["event"] == "primary_bootstrap_proof_applied"
-            || (event["event"] == "primary_recovery_source_validated"
-                && event["scope"] == "STARTUP_ANCHOR")
-        {
-            let hash = string(event, "source_sha256")?;
-            if !self.seen_sources.contains(hash) {
+        if event["event"] == "primary_reference_installed" {
+            let role = string(event, "role")?;
+            let key = installation(event, role)?;
+            if !matches!(role, "Bootstrap" | "StartupAnchor")
+                || self.current_generation != Some(key.0)
+                || event["config_sha256"] != scan.header.config_sha256
+                || event["history_proves_data_readiness"] != false
+                || !self.seen_sources.contains(&key.3)
+                || self.installations.contains(&key)
+            {
                 return Err(VerifyError::Source);
             }
-            self.bind_reference(scan.sources.get(hash).ok_or(VerifyError::Source)?)?;
+            let source = scan.sources.get(&key.3).ok_or(VerifyError::Source)?;
+            let e = source.evidence();
+            let at = integer(event, "installed_at_ms")?;
+            if e.parts.len() != 1
+                || integer(event, "start_ms")? != e.start.timestamp_millis()
+                || integer(event, "end_ms")? != e.end.timestamp_millis()
+                || at < e.parts[0].received_at.timestamp_millis()
+                || at > now
+            {
+                return Err(VerifyError::Source);
+            }
+            if role == "Bootstrap" {
+                let request = self
+                    .bootstrap_requests
+                    .get(&(key.0, key.2.clone()))
+                    .ok_or(VerifyError::Source)?;
+                if parse_time(request, "start")? != e.start.timestamp_millis()
+                    || parse_time(request, "end")? != e.end.timestamp_millis()
+                    || e.parts[0].requested_at.timestamp_millis()
+                        < integer(request, "original_received_at_ms")?
+                    || e.parts[0].received_at.timestamp_millis() > integer(request, "deadline_ms")?
+                {
+                    return Err(VerifyError::Source);
+                }
+            } else {
+                self.pending_anchors.insert(key.clone());
+            }
+            self.bind_reference(source)?;
+            self.installations.insert(key);
+        }
+        let role = if event["event"] == "primary_bootstrap_proof_applied" {
+            Some("Bootstrap")
+        } else if event["event"] == "primary_recovery_source_validated"
+            && event["scope"] == "STARTUP_ANCHOR"
+        {
+            Some("StartupAnchor")
+        } else {
+            None
+        };
+        if let Some(role) = role {
+            let key = installation(event, role)?;
+            if !self.installations.contains(&key)
+                || (role == "StartupAnchor" && !self.pending_anchors.remove(&key))
+            {
+                return Err(VerifyError::Source);
+            }
         }
         if event["event"] != "primary_source_change" {
             return Ok(());
@@ -207,4 +279,34 @@ impl Diagnostics {
         }
         Ok(())
     }
+
+    pub fn finish(&self) -> Result<(), VerifyError> {
+        if self.pending_anchors.is_empty() {
+            Ok(())
+        } else {
+            Err(VerifyError::Source)
+        }
+    }
+}
+
+fn installation(event: &Value, role: &str) -> Result<Installation, VerifyError> {
+    let plan = string(event, "plan_sha256")?;
+    let source = string(event, "source_sha256")?;
+    if [plan, source]
+        .iter()
+        .any(|h| h.len() != 64 || !h.bytes().all(|b| b.is_ascii_hexdigit()))
+    {
+        return Err(VerifyError::Source);
+    }
+    Ok((
+        number(event, "generation")?,
+        role.into(),
+        plan.into(),
+        source.into(),
+    ))
+}
+fn parse_time(event: &Value, key: &str) -> Result<i64, VerifyError> {
+    chrono::DateTime::parse_from_rfc3339(string(event, key)?)
+        .map(|t| t.timestamp_millis())
+        .map_err(|_| VerifyError::Source)
 }

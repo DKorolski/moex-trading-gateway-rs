@@ -211,6 +211,7 @@ impl BootstrapBridge {
             .map_err(CoordinatorError::Session)?;
         let result = owner.processor.add_reference(&source);
         owner.source_result(result)?;
+        owner.reference_installed(&source, "Bootstrap", ticket.plan_sha256())?;
         let generation = frame.generation();
         let result = owner.processor.resume_bootstrap_frame(frame, now);
         owner.source_result(result)?;

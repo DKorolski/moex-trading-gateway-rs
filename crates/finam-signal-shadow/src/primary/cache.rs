@@ -275,16 +275,13 @@ impl PrimaryProcessor {
         bar: &Bar,
     ) -> Option<super::revisions::WsVersionWitness> {
         let key = bar.open_ts.timestamp_millis();
+        // Stable dedup identity: the first actually retained observation of
+        // these values, not a later A/B/A cache witness lost during eviction.
         let version = self
-            .cache
+            .retained_ws
             .get(&key)
-            .filter(|v| same_values(&v.bar, bar))
-            .or_else(|| {
-                self.retained_ws
-                    .get(&key)?
-                    .iter()
-                    .find(|v| same_values(&v.bar, bar))
-            })?;
+            .and_then(|versions| versions.iter().find(|v| same_values(&v.bar, bar)))
+            .or_else(|| self.cache.get(&key).filter(|v| same_values(&v.bar, bar)))?;
         Some(super::revisions::WsVersionWitness {
             generation: version.generation,
             first_received_at_ms: version.first_received_ms,

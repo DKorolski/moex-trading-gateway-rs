@@ -177,7 +177,7 @@ pub fn verify(
     for row in &rows {
         let event = &row["event"];
         if config.primary.consistent_sources() {
-            versions.inspect(row, &scan, committed_so_far)?;
+            versions.inspect(row, &scan, committed_so_far, now)?;
         }
         let name = event["event"].as_str();
         match name {
@@ -546,6 +546,9 @@ pub fn verify(
         {
             return Err(VerifyError::Source);
         }
+    }
+    if config.primary.consistent_sources() {
+        versions.finish()?;
     }
     if end_sources != 1 || starts.len() != ready.len() {
         return Err(VerifyError::Unresolved);

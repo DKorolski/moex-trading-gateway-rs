@@ -126,6 +126,23 @@ pub struct Coordinator {
     proof_wait_io: Option<Arc<tests::ProofWaitIo>>,
 }
 impl Coordinator {
+    // Successful installation is independent of resuming the original WS frame.
+    // Old -> new diagnostics precede this fact and the reader's map update.
+    fn reference_installed(
+        &mut self,
+        source: &AdmittedClosedM1Snapshot,
+        role: &str,
+        plan_sha256: &str,
+    ) -> Result<(), CoordinatorError> {
+        if self.processor.consistent_sources() {
+            self.event(serde_json::json!({"event":"primary_reference_installed",
+                "config_sha256":self.processor.config_sha256(),"generation":self.processor.generation(),
+                "role":role,"plan_sha256":plan_sha256,"source_sha256":source.sha256(),
+                "start_ms":source.evidence().start.timestamp_millis(),"end_ms":source.evidence().end.timestamp_millis(),
+                "installed_at_ms":crate::timing::now_ms(),"history_proves_data_readiness":false}))?;
+        }
+        Ok(())
+    }
     fn source_result<T>(&mut self, result: Result<T, PrimaryError>) -> Result<T, CoordinatorError> {
         for change in self.processor.take_source_changes() {
             self.event(serde_json::json!({"event":"primary_source_change","generation":self.processor.generation(),"recorded_at_ms":crate::timing::now_ms(),"change":change}))?;
@@ -229,6 +246,9 @@ impl Coordinator {
         let admitted = self.source_result(result)?;
         let count = admitted.inputs.len();
         self.failed = true;
+        if plan.startup_anchor() {
+            self.reference_installed(source, "StartupAnchor", plan.sha256())?;
+        }
         self.event(serde_json::json!({"event":"primary_recovery_source_validated","plan_sha256":plan.sha256(),
             "scope":if plan.startup_anchor(){"STARTUP_ANCHOR"}else{"MODEL_GAP"},"generation":self.processor.generation(),
             "start_ms":plan.request().start().timestamp_millis(),"issued_at_ms":plan.issued_at_ms(),"deadline_ms":plan.deadline_ms(),

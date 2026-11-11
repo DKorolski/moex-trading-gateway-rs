@@ -4,6 +4,13 @@ use crate::primary::{
     calendar::tests::{at, Dir, Fixture},
     verify::{self, EvidenceBinding},
 };
+mod r1;
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum R1Scenario {
+    None,
+    StaleReference,
+    RepeatedWitness,
+}
 
 #[derive(Clone)]
 struct Artifact {
@@ -71,12 +78,32 @@ async fn day_with_recovery(
     day_with_proof_failure(f, audit_failure, early_stop, fault_minute, after_data, None).await
 }
 async fn day_with_proof_failure(
+    f: Fixture,
+    audit_failure: Option<RestFailure>,
+    early_stop: bool,
+    fault_minute: Option<i64>,
+    after_data: bool,
+    proof_failure: Option<(RestFailure, bool)>,
+) -> (RunReport, Artifact) {
+    day_scenario(
+        f,
+        audit_failure,
+        early_stop,
+        fault_minute,
+        after_data,
+        proof_failure,
+        R1Scenario::None,
+    )
+    .await
+}
+async fn day_scenario(
     mut f: Fixture,
     audit_failure: Option<RestFailure>,
     early_stop: bool,
     fault_minute: Option<i64>,
     after_data: bool,
     proof_failure: Option<(RestFailure, bool)>,
+    scenario: R1Scenario,
 ) -> (RunReport, Artifact) {
     let startup_recovery = fault_minute == Some(0);
     let d = Dir::new();
@@ -103,6 +130,19 @@ async fn day_with_proof_failure(
         let f = source_f.clone();
         let release = fetch_release.clone();
         async move {
+            if scenario == R1Scenario::StaleReference
+                && matches!(&job, Job::Bootstrap(_) | Job::Recovery(_))
+            {
+                let bootstrap = matches!(&job, Job::Bootstrap(_));
+                if bootstrap {
+                    release.notified().await;
+                }
+                let mut row = f.row(f.open() - 120000);
+                if !bootstrap {
+                    row["close"] = json!({"value":"2200"});
+                }
+                return source(&job, vec![row]);
+            }
             if let Some((failure, _)) = proof_failure {
                 if matches!(&job, Job::Proof(t) if t.label_ms() == f.open() && t.reason() != Some(ExceptionReason::SessionEnd))
                 {
@@ -178,7 +218,7 @@ async fn day_with_proof_failure(
                             && matches!(&job,Job::Proof(t) if matches!(t.reason(),Some(ExceptionReason::WsGracePending|ExceptionReason::ProvisionalRevision))))
                         || (fault_minute.is_some()
                             && matches!(&job,Job::Recovery(p) if p.startup_anchor()==startup_recovery))
-                        || (fault_minute.is_some()
+                        || ((fault_minute.is_some() || scenario == R1Scenario::StaleReference)
                             && matches!(&job,Job::Proof(t) if t.reason()==Some(ExceptionReason::StartupPartial))),
                     "no regular GETs on this dense fixture"
                 );
@@ -190,10 +230,14 @@ async fn day_with_proof_failure(
                     let mut evidence = admitted.evidence().clone();
                     let part = &mut evidence.parts[0];
                     let mut raw: Value = serde_json::from_str(&part.raw_body).unwrap();
-                    raw["bars"][0]["close"] = json!({"value":"2200"});
-                    let n = raw["bars"].as_array().unwrap().len();
-                    raw["bars"][n - 1]["close"] = json!({"value":"2200"});
-                    raw["bars"][n - 1]["volume"] = json!({"value":"1"});
+                    if scenario == R1Scenario::RepeatedWitness {
+                        raw["bars"][0]["high"] = json!({"value":"2200.5"});
+                    } else {
+                        raw["bars"][0]["close"] = json!({"value":"2200"});
+                        let n = raw["bars"].as_array().unwrap().len();
+                        raw["bars"][n - 1]["close"] = json!({"value":"2200"});
+                        raw["bars"][n - 1]["volume"] = json!({"value":"1"});
+                    }
                     part.raw_body = raw.to_string();
                     part.declared_body_bytes = Some(part.raw_body.len() as u64);
                     part.response_sha256 = crate::seed::digest(part.raw_body.as_bytes());
@@ -249,6 +293,45 @@ async fn day_with_proof_failure(
             .any(|r| r["event"]["event"] == "primary_subscription_sent")
     })
     .await;
+    if scenario == R1Scenario::StaleReference {
+        go(f.open() + 100);
+        let mut history = f.row(f.open() - 120000);
+        history.as_object_mut().unwrap().remove("isDataSnapshot");
+        peer.send(Message::Text(json!({"type":"DATA","subscriptionType":"BARS","subscriptionKey":"fixture","payload":{"symbol":"IMOEXF@RTSX","bars":[history,f.row(f.open())]}}).to_string())).await.unwrap();
+        until(|| {
+            trace(&path)
+                .iter()
+                .any(|r| r["event"]["event"] == "primary_bootstrap_proof_required")
+        })
+        .await;
+        go(f.open() + 2201);
+        proof_release.notify_one();
+        accepted_data = tokio::time::timeout(Duration::from_secs(5), progress.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        go(f.open() + 2301);
+        peer = peers.remove(0);
+        handshake(&mut peer).await;
+        until(|| {
+            trace(&path).iter().any(|r| {
+                r["event"]["event"] == "primary_subscription_sent" && r["event"]["generation"] == 2
+            })
+        })
+        .await;
+        go(f.open() + 2401);
+        peer.send(Message::Text(json!({"type":"DATA","subscriptionType":"BARS","subscriptionKey":"fixture","payload":{"symbol":"IMOEXF@RTSX","bars":[f.row(f.open())]}}).to_string())).await.unwrap();
+        accepted(&mut accepted_data, f.open() + 2401).await;
+        until(|| {
+            trace(&path)
+                .iter()
+                .any(|r| r["event"]["event"] == "primary_recovery_episode_ready")
+        })
+        .await;
+        accepted_data.changed().await.unwrap();
+        accepted_data.borrow_and_update();
+        assert!(!trace(&path).iter().any(|r| r["kind"] == "model_step"));
+    }
     if startup_recovery {
         if after_data {
             go(f.open() + 100);
@@ -289,7 +372,7 @@ async fn day_with_proof_failure(
         );
     }
     let minutes = if early_stop { 21 } else { 1010 };
-    for minute in i64::from(startup_recovery)..minutes {
+    for minute in i64::from(startup_recovery || scenario == R1Scenario::StaleReference)..minutes {
         let label = f.open() + minute * 60000;
         if (f.config.primary.admitted_rest_source() && minute == 50)
             || (f.config.primary.consistent_sources() && minute == 60)
@@ -412,12 +495,55 @@ async fn day_with_proof_failure(
             .await;
             accepted_data.changed().await.unwrap();
             accepted_data.borrow_and_update();
+            if scenario == R1Scenario::RepeatedWitness {
+                let before: Vec<_> = trace(&path)
+                    .into_iter()
+                    .filter(|r| {
+                        matches!(
+                            r["kind"].as_str(),
+                            Some("canonical_source" | "model_step" | "canonical_commit")
+                        )
+                    })
+                    .collect();
+                assert_eq!(before.len(), 3);
+                go(label + 400);
+                peer.send(Message::Text(json!({"type":"DATA","subscriptionType":"BARS","subscriptionKey":"fixture","payload":{"symbol":"IMOEXF@RTSX","bars":[f.row(f.open())]}}).to_string())).await.unwrap();
+                until(|| {
+                    trace(&path).iter().any(|r| {
+                        r["event"]["change"]["context"] == "WS_SUPERSEDED_REPEAT_DISCARDED"
+                    })
+                })
+                .await;
+                assert_eq!(
+                    accepted_data.borrow().as_ref().unwrap().received_at_ms,
+                    label + offset + 200
+                );
+                let after: Vec<_> = trace(&path)
+                    .into_iter()
+                    .filter(|r| {
+                        matches!(
+                            r["kind"].as_str(),
+                            Some("canonical_source" | "model_step" | "canonical_commit")
+                        )
+                    })
+                    .collect();
+                assert_eq!(before, after);
+            }
             continue;
         }
         go(label + 100);
         let wire=json!({"type":"DATA","subscriptionType":"BARS","subscriptionKey":"fixture","payload":{"symbol":"IMOEXF@RTSX","bars":[f.row(label)]}}).to_string();
         peer.send(Message::Text(wire.clone())).await.unwrap();
         accepted(&mut accepted_data, label + 100).await;
+        if scenario == R1Scenario::RepeatedWitness && minute == 0 {
+            for (delay, high) in [(200, "2200.5"), (300, "2201")] {
+                go(label + delay);
+                let mut row = f.row(label);
+                row["high"] = json!({"value":high});
+                peer.send(Message::Text(json!({"type":"DATA","subscriptionType":"BARS","subscriptionKey":"fixture","payload":{"symbol":"IMOEXF@RTSX","bars":[row]}}).to_string())).await.unwrap();
+                accepted(&mut accepted_data, label + delay).await;
+            }
+        }
         if f.config.primary.consistent_sources() && minute == 71 {
             go(label + 200);
             let mut revised = f.row(label);
@@ -486,6 +612,14 @@ async fn day_with_proof_failure(
             .unwrap()
             .unwrap();
         let _ = tokio::time::timeout(Duration::from_secs(1), responder).await;
+        if scenario != R1Scenario::None {
+            eprintln!(
+                "R1_RUNTIME_EOD commits={} recovery={} model_prepared={}",
+                report.canonical_commits,
+                report.recovery.len(),
+                report.completion.as_ref().unwrap().semantic_eod_passed
+            );
+        }
         return export(report, &f, &artifacts, &output, &calendar_sha);
     }
     let report = task.await.unwrap().unwrap();
@@ -995,7 +1129,9 @@ fn export(
         .unwrap();
     assert_eq!(
         outcome.semantic_eod_passed,
-        report.completion.as_ref().unwrap().semantic_eod_passed
+        report.completion.as_ref().unwrap().semantic_eod_passed,
+        "file verifier: {}",
+        std::fs::read_to_string(output.join("verification.json")).unwrap()
     );
     let manifest = std::fs::read(output.join("manifest.json")).unwrap();
     let value: Value = serde_json::from_slice(&manifest).unwrap();
