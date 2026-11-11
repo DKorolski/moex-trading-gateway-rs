@@ -479,6 +479,7 @@ fn ws_first_nov9_real_conflict_pair_uses_original_rest_body_not_forged_ws_time()
     for policy in [
         NEW,
         DeliveryPolicy::ObservedBoNonBlockingRestV3,
+        DeliveryPolicy::ObservedBoAdmittedRestV4,
         DeliveryPolicy::ObservedBo1sVolumeAuditV1,
     ] {
         candidate(label, label + 6960, policy, |mut o, path| {

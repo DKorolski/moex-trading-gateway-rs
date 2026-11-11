@@ -11,19 +11,20 @@ fn proof_prices_compatible(old: &Bar, new: &Bar, observed: bool) -> bool {
 }
 
 impl PrimaryProcessor {
-    /// Comparison failure cannot poison future eligible WS. Only startup has
-    /// the user's explicit whole-REST price-priority permission; preserve the
-    /// existing price-admission rules for other mandatory REST inputs.
+    /// Comparison failure cannot poison eligible WS. V4 additionally permits
+    /// a whole admitted REST source for an unpublished exception slot; V1–V3
+    /// retain their original price-admission rules.
     pub(crate) fn rest_source_prices_compatible(
         &self,
         source: &AdmittedClosedM1Snapshot,
         reason: ExceptionReason,
     ) -> bool {
         let label = source.evidence().start.timestamp_millis();
-        let priority = reason == ExceptionReason::StartupPartial
-            && self.subscribed_at_ms > label
-            && self.session_end_label() != Some(label)
-            && self.policy.rest_precommit_ws_first();
+        let priority = self.policy.admitted_rest_source()
+            || (reason == ExceptionReason::StartupPartial
+                && self.subscribed_at_ms > label
+                && self.session_end_label() != Some(label)
+                && self.policy.rest_precommit_ws_first());
         self.cache.range(label..label + 600000).all(|(_, old)| {
             source.bars().any(|new| {
                 new.open_ts == old.bar.open_ts
@@ -111,12 +112,13 @@ impl PrimaryProcessor {
             .bucket(at(label)?)
             .map_err(|_| PrimaryError::ReferenceUnproven)?;
         let rows = bucket.actual_m1();
-        // Only the explicitly opted-in, still-unpublished startup slot can
-        // choose an entire admitted REST bucket over provisional WS prices.
+        // V4 explicitly permits whole admitted REST in any still-unpublished
+        // exception slot. Older policies retain startup-only price priority.
         // No missing known minute, identity failure, late source, replay or
         // post-commit rewrite gains permission through this choice.
-        let rest_authority = self.policy.rest_precommit_ws_first()
-            && required_reason == Some(ExceptionReason::StartupPartial);
+        let rest_authority = self.policy.admitted_rest_source()
+            || (self.policy.rest_precommit_ws_first()
+                && required_reason == Some(ExceptionReason::StartupPartial));
         for version in &entries {
             let Some(final_row) = rows.iter().find(|b| b.open_ts == version.bar.open_ts) else {
                 self.note_change(

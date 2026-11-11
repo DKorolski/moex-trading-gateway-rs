@@ -584,6 +584,11 @@ impl PrimaryProcessor {
                         .get(&row.bar.open_ts.timestamp_millis())
                         .is_some_and(|old| {
                             super::revisions::compatible(old, &row.bar, self.policy.observed_bo())
+                                || self.may_discard_bootstrap_revision(
+                                    old,
+                                    &row.bar,
+                                    frame.received_at_ms,
+                                )
                         })
             }
             SnapshotPresence::ExplicitFalse => false,
@@ -602,6 +607,18 @@ impl PrimaryProcessor {
     pub(super) fn hold<T>(&mut self, error: PrimaryError) -> Result<T, PrimaryError> {
         self.state = PipelineState::Hold;
         Err(error)
+    }
+
+    // Only an independently admitted closed REST reference can cover a stale
+    // historical WS version. This grants neither cache/readiness nor a callback;
+    // the committed branch below remains strict and runs before this branch.
+    fn may_discard_bootstrap_revision(&self, old: &Bar, bar: &Bar, received: i64) -> bool {
+        self.policy.admitted_rest_source()
+            && !self.fresh_seen
+            && !self.committed.contains_key(&bar.open_ts.timestamp_millis())
+            && old.is_final
+            && super::revisions::same_slot(old, bar)
+            && bar.close_ts.timestamp_millis() <= received
     }
 
     fn ingest_checked(&mut self, frame: WireFrame) -> Result<(), PrimaryError> {
@@ -664,13 +681,21 @@ impl PrimaryProcessor {
             };
             if history {
                 if let Some(old) = reference {
+                    let compatible =
+                        super::revisions::compatible(&old, bar, self.policy.observed_bo());
+                    let discard_revision = !compatible
+                        && self.may_discard_bootstrap_revision(&old, bar, frame.received_at_ms);
                     self.note_change(
-                        "WS_BOOTSTRAP_REFERENCE",
+                        if discard_revision {
+                            "WS_BOOTSTRAP_REFERENCE_DISCARDED"
+                        } else {
+                            "WS_BOOTSTRAP_REFERENCE"
+                        },
                         Some(&old),
                         Some(bar),
                         Some(&frame.sha256),
                     )?;
-                    if !super::revisions::compatible(&old, bar, self.policy.observed_bo()) {
+                    if !compatible && !discard_revision {
                         return Err(PrimaryError::ReferenceConflict);
                     }
                 }

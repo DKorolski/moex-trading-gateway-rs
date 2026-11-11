@@ -4,12 +4,15 @@ use super::{wire::same_values, PrimaryError};
 use broker_core::event::Bar;
 use serde::Serialize;
 
-pub(crate) fn same_prices(a: &Bar, b: &Bar) -> bool {
+pub(crate) fn same_slot(a: &Bar, b: &Bar) -> bool {
     a.instrument == b.instrument
         && a.timeframe_sec == b.timeframe_sec
         && a.open_ts == b.open_ts
         && a.close_ts == b.close_ts
-        && (a.open, a.high, a.low, a.close) == (b.open, b.high, b.low, b.close)
+}
+
+pub(crate) fn same_prices(a: &Bar, b: &Bar) -> bool {
+    same_slot(a, b) && (a.open, a.high, a.low, a.close) == (b.open, b.high, b.low, b.close)
 }
 
 pub(crate) fn compatible(a: &Bar, b: &Bar, observed_bo: bool) -> bool {

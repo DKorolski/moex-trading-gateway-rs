@@ -172,14 +172,38 @@ async fn day_with_proof_failure(
             } else {
                 assert!(
                     matches!(&job,Job::Proof(t) if t.reason()==Some(ExceptionReason::SessionEnd))
+                        || (f.config.primary.admitted_rest_source()
+                            && matches!(&job,Job::Proof(t) if t.reason()==Some(ExceptionReason::BoundaryUnproven)))
                         || (fault_minute.is_some()
                             && matches!(&job,Job::Recovery(p) if p.startup_anchor()==startup_recovery))
                         || (fault_minute.is_some()
                             && matches!(&job,Job::Proof(t) if t.reason()==Some(ExceptionReason::StartupPartial))),
                     "no regular GETs on this dense fixture"
                 );
+                let plan = job.plan().unwrap();
+                let mut admitted = f.rest(&plan);
+                if f.config.primary.admitted_rest_source()
+                    && matches!(&job,Job::Proof(t) if t.reason()==Some(ExceptionReason::BoundaryUnproven))
+                {
+                    // Synthetic same failure shape: close changes and volume
+                    // decreases, before the unpublished non-startup callback.
+                    let mut evidence = admitted.evidence().clone();
+                    let part = &mut evidence.parts[0];
+                    let mut raw: Value = serde_json::from_str(&part.raw_body).unwrap();
+                    raw["bars"][9]["close"] = json!({"value":"2200"});
+                    raw["bars"][9]["volume"] = json!({"value":"1"});
+                    part.raw_body = raw.to_string();
+                    part.declared_body_bytes = Some(part.raw_body.len() as u64);
+                    part.response_sha256 = crate::seed::digest(part.raw_body.as_bytes());
+                    admitted = broker_finam::sparse_m10::AdmittedClosedM1Snapshot::admit(
+                        evidence,
+                        &plan,
+                        at(crate::timing::now_ms()),
+                    )
+                    .unwrap();
+                }
                 HttpOutcome {
-                    result: Ok(f.rest(&job.plan().unwrap())),
+                    result: Ok(admitted),
                     receipt: HttpReceipt {
                         started_at_ms: crate::timing::now_ms(),
                         finished_at_ms: crate::timing::now_ms(),
@@ -245,6 +269,28 @@ async fn day_with_proof_failure(
     let minutes = if early_stop { 21 } else { 1010 };
     for minute in i64::from(startup_recovery)..minutes {
         let label = f.open() + minute * 60000;
+        if f.config.primary.admitted_rest_source() && minute == 50 {
+            // No boundary row before the proof: the whole REST exception must
+            // commit, then later DATA resumes in the same physical generation.
+            go(label + 1000);
+            // Wake the fixture-clock driver with a duplicate of the previous
+            // minute, not a row from the new minute or a fabricated boundary.
+            peer.send(Message::Text(json!({"type":"DATA","subscriptionType":"BARS","subscriptionKey":"fixture","payload":{"symbol":"IMOEXF@RTSX","bars":[f.row(label-60000)]}}).to_string())).await.unwrap();
+            until(|| {
+                trace(&path)
+                    .iter()
+                    .filter(|r| r["kind"] == "canonical_commit")
+                    .count()
+                    == 5
+            })
+            .await;
+            accepted_data.changed().await.unwrap();
+            accepted_data.borrow_and_update();
+            go(label + 1200);
+            peer.send(Message::Text(json!({"type":"DATA","subscriptionType":"BARS","subscriptionKey":"fixture","payload":{"symbol":"IMOEXF@RTSX","bars":[f.row(label)]}}).to_string())).await.unwrap();
+            accepted(&mut accepted_data, label + 1200).await;
+            continue;
+        }
         if let Some((_, early)) = proof_failure.filter(|_| minute == 10) {
             go(label + 3000);
             peer.send(Message::Text(json!({"type":"DATA","subscriptionType":"BARS","subscriptionKey":"fixture","payload":{"symbol":"IMOEXF@RTSX","bars":[f.row(label-60000)]}}).to_string())).await.unwrap();
@@ -396,6 +442,68 @@ async fn day_with_proof_failure(
     }
     let report = task.await.unwrap().unwrap();
     export(report, &f, &artifacts, &output, &calendar_sha)
+}
+
+#[test]
+fn admitted_rest_v4_full_day_boundary_exception_and_independent_verifier_agree() {
+    let mut f = Fixture::new();
+    f.config.primary.delivery = crate::primary::DeliveryPolicy::ObservedBoAdmittedRestV4;
+    with_fixture_clock(f.open(), || {
+        runtime(async {
+            let (report, artifact) = day(f, None, false).await;
+            assert_eq!(report.canonical_commits, 101);
+            assert!(report.recovery.is_empty());
+            let verified = artifact.verify().unwrap();
+            assert_eq!(verified.rest_exception_labels, 2);
+            assert_eq!(verified.ws_live_labels, 99);
+            assert!(
+                !verified.parity_accepted
+                    && !verified.network_qualified
+                    && !verified.cgroup_qualified
+            );
+            let rows: Vec<Value> = std::str::from_utf8(&artifact.journal)
+                .unwrap()
+                .lines()
+                .map(|l| serde_json::from_str(l).unwrap())
+                .collect();
+            assert_eq!(
+                rows.iter()
+                    .filter(|r| r["event"]["event"] == "primary_subscription_sent")
+                    .count(),
+                1
+            );
+            let canonical = rows
+                .iter()
+                .find(|r| {
+                    r["kind"] == "canonical_source"
+                        && r["event"]["receipt"]["reason"] == "BoundaryUnproven"
+                })
+                .unwrap();
+            assert_eq!(
+                canonical["event"]["receipt"]["actual_m1"][9]["close"],
+                "2200"
+            );
+            assert_eq!(canonical["event"]["receipt"]["actual_m1"][9]["volume"], "1");
+            for mutation in ["provenance", "price"] {
+                let mut bad = artifact.clone();
+                bad.change_journal(|rows| {
+                    let r = rows
+                        .iter_mut()
+                        .find(|r| {
+                            r["kind"] == "canonical_source"
+                                && r["event"]["receipt"]["reason"] == "BoundaryUnproven"
+                        })
+                        .unwrap();
+                    if mutation == "provenance" {
+                        r["event"]["receipt"]["origin"] = json!("WS_LIVE");
+                    } else {
+                        r["event"]["receipt"]["actual_m1"][9]["close"] = json!("2200.5");
+                    }
+                });
+                assert!(bad.verify().is_err());
+            }
+        })
+    });
 }
 
 #[test]

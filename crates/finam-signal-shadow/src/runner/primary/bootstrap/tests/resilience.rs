@@ -46,6 +46,157 @@ fn trace(path: &std::path::Path) -> Vec<Value> {
 }
 
 #[test]
+fn admitted_rest_v4_bootstrap_price_revision_is_history_only_not_readiness() {
+    for policy in [
+        DeliveryPolicy::ObservedBoNonBlockingRestV3,
+        DeliveryPolicy::ObservedBoAdmittedRestV4,
+    ] {
+        for age in [211, 2100] {
+            delivery(policy, |mut owner, path, sub| {
+                let mut b = bridge(&owner);
+                go(T + 100);
+                let mut ws = volume_row(T - 600000, "2256");
+                for (field, value) in [
+                    ("open", "2450.5"),
+                    ("high", "2451"),
+                    ("low", "2450"),
+                    ("close", "2450"),
+                ] {
+                    ws[field] = json!({"value":value});
+                }
+                let original = owned(vec![ws.clone()], &sub);
+                let hash = original.sha256().to_owned();
+                let ticket = b.on_frame(&mut owner, original).unwrap().unwrap();
+                go(T + 100 + age);
+                ws["close"] = json!({"value":"2450.5"});
+                ws["volume"] = json!({"value":"2238"});
+                let reference = source(&ticket, vec![ws]);
+                let result = b.complete(&mut owner, ticket, Ok(reference));
+                if policy != DeliveryPolicy::ObservedBoAdmittedRestV4 {
+                    assert!(result.is_err());
+                    return;
+                }
+                result.unwrap();
+                assert_eq!(owner.processor.cached_m1(), 0);
+                assert!(!owner.processor.subscription_data_ready());
+                assert!(owner.processor.last_live_data().is_none());
+                assert_eq!(owner.processor.counters().discarded_history, 1);
+                let records = trace(&path);
+                assert!(records.iter().any(|r| r["event"]["change"]["context"]
+                    == "WS_BOOTSTRAP_REFERENCE_DISCARDED"
+                    && r["event"]["change"]["observed_source_sha256"] == hash));
+                no_model(&path);
+                go(now_ms() + 100);
+                b.on_frame(&mut owner, owned(vec![raw_row(T)], &sub))
+                    .unwrap();
+                assert!(owner.processor.subscription_data_ready());
+                assert_eq!(owner.processor.cached_m1(), 1);
+                no_model(&path);
+            });
+        }
+    }
+}
+
+#[test]
+fn admitted_rest_v4_bootstrap_still_rejects_missing_reference_and_wrong_identity() {
+    for case in ["missing", "identity"] {
+        delivery(
+            DeliveryPolicy::ObservedBoAdmittedRestV4,
+            |mut owner, path, sub| {
+                let mut b = bridge(&owner);
+                go(T + 100);
+                let ticket = b
+                    .on_frame(&mut owner, owned(vec![raw_row(T - 600000)], &sub))
+                    .unwrap()
+                    .unwrap();
+                if case == "identity" {
+                    b.pending.as_mut().unwrap().0.rows[0].bar.instrument.symbol = "OTHER".into();
+                }
+                go(T + 311);
+                let reference = source(
+                    &ticket,
+                    vec![raw_row(T - if case == "missing" { 540000 } else { 600000 })],
+                );
+                assert!(b.complete(&mut owner, ticket, Ok(reference)).is_err());
+                assert_eq!(owner.processor.cached_m1(), 0);
+                assert!(!owner.processor.subscription_data_ready());
+                no_model(&path);
+            },
+        );
+    }
+}
+
+#[test]
+fn admitted_rest_v4_historical_revision_never_retimes_a_stale_live_tail() {
+    for age in [211, 2100] {
+        delivery(
+            DeliveryPolicy::ObservedBoAdmittedRestV4,
+            |mut owner, path, sub| {
+                let mut b = bridge(&owner);
+                go(T + 100);
+                let mut history = raw_row(T - 600000);
+                history["close"] = json!({"value":"2200"});
+                let ticket = b
+                    .on_frame(&mut owner, owned(vec![history, raw_row(T)], &sub))
+                    .unwrap()
+                    .unwrap();
+                go(T + 100 + age);
+                let reference = source(&ticket, vec![raw_row(T - 600000)]);
+                let result = b.complete(&mut owner, ticket, Ok(reference));
+                if age <= 2000 {
+                    result.unwrap();
+                    assert_eq!(
+                        owner.processor.last_live_data().unwrap().received_at_ms,
+                        T + 100
+                    );
+                    assert_eq!(owner.processor.cached_m1(), 1);
+                } else {
+                    assert!(result.is_err());
+                    assert_eq!(owner.processor.cached_m1(), 0);
+                    assert!(owner.processor.last_live_data().is_none());
+                }
+                no_model(&path);
+            },
+        );
+    }
+}
+
+#[test]
+fn admitted_rest_v4_committed_prices_remain_immutable() {
+    delivery(
+        DeliveryPolicy::ObservedBoAdmittedRestV4,
+        |mut owner, path, sub| {
+            for i in 0..=10 {
+                go(T + i * 60000 + 100);
+                owner
+                    .on_frame(owned(vec![raw_row(T + i * 60000)], &sub))
+                    .unwrap();
+            }
+            go(T + 601100);
+            assert!(matches!(owner.tick().unwrap(), Tick::Published { .. }));
+            let before = trace(&path)
+                .into_iter()
+                .filter(|r| r["kind"] == "model_step")
+                .collect::<Vec<_>>();
+            let mut revised = raw_row(T);
+            revised["close"] = json!({"value":"2200"});
+            assert_eq!(
+                owner.on_frame(owned(vec![revised], &sub)),
+                Err(CoordinatorError::Source(PrimaryError::CanonicalConflict))
+            );
+            assert_eq!(owner.processor.counters().committed, 1);
+            assert_eq!(
+                trace(&path)
+                    .into_iter()
+                    .filter(|r| r["kind"] == "model_step")
+                    .collect::<Vec<_>>(),
+                before
+            );
+        },
+    );
+}
+
+#[test]
 fn res1_delayed_missing_volume_compatibility_keeps_original_stamps_and_no_model() {
     for (ws, rest) in [("1548", "1543"), ("1543", "1548")] {
         for age in [3000, 1999, 2000, 2001] {

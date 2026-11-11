@@ -1,0 +1,9 @@
+{
+  "source_result_zip_sha256": "debd29b35ece3a5f06fdacc6cb124e7a8b735ca9edb78008fdab334f8c06af55",
+  "journal_sequence": 44,
+  "original_open_ts": "2026-11-11T04:49:00Z",
+  "original_close_ts": "2026-11-11T04:50:00Z",
+  "usage": "Actual retained Decimal prices/volume only; unit-test clocks and other M1 are synthetic, not a provider replay",
+  "ws": {"open":"2450.5","high":"2451.0","low":"2450.0","close":"2450.0","volume":"2256.0"},
+  "rest": {"open":"2450.5","high":"2451","low":"2450","close":"2450.5","volume":"2238"}
+}

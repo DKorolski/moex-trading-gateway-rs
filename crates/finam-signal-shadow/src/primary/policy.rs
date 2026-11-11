@@ -17,6 +17,10 @@ pub enum DeliveryPolicy {
     /// Shadow-only soft REST comparisons. Valid mandatory startup data may
     /// still be used before a callback; optional REST never halts eligible WS.
     ObservedBoNonBlockingRestV3,
+    /// Explicit whole admitted REST authority for an unpublished exception slot.
+    /// Eligible WS remains first; historical bootstrap revisions are discarded,
+    /// never imported as live data or used to rewrite committed model inputs.
+    ObservedBoAdmittedRestV4,
 }
 
 fn strict_delivery(value: &DeliveryPolicy) -> bool {
@@ -80,6 +84,7 @@ impl PrimaryPolicy {
             DeliveryPolicy::ObservedBo1sVolumeAuditV1
                 | DeliveryPolicy::ObservedBoRestPrecommitWsFirstV2
                 | DeliveryPolicy::ObservedBoNonBlockingRestV3
+                | DeliveryPolicy::ObservedBoAdmittedRestV4
         )
     }
 
@@ -88,11 +93,19 @@ impl PrimaryPolicy {
             self.delivery,
             DeliveryPolicy::ObservedBoRestPrecommitWsFirstV2
                 | DeliveryPolicy::ObservedBoNonBlockingRestV3
+                | DeliveryPolicy::ObservedBoAdmittedRestV4
         )
     }
 
     pub(crate) fn rest_nonblocking(&self) -> bool {
-        self.delivery == DeliveryPolicy::ObservedBoNonBlockingRestV3
+        matches!(
+            self.delivery,
+            DeliveryPolicy::ObservedBoNonBlockingRestV3 | DeliveryPolicy::ObservedBoAdmittedRestV4
+        )
+    }
+
+    pub(crate) fn admitted_rest_source(&self) -> bool {
+        self.delivery == DeliveryPolicy::ObservedBoAdmittedRestV4
     }
 
     pub(crate) fn proof_wait_ms(&self) -> i64 {
