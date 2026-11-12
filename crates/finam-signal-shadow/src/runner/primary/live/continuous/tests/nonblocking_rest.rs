@@ -8,6 +8,8 @@ fn nonblocking_rest_r3_actual_writer_rechecks_ws_after_late_proof_io_without_ano
         DeliveryPolicy::ObservedBoRestPrecommitWsFirstV2,
         DeliveryPolicy::ObservedBoNonBlockingRestV3,
         DeliveryPolicy::ObservedBoAdmittedRestV4,
+        DeliveryPolicy::ObservedBoConsistentSourcesV5,
+        DeliveryPolicy::ObservedBoRestTailRecoveryV6,
     ] {
         for (elapsed, missing) in [(0, false), (1, false), (0, true)] {
             with_fixture_clock(T - 100, || {

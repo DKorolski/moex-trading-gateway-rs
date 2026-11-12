@@ -15,11 +15,13 @@ use std::{
 };
 mod calendar;
 mod proof;
+mod readiness;
 mod recovery;
 mod restart;
 pub use recovery::{
-    AdmittedRecovery, RecoveryCompletion, RecoveryInput, RecoveryPlan, RecoveryReceipt,
-    ResolvedRecovery,
+    AdmittedRecovery, RecoveryCompletion, RecoveryInput, RecoveryOutcome, RecoveryPlan,
+    RecoveryReceipt, RecoveryRequestScope, RecoveryWait, ResolvedRecovery, MAX_REST_READS,
+    REST_BACKOFF_MS,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -195,6 +197,7 @@ pub struct PrimaryProcessor {
     gap_owner: Option<Arc<()>>,
     last_resolution: Option<Arc<()>>,
     recovery_pending: Option<recovery::Pending>,
+    recovery_request_serial: u64,
     run_deadline_ms: i64,
     counters: Counters,
     last_live_data: Option<super::LiveDataStamp>,
@@ -419,6 +422,7 @@ impl PrimaryProcessor {
             gap_owner: None,
             last_resolution: None,
             recovery_pending: None,
+            recovery_request_serial: 0,
             run_deadline_ms: i64::MAX,
             counters: Counters::default(),
             last_live_data: None,

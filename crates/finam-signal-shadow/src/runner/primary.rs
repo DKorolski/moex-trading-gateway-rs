@@ -93,6 +93,12 @@ pub enum Tick {
         committed_at_ms: i64,
     },
 }
+
+pub enum RecoveryProgress {
+    Ready(usize),
+    DataNotReady(crate::primary::RecoveryWait),
+    Retired,
+}
 #[derive(Debug, Default, Serialize)]
 pub struct RoleCounts {
     pub proof_scheduled: u64,
@@ -122,6 +128,8 @@ pub struct Coordinator {
     last_committed: Option<i64>,
     counts: RoleCounts,
     recovery_completion: Option<crate::primary::RecoveryCompletion>,
+    last_readiness_diagnostic: Option<String>,
+    last_evidence_io: Option<(i64, i64)>,
     #[cfg(test)]
     proof_wait_io: Option<Arc<tests::ProofWaitIo>>,
 }
@@ -244,17 +252,109 @@ impl Coordinator {
             .processor
             .admit_recovery(plan, source, crate::timing::now_ms());
         let admitted = self.source_result(result)?;
+        self.publish_recovery(plan, source, admitted)
+    }
+
+    pub fn issue_recovery_request(
+        &mut self,
+        cutover: i64,
+        scope: crate::primary::RecoveryRequestScope,
+        previous: Option<&crate::primary::RecoveryPlan>,
+    ) -> Result<crate::primary::RecoveryPlan, CoordinatorError> {
+        self.check()?;
+        let plan = self
+            .processor
+            .issue_recovery_request(cutover, crate::timing::now_ms(), scope, previous)
+            .map_err(CoordinatorError::Source)?;
+        if let Some(old) = previous {
+            self.event(
+                serde_json::json!({"event":"primary_recovery_request_retired",
+                "ticket_sha256":old.sha256(),"replacement_sha256":plan.sha256(),
+                "at_ms":crate::timing::now_ms(),"reason":"Renewal"}),
+            )?;
+        }
+        self.event(
+            serde_json::json!({"event":"primary_recovery_request_issued","scope":scope,
+            "ticket_sha256":plan.sha256(),"serial":plan.serial(),"generation":plan.generation(),
+            "frontier_index":plan.next_index(),"start_ms":plan.request().start().timestamp_millis(),
+            "cutover_ms":plan.request().end().timestamp_millis(),"issued_at_ms":plan.issued_at_ms(),
+            "deadline_ms":plan.deadline_ms(),"maximum_reads":crate::primary::MAX_REST_READS,
+            "startup_anchor":plan.startup_anchor(),
+            "calendar_sha256":self.processor.calendar().map(|c|c.sha256())}),
+        )?;
+        Ok(plan)
+    }
+
+    pub fn complete_recovery_request(
+        &mut self,
+        plan: &crate::primary::RecoveryPlan,
+        source: &AdmittedClosedM1Snapshot,
+    ) -> Result<RecoveryProgress, CoordinatorError> {
+        self.check()?;
+        let io_started = crate::timing::now_ms();
+        self.session
+            .record_primary_reference(source)
+            .map_err(|error| {
+                self.failed = true;
+                CoordinatorError::Session(error)
+            })?;
+        let io_finished = crate::timing::now_ms();
+        self.event(
+            serde_json::json!({"event":"primary_recovery_source_observed",
+            "ticket_sha256":plan.sha256(),"source_sha256":source.sha256(),
+            "rest_requested_at_ms":source.evidence().parts[0].requested_at.timestamp_millis(),
+            "rest_received_at_ms":source.evidence().parts[0].received_at.timestamp_millis(),
+            "writer_processed_at_ms":io_started,"reference_io_finished_at_ms":io_finished,
+            "reference_io_elapsed_ms":io_finished-io_started,"diagnostic_only":true}),
+        )?;
+        if !self.processor.recovery_request_active(plan) {
+            self.event(
+                serde_json::json!({"event":"primary_recovery_request_stale_discarded",
+                "ticket_sha256":plan.sha256(),"generation":plan.generation(),
+                "at_ms":crate::timing::now_ms(),"callback":false}),
+            )?;
+            return Ok(RecoveryProgress::Retired);
+        }
+        let result = self
+            .processor
+            .prepare_recovery_request(plan, source, crate::timing::now_ms());
+        match self.source_result(result)? {
+            crate::primary::RecoveryOutcome::DataNotReady(wait) => {
+                self.event(
+                    serde_json::json!({"event":"primary_recovery_data_not_ready",
+                    "ticket_sha256":plan.sha256(),"source_sha256":source.sha256(),
+                    "generation":plan.generation(),"scope":plan.scope(),"assessment":wait,
+                    "callback":false,"model_input_rewritten":false}),
+                )?;
+                Ok(RecoveryProgress::DataNotReady(wait))
+            }
+            crate::primary::RecoveryOutcome::Ready(admitted) => self
+                .publish_recovery(plan, source, admitted)
+                .map(RecoveryProgress::Ready),
+        }
+    }
+
+    fn publish_recovery(
+        &mut self,
+        plan: &crate::primary::RecoveryPlan,
+        source: &AdmittedClosedM1Snapshot,
+        admitted: crate::primary::AdmittedRecovery,
+    ) -> Result<usize, CoordinatorError> {
         let count = admitted.inputs.len();
         self.failed = true;
         if plan.startup_anchor() {
             self.reference_installed(source, "StartupAnchor", plan.sha256())?;
         }
-        self.event(serde_json::json!({"event":"primary_recovery_source_validated","plan_sha256":plan.sha256(),
+        let mut validated = serde_json::json!({"event":"primary_recovery_source_validated","plan_sha256":plan.sha256(),
             "scope":if plan.startup_anchor(){"STARTUP_ANCHOR"}else{"MODEL_GAP"},"generation":self.processor.generation(),
             "start_ms":plan.request().start().timestamp_millis(),"issued_at_ms":plan.issued_at_ms(),"deadline_ms":plan.deadline_ms(),
             "requested_at_ms":source.evidence().parts[0].requested_at.timestamp_millis(),"received_at_ms":source.evidence().parts[0].received_at.timestamp_millis(),
             "source_sha256":source.sha256(),"overlap_labels":plan.overlap_labels(),"replayed_labels":count,
-            "cutover_ms":source.evidence().end.timestamp_millis(),"history_proves_live_readiness":false}))?;
+            "cutover_ms":source.evidence().end.timestamp_millis(),"history_proves_live_readiness":false});
+        if self.processor.rest_tail_recovery() {
+            validated["validated_at_ms"] = serde_json::json!(crate::timing::now_ms());
+        }
+        self.event(validated)?;
         for input in admitted.inputs {
             let publication = self
                 .session
@@ -336,6 +436,8 @@ impl Coordinator {
             last_committed: None,
             counts: RoleCounts::default(),
             recovery_completion: None,
+            last_readiness_diagnostic: None,
+            last_evidence_io: None,
             #[cfg(test)]
             proof_wait_io: None,
         })
@@ -357,10 +459,12 @@ impl Coordinator {
         }
     }
     fn event(&mut self, event: serde_json::Value) -> Result<(), CoordinatorError> {
+        let io_started = crate::timing::now_ms();
         if let Err(error) = self.session.record_transport(&event) {
             self.failed = true;
             return Err(CoordinatorError::Session(error));
         }
+        self.last_evidence_io = Some((io_started, crate::timing::now_ms()));
         #[cfg(test)]
         if event["event"] == "primary_proof_waiting_ws_grace"
             || event["event"] == "primary_precommit_rest_selected"
@@ -381,6 +485,23 @@ impl Coordinator {
     }
     pub fn tick(&mut self) -> Result<Tick, CoordinatorError> {
         self.check()?;
+        if self.processor.rest_tail_recovery() {
+            if let Some(mut snapshot) = self.processor.readiness_diagnostic(crate::timing::now_ms())
+            {
+                let signature = format!(
+                    "{}:{}:{}",
+                    snapshot["label_ms"], snapshot["predeadline_reason"], snapshot["outcome"]
+                );
+                if self.last_readiness_diagnostic.as_ref() != Some(&signature) {
+                    snapshot["previous_evidence_io"] = serde_json::json!(self.last_evidence_io.map(|(start,end)| serde_json::json!({"started_at_ms":start,"finished_at_ms":end,"elapsed_ms":end-start})));
+                    self.event(
+                        serde_json::json!({"event":"primary_source_readiness","snapshot":snapshot}),
+                    )?;
+                    self.last_readiness_diagnostic = Some(signature);
+                }
+            }
+        }
+        // Evidence IO is inside the live budget, never hidden by a stale clock.
         let now = crate::timing::now_ms();
         match self
             .processor
@@ -654,19 +775,28 @@ impl Coordinator {
             self.rest_observation_failure(&ticket, "Proof", RestFailure::Integrity)?;
             return Ok(Tick::AwaitingProof);
         }
+        let reference_io_started = crate::timing::now_ms();
         self.session
             .record_primary_reference(&source)
             .map_err(|error| {
                 self.failed = true;
                 CoordinatorError::Session(error)
             })?;
+        let reference_io_finished = crate::timing::now_ms();
         let assessment = self.processor.assess_rest(&source);
         let observed_at = crate::timing::now_ms();
         let late = observed_at >= ticket.deadline_ms
             || source.evidence().parts[0].received_at.timestamp_millis() >= ticket.deadline_ms;
-        self.event(serde_json::json!({"event":"primary_rest_observation","role":"Proof","label_ms":ticket.label_ms,
+        let mut observation = serde_json::json!({"event":"primary_rest_observation","role":"Proof","label_ms":ticket.label_ms,
             "source_sha256":source.sha256(),"assessment":assessment,"late":late,"deadline_ms":ticket.deadline_ms,
-            "recorded_at_ms":observed_at,"nonblocking":true,"model_input_rewritten":false}))?;
+            "recorded_at_ms":observed_at,"nonblocking":true,"model_input_rewritten":false});
+        if self.processor.rest_tail_recovery() {
+            observation["writer_timing"] = serde_json::json!({"rest_requested_at_ms":source.evidence().parts[0].requested_at.timestamp_millis(),
+                "rest_received_at_ms":source.evidence().parts[0].received_at.timestamp_millis(),
+                "writer_processed_at_ms":reference_io_started,"reference_io_finished_at_ms":reference_io_finished,
+                "reference_io_elapsed_ms":reference_io_finished-reference_io_started});
+        }
+        self.event(observation)?;
         let now = crate::timing::now_ms();
         // Every source-consuming condition is rechecked after evidence IO.
         // Returning AwaitingProof asks the real writer to assess WS immediately.

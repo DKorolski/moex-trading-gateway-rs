@@ -3,6 +3,10 @@
 use super::*;
 use broker_finam::sparse_m10::ClosedM1RequestPlan;
 use chrono::{Datelike, Timelike};
+mod tail;
+pub use tail::{
+    RecoveryOutcome, RecoveryRequestScope, RecoveryWait, MAX_REST_READS, REST_BACKOFF_MS,
+};
 
 #[derive(Clone, Debug)]
 pub struct RecoveryPlan {
@@ -18,6 +22,8 @@ pub struct RecoveryPlan {
     deadline_ms: i64,
     request: ClosedM1RequestPlan,
     sha256: String,
+    scope: Option<RecoveryRequestScope>,
+    serial: u64,
 }
 impl RecoveryPlan {
     pub fn request(&self) -> &ClosedM1RequestPlan {
@@ -41,11 +47,24 @@ impl RecoveryPlan {
     pub fn issued_at_ms(&self) -> i64 {
         self.issued_at_ms
     }
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+    pub fn next_index(&self) -> usize {
+        self.next_index
+    }
+    pub fn scope(&self) -> Option<RecoveryRequestScope> {
+        self.scope
+    }
+    pub fn serial(&self) -> u64 {
+        self.serial
+    }
 }
 pub(super) struct Pending {
     owner: Arc<()>,
     end_index: usize,
     admitted: bool,
+    responded: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -144,6 +163,17 @@ impl PrimaryProcessor {
         cutover_ms: i64,
         now: i64,
     ) -> Result<RecoveryPlan, PrimaryError> {
+        if self.policy.rest_tail_recovery() {
+            return Err(PrimaryError::Configuration);
+        }
+        self.plan_recovery_impl(cutover_ms, now, None)
+    }
+    fn plan_recovery_impl(
+        &mut self,
+        cutover_ms: i64,
+        now: i64,
+        scope: Option<RecoveryRequestScope>,
+    ) -> Result<RecoveryPlan, PrimaryError> {
         self.clock(now)?;
         if !self.gap_unresolved
             || !self.physical_bound()
@@ -206,13 +236,15 @@ impl PrimaryProcessor {
         request
             .preflight(at(now)?)
             .map_err(|_| PrimaryError::ReferenceUnproven)?;
-        let deadline_ms = (now + self.policy.proof_timeout_ms as i64).min(self.run_deadline_ms);
+        let deadline_ms = (now + self.policy.proof_timeout_ms as i64)
+            .min(self.run_deadline_ms)
+            .min(scope.map_or(i64::MAX, |s| s.deadline_ms));
         if deadline_ms <= now {
             return Err(PrimaryError::ReferenceUnproven);
         }
         let gap = self.gap_owner.clone().ok_or(PrimaryError::Continuity)?;
         let owner = Arc::new(());
-        let body = serde_json::to_vec(&(
+        let mut body = serde_json::to_vec(&(
             &self.config_sha256,
             &self.policy_sha256,
             self.generation,
@@ -225,10 +257,21 @@ impl PrimaryProcessor {
             self.calendar.as_ref().map(|c| c.sha256()),
         ))
         .map_err(|_| PrimaryError::Configuration)?;
+        if scope.is_some() {
+            self.recovery_request_serial = self
+                .recovery_request_serial
+                .checked_add(1)
+                .ok_or(PrimaryError::Configuration)?;
+            body.extend(
+                serde_json::to_vec(&(scope, self.recovery_request_serial))
+                    .map_err(|_| PrimaryError::Configuration)?,
+            );
+        }
         self.recovery_pending = Some(Pending {
             owner: owner.clone(),
             end_index,
             admitted: false,
+            responded: false,
         });
         Ok(RecoveryPlan {
             gap,
@@ -243,10 +286,23 @@ impl PrimaryProcessor {
             deadline_ms,
             request,
             sha256: crate::seed::digest(&body),
+            scope,
+            serial: self.recovery_request_serial,
         })
     }
 
     pub fn admit_recovery(
+        &mut self,
+        plan: &RecoveryPlan,
+        source: &AdmittedClosedM1Snapshot,
+        now: i64,
+    ) -> Result<AdmittedRecovery, PrimaryError> {
+        if self.policy.rest_tail_recovery() {
+            return Err(PrimaryError::Configuration);
+        }
+        self.apply_recovery(plan, source, now)
+    }
+    fn apply_recovery(
         &mut self,
         plan: &RecoveryPlan,
         source: &AdmittedClosedM1Snapshot,
@@ -448,7 +504,9 @@ impl PrimaryProcessor {
                 actual_requested_at_ms: requested,
                 actual_received_at_ms: received,
                 virtual_callback_at_ms: label + 600000,
-                replay_deadline_ms: (now + 10000).min(self.run_deadline_ms),
+                replay_deadline_ms: (now + 10000)
+                    .min(self.run_deadline_ms)
+                    .min(plan.scope.map_or(i64::MAX, |s| s.deadline_ms)),
             };
             inputs.push(RecoveryInput {
                 gap: plan.gap.clone(),

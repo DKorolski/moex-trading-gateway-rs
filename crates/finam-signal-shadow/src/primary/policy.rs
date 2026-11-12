@@ -23,6 +23,8 @@ pub enum DeliveryPolicy {
     ObservedBoAdmittedRestV4,
     /// Versioned observed sources; no rewrite of original canonical inputs.
     ObservedBoConsistentSourcesV5,
+    /// V5 sources plus bounded, non-destructive recent-tail recovery requests.
+    ObservedBoRestTailRecoveryV6,
 }
 
 fn strict_delivery(value: &DeliveryPolicy) -> bool {
@@ -88,6 +90,7 @@ impl PrimaryPolicy {
                 | DeliveryPolicy::ObservedBoNonBlockingRestV3
                 | DeliveryPolicy::ObservedBoAdmittedRestV4
                 | DeliveryPolicy::ObservedBoConsistentSourcesV5
+                | DeliveryPolicy::ObservedBoRestTailRecoveryV6
         )
     }
 
@@ -98,6 +101,7 @@ impl PrimaryPolicy {
                 | DeliveryPolicy::ObservedBoNonBlockingRestV3
                 | DeliveryPolicy::ObservedBoAdmittedRestV4
                 | DeliveryPolicy::ObservedBoConsistentSourcesV5
+                | DeliveryPolicy::ObservedBoRestTailRecoveryV6
         )
     }
 
@@ -107,6 +111,7 @@ impl PrimaryPolicy {
             DeliveryPolicy::ObservedBoNonBlockingRestV3
                 | DeliveryPolicy::ObservedBoAdmittedRestV4
                 | DeliveryPolicy::ObservedBoConsistentSourcesV5
+                | DeliveryPolicy::ObservedBoRestTailRecoveryV6
         )
     }
 
@@ -115,11 +120,20 @@ impl PrimaryPolicy {
             self.delivery,
             DeliveryPolicy::ObservedBoAdmittedRestV4
                 | DeliveryPolicy::ObservedBoConsistentSourcesV5
+                | DeliveryPolicy::ObservedBoRestTailRecoveryV6
         )
     }
 
     pub(crate) fn consistent_sources(&self) -> bool {
-        self.delivery == DeliveryPolicy::ObservedBoConsistentSourcesV5
+        matches!(
+            self.delivery,
+            DeliveryPolicy::ObservedBoConsistentSourcesV5
+                | DeliveryPolicy::ObservedBoRestTailRecoveryV6
+        )
+    }
+
+    pub(crate) fn rest_tail_recovery(&self) -> bool {
+        self.delivery == DeliveryPolicy::ObservedBoRestTailRecoveryV6
     }
 
     pub(crate) fn proof_wait_ms(&self) -> i64 {

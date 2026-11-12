@@ -4,11 +4,11 @@ use broker_finam::sparse_m10::{
     ClosedM1RestPartV1, ClosedM1SnapshotEvidenceV1, OBSERVED_M1_POLICY_V1,
 };
 use serde_json::{json, Value};
-const T: i64 = 1793678400000;
+pub(super) const T: i64 = 1793678400000;
 fn processor() -> PrimaryProcessor {
     processor_delivery(crate::primary::DeliveryPolicy::StrictBoundaryV1)
 }
-fn processor_delivery(delivery: crate::primary::DeliveryPolicy) -> PrimaryProcessor {
+pub(super) fn processor_delivery(delivery: crate::primary::DeliveryPolicy) -> PrimaryProcessor {
     let mut config = crate::primary::tests::config();
     config["primary"]["delivery"] = json!(delivery);
     config["base"]["observation_start_utc_ms"] = json!(T);
@@ -97,7 +97,7 @@ fn consistent_v5_recovery_uses_whole_final_rest_preserves_overlap_and_replays_on
         }
     }
 }
-fn committed(p: &mut PrimaryProcessor, count: i64) {
+pub(super) fn committed(p: &mut PrimaryProcessor, count: i64) {
     for i in 0..=count * 10 {
         let t = T + i * 60000;
         p.ingest(wire(t, t + 100), t + 100).unwrap();
@@ -109,7 +109,7 @@ fn committed(p: &mut PrimaryProcessor, count: i64) {
         }
     }
 }
-fn rows(plan: &RecoveryPlan) -> Vec<Value> {
+pub(super) fn rows(plan: &RecoveryPlan) -> Vec<Value> {
     (plan.request.start().timestamp_millis()..plan.request.end().timestamp_millis())
         .step_by(60000)
         .map(raw_row)

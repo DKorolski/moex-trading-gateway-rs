@@ -1,6 +1,8 @@
 //! Continue the SAME owned model/book through source-bound historical inputs.
 //! Real IO/replay times remain separate from the declared virtual close clock.
 use super::*;
+#[cfg(test)]
+mod tail_tests;
 impl ObservedSession {
     #[cfg(test)]
     pub(crate) fn fail_primary_evidence(&mut self, kind: &'static str) {

@@ -556,6 +556,8 @@ fn scan(
     {
         return Err(RestartError::Incomplete);
     }
+    crate::primary::verify::tail::validate(config, bytes, required, &sources, now)
+        .map_err(|_| RestartError::Journal)?;
     Ok(JournalScan {
         header,
         inputs,

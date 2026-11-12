@@ -653,6 +653,9 @@ where
             .transport_ready(attempt, subscription, self.data.as_ref())
             .map_err(Cause::Recovery)?;
         let cutover = crate::timing::now_ms().div_euclid(600000) * 600000;
+        if self.policy.rest_tail_recovery() {
+            return self.recover_rest_tail(episode, cutover).await;
+        }
         let mut update = self
             .apply(Operation::RecoveryPlan(cutover), Some(episode.deadline()))
             .await?;
@@ -662,6 +665,45 @@ where
             self.poll(Some(episode.deadline()), false).await?;
         }
         Ok(())
+    }
+    async fn recover_rest_tail(&mut self, episode: &Episode, cutover: i64) -> Result<(), Cause> {
+        let mut previous = None;
+        loop {
+            let mut update = self
+                .apply(
+                    Operation::RecoveryRequest { cutover, previous },
+                    Some(episode.deadline()),
+                )
+                .await?;
+            let plan = update.recovery_plan.take().ok_or(Cause::Binding)?;
+            self.schedule(Job::Recovery(plan.clone()))?;
+            let mut completion = None;
+            while self.critical.is_some() {
+                completion = Some(self.poll(Some(episode.deadline()), false).await?);
+            }
+            let update = completion.ok_or(Cause::Binding)?;
+            if update.recovery_ready {
+                return Ok(());
+            }
+            if update.recovery_wait.is_none() {
+                return Err(Cause::Binding);
+            }
+            let scope = plan.scope().ok_or(Cause::Binding)?;
+            if scope.ordinal >= crate::primary::MAX_REST_READS {
+                return Err(Cause::Recovery(reconnect::Error::RestTailRequestsExhausted));
+            }
+            let delay = crate::primary::REST_BACKOFF_MS[usize::from(scope.ordinal - 1)];
+            let wake = (Instant::now() + Duration::from_millis(delay)).min(episode.deadline());
+            // Keep servicing this same connection and STOP while waiting for
+            // source availability. Neither latch is reset by Pending.
+            loop {
+                tokio::select! {biased;
+                    _=tokio::time::sleep_until(wake)=>break,
+                    result=self.poll(Some(episode.deadline()),false)=>{ result?; }
+                }
+            }
+            previous = Some(Box::new(plan));
+        }
     }
     async fn finish(mut self, cause: Cause) -> RunReport {
         let requested_eod = matches!(cause, Cause::EndOfSession) && !self.root.is_stopped();

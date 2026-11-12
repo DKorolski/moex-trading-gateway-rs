@@ -22,7 +22,8 @@ pub(crate) mod wire;
 pub use cache::{
     AdmittedCanonicalM10, AdmittedRecovery, CanonicalReceipt, CanonicalStatus, Counters,
     ExceptionReason, PipelineState, PrimaryProcessor, RecoveryCompletion, RecoveryInput,
-    RecoveryPlan, RecoveryReceipt, ResolvedRecovery,
+    RecoveryOutcome, RecoveryPlan, RecoveryReceipt, RecoveryRequestScope, RecoveryWait,
+    ResolvedRecovery, MAX_REST_READS, REST_BACKOFF_MS,
 };
 pub use ingress::{bounded_ingress, IngressReceiver, IngressSender};
 pub use policy::{DeliveryPolicy, PrimaryPolicy, WsPrimaryConfig, WS_PRIMARY_POLICY};

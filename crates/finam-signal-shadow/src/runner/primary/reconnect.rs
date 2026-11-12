@@ -46,6 +46,7 @@ pub enum Error {
     RunEpisodesExhausted,
     NoFreshData,
     NoCanonicalReceipt,
+    RestTailRequestsExhausted,
     Cancelled,
     Auth(PrimaryAuthClass),
     Transport(Kind),

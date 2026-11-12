@@ -50,6 +50,7 @@ mod admitted_rest;
 mod consistent_sources;
 mod nonblocking_rest;
 mod resilience;
+mod tail;
 mod ws_first;
 fn at(ms: i64) -> chrono::DateTime<chrono::Utc> {
     chrono::DateTime::from_timestamp_millis(ms).unwrap()

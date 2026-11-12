@@ -27,6 +27,10 @@ pub(super) enum Operation {
         slot: FailureSlot,
     },
     RecoveryPlan(i64),
+    RecoveryRequest {
+        cutover: i64,
+        previous: Option<Box<crate::primary::RecoveryPlan>>,
+    },
     ResolveRecovery(Box<(super::reconnect::Episode, super::reconnect::Attempt)>),
     Bind(Subscription),
     Frame(WireFrame),
@@ -45,6 +49,8 @@ pub(super) struct Update {
     pub subscription: Option<Subscription>,
     pub recovery_plan: Option<crate::primary::RecoveryPlan>,
     pub recovery_error: Option<super::reconnect::Error>,
+    pub recovery_wait: Option<crate::primary::RecoveryWait>,
+    pub recovery_ready: bool,
     pub transport_failure: Option<crate::socket::primary::Failure>,
     pub bootstrap: Option<BootstrapTicket>,
     pub proof: Option<RestTicket>,
@@ -63,6 +69,7 @@ struct Core {
     run_deadline_ms: i64,
     recovery_budget: super::reconnect::RunBudget,
     recovering: bool,
+    recovery_reads: u8,
     expected_revision: u64,
     seen_revision: u64,
     owner: Coordinator,
@@ -160,6 +167,7 @@ impl Core {
                     .map_err(Cause::Recovery)?;
                 self.owner.event(serde_json::json!({"event":"primary_recovery_episode_started","audit":episode.audit().snapshot()})).map_err(Cause::Coordinator)?;
                 self.recovering = true;
+                self.recovery_reads = 0;
                 let mut update = self.update();
                 update.episode = Some(episode);
                 return Ok(update);
@@ -189,6 +197,41 @@ impl Core {
                     .owner
                     .plan_recovery(cutover)
                     .map_err(Cause::Coordinator)?;
+                let mut update = self.update();
+                update.recovery_plan = Some(plan);
+                return Ok(update);
+            }
+            Operation::RecoveryRequest { cutover, previous } => {
+                let audit = self
+                    .recovery_budget
+                    .last_audit()
+                    .ok_or(Cause::Binding)?
+                    .snapshot();
+                if crate::timing::now_ms() >= audit.deadline_ms {
+                    return Err(Cause::Recovery(super::reconnect::Error::EpisodeDeadline));
+                }
+                if !self.recovering
+                    || audit.generation != self.owner.processor.generation()
+                    || !audit.canonical_unresolved
+                    || audit.transport_unresolved
+                {
+                    return Err(Cause::Binding);
+                }
+                if self.recovery_reads >= crate::primary::MAX_REST_READS {
+                    return Err(Cause::Recovery(
+                        super::reconnect::Error::RestTailRequestsExhausted,
+                    ));
+                }
+                let scope = crate::primary::RecoveryRequestScope {
+                    episode: audit.episode,
+                    ordinal: self.recovery_reads + 1,
+                    deadline_ms: audit.deadline_ms,
+                };
+                let plan = self
+                    .owner
+                    .issue_recovery_request(cutover, scope, previous.as_deref())
+                    .map_err(Cause::Coordinator)?;
+                self.recovery_reads += 1;
                 let mut update = self.update();
                 update.recovery_plan = Some(plan);
                 return Ok(update);
@@ -277,6 +320,7 @@ impl Core {
                 // its source in the bridge; proof retains it after bounds checks
                 // in the coordinator (including a response held during grace).
                 if !(matches!(job, Job::Bootstrap(_) | Job::Proof(_))
+                    || self.owner.processor.rest_tail_recovery() && matches!(job, Job::Recovery(_))
                     || self.owner.processor.rest_nonblocking() && matches!(job, Job::Audit(_)))
                 {
                     if let Ok(source) = &outcome.result {
@@ -305,6 +349,21 @@ impl Core {
                 match job {
                     Job::Recovery(plan) => match outcome.result {
                         Ok(source) => {
+                            if self.owner.processor.rest_tail_recovery() {
+                                let progress = self
+                                    .owner
+                                    .complete_recovery_request(&plan, &source)
+                                    .map_err(Cause::Coordinator)?;
+                                let mut update = self.update();
+                                match progress {
+                                    RecoveryProgress::DataNotReady(wait) => {
+                                        update.recovery_wait = Some(wait)
+                                    }
+                                    RecoveryProgress::Ready(_) => update.recovery_ready = true,
+                                    RecoveryProgress::Retired => (),
+                                }
+                                return Ok(update);
+                            }
                             self.owner
                                 .complete_recovery(&plan, &source)
                                 .map_err(Cause::Coordinator)?;
@@ -387,6 +446,7 @@ impl Core {
             Operation::BeginRecovery(_)
             | Operation::PrepareAttempt { .. }
             | Operation::RecoveryPlan(_)
+            | Operation::RecoveryRequest { .. }
             | Operation::ResolveRecovery(_) => unreachable!(),
         }
         if self.stop.is_stopped() {
@@ -448,6 +508,8 @@ impl Core {
             subscription: None,
             recovery_plan: None,
             recovery_error: None,
+            recovery_wait: None,
+            recovery_ready: false,
             transport_failure: None,
             bootstrap: None,
             proof: None,
@@ -560,6 +622,7 @@ impl Writer {
             run_deadline_ms,
             recovery_budget,
             recovering: false,
+            recovery_reads: 0,
             expected_revision: 0,
             seen_revision: 0,
             owner,

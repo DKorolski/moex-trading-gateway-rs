@@ -11,6 +11,7 @@ use crate::seed::digest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+pub(crate) mod tail;
 mod versions;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

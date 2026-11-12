@@ -5,11 +5,13 @@ use crate::primary::{
     verify::{self, EvidenceBinding},
 };
 mod r1;
+mod tail;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum R1Scenario {
     None,
     StaleReference,
     RepeatedWitness,
+    RestTail,
 }
 
 #[derive(Clone)]
@@ -268,6 +270,24 @@ async fn day_scenario(
                     )
                     .unwrap();
                 }
+                if scenario == R1Scenario::RestTail
+                    && matches!(&job,Job::Recovery(p) if p.scope().is_some_and(|s|s.ordinal==1))
+                {
+                    let mut evidence = admitted.evidence().clone();
+                    let part = &mut evidence.parts[0];
+                    let mut raw: Value = serde_json::from_str(&part.raw_body).unwrap();
+                    let n = raw["bars"].as_array().unwrap().len();
+                    raw["bars"].as_array_mut().unwrap().truncate(n - 3);
+                    part.raw_body = raw.to_string();
+                    part.declared_body_bytes = Some(part.raw_body.len() as u64);
+                    part.response_sha256 = crate::seed::digest(part.raw_body.as_bytes());
+                    admitted = broker_finam::sparse_m10::AdmittedClosedM1Snapshot::admit(
+                        evidence,
+                        &plan,
+                        at(crate::timing::now_ms()),
+                    )
+                    .unwrap();
+                }
                 HttpOutcome {
                     result: Ok(admitted),
                     receipt: HttpReceipt {
@@ -487,6 +507,20 @@ async fn day_scenario(
             go(label + offset + 200);
             peer.send(Message::Text(json!({"type":"DATA","subscriptionType":"BARS","subscriptionKey":"fixture","payload":{"symbol":"IMOEXF@RTSX","bars":[f.row(label)]}}).to_string())).await.unwrap();
             accepted(&mut accepted_data, label + offset + 200).await;
+            if scenario == R1Scenario::RestTail {
+                until(|| {
+                    trace(&path)
+                        .iter()
+                        .any(|r| r["event"]["event"] == "primary_recovery_data_not_ready")
+                })
+                .await;
+                // Deliberately cross the OLD 5 s ticket. Only a new request can
+                // authorize the synthetic positive continuation, not retiming.
+                go(label + 6500);
+                peer.send(data(label)).await.unwrap();
+                // An unchanged forming row need not refresh the DATA stamp.
+                // Keep the peer live while the REST-only backoff completes.
+            }
             until(|| {
                 trace(&path)
                     .iter()

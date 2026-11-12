@@ -510,7 +510,7 @@ pub(crate) mod candle_tests {
     use super::*;
     use broker_core::*;
 
-    fn empty_model() -> ShadowModel {
+    pub(crate) fn empty_model() -> ShadowModel {
         let instrument = InstrumentId {
             symbol: "IMOEXF".into(),
             venue_symbol: Some("IMOEXF@RTSX".into()),
