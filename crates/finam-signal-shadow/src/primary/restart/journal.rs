@@ -43,6 +43,12 @@ struct Recovery {
     virtual_callback_at_ms: i64,
     replay_deadline_ms: i64,
 }
+// Test-only resealing of a typed receipt so negative deadline cases cannot
+// fail merely because their old provenance hash was left inconsistent.
+#[cfg(test)]
+pub(crate) fn test_recovery_hash(value: Value) -> Result<String, RestartError> {
+    typed_hash(&serde_json::from_value::<Recovery>(value).map_err(|_| RestartError::Source)?)
+}
 struct Pending {
     origin: String,
     reason: Option<String>,
@@ -52,6 +58,7 @@ struct Pending {
     hash: String,
     ready: i64,
     historical: bool,
+    replay_deadline: Option<i64>,
     step: Option<Step>,
     feedback: Option<(CandleFill, Value)>,
     publication: Option<i64>,
@@ -298,6 +305,9 @@ fn scan(
                         hash: source_hash,
                         ready: r.reconstructed_at_ms,
                         historical: true,
+                        // Reconstruction has its own validated lineage and
+                        // actual clock; it is not a new REST recovery ticket.
+                        replay_deadline: None,
                         step: None,
                         feedback: None,
                         publication: None,
@@ -458,6 +468,8 @@ fn scan(
                     || published < result
                     || published < p.publication.unwrap()
                     || published > now
+                    || p.replay_deadline
+                        .is_some_and(|deadline| result > deadline || published > deadline)
                     || (!p.historical
                         && published - step.nominal_close_utc_ms + c.clock_uncertainty_ms as i64
                             > c.lmax_ms as i64)
@@ -580,7 +592,7 @@ fn canonical(
     let (config, policy, session_end_allowed) = identity;
     let value = &event["receipt"];
     let historical = value["origin"] == "RECOVERY_BACKFILL";
-    let (r, digest) = if historical {
+    let (r, digest, replay_deadline) = if historical {
         let r: Recovery =
             serde_json::from_value(value.clone()).map_err(|_| RestartError::Source)?;
         if !hash(&r.recovery_plan_sha256)
@@ -591,16 +603,22 @@ fn canonical(
             || Some(r.actual_received_at_ms) != r.canonical.proof_received_at_ms
             || r.actual_received_at_ms > r.canonical.canonical_ready_at_ms
             || r.replay_deadline_ms < r.canonical.canonical_ready_at_ms
+            || r.replay_deadline_ms
+                > r.canonical
+                    .canonical_ready_at_ms
+                    .checked_add(10000)
+                    .ok_or(RestartError::Source)?
+                    .min(validated.config().run_deadline_utc_ms)
         {
             return Err(RestartError::Source);
         }
         let hash = typed_hash(&r)?;
-        (r.canonical, hash)
+        (r.canonical, hash, Some(r.replay_deadline_ms))
     } else {
         let r: Canonical =
             serde_json::from_value(value.clone()).map_err(|_| RestartError::Source)?;
         let hash = typed_hash(&r)?;
-        (r, hash)
+        (r, hash, None)
     };
     if digest != source_hash
         || r.config_sha256 != config
@@ -699,6 +717,7 @@ fn canonical(
         hash: source_hash.into(),
         ready: r.canonical_ready_at_ms,
         historical,
+        replay_deadline,
         step: None,
         feedback: None,
         publication: None,
@@ -763,6 +782,7 @@ fn inline_proof(
         hash: source_hash.into(),
         ready: r.canonical_ready_at_ms,
         historical: false,
+        replay_deadline: None,
         step: None,
         feedback: None,
         publication: None,

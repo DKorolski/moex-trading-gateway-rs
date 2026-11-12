@@ -355,7 +355,7 @@ pub(crate) fn validate(
             }
             _ => (),
         }
-        if row["kind"] == "canonical_source" {
+        if row["kind"] == "canonical_source" || row["kind"] == "restart_source" {
             let receipt = &e["receipt"];
             if receipt["origin"] == "RECOVERY_BACKFILL" {
                 let r = requests
@@ -368,7 +368,12 @@ pub(crate) fn validate(
                         && receipt["cutover_ms"] == r.value["cutover_ms"]
                         && integer(receipt, "canonical_ready_at_ms")?
                             <= integer(&r.value, "deadline_ms")?
-                        && integer(receipt, "replay_deadline_ms")? <= r.scope.deadline_ms,
+                        && integer(receipt, "replay_deadline_ms")?
+                            == integer(receipt, "canonical_ready_at_ms")?
+                                .checked_add(10000)
+                                .ok_or(VerifyError::Source)?
+                                .min(config.base.run_deadline_utc_ms)
+                                .min(r.scope.deadline_ms),
                 )?;
             }
             pending = Some(

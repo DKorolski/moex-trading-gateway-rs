@@ -132,6 +132,8 @@ pub struct Coordinator {
     last_evidence_io: Option<(i64, i64)>,
     #[cfg(test)]
     proof_wait_io: Option<Arc<tests::ProofWaitIo>>,
+    #[cfg(test)]
+    frame_reply_pause: Option<(i64, Arc<writer::tests::Pause>)>,
 }
 impl Coordinator {
     // Successful installation is independent of resuming the original WS frame.
@@ -440,6 +442,8 @@ impl Coordinator {
             last_evidence_io: None,
             #[cfg(test)]
             proof_wait_io: None,
+            #[cfg(test)]
+            frame_reply_pause: None,
         })
     }
     pub fn processor(&self) -> &PrimaryProcessor {

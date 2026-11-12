@@ -208,6 +208,13 @@ fn rest(
     f: &Fixture,
     plan: &broker_finam::sparse_m10::ClosedM1RequestPlan,
 ) -> AdmittedClosedM1Snapshot {
+    rest_side(f, plan, 1)
+}
+fn rest_side(
+    f: &Fixture,
+    plan: &broker_finam::sparse_m10::ClosedM1RequestPlan,
+    side: i64,
+) -> AdmittedClosedM1Snapshot {
     use broker_finam::sparse_m10::{
         ClosedM1RestPartV1, ClosedM1SnapshotEvidenceV1, OBSERVED_M1_POLICY_V1,
     };
@@ -218,7 +225,7 @@ fn rest(
         .step_by(60000)
         .map(|label| {
             let raw: Value =
-                serde_json::from_str(&bars(f, (label - f.required[0]) / 60000, 1)).unwrap();
+                serde_json::from_str(&bars(f, (label - f.required[0]) / 60000, side)).unwrap();
             raw["payload"]["bars"][0].clone()
         })
         .collect();
@@ -322,8 +329,18 @@ fn restored_inventory_supports_overlap_recovery_and_rest_exception_without_reent
 
 #[test]
 fn warmed_long_and_short_reconstruct_and_can_restart_again_without_live_effects() {
+    check_warmed_restarts(primary::PrimaryPolicy::default().delivery);
+}
+
+#[test]
+fn tail_v6_r1_second_restart_long_short_and_subsequent_overlap_admission() {
+    check_warmed_restarts(primary::DeliveryPolicy::ObservedBoRestTailRecoveryV6);
+}
+
+fn check_warmed_restarts(delivery: primary::DeliveryPolicy) {
     for side in [-1, 1] {
-        let f = Fixture::new();
+        let mut f = Fixture::new();
+        f.config.primary.delivery = delivery;
         let d = Dir::new();
         let original = d.0.join("original");
         journal(&f, &original, side, None);
@@ -374,7 +391,7 @@ fn warmed_long_and_short_reconstruct_and_can_restart_again_without_live_effects(
                 json!("0".repeat(64));
             assert!(prefix(&f, &c3, &c, &encode(&broken_anchor), 19).is_err());
             let cap = prefix(&f, &c3, &c, &second, 19).unwrap();
-            let (s3, p3) = ObservedSession::resume_primary(
+            let (mut s3, mut p3) = ObservedSession::resume_primary(
                 f.segment(&c3),
                 cap,
                 &c3,
@@ -386,6 +403,45 @@ fn warmed_long_and_short_reconstruct_and_can_restart_again_without_live_effects(
             assert_eq!(s3.model.observation(), state);
             assert!(!p3.subscription_data_ready());
             assert_eq!(std::fs::read(&original).unwrap(), bytes);
+            if delivery == primary::DeliveryPolicy::ObservedBoRestTailRecoveryV6 {
+                // The processor's reconstructed inventory must remain usable
+                // for exact committed overlap, not just prefix readability.
+                go(f.required[20] + 100);
+                p3.break_continuity();
+                p3.begin_generation(2, now_ms()).unwrap();
+                let subscription = crate::socket::primary::fixture_subscription(2, now_ms());
+                p3.bind_subscription(&subscription, now_ms()).unwrap();
+                let plan = p3
+                    .issue_recovery_request(
+                        f.required[20],
+                        now_ms(),
+                        primary::RecoveryRequestScope {
+                            episode: 1,
+                            ordinal: 1,
+                            deadline_ms: now_ms() + 45000,
+                        },
+                        None,
+                    )
+                    .unwrap();
+                assert_eq!(plan.overlap_labels(), 2);
+                assert_eq!(plan.missed_labels(), 1);
+                let source = rest_side(&f, plan.request(), side);
+                let primary::RecoveryOutcome::Ready(batch) = p3
+                    .prepare_recovery_request(&plan, &source, now_ms())
+                    .unwrap()
+                else {
+                    panic!("complete overlap");
+                };
+                assert_eq!(batch.steps(), 1);
+                for input in batch.inputs {
+                    let publication = s3.recovery(&input, &source).unwrap();
+                    p3.recovered(input, publication.committed_at_ms).unwrap();
+                }
+                assert_eq!(s3.model.position_lots(), side);
+                assert_eq!(p3.counters().committed, 20);
+                assert_eq!(p3.counters().restart_committed, 19);
+                assert_eq!(p3.counters().recovery_committed, 1);
+            }
         });
     }
 }

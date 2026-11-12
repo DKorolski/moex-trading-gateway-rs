@@ -1,5 +1,6 @@
 //! All positive completion bodies here are SYNTHETIC, not later FINAM replies.
 use super::*;
+mod r1;
 
 #[test]
 fn tail_v6_full_eod_pending_renewed_ticket_historical_then_live_and_reader_negatives() {

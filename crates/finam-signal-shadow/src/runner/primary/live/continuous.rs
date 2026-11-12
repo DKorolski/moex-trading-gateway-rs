@@ -423,6 +423,18 @@ where
         Ok(())
     }
     async fn poll(&mut self, phase: Option<Instant>, tick: bool) -> Result<Update, Cause> {
+        self.poll_with_wake(phase, tick, None)
+            .await?
+            .ok_or(Cause::Binding)
+    }
+    // The optional wake competes only with event selection. Once an operation
+    // is submitted, apply owns its reply until STOP/phase completion.
+    async fn poll_with_wake(
+        &mut self,
+        phase: Option<Instant>,
+        tick: bool,
+        wake: Option<Instant>,
+    ) -> Result<Option<Update>, Cause> {
         if self.root.is_stopped() {
             return Err(self.faults.first().unwrap_or(Cause::RequestedStop));
         }
@@ -437,6 +449,7 @@ where
             _=async{match self.eod_at{Some(at)=>tokio::time::sleep_until(at).await,None=>std::future::pending().await}}=>return Err(Cause::EndOfSession),
             _=tokio::time::sleep_until(self.deadline)=>return Err(Cause::RunDeadline),
             _=async{match phase{Some(at)=>tokio::time::sleep_until(at).await,None=>std::future::pending().await}}=>return Err(Cause::Recovery(reconnect::Error::NoFreshData)),
+            _=async{match wake{Some(at)=>tokio::time::sleep_until(at).await,None=>std::future::pending().await}}=>return Ok(None),
             joined=async{match &mut self.connection.worker{Some(h)=>h.await,None=>std::future::pending().await}}=>{
                 self.connection.worker.take();self.scope.socket=None;
                 match joined{Ok(Err(failure))=>return Err(Cause::Socket(Box::new(failure))),Ok(Ok(report))=>{self.socket_report=Some(report);return Err(Cause::WorkerGone);},Err(_)=>return Err(Cause::WorkerGone)}
@@ -466,7 +479,7 @@ where
         } else {
             phase
         };
-        self.apply(operation, phase).await
+        self.apply(operation, phase).await.map(Some)
     }
     async fn drain_jobs(&mut self, deadline: Instant, audit_for_eod: bool) -> bool {
         let mut drained = true;
@@ -696,12 +709,11 @@ where
             let wake = (Instant::now() + Duration::from_millis(delay)).min(episode.deadline());
             // Keep servicing this same connection and STOP while waiting for
             // source availability. Neither latch is reset by Pending.
-            loop {
-                tokio::select! {biased;
-                    _=tokio::time::sleep_until(wake)=>break,
-                    result=self.poll(Some(episode.deadline()),false)=>{ result?; }
-                }
-            }
+            while self
+                .poll_with_wake(Some(episode.deadline()), false, Some(wake))
+                .await?
+                .is_some()
+            {}
             previous = Some(Box::new(plan));
         }
     }

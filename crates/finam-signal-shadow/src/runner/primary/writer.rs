@@ -636,6 +636,20 @@ impl Writer {
         let worker_faults = faults.clone();
         let join = tokio::task::spawn_blocking(move || {
             while let Some(command) = rx.blocking_recv() {
+                // Test-only barrier AFTER a real submitted Frame has executed,
+                // but BEFORE its owned reply is sent. No production seam.
+                #[cfg(test)]
+                let frame_pause = if matches!(&command.op, Operation::Frame(_))
+                    && core
+                        .owner
+                        .frame_reply_pause
+                        .as_ref()
+                        .is_some_and(|(at, _)| command.clock.is_some_and(|clock| clock.0 >= *at))
+                {
+                    core.owner.frame_reply_pause.take().map(|(_, gate)| gate)
+                } else {
+                    None
+                };
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     #[cfg(test)]
                     if let Some(clock) = command.clock {
@@ -644,6 +658,10 @@ impl Writer {
                     core.step(command.op)
                 }))
                 .unwrap_or(Err(Cause::WriterPanic));
+                #[cfg(test)]
+                if let Some(gate) = frame_pause {
+                    gate.wait(&worker_stop);
+                }
                 if let Err(cause) = &result {
                     if !matches!(cause, Cause::RequestedStop) {
                         worker_faults.record(cause.clone());
