@@ -54,8 +54,13 @@ def main():
     verify_handoff(root)
     repo = Path(__file__).resolve().parents[1]
     crate = repo / "crates/finam-shadow-models"
-    sources = {p.relative_to(repo).as_posix(): sha(p) for p in sorted(crate.rglob("*"))
-               if p.is_file() and (p.suffix == ".rs" or p.name in ("Cargo.toml", "Cargo.lock", "provenance.json"))}
+    # Cargo's default target/ may contain generated .rs files. They are not
+    # source identity: only this crate's explicit sources/lock and this gate are.
+    paths = [crate / n for n in ("Cargo.toml", "Cargo.lock", "provenance.json")]
+    paths += list((crate / "src").rglob("*.rs")) + [Path(__file__).resolve()]
+    if any(p.is_symlink() or not p.is_file() for p in paths):
+        raise ValueError("regular source files required")
+    sources = {p.relative_to(repo).as_posix(): sha(p) for p in sorted(paths)}
     source_sha = hashlib.sha256(json.dumps(sources, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     implementation = "finam-shadow-models-source-sha256:" + source_sha
     binary_sha = sha(binary)
