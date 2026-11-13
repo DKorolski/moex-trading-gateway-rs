@@ -70,6 +70,10 @@ LIVE_OBSERVED Step содержит measured clock; BACKFILL_REPLAY Step clock �
 Actual recovery start/result доступны в recovery_step_durable_publication и
 canonical_commit; они не подменяются virtual nominal close.
 Позиция/pending в summary — последнее записанное состояние, не EOD verdict.
+Scope проверки continuity — POSITION_ONLY. Сравнение seed.state с первым
+Step.before и полная цепочка остальных полей состояния здесь НЕ выполняются.
+committed_bound_chains считает связанные label/hash/order/feedback записи,
+а не доказанную полную непрерывность state. Она проверяется штатным Rust reader.
 Неверная phase, missing/duplicate feedback, hash/order/position mismatch
 отмечаются как findings и не меняют исходный runtime.
 
@@ -117,6 +121,23 @@ HTTP status/Retry-After и раздельные auth wait/grant/GET phases в т
 не записаны; это кандидаты F1, только если нужны для конкретного расследования.
 Отсутствующий unselected WS-ready witness не восстанавливается догадкой.
 Ни один из этих пробелов сам по себе не добавляет runtime или clean-session gate.
+
+READER R1: FFM-1 / FFM-2
+CSV и JSONL используют одинаковый приоритет явного EvidenceUnavailable,
+Unavailable, CancelledForStop и failure trace над retained assessment.
+actual_outcome=UNAVAILABLE_UNATTESTED; reported_assessments остаётся отдельно.
+Audit failure trace + outcome не дублируются в CSV; обе строки доступны по refs.
+Обычный reported Match также не является самостоятельной integrity/parity
+аттестацией. Недоступная сверка не уменьшает bound model commits и не даёт
+новый runtime HOLD. POSITION_ONLY явно закреплён в summary, JSONL, CSV и README.
+O_NONBLOCK перед fstat предотвращает зависание reader на FIFO без writer;
+sealed regular files читаются по прежним правилам. Новых operational gates нет.
+
+Уточнение счётчиков R0: 28 новых PASS +19 существующих PASS +1 SKIP, а не
+48 PASS. Старые logs/ZIP не переписываются. R1 запускает существующий suite
+с FINAM_BOUNDED_RESULT_ZIP, SHA-256
+79e1e7b3961e628077b59e1c29205f8706401d50a0dd174b94e5c0c6bfc7e601,
+и отдельно сохраняет testsRun/passed/skipped/failures/errors для каждого suite.
 
 ПОСЛЕ EOD ЛИБО HOLD
 1. Забрать оригинальный sealed result и sidecars. При раннем отказе сохранить

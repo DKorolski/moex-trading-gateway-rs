@@ -3,7 +3,10 @@ import copy
 import csv
 import io
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -265,6 +268,78 @@ class F0FM(unittest.TestCase):
             p=Path(t);(p/'real').write_bytes(b'{}');(p/'link').symlink_to(p/'real')
             with self.assertRaises(OSError):r.read_file(p/'link')
         with self.assertRaises(r.Refused):r.journal_rows(b'{"sequence":0,"kind":"seed","observation":{"x":NaN}}\n')
+
+    def csv_row(self,summary,records):
+        with tempfile.TemporaryDirectory() as t:
+            out=Path(t)/'report';r.write_report(out,summary,records)
+            return next(csv.DictReader(io.StringIO((out/'m10.csv').read_text())))
+
+    def rest(self,status='EvidenceOnly',assessment=None,name='primary_audit_result',role='Audit'):
+        event=dict(event=name,label_ms=T,status=status,role=role,nonblocking=True)
+        if assessment is not None:event['assessment']=assessment
+        return dict(kind='transport_event',event=event)
+
+    def test_r1_unavailable_precedes_retained_object_and_list_assessments(self):
+        for status in ('EvidenceUnavailable','Unavailable','CancelledForStop'):
+            for assessment in (dict(kind='Match'),[dict(kind='Match'),dict(kind='VolumeRevision')]):
+                with self.subTest(status=status,assessment=assessment):
+                    s,rows=report([seed()]+chain()+[self.rest(status,assessment)])
+                    v=rows[0]['rest_outcomes'][0]
+                    self.assertEqual(v['actual_outcome'],'UNAVAILABLE_UNATTESTED')
+                    self.assertEqual(v['reported_assessments'][0]['kind'],'Match')
+                    self.assertEqual(v['event']['status'],status)
+                    self.assertEqual(self.csv_row(s,rows)['rest_outcome_classes'],'UNAVAILABLE_UNATTESTED')
+                    self.assertEqual(s['findings'],[]);self.assertEqual(s['committed_bound_chains'],1)
+
+    def test_r1_evidence_only_match_is_reported_not_integrity_attested(self):
+        s,rows=report([seed()]+chain()+[self.rest(assessment=dict(kind='Match',known_basis='COMMITTED_MODEL_INPUT'))])
+        v=rows[0]['rest_outcomes'][0];csv_row=self.csv_row(s,rows)
+        self.assertEqual(v['actual_outcome'],'Match')
+        self.assertEqual(v['outcome_scope'],'AVAILABILITY_AND_REPORTED_KIND_NOT_INTEGRITY_ATTESTATION')
+        self.assertEqual(csv_row['rest_reported_assessment_kinds'],'Match')
+        self.assertEqual(csv_row['rest_outcome_roles'],'Audit')
+        self.assertFalse(s['full_session_accepted'])
+
+    def test_r1_failure_trace_overrides_retained_match_and_audit_is_counted_once(self):
+        proof=self.rest(assessment=dict(kind='Match'),name='primary_rest_observation',role='Proof')
+        audit=self.rest(assessment=dict(kind='Match'))
+        failure=dict(kind='transport_event',event=dict(event='primary_rest_nonblocking_failed',label_ms=T,role='Audit',**{'class':'Timeout'}))
+        for events in ([proof,failure,audit],[proof,audit,failure]):
+            with self.subTest(events=events):
+                s,rows=report([seed()]+chain()+events)
+                self.assertEqual(self.csv_row(s,rows)['rest_outcome_classes'],'Match|UNAVAILABLE_UNATTESTED')
+                self.assertEqual(self.csv_row(s,rows)['rest_reported_assessment_kinds'],'Match|Match')
+                self.assertEqual(len(rows[0]['rest_outcomes']),3)
+                target=next(v for v in rows[0]['rest_outcomes'] if v['event']['event']=='primary_audit_result')
+                self.assertEqual(target['failure_trace_classes'],['Timeout'])
+                self.assertEqual(s['committed_bound_chains'],1);self.assertEqual(s['findings'],[])
+
+    def test_r1_no_assessment_or_proof_failure_never_becomes_match(self):
+        for event,want in [(self.rest(), 'UNASSESSED_OR_UNKNOWN'),
+            (self.rest('EvidenceUnavailable'), 'UNAVAILABLE_UNATTESTED'),
+            (self.rest(assessment=dict(kind='Match'),name='primary_rest_proof_failed',role='Proof'),'UNAVAILABLE_UNATTESTED')]:
+            with self.subTest(event=event):
+                s,rows=report([seed()]+chain()+[event])
+                self.assertEqual(self.csv_row(s,rows)['rest_outcome_classes'],want)
+
+    def test_r1_nonposition_state_mutants_are_explicitly_outside_scope(self):
+        for index in (1,4):
+            rows=chain()+chain(T+r.M10)
+            rows[index]['event']['before']['prev_day_range']=999
+            s,records=report([seed()]+rows)
+            self.assertEqual(s['committed_bound_chains'],2);self.assertEqual(s['findings'],[])
+            self.assertEqual(s['state_continuity_scope'],'POSITION_ONLY')
+            self.assertFalse(s['seed_state_continuity_checked']);self.assertFalse(s['full_state_continuity_checked'])
+            self.assertIn('NOT_FULL_STATE',s['committed_bound_chains_scope'])
+            self.assertEqual(self.csv_row(s,records)['state_continuity_scope'],'POSITION_ONLY')
+
+    def test_r1_fifo_without_writer_is_refused_without_blocking(self):
+        with tempfile.TemporaryDirectory() as t:
+            fifo=Path(t)/'input';os.mkfifo(fifo)
+            code='import sys;sys.path.insert(0,sys.argv[1]);from ws_primary_f0_fm_report import read_file,Refused\ntry:read_file(sys.argv[2])\nexcept Refused:print("REFUSED_NON_REGULAR")\nelse:raise SystemExit(1)'
+            result=subprocess.run([sys.executable,'-B','-c',code,str(Path(r.__file__).parent),str(fifo)],capture_output=True,timeout=3)
+            self.assertEqual(result.returncode,0)
+            self.assertEqual(result.stdout.strip(),b'REFUSED_NON_REGULAR')
 
 
 if __name__=='__main__':unittest.main(verbosity=2)

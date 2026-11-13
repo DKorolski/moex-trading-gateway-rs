@@ -18,6 +18,7 @@ from pathlib import Path
 import re
 import stat
 import sys
+from ws_primary_rest_diagnostics import UNAVAILABLE as REST_UNAVAILABLE, KINDS as REST_KINDS
 
 MAX_BYTES = 32 * 1024 * 1024
 MAX_ROWS = 16385
@@ -26,6 +27,8 @@ M10 = 600000
 CANDLE_POLICY = 'moex.shadow.closed-m10-close.full-fill.one-lot.zero-cost.v1'
 HASH = re.compile(r'[0-9a-f]{64}')
 KINDS = ('observed_runtime', 'replayed_model', 'synthetic_fixture')
+REST_FAILURE_EVENTS = ('primary_rest_nonblocking_failed', 'primary_rest_proof_failed')
+REST_OUTCOME_EVENTS = ('primary_rest_observation', 'primary_audit_result') + REST_FAILURE_EVENTS
 
 
 class Refused(ValueError):
@@ -72,7 +75,7 @@ def unique_json(body):
 
 def read_file(path, limit=MAX_BYTES):
     path = Path(path)
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(fd, 'rb') as f:
         meta = os.fstat(f.fileno())
         need(stat.S_ISREG(meta.st_mode) and meta.st_size <= limit, 'INPUT_FILE_BOUND_OR_TYPE')
@@ -185,6 +188,61 @@ def transport_view(row):
         value['assessment'] = {k: assessment[k] for k in (
             'kind', 'known_basis', 'model_input_rewritten') if k in assessment}
     return dict(source_ref=row['_ref'], event=value)
+
+
+def rest_role(event):
+    if event.get('event') == 'primary_audit_result':
+        return 'Audit'
+    if event.get('event') == 'primary_rest_proof_failed':
+        return 'Proof'
+    return event.get('role')
+
+
+def rest_outcome_views(group):
+    """D2.1 precedence: unavailable/failure beats ANY retained assessment.
+    The retained comparison kind is a reported value, not an integrity proof.
+    Audit trace+outcome are retained in JSON, but counted once in the CSV.
+    """
+    failures = defaultdict(list)
+    audit_labels = set()
+    for row in group:
+        event = row.get('event', {})
+        if row['kind'] != 'transport_event':
+            continue
+        if event.get('event') == 'primary_audit_result':
+            audit_labels.add(event.get('label_ms'))
+        if event.get('event') in REST_FAILURE_EVENTS:
+            failures[(rest_role(event), event.get('label_ms'))].append(event.get('class'))
+    result = []
+    for row in group:
+        event = row.get('event', {})
+        if row['kind'] != 'transport_event' or event.get('event') not in REST_OUTCOME_EVENTS:
+            continue
+        role, name = rest_role(event), event['event']
+        a = event.get('assessment')
+        assessments = a if isinstance(a,list) else [a] if isinstance(a,dict) else []
+        reported = [dict(kind=v.get('kind'),known_basis=v.get('known_basis'))
+                    if isinstance(v,dict) else dict(kind=None,known_basis=None) for v in assessments]
+        trace = failures.get((role,event.get('label_ms')), [])
+        unavailable = event.get('status') in REST_UNAVAILABLE or name in REST_FAILURE_EVENTS or bool(trace)
+        if unavailable:
+            actual = 'UNAVAILABLE_UNATTESTED'
+        elif reported and all(v['kind'] in REST_KINDS for v in reported):
+            actual = '+'.join(v['kind'] for v in reported)
+        elif (not assessments and name=='primary_audit_result' and 'assessment' not in event
+              and event.get('nonblocking') is not True and event.get('status') in ('Match','VolumeRevision')):
+            actual = event['status']
+        else:
+            actual = 'UNASSESSED_OR_UNKNOWN'
+        value = transport_view(row)
+        value.update(role=role,actual_outcome=actual,reported_assessments=reported,
+            failure_trace_classes=trace,
+            outcome_scope='AVAILABILITY_AND_REPORTED_KIND_NOT_INTEGRITY_ATTESTATION',
+            availability_precedence_reason='EXPLICIT_UNAVAILABLE_OR_FAILURE_TAKES_PRECEDENCE' if unavailable else None,
+            audit_failure_trace_only=(name=='primary_rest_nonblocking_failed' and role=='Audit'
+                                      and event.get('label_ms') in audit_labels))
+        result.append(value)
+    return result
 
 
 def report_label(label, group, journal_hash, observed_until_ms):
@@ -319,8 +377,7 @@ def report_label(label, group, journal_hash, observed_until_ms):
                 unselected_ws_ready_time_missing_reason=None if ready_witnesses or origin == 'WS_LIVE' else 'NO_RECORDED_WS_READY_WITNESS',
                 canonical_ready_at_ms=receipt.get('canonical_ready_at_ms'),
                 source_selection=[transport_view(r) for r in selections],
-                rest_outcomes=[transport_view(r) for r in group if r['kind'] == 'transport_event'
-                               and r['event'].get('event') in ('primary_rest_observation','primary_rest_nonblocking_failed','primary_audit_result')],
+                rest_outcomes=rest_outcome_views(group),
                 decision=decision, mode=step.get('mode'), model_received_at_ms=step.get('received_at_ms'),
                 model_ready_at_ms=step.get('canonical_ready_at_ms'), model_start_at_ms=step.get('model_start_at_ms'),
                 actual_model_start_at_ms=actual_start,
@@ -330,6 +387,7 @@ def report_label(label, group, journal_hash, observed_until_ms):
                 commit_after_close_ms=publication-label-M10 if integer(publication) else None,
                 feedback=feedback if feedbacks else None, reported_position_after=position(effective),
                 reported_pending_after=pending(effective), phases=phases, findings=sorted(set(findings)),
+                state_continuity_scope='POSITION_ONLY',
                 refs=dict(journal_sha256=journal_hash, source=refs(sources), step=refs(steps),
                           feedback=refs(feedbacks), commit=refs(commits), readiness=refs(readiness)))
 
@@ -405,6 +463,9 @@ def analyze(journal, calendar, *, evidence_kind, allow_prefix=False,
         seed_sha256=seed.get('seed_sha256'), model_sha256=seed.get('model_sha256'),
         feedback_policy_sha256=seed.get('feedback_policy_sha256'), initial_position_lots=seed.get('virtual_position_lots'),
         expected_labels=len(labels), committed_bound_chains=len(committed),
+        committed_bound_chains_scope='LABEL_HASH_ORDER_AND_RECORDED_FEEDBACK_LINKS_NOT_FULL_STATE_VALIDATION',
+        state_continuity_scope='POSITION_ONLY',seed_state_continuity_checked=False,
+        full_state_continuity_checked=False,
         coverage_counts=dict(Counter(r['status'] for r in records)),
         origins=dict(Counter(r['origin'] for r in committed)),
         reported_model_steps=len(raw_decisions), decision_reasons=dict(Counter(str(d.get('reason')) for d in raw_decisions)),
@@ -424,6 +485,8 @@ def analyze(journal, calendar, *, evidence_kind, allow_prefix=False,
         diagnostic_limitations=['NO_COUNTERFACTUAL_WS_READY_TIME_WITHOUT_RECORDED_WITNESS',
             'HTTP_LABEL_ASSOCIATION_UNAVAILABLE_WITHOUT_TICKET_ID',
             'STEP_AFTER_IS_BEFORE_FEEDBACK', 'REPLAY_STEP_CLOCKS_ARE_VIRTUAL',
+            'STATE_CONTINUITY_POSITION_ONLY', 'SEED_TO_FIRST_STEP_FULL_STATE_NOT_CHECKED',
+            'FULL_STATE_CHAIN_REQUIRES_ACCEPTED_RUST_VERIFIER',
             'SOURCE_ADMISSION_AND_NATIVE_HASH_VERIFICATION_DELEGATED_TO_ACCEPTED_READER'])
     return summary, records
 
@@ -436,15 +499,20 @@ def write_report(output, summary, records):
               'first_ws_candidate_diagnostic_at_ms','canonical_ready_at_ms','model_start_at_ms','actual_model_start_at_ms','model_result_at_ms',
               'step_clock_semantics','publication_checked_at_ms','commit_after_close_ms','reported_position_after','reported_pending_after',
               'decision_action','decision_reason','source_sequence','step_sequence','feedback_sequence','commit_sequence',
-              'source_sha256','canonical_digest','last_readiness_reason','rest_outcome_classes','source_selected_at_ms','findings']
+              'source_sha256','canonical_digest','last_readiness_reason','rest_outcome_classes',
+              'rest_outcome_roles','rest_reported_assessment_kinds','state_continuity_scope','source_selected_at_ms','findings']
     csv_body = io.StringIO(newline='');writer = csv.DictWriter(csv_body, fieldnames=fields, lineterminator='\n')
     writer.writeheader()
     for r in records:
         row={k:r.get(k) for k in fields}
         decision=r['decision'] or {}
+        outcomes=[v for v in r['rest_outcomes'] if not v['audit_failure_trace_only']]
         row.update(decision_action=decision.get('action'),decision_reason=decision.get('reason'),
                    last_readiness_reason=(r['last_readiness_before_selection'] or {}).get('predeadline_reason'),
-                   rest_outcome_classes='|'.join(str(v['event'].get('class',v['event'].get('assessment',{}).get('kind','UNKNOWN'))) for v in r['rest_outcomes']),
+                   rest_outcome_classes='|'.join(v['actual_outcome'] for v in outcomes),
+                   rest_outcome_roles='|'.join(str(v['role']) for v in outcomes),
+                   rest_reported_assessment_kinds='|'.join('+'.join(str(a['kind']) for a in v['reported_assessments'])
+                                                          or 'NOT_RECORDED' for v in outcomes),
                    source_selected_at_ms=r['source_selection'][0]['event'].get('selected_at_ms') if r['source_selection'] else None,
                    findings='|'.join(r['findings']))
         for name in ('source','step','feedback','commit'):
@@ -454,6 +522,9 @@ def write_report(output, summary, records):
             'Оригинальный журнал не изменён. JSONL содержит refs: sequence, byte offset, hash точной строки.\n'
             'Полнота считается по отдельному model-day, не по найденным строкам.\n'
             'Отсутствующее наблюдение остаётся null/unknown. state_after_decision != state_after_feedback.\n'
+            'Continuity scope: POSITION_ONLY; seed/full-state chain НЕ проверены, нужен штатный Rust verifier.\n'
+            'committed_bound_chains — связи label/hash/order/feedback, НЕ доказательство полной state continuity.\n'
+            'REST actual outcome учитывает unavailable/failure прежде retained assessment; reported kind отдельно.\n'
             'BACKFILL_REPLAY сохраняет виртуальные времена; actual commit clocks находятся отдельно.\n'
             'Штатные Rust verifier, EOD/exit/cgroup readers и result review выполняются отдельно.\n'
             'F0/FM не меняет runtime verdict, не добавляет clean sessions или ALOR parity.\n')
