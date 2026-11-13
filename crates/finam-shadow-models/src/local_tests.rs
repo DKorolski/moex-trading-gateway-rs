@@ -141,6 +141,77 @@ fn semantic(v: &Value) -> Value {
 }
 
 #[test]
+fn local_canonical_projection_is_declared_not_authority_and_hash_bound() {
+    let t = Temp::new();
+    let m = manifest();
+    let mut journal = Journal::create(&t.db(), m.clone()).unwrap();
+    let mut c = event(&m, 0, 0);
+    let provenance = json!({"test":"unattested JSON, not a native capability"});
+    c.construction = Construction::DeclaredCanonicalProjectionV1 {
+        provenance_sha256: "a".repeat(64),
+        provenance: provenance.clone(),
+    };
+    assert!(journal.apply(c.clone()).is_err());
+    assert_eq!(journal.export().unwrap()["revision"], 0);
+    c.construction = Construction::DeclaredCanonicalProjectionV1 {
+        provenance_sha256: crate::local::hash(&provenance).unwrap(),
+        provenance,
+    };
+    journal.apply(c.clone()).unwrap();
+    let r = journal
+        .committed_input(&c.instrument, c.source_sequence)
+        .unwrap()
+        .unwrap();
+    assert_eq!(r.candle, c);
+    assert_eq!(r.revision, 1);
+    assert_eq!(r.result_ids.len(), 2);
+    assert!(journal.committed_input("IMOEXF", 1).unwrap().is_none());
+    assert_eq!(journal.export().unwrap()["observed_clean_session"], false);
+    drop(journal);
+    assert_eq!(
+        Journal::open(&t.db(), m)
+            .unwrap()
+            .committed_input(&c.instrument, c.source_sequence)
+            .unwrap()
+            .unwrap()
+            .result_ids,
+        r.result_ids
+    );
+}
+
+#[test]
+fn local_checked_readback_rejects_result_index_and_checkpoint_corruption() {
+    for sql in [
+        "UPDATE outcomes SET source_sequence=source_sequence+1",
+        "UPDATE arms SET checkpoint=zeroblob(5) WHERE instrument='IMOEXF'",
+    ] {
+        let t = Temp::new();
+        let m = manifest();
+        let c = event(&m, 0, 0);
+        let mut journal = Journal::create(&t.db(), m).unwrap();
+        journal.apply(c.clone()).unwrap();
+        rusqlite::Connection::open(t.db())
+            .unwrap()
+            .execute_batch(sql)
+            .unwrap();
+        assert!(journal
+            .committed_input("IMOEXF", c.source_sequence)
+            .is_err());
+    }
+}
+
+#[test]
+fn local_checked_readback_rejects_stale_writer_snapshot() {
+    let t = Temp::new();
+    let m = manifest();
+    let c = event(&m, 0, 0);
+    let reader = Journal::create(&t.db(), m.clone()).unwrap();
+    let mut writer = Journal::open(&t.db(), m).unwrap();
+    writer.apply(c.clone()).unwrap();
+    assert!(reader.committed_input("IMOEXF", c.source_sequence).is_err());
+}
+
+#[test]
 fn local_six_arms_full_session_ready_flat_and_costs_not_redefined() {
     let t = Temp::new();
     let m = manifest();

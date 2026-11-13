@@ -264,6 +264,14 @@ pub enum Construction {
     ExternalM10V1 {
         raw_sha256: String,
     },
+    /// Numerical replay projection of a separately admitted canonical M10.
+    /// JSON is still UNATTESTED here; only the native typed consumer can
+    /// authorize producer advancement. The legacy durable_ms field denotes
+    /// declared numerical availability, NOT a physical upstream fsync.
+    DeclaredCanonicalProjectionV1 {
+        provenance: serde_json::Value,
+        provenance_sha256: String,
+    },
     SparseM1V1 {
         raw_sha256: String,
         range_from_ms: i64,
@@ -330,6 +338,21 @@ impl Candle {
         let tick = decimal(&binding.tick)?;
         let values = self.data.values(tick)?;
         match (&binding.construction, &self.construction) {
+            (
+                ConstructionKind::ExternalM10V1,
+                Construction::DeclaredCanonicalProjectionV1 {
+                    provenance,
+                    provenance_sha256,
+                },
+            ) => {
+                digest(provenance_sha256)?;
+                ensure!(
+                    self.purpose == Purpose::Model
+                        && provenance.is_object()
+                        && hash(provenance)? == *provenance_sha256,
+                    "declared canonical projection checksum/purpose"
+                );
+            }
             (ConstructionKind::ExternalM10V1, Construction::ExternalM10V1 { raw_sha256 }) => {
                 digest(raw_sha256)?
             }

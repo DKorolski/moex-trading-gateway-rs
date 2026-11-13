@@ -5,7 +5,7 @@ pub mod contract;
 mod journal;
 
 use anyhow::Result;
-pub use journal::{Commit, Journal};
+pub use journal::{Commit, CommittedInput, Journal};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 

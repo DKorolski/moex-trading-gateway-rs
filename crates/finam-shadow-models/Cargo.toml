@@ -6,7 +6,8 @@ rust-version = "1.80"
 license = "MIT"
 description = "Offline numeric ports of the pinned ALOR shadow models; no broker transport"
 
-# Separate offline qualification: not linked into the accepted FINAM runtime.
+# Separate numerical qualification workspace. Native integration is opt-in via
+# finam-signal-shadow/models-bridge; no default runtime entry activates it.
 [workspace]
 resolver = "2"
 

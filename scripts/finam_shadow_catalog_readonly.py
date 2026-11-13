@@ -73,7 +73,9 @@ def credentials(path):
 
 
 def auth_check(details, account, at):
-    need(details.get("readonly") is True and account in details.get("account_ids", []), "READONLY_ACCOUNT")
+    accounts = details.get("account_ids")
+    need(isinstance(accounts, list) and all(isinstance(v, str) for v in accounts), "ACCOUNT_IDS_LIST")
+    need(details.get("readonly") is True and account in accounts, "READONLY_ACCOUNT")
     need(any(p.get("mic") == "RTSX" and p.get("delay_minutes") == 0
              for p in details.get("md_permissions", [])), "RTSX_PERMISSION")
     expires = dt.datetime.fromisoformat(details["expires_at"].replace("Z", "+00:00"))
@@ -102,6 +104,19 @@ def candidates(rows):
                     or a == str(r.get("symbol", "")).upper().split("@")[0]
                     or a in str(r.get("name", "")).upper() for a in aliases)]
     return found
+
+
+def selected_catalog_rows(rows):
+    """Target-only uniqueness; no full-world catalog or alias equivalence claim."""
+    found = candidates(rows)
+    need(all(len(v) == 1 for v in found.values()), "TARGET_NOT_UNIQUE_IN_SCANNED_CATALOG")
+    selected = {model: matches[0] for model, matches in found.items()}
+    need(len({r["symbol"] for r in selected.values()}) == 3
+         and len({r["id"] for r in selected.values()}) == 3, "SELECTED_KEY_COLLISION")
+    for row in selected.values():
+        need(sum(r.get("symbol") == row["symbol"] for r in rows) == 1
+             and sum(r.get("id") == row["id"] for r in rows) == 1, "SELECTED_KEY_CONFLICT")
+    return selected
 
 
 def collect(env_file, output, catalog_source="all-active", resume=None):
@@ -227,9 +242,7 @@ def collect(env_file, output, catalog_source="all-active", resume=None):
              "CATALOG_PAGE_BOUND")
         result["catalog_rows"] = len(rows)
         result["candidate_rows"] = candidates(rows)
-        for model, matches in result["candidate_rows"].items():
-            need(len(matches) == 1, "CATALOG_AMBIGUOUS_OR_MISSING_" + model)
-            row = matches[0]
+        for model, row in selected_catalog_rows(rows).items():
             symbol = row["symbol"]
             need(isinstance(symbol, str) and re.fullmatch(r"[A-Za-z0-9_.-]+@RTSX", symbol), "CATALOG_SYMBOL_SHAPE")
             encoded = urllib.parse.quote(symbol, safe="")

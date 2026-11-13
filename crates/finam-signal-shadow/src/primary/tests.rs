@@ -16,6 +16,8 @@ const T: i64 = 1793640000000; // fixed M10 label, no dependence on wall-clock da
 const C: i64 = T + 600000;
 mod consistent_sources;
 mod resilience;
+#[cfg(feature = "models-bridge")]
+mod models_bridge;
 fn at(ms: i64) -> DateTime<Utc> {
     DateTime::from_timestamp_millis(ms).unwrap()
 }

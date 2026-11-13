@@ -5,6 +5,8 @@
 //! The socket adapter binds physical generations and receive clocks to this
 //! core. Explicit v2 entry is separate from the legacy REST-driven runner.
 mod cache;
+#[cfg(feature = "models-bridge")]
+pub mod models_bridge;
 pub mod calendar;
 mod continuity;
 pub mod entry;

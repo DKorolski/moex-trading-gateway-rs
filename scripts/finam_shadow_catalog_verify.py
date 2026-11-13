@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import re
 import urllib.parse
+from finam_shadow_catalog_readonly import Hold, selected_catalog_rows
 
 ROOT = Path(__file__).resolve().parents[1]
 ACCEPTED_MODELS = "3755928dd3e3cdc7a63c303561769f5faf2a7a40"
@@ -140,10 +141,12 @@ def verify(collection, prefix_record=None):
     need(len(rows) == report["catalog_rows"], "CATALOG_ROWS")
     need(report["catalog_complete"] is (cursor in (None, "", "0", 0)), "COMPLETENESS_CLAIM")
     bindings = []
+    try:
+        selected = selected_catalog_rows(rows)
+    except Hold as error:
+        raise ValueError(str(error)) from None
     for model in ("IMOEXF", "USDRUBF", "RIZ6"):
-        matches = [r for r in rows if r.get("ticker") == model and r.get("mic") == "RTSX"
-                   and r.get("is_archived") is False]
-        need(len(matches) == 1, "TARGET_NOT_UNIQUE_IN_SCANNED_CATALOG")
+        matches = [selected[model]]
         item = report["instruments"][model]
         need(item["catalog_row"] == matches[0] and item["selected_account_matches"] is True, "TARGET_PROJECTION")
         for label in ("asset", "params"):

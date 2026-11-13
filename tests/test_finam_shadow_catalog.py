@@ -86,6 +86,34 @@ class CatalogTests(unittest.TestCase):
             with self.subTest(key=key),self.assertRaises(collect.Hold):
                 collect.auth_check(bad,"fixture-account",at)
 
+    def test_account_membership_requires_list_of_strings(self):
+        at=1_700_000_000_000
+        details=dict(readonly=True,account_ids=["fixture-account"],
+            expires_at=dt.datetime.fromtimestamp((at+900_000)/1000,dt.timezone.utc).isoformat(),
+            md_permissions=[dict(mic="RTSX",delay_minutes=0)])
+        collect.auth_check(details,"fixture-account",at)
+        for bad in ("prefix-fixture-account-suffix", {"fixture-account":False}, [1], None):
+            with self.subTest(value=bad),self.assertRaisesRegex(collect.Hold,"ACCOUNT_IDS_LIST"):
+                collect.auth_check(dict(details,account_ids=bad),"fixture-account",at)
+        with self.assertRaisesRegex(collect.Hold,"READONLY_ACCOUNT"):
+            collect.auth_check(dict(details,account_ids=["prefix-fixture-account-suffix"]),"fixture-account",at)
+
+    def test_shared_target_selection_rejects_symbol_and_id_conflicts(self):
+        rows=[sample(m)[0] for m in ("IMOEXF","USDRUBF","RIZ6")]
+        self.assertEqual(set(collect.selected_catalog_rows(rows)),{"IMOEXF","USDRUBF","RIZ6"})
+        for case in ("symbol","id","cross_target","duplicate"):
+            data=copy.deepcopy(rows)
+            if case=="symbol":
+                data.append(dict(data[1],ticker="OTHER",name="OTHER",id="9999999"))
+            elif case=="id":
+                data.append(dict(data[1],ticker="OTHER",symbol="OTHER@RTSX",name="OTHER"))
+            elif case=="cross_target":
+                data[2]["id"]=data[1]["id"]
+            else:
+                data.append(copy.deepcopy(data[1]))
+            with self.subTest(case=case),self.assertRaises(collect.Hold):
+                collect.selected_catalog_rows(data)
+
     def test_public_projection_guards_private_fields(self):
         collect.public_check({"id":"public-asset","future_details":{"contract_size":{"value":"1000"}}})
         for field in collect.PRIVATE_KEYS:

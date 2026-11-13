@@ -160,6 +160,13 @@ pub enum Commit {
         result_ids: Vec<String>,
     },
 }
+/// Historical readback, not an admission, delivery queue or callback.
+#[derive(Clone, Debug)]
+pub struct CommittedInput {
+    pub candle: Candle,
+    pub revision: u64,
+    pub result_ids: Vec<String>,
+}
 pub struct Journal {
     conn: Connection,
     manifest: Manifest,
@@ -169,6 +176,89 @@ pub struct Journal {
     poisoned: bool,
 }
 impl Journal {
+    /// One coherent, checked input/outcome read. No numerical step or marks
+    /// are returned. Used to settle response-loss only for exact redelivery.
+    pub fn committed_input(
+        &self,
+        instrument: &str,
+        sequence: u64,
+    ) -> Result<Option<CommittedInput>> {
+        ensure!(!self.poisoned, "ambiguous commit: reopen required");
+        let tx = self.conn.unchecked_transaction()?;
+        let current: (u64, String) =
+            tx.query_row("SELECT revision,chain FROM meta WHERE id=1", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })?;
+        ensure!(
+            current == (self.revision, self.chain.clone()),
+            "stale readback: reopen required"
+        );
+        let row: Option<(u64, String, String, String, String, i64)> = tx
+            .query_row(
+                "SELECT revision,input,input_sha,previous_chain,chain,write_prepared_at_ms
+             FROM inputs WHERE instrument=?1 AND source_sequence=?2",
+                params![instrument, sequence],
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((revision, text, sha, previous, chain, prepared)) = row else {
+            tx.commit()?;
+            return Ok(None);
+        };
+        let candle: Candle = serde_json::from_str(&text)?;
+        ensure!(
+            candle.instrument == instrument
+                && candle.source_sequence == sequence
+                && candle.sha256()? == sha,
+            "readback input index/hash"
+        );
+        let outcomes = read_outcomes(&tx, revision)?;
+        let manifest_sha = self.manifest.sha256()?;
+        ensure!(
+            outcomes.len() == 2
+                && outcomes.iter().all(|o| o.input_sha256 == sha
+                    && o.source_sequence == sequence
+                    && o.manifest_sha256 == manifest_sha),
+            "readback outcome linkage"
+        );
+        ensure!(
+            hash(&(previous, revision, &sha, &outcomes, prepared))? == chain,
+            "readback chain"
+        );
+        for o in &outcomes {
+            let (seq,cp,cp_sha,state,state_sha): (u64,Vec<u8>,String,String,String) = tx.query_row(
+                "SELECT source_sequence,checkpoint,checkpoint_sha,state,state_sha FROM arms WHERE id=?1",
+                [&o.arm], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?)))?;
+            ensure!(
+                seq >= sequence
+                    && bytes_hash(&cp) == cp_sha
+                    && bytes_hash(state.as_bytes()) == state_sha,
+                "readback checkpoint checksum"
+            );
+            if seq == sequence {
+                ensure!(
+                    cp_sha == o.checkpoint_sha256 && state_sha == o.state_sha256,
+                    "readback latest checkpoint/outcome"
+                );
+            }
+        }
+        let record = CommittedInput {
+            candle,
+            revision,
+            result_ids: outcomes.into_iter().map(|o| o.result_id).collect(),
+        };
+        tx.commit()?;
+        Ok(Some(record))
+    }
     /// A new file only. A failed create is not silently erased or reused.
     pub fn create(path: &Path, manifest: Manifest) -> Result<Self> {
         manifest.validate()?;

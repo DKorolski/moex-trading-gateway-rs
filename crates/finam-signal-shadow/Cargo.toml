@@ -6,7 +6,13 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[features]
+default = []
+models-bridge = ["dep:finam-shadow-models", "dep:anyhow"]
+
 [dependencies]
+anyhow = { workspace = true, optional = true }
+finam-shadow-models = { path = "../finam-shadow-models", optional = true }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

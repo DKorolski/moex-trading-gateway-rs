@@ -1128,21 +1128,7 @@ impl PrimaryProcessor {
         input: AdmittedCanonicalM10,
         published_at_ms: i64,
     ) -> Result<(), PrimaryError> {
-        self.clock(published_at_ms)?;
-        if self.gap_unresolved
-            || self
-                .in_flight
-                .as_ref()
-                .map_or(true, |owner| !Arc::ptr_eq(owner, &input.owner))
-            || self.next_label_ms() != Some(input.receipt.label_ms)
-            || input.receipt.generation != self.generation
-            || published_at_ms < input.receipt.canonical_ready_at_ms
-            || published_at_ms - input.receipt.close_ms + self.clock_uncertainty_ms > 10000
-            || (self.policy.observed_bo()
-                && published_at_ms - input.receipt.close_ms + self.clock_uncertainty_ms > 2000)
-        {
-            return self.hold(PrimaryError::Continuity);
-        }
+        self.validate_pending_admission(&input, published_at_ms)?;
         if input.receipt.reason == Some(ExceptionReason::SessionEnd)
             && self.session_end_label() == Some(input.receipt.label_ms)
         {
@@ -1171,6 +1157,31 @@ impl PrimaryProcessor {
         self.next += 1;
         self.counters.committed += 1;
         self.in_flight = None;
+        Ok(())
+    }
+
+    /// Check the same owner/frontier/deadline BEFORE a downstream transaction.
+    /// This advances no source frontier; committed() repeats it after readback.
+    pub(super) fn validate_pending_admission(
+        &mut self,
+        input: &AdmittedCanonicalM10,
+        published_at_ms: i64,
+    ) -> Result<(), PrimaryError> {
+        self.clock(published_at_ms)?;
+        if self.gap_unresolved
+            || self
+                .in_flight
+                .as_ref()
+                .map_or(true, |owner| !Arc::ptr_eq(owner, &input.owner))
+            || self.next_label_ms() != Some(input.receipt.label_ms)
+            || input.receipt.generation != self.generation
+            || published_at_ms < input.receipt.canonical_ready_at_ms
+            || published_at_ms - input.receipt.close_ms + self.clock_uncertainty_ms > 10000
+            || (self.policy.observed_bo()
+                && published_at_ms - input.receipt.close_ms + self.clock_uncertainty_ms > 2000)
+        {
+            return self.hold(PrimaryError::Continuity);
+        }
         Ok(())
     }
 }
