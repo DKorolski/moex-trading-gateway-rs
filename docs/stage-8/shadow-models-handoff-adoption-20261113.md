@@ -7,7 +7,10 @@ Accepted FINAM V6 runtime source: `f581552e9079b68cba5ed58c896fbf078f717aac`.
 
 Обновление после review: reaction scope `7d573e29` получил SOURCE REVIEW ACCEPT,
 corrective не требуется. Подробности в `shadow-models-reaction-source-acceptance-20261113.json`.
-Новый отдельный RI numerical candidate описан в `shadow-models-ri-numerical-port-20261113.md`.
+Отдельный RI numerical source `01769820` тоже получил SOURCE REVIEW ACCEPT;
+закрыт numerical scope всех трёх моделей/шести arms. Подробнее:
+`shadow-models-ri-numerical-port-20261113.md` и
+`shadow-models-ri-source-acceptance-20261113.json`.
 Ни один из этих source scopes не является deployment/execution acceptance.
 
 ## Решение и законченный reaction scope
@@ -95,15 +98,12 @@ CLI выводится в новый файл только после успеш
 
 ## Следующие работы без расширения scope
 
-1. Source review отдельного RI numerical candidate: две policies, RIZ6,
-   prospective execution и MR shared quota. Проверки 16 scenarios /376 states;
-   это не расширение reaction engine. Contract roll — отдельная процедура.
-2. FINAM-native closed-M10 ingress/fanout и persistent state шести веток. Сначала
+1. FINAM-native closed-M10 ingress/fanout и persistent state шести веток. Сначала
    закрепить mapping инструментов и эквивалентность M10: handoff требует canonical
    внешние M10, текущий V6 использует принятую M1->M10 композицию. Не считать их
    автоматически одним контрактом и не менять gateway молча. Логика получения
    данных/auth/reconnect переиспользуется только в пределах проверенного контракта.
-3. Source review -> Linux release qualification -> отдельное разрешение установки
+2. Integration source review -> Linux release qualification -> отдельное разрешение установки
    и наблюдения. Без новой торговой authority, Redis DB0 или order producer.
 
 Межсерверный обмен журналами, live execution adapter и GO live micro не входят

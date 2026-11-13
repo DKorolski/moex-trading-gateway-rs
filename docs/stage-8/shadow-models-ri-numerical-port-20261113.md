@@ -1,6 +1,10 @@
 # RI Author41/42 — локальный prospective port
 
-Статус: source review candidate, не release/execution acceptance.
+Статус: SOURCE REVIEW ACCEPT на `017698205c482087334ac6c4d13fd9b65a19422d`,
+не release/execution acceptance. Закрыты numerical sources трёх моделей/шести arms.
+Descriptor и дополнительный reviewer regression:
+`shadow-models-ri-source-acceptance-20261113.json`,
+`shadow-models-ri-reviewer-regressions-20261113.md`.
 Baseline: SOURCE ACCEPT `7d573e292052df78a3969f82708190b564149104`.
 Принятый reaction scope и hashes review зафиксированы в соседнем
 `shadow-models-reaction-source-acceptance-20261113.json`. Corrective R1 не нужен;
@@ -111,7 +115,7 @@ fixture rows. Никакой full-session, operational или promotion verdict 
 
 ## Следующий достаточный этап
 
-Source review RI delta. Затем один согласованный FINAM-native M10/input envelope,
+Один согласованный FINAM-native M10/input envelope,
 explicit symbol mapping и calendar binding для трёх моделей; различие external
 M10 и принятой V6 M1->M10 композиции проверить/версионировать, не замалчивать.
 После этого — consumed input/mark/checkpoint и независимый persistent state
