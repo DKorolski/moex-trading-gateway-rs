@@ -4,9 +4,8 @@ use super::hash;
 use crate::{BarEvent, DataOrigin};
 use anyhow::{ensure, Context, Result};
 use chrono::{Datelike, Duration, NaiveDate};
-use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeSet, str::FromStr};
+use std::collections::BTreeSet;
 
 pub const MAX_MANIFEST_BYTES: usize = 24 * 1024 * 1024;
 pub const MAX_EVENT_BYTES: usize = 64 * 1024;
@@ -55,7 +54,7 @@ impl Binding {
         );
         digest(&self.catalog_sha256)?;
         ensure!(
-            decimal(&self.tick)? > Decimal::ZERO && self.lot == 1,
+            decimal(&self.tick)? > ExactDecimal::ZERO && self.lot == 1,
             "tick/lot binding"
         );
         if self.basis == MappingBasis::FixtureOnly {
@@ -65,7 +64,7 @@ impl Binding {
             );
         } else if self.instrument == "IMOEXF" {
             ensure!(
-                self.provider_id == "IMOEXF@RTSX" && decimal(&self.tick)? == Decimal::new(5, 1),
+                self.provider_id == "IMOEXF@RTSX" && decimal(&self.tick)? == decimal("0.5")?,
                 "known IMOEXF mapping mismatch"
             );
         }
@@ -83,11 +82,138 @@ pub(crate) fn digest(s: &str) -> Result<()> {
     );
     Ok(())
 }
-fn decimal(s: &str) -> Result<Decimal> {
+/// Exact bounded wire arithmetic: signed i128 units of 10^-9. No exponent,
+/// whitespace, plus sign, separators or parser/accumulator rounding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct ExactDecimal(i128);
+impl ExactDecimal {
+    const SCALE: i128 = 1_000_000_000;
+    const ZERO: Self = Self(0);
+    fn checked_add(self, rhs: Self) -> Option<Self> {
+        self.0
+            .checked_add(rhs.0)
+            .filter(|v| *v != i128::MIN)
+            .map(Self)
+    }
+    fn checked_rem(self, rhs: Self) -> Option<Self> {
+        self.0.checked_rem(rhs.0).map(Self)
+    }
+    fn canonical(self) -> String {
+        // Parsing accepts only the symmetric [-i128::MAX, i128::MAX] range.
+        let magnitude = self.0.abs();
+        let digits = format!("{}.{:09}", magnitude / Self::SCALE, magnitude % Self::SCALE);
+        let digits = digits.trim_end_matches('0').trim_end_matches('.');
+        format!("{}{digits}", if self.0 < 0 { "-" } else { "" })
+    }
+    fn numerical(self) -> Result<f64> {
+        // The one intentional conversion into the accepted f64 kernel starts
+        // from the CHECKED mathematical value, not a second raw wire parser.
+        let value = self.canonical().parse::<f64>()?;
+        ensure!(value.is_finite(), "numeric overflow");
+        Ok(value)
+    }
+}
+
+#[cfg(test)]
+mod decimal_tests {
+    use super::*;
+
+    #[test]
+    fn exact_wire_grammar_scale_range_and_canonical_numeric_projection() {
+        for (wire, canonical) in [
+            ("100.1", "100.1"),
+            ("000100.100000000", "100.1"),
+            ("0.000000001", "0.000000001"),
+            ("-0.000000000", "0"),
+            ("-001.20", "-1.2"),
+            (
+                "170141183460469231731687303715.884105727",
+                "170141183460469231731687303715.884105727",
+            ),
+        ] {
+            let d = decimal(wire).unwrap();
+            assert_eq!(d.canonical(), canonical);
+            assert_eq!(d.numerical().unwrap(), canonical.parse::<f64>().unwrap());
+        }
+        for wire in [
+            "",
+            "-",
+            "+1",
+            " 1",
+            "1 ",
+            "1_0",
+            ".1",
+            "1.",
+            "1..0",
+            "1e2",
+            "NaN",
+            "inf",
+            "0.0000000001",
+            "0.0000000000000000000000000100001e28",
+            "0.00000000000000000000000001001e28",
+            "170141183460469231731687303715.884105728",
+            "-170141183460469231731687303715.884105728",
+        ] {
+            assert!(
+                decimal(wire).is_err(),
+                "wire {wire} must fail without rounding"
+            );
+        }
+    }
+
+    #[test]
+    fn exact_accumulation_preserves_fraction_and_refuses_range_overflow() {
+        assert_eq!(
+            decimal("0.1").unwrap().checked_add(decimal("0.2").unwrap()),
+            Some(decimal("0.3").unwrap())
+        );
+        let v = decimal("4000000000000000000000000000.1").unwrap();
+        let sum = v.checked_add(v).unwrap();
+        assert_eq!(sum.canonical(), "8000000000000000000000000000.2");
+        assert_ne!(sum, decimal("8000000000000000000000000000").unwrap());
+        let max = decimal("170141183460469231731687303715.884105727").unwrap();
+        assert_eq!(max.checked_add(decimal("0").unwrap()), Some(max));
+        assert!(max.checked_add(decimal("0.000000001").unwrap()).is_none());
+        let min = decimal("-170141183460469231731687303715.884105727").unwrap();
+        assert!(min.checked_add(decimal("-0.000000001").unwrap()).is_none());
+    }
+}
+fn decimal(s: &str) -> Result<ExactDecimal> {
     ensure!(!s.is_empty() && s.len() <= 48, "decimal bound");
-    let d = Decimal::from_str(s).context("invalid exact decimal")?;
-    ensure!(d.scale() <= 9, "decimal scale bound");
-    Ok(d)
+    let (negative, unsigned) = match s.strip_prefix('-') {
+        Some(digits) => (true, digits),
+        None => (false, s),
+    };
+    let mut parts = unsigned.split('.');
+    let whole = parts.next().unwrap_or("");
+    let fraction = parts.next();
+    ensure!(
+        parts.next().is_none()
+            && !whole.is_empty()
+            && whole.bytes().all(|b| b.is_ascii_digit())
+            && fraction.map_or(true, |f| !f.is_empty()
+                && f.bytes().all(|b| b.is_ascii_digit())),
+        "decimal wire grammar: expected -?[0-9]+(.[0-9]{{1,9}})?"
+    );
+    let fraction = fraction.unwrap_or("");
+    ensure!(fraction.len() <= 9, "decimal scale bound");
+    let mut coefficient = 0_i128;
+    for b in whole.bytes().chain(fraction.bytes()) {
+        coefficient = coefficient
+            .checked_mul(10)
+            .and_then(|v| v.checked_add(i128::from(b - b'0')))
+            .context("exact decimal range exceeded")?;
+    }
+    for _ in fraction.len()..9 {
+        coefficient = coefficient
+            .checked_mul(10)
+            .context("exact decimal range exceeded")?;
+    }
+    Ok(ExactDecimal(if negative {
+        -coefficient
+    } else {
+        coefficient
+    }))
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -99,7 +225,7 @@ pub struct Ohlcv {
     pub volume: String,
 }
 impl Ohlcv {
-    fn values(&self, tick: Decimal) -> Result<[Decimal; 5]> {
+    fn values(&self, tick: ExactDecimal) -> Result<[ExactDecimal; 5]> {
         let v = [
             decimal(&self.open)?,
             decimal(&self.high)?,
@@ -108,9 +234,9 @@ impl Ohlcv {
             decimal(&self.volume)?,
         ];
         ensure!(
-            v[0] > Decimal::ZERO
-                && v[2] > Decimal::ZERO
-                && v[4] >= Decimal::ZERO
+            v[0] > ExactDecimal::ZERO
+                && v[2] > ExactDecimal::ZERO
+                && v[4] >= ExactDecimal::ZERO
                 && v[1] >= v[0]
                 && v[1] >= v[3]
                 && v[2] <= v[0]
@@ -120,7 +246,7 @@ impl Ohlcv {
         ensure!(
             v[..4]
                 .iter()
-                .all(|p| p.checked_rem(tick) == Some(Decimal::ZERO)),
+                .all(|p| p.checked_rem(tick) == Some(ExactDecimal::ZERO)),
             "off-tick OHLC"
         );
         Ok(v)
@@ -237,12 +363,14 @@ impl Candle {
                         "duplicate/unordered/out-of-range M1"
                     );
                     let v = m.data.values(tick)?;
-                    let a: &mut [Decimal; 5] = aggregate.get_or_insert(v);
+                    let a: &mut [ExactDecimal; 5] = aggregate.get_or_insert(v);
                     a[1] = a[1].max(v[1]);
                     a[2] = a[2].min(v[2]);
                     a[3] = v[3];
                     if previous.is_some() {
-                        a[4] = a[4].checked_add(v[4]).context("volume overflow")?;
+                        a[4] = a[4]
+                            .checked_add(v[4])
+                            .context("exact volume sum range exceeded")?;
                     }
                     previous = Some(m.start_ms);
                 }
@@ -256,11 +384,7 @@ impl Candle {
         Ok(())
     }
     pub(crate) fn numerical_bar(&self, origin: DataOrigin) -> Result<BarEvent> {
-        let f = |s: &str| -> Result<f64> {
-            let v = s.parse::<f64>()?;
-            ensure!(v.is_finite(), "numeric overflow");
-            Ok(v)
-        };
+        let f = |s: &str| decimal(s)?.numerical();
         Ok(BarEvent {
             symbol: self.instrument.clone(),
             close_time_utc: self.start_ms / 1000,

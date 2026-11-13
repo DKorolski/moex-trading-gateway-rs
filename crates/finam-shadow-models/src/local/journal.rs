@@ -329,13 +329,13 @@ impl Journal {
                     && state_sha == hash(&expected)?,
                 "checkpoint/result frontier mismatch"
             );
-            let latest: Option<String> = conn.query_row(
-                "SELECT result FROM outcomes WHERE arm=?1 ORDER BY source_sequence DESC LIMIT 1",
-                [&a.id], |r| r.get(0)).optional()?;
-            if let Some(text) = latest {
-                let outcome: Outcome = serde_json::from_str(&text)?;
+            let latest = conn.query_row(
+                "SELECT arm,source_sequence,result,result_sha FROM outcomes WHERE arm=?1 ORDER BY source_sequence DESC LIMIT 1",
+                [&a.id], outcome_row).optional()?;
+            if let Some(row) = latest {
+                let outcome = decode_outcome(row)?;
                 ensure!(
-                    outcome.checkpoint_sha256 == cp_sha,
+                    outcome.checkpoint_sha256 == cp_sha && outcome.source_sequence == seq,
                     "checkpoint/latest outcome mismatch"
                 );
             } else {
@@ -513,18 +513,23 @@ impl Journal {
     }
 }
 fn read_outcomes(conn: &Connection, revision: u64) -> Result<Vec<Outcome>> {
-    let mut stmt =
-        conn.prepare("SELECT result,result_sha FROM outcomes WHERE revision=?1 ORDER BY arm")?;
-    let rows = stmt.query_map([revision], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-    })?;
-    rows.map(|r| {
-        let (text, sha) = r?;
-        let o: Outcome = serde_json::from_str(&text)?;
-        ensure!(hash(&o)? == sha, "outcome checksum");
-        Ok(o)
-    })
-    .collect()
+    let mut stmt = conn.prepare(
+        "SELECT arm,source_sequence,result,result_sha FROM outcomes WHERE revision=?1 ORDER BY arm",
+    )?;
+    let rows = stmt.query_map([revision], outcome_row)?;
+    rows.map(|r| decode_outcome(r?)).collect()
+}
+fn outcome_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<(String, u64, String, String)> {
+    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+}
+fn decode_outcome((arm, sequence, text, sha): (String, u64, String, String)) -> Result<Outcome> {
+    let o: Outcome = serde_json::from_str(&text)?;
+    ensure!(hash(&o)? == sha, "outcome checksum");
+    ensure!(
+        arm == o.arm && sequence == o.source_sequence,
+        "outcome SQL index/payload mismatch"
+    );
+    Ok(o)
 }
 #[cfg(test)]
 fn fault(frontier: &str) {

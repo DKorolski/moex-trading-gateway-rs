@@ -1,6 +1,8 @@
 # Три shadow-модели: общий локальный M10/persistent slice
 
 Статус: SOURCE REVIEW CANDIDATE, не deployment/execution acceptance.
+R0 a7b2c636 получил SOURCE CHANGES REQUESTED по двум P2. Узкая R1-коррекция
+описана в shadow-models-local-integration-r1-20261113.md; это не SOURCE ACCEPT.
 Baseline численных моделей: 017698205c482087334ac6c4d13fd9b65a19422d.
 Дополнительные reviewer-regressions приняты в fdfcd4a61c9cca836dd2ca07d58469f6391915cc.
 Работающий FINAM V6 не связан с этим standalone crate и не изменяется.

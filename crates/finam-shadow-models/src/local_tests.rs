@@ -440,6 +440,240 @@ fn local_corrupted_checkpoint_result_and_log_are_not_silently_reset() {
 }
 
 #[test]
+fn local_r1_sql_sequence_and_arm_mutants_fail_at_open_without_repair() {
+    for mutant in ["sequence", "arm"] {
+        let t = Temp::new();
+        let m = manifest();
+        let first = event(&m, 0, 0);
+        let mut j = Journal::create(&t.db(), m.clone()).unwrap();
+        j.apply(first.clone()).unwrap();
+        drop(j);
+        let corrupted = t.0.join("index-mutant.sqlite");
+        std::fs::copy(t.db(), &corrupted).unwrap();
+        let conn = rusqlite::Connection::open(&corrupted).unwrap();
+        let payloads = |conn: &rusqlite::Connection| {
+            let mut q = conn
+                .prepare("SELECT result,result_sha FROM outcomes ORDER BY result")
+                .unwrap();
+            q.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+                .unwrap()
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .unwrap()
+        };
+        let original = payloads(&conn);
+        if mutant == "sequence" {
+            assert_eq!(first.source_sequence, 313); // reviewer's exact mutant
+            conn.execute("UPDATE outcomes SET source_sequence=314 WHERE arm='IMOEXF/weekday_only' AND source_sequence=313", []).unwrap();
+        } else {
+            conn.execute(
+                "UPDATE outcomes SET arm='USDRUBF/weekday_only' WHERE arm='IMOEXF/weekday_only'",
+                [],
+            )
+            .unwrap();
+        }
+        assert_eq!(payloads(&conn), original);
+        assert_eq!(
+            conn.query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0))
+                .unwrap(),
+            "ok"
+        );
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r
+                .get::<_, u64>(
+                0
+            ))
+            .unwrap(),
+            0
+        );
+        drop(conn);
+        let error = Journal::open(&corrupted, m.clone())
+            .err()
+            .expect("must reject SQL key/payload mismatch");
+        assert!(
+            error
+                .to_string()
+                .contains("outcome SQL index/payload mismatch"),
+            "{error:#}"
+        );
+        let conn = rusqlite::Connection::open(&corrupted).unwrap();
+        assert_eq!(payloads(&conn), original);
+        assert_eq!(
+            conn.query_row("SELECT revision FROM meta", [], |r| r.get::<_, u64>(0))
+                .unwrap(),
+            1
+        );
+        if mutant == "sequence" {
+            assert_eq!(
+                conn.query_row(
+                    "SELECT source_sequence FROM outcomes WHERE arm='IMOEXF/weekday_only'",
+                    [],
+                    |r| r.get::<_, u64>(0)
+                )
+                .unwrap(),
+                314
+            );
+        } else {
+            assert_eq!(
+                conn.query_row(
+                    "SELECT COUNT(*) FROM outcomes WHERE arm='USDRUBF/weekday_only'",
+                    [],
+                    |r| r.get::<_, u64>(0)
+                )
+                .unwrap(),
+                1
+            );
+        }
+        // Unmodified control: reopen + exact duplicate + next valid input.
+        let mut control = Journal::open(&t.db(), m.clone()).unwrap();
+        assert!(matches!(
+            control.apply(first).unwrap(),
+            Commit::AlreadyCommitted { .. }
+        ));
+        control.apply(event(&m, 0, 1)).unwrap();
+        assert_eq!(control.export().unwrap()["revision"], 2);
+    }
+}
+
+#[test]
+fn local_r1_ready_off_tick_spellings_reject_before_model_or_commit() {
+    let t = Temp::new();
+    let m = manifest();
+    let mut j = Journal::create(&t.db(), m.clone()).unwrap();
+    let before = j.export().unwrap();
+    assert!(before["states"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|s| s["ready"] == true));
+    for wire in ["0.0000000000000000000000000100001e28", "100.001"] {
+        let mut bad = event(&m, 0, 0);
+        bad.data = data(wire);
+        let error = j.apply(bad).unwrap_err().to_string();
+        assert!(
+            error.contains(if wire.contains('e') {
+                "decimal wire grammar"
+            } else {
+                "off-tick OHLC"
+            }),
+            "{error}"
+        );
+        assert_eq!(j.export().unwrap(), before);
+    }
+    j.apply(event(&m, 0, 0)).unwrap();
+    assert_eq!(j.export().unwrap()["revision"], 1);
+}
+
+#[test]
+fn local_r1_sparse_lossy_inputs_and_accumulator_overflow_are_atomic() {
+    let mut m = manifest();
+    for seed in &mut m.seeds {
+        seed.history.clear();
+    }
+    m.seeds[0].binding.construction = ConstructionKind::SparseM1V1;
+    let make = |volumes: &[&str], declared: &str, price: &str, aggregate_price: &str| {
+        let mut c = event(&m, 0, 0);
+        c.data = data(aggregate_price);
+        c.data.volume = declared.into();
+        c.construction = Construction::SparseM1V1 {
+            raw_sha256: "f".repeat(64),
+            range_from_ms: c.start_ms,
+            range_to_ms: c.end_ms,
+            declared_complete_response: true,
+            actual_m1: volumes
+                .iter()
+                .enumerate()
+                .map(|(i, v)| {
+                    let mut data = data(price);
+                    data.volume = (*v).into();
+                    Minute {
+                        start_ms: c.start_ms + i as i64 * 60_000,
+                        data,
+                    }
+                })
+                .collect(),
+        };
+        c
+    };
+    // These values DO parse exactly: accumulation cannot silently erase .2.
+    let cases = [
+        make(
+            &["10000000000000000000000000000.1"],
+            "10000000000000000000000000000",
+            "100.1",
+            "100.1",
+        ),
+        make(
+            &["4000000000000000000000000000.1"; 2],
+            "8000000000000000000000000000",
+            "100.1",
+            "100.1",
+        ),
+        make(
+            &["100000000000000000000.0000000001"],
+            "100000000000000000000.00000000",
+            "100.1",
+            "100.1",
+        ),
+        make(
+            &["0.00000000000000000000000001001e28"],
+            "100",
+            "100.1",
+            "100.1",
+        ),
+        make(&["1"], "1", "0.00000000000000000000000001001e28", "100"),
+        make(
+            &["100000000000000000000000000000"; 2],
+            "1",
+            "100.1",
+            "100.1",
+        ),
+    ];
+    let diagnostics = [
+        "M1/M10 exact aggregation mismatch",
+        "M1/M10 exact aggregation mismatch",
+        "decimal scale bound",
+        "decimal wire grammar",
+        "decimal wire grammar",
+        "exact volume sum range exceeded",
+    ];
+    for (bad, diagnostic) in cases.into_iter().zip(diagnostics) {
+        let t = Temp::new();
+        let mut j = Journal::create(&t.db(), m.clone()).unwrap();
+        let before = j.export().unwrap();
+        let error = j.apply(bad).unwrap_err().to_string();
+        assert!(error.contains(diagnostic), "{error}");
+        assert_eq!(j.export().unwrap(), before);
+        drop(j);
+        assert_eq!(
+            Journal::open(&t.db(), m.clone()).unwrap().export().unwrap(),
+            before
+        );
+    }
+    for (volumes, total) in [
+        (vec!["0.1", "0.2"], "0.3"),
+        (
+            vec!["4000000000000000000000000000.1"; 2],
+            "8000000000000000000000000000.2",
+        ),
+        (
+            vec!["80000000000000000000000000000.1"; 2],
+            "160000000000000000000000000000.2",
+        ),
+    ] {
+        let t = Temp::new();
+        let mut j = Journal::create(&t.db(), m.clone()).unwrap();
+        j.apply(make(&volumes, total, "100.1", "100.1")).unwrap();
+        let expected = j.export().unwrap();
+        assert_eq!(expected["revision"], 1);
+        drop(j);
+        assert_eq!(
+            Journal::open(&t.db(), m.clone()).unwrap().export().unwrap(),
+            expected
+        );
+    }
+}
+
+#[test]
 fn local_crash_child() {
     let Ok(root) = std::env::var("FINAM_LOCAL_TEST_CHILD") else {
         return;
