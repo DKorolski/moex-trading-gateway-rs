@@ -5,12 +5,15 @@ SHA-256 `2d272312dec9cda3693962e93692a5e6c194d890367cb1dbee0ac527b7905f55`.
 Accepted FINAM V6 runtime source: `f581552e9079b68cba5ed58c896fbf078f717aac`.
 База локальной ветки с принятым offline-reader: `c37f220ad8648801ec66212a0e05737de3869128`.
 
-## Решение и первый законченный scope
+## Решение и законченный reaction scope
 
 Пакет — новый baseline моделей, не разрешение менять установленный V6. Новый
 IMOEXF Author41-short + Hybrid BO053 **не** равен текущему baseline07 BO-only.
-В этой итерации переносится только численная IMOEXF combo: `weekday_only` и
-`weekend_context_no_trades`. USDRUBF H4/W4 и RI prospective — следующие slices.
+Первый численный IMOEXF slice зафиксирован в `1b04ab5e754ea604f2d4cc254e0a4708eca67da3`.
+Продолжение добавляет USDRUBF `previous_day07_h4_w4` в тот же локальный facade.
+У каждой модели `weekday_only` и `weekend_context_no_trades`: четыре независимых
+reaction arms. RI prospective остаётся следующим отдельным slice, его код и
+контракт не заменяются IMO/USD engine.
 Работающие FINAM/ALOR контуры, GitHub/main, credentials и VPS не изменяются.
 
 `crates/finam-shadow-models` — отдельный offline Rust workspace с библиотекой
@@ -21,7 +24,7 @@ IMOEXF Author41-short + Hybrid BO053 **не** равен текущему baseli
 точные f64 через JSON/checkpoint так же, как в исходном Rust reference.
 Фактически квалифицированный compiler — Rust 1.95.0, как в handoff.
 
-Численный `imoexf.rs` взят из закреплённого reference: отличаются комментарий
+Численные `imoexf.rs` и `usdrubf.rs` взяты из закреплённого reference: отличаются комментарий
 и эквивалентный синтаксис Option/M10-grid. Формулы, приоритеты MR/BO, observation,
 entry quotas, pending и комиссии не переписываются. Context/facade адаптированы
 под локальные строгие DTO, без ALOR crates, collector и filesystem helpers.
@@ -34,6 +37,14 @@ Signal закрытого M10 label T планирует виртуальное 
 историческая цена, не исполнение брокером и не обещание fill в прошлом.
 Signal label, logical action и фактическая доступность — разные времена.
 В numerical fixtures clock явно synthetic, не original broker receipt.
+
+USDRUBF — Previous-day07 H4/W4, **не** VWAP/live challenger. MR short до label
+10:40, forced cutoff signal 10:50 -> action 11:00. Нет MR max2: scheduled counter
+не превращается в quota IMOEXF. MR stop/take от actual proxy entry open,
+округление tick 0.01 half-up; stop приоритетнее take при ambiguous touch.
+BO wait4: первый signal 11:00 -> action 11:10. Stop2 по low/high touch, потом
+часовой stop1, потом EOD — не IMOEXF close-stop/EOD-first. Economics:
+point 1000 RUB, rate 0.0000462*2, tick stress 20 RUB/round; fees не меняют решения.
 
 EOD signal label 23:30 исполняется по open terminal label 23:40; для полного
 результата требуется закрытие terminal в 23:50 и flat/no-pending. При missing
@@ -56,15 +67,19 @@ close-fill политика V6 остаётся неизменной и её р�
 cargo test --offline --locked --manifest-path crates/finam-shadow-models/Cargo.toml
 cargo clippy --offline --locked --manifest-path crates/finam-shadow-models/Cargo.toml --all-targets -- -D warnings
 cargo build --offline --locked --release --manifest-path crates/finam-shadow-models/Cargo.toml
-python3 -B scripts/finam_shadow_models_parity.py --handoff /ABS/finam-shadow-models-2026-11-13 --binary /ABS/finam-shadow-imoexf-fixture --output /ABS/NEW_REPORT
+python3 -B scripts/finam_shadow_models_parity.py --model imoexf --handoff /ABS/finam-shadow-models-2026-11-13 --binary /ABS/finam-shadow-reaction-fixture --output /ABS/NEW_IMO_REPORT
+python3 -B scripts/finam_shadow_models_parity.py --model usdrubf --handoff /ABS/finam-shadow-models-2026-11-13 --binary /ABS/finam-shadow-reaction-fixture --output /ABS/NEW_USD_REPORT
 ```
 
-Проверяются 18 upstream сценариев / 1886 state rows, включая обе policies и
+Для каждой модели проверяются 18 upstream сценариев / 1886 state rows, включая обе policies и
 checkpoint/restart. Rust получает только `inputs.json`, не expected. Python
 независимо пересчитывает oracle, сравнивает с pinned expected, нормализует actual
 через официальный projector и запускает официальный candidate comparator.
-Ещё проверяются 6 comparator mutations, 8 invalid-input запусков actual Rust CLI
-и экономика 22 закрытых synthetic trades. Это не 22 сделки FINAM.
+На модель ещё проверяются 6 comparator mutations и 8 invalid-input запусков actual
+Rust CLI. IMOEXF: экономика 22 закрытых synthetic trades, USD: 19. Это не сделки FINAM.
+Всего 36 scenarios / 3772 states, 12 comparator mutations, 16 actual CLI rejections
+и 41 synthetic fee arithmetic check. Те же 25 unit tests проходят debug и release,
+без ignored/skipped. Они не считаются 50 различными тестами.
 
 Unit-тесты отдельно проверяют next-open против close/threshold, MR ownership и
 observer, независимые anchors, атомарный отказ при corrupted input, duplicate,
@@ -75,17 +90,15 @@ CLI выводится в новый файл только после успеш
 
 ## Следующие работы без расширения scope
 
-1. USDRUBF `previous_day07_h4_w4`: две policies, собственные stop/take/EOD priorities,
-   tick rounding и economics. Сверка по 18 scenarios / 1886 states.
-2. RI Author41/42: две RI policies, actual contract RIZ6, собственный prospective
+1. RI Author41/42: две RI policies, actual contract RIZ6, собственный prospective
    execution и MR shared quota. Не использовать IMO/USD reaction engine вместо RI.
    Сверка по 16 scenarios / 376 states. Contract roll — отдельная процедура.
-3. FINAM-native closed-M10 ingress/fanout и persistent state шести веток. Сначала
+2. FINAM-native closed-M10 ingress/fanout и persistent state шести веток. Сначала
    закрепить mapping инструментов и эквивалентность M10: handoff требует canonical
    внешние M10, текущий V6 использует принятую M1->M10 композицию. Не считать их
    автоматически одним контрактом и не менять gateway молча. Логика получения
    данных/auth/reconnect переиспользуется только в пределах проверенного контракта.
-4. Source review -> Linux release qualification -> отдельное разрешение установки
+3. Source review -> Linux release qualification -> отдельное разрешение установки
    и наблюдения. Без новой торговой authority, Redis DB0 или order producer.
 
 Межсерверный обмен журналами, live execution adapter и GO live micro не входят

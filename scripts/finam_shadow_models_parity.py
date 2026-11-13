@@ -1,4 +1,4 @@
-"""Offline IMOEXF port gate against the immutable ALOR handoff. No broker IO."""
+"""Offline reaction-port gate against the immutable ALOR handoff. No broker IO."""
 import argparse
 import copy
 import hashlib
@@ -46,6 +46,7 @@ def main():
     parser.add_argument("--handoff", type=Path, required=True)
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--model", choices=("imoexf", "usdrubf"), default="imoexf")
     args = parser.parse_args()
     root, binary, out = args.handoff.resolve(), args.binary.resolve(), args.output.resolve()
     if out == root or root in out.parents:
@@ -59,7 +60,8 @@ def main():
     implementation = "finam-shadow-models-source-sha256:" + source_sha
     binary_sha = sha(binary)
     out.mkdir(parents=True)
-    source = root / "fixtures/imoexf/inputs.json"
+    model = args.model
+    source = root / "fixtures" / model / "inputs.json"
     command = [str(binary), str(source), str(out / "actual.json"), implementation]
     result = subprocess.run(command, capture_output=True, text=True, timeout=120)
     (out / "candidate.stdout").write_text(result.stdout)
@@ -73,16 +75,16 @@ def main():
     from check_parity import oracle, read, mutation_checks, fee_checks
     from reaction_compare import compare, project_case
     trace = [project_case(c) for c in actual["cases"]]
-    expected = oracle("imoexf", read(source))
-    compare(expected, read(root / "fixtures/imoexf/expected_state_trace.json.gz"), "stored_expected")
-    compare(expected, trace, "finam_imoexf")
+    expected = oracle(model, read(source))
+    compare(expected, read(root / "fixtures" / model / "expected_state_trace.json.gz"), "stored_expected")
+    compare(expected, trace, "finam_" + model)
     negatives = mutation_checks(trace)
-    fees = fee_checks("imoexf", actual["cases"])
-    candidate = dict(schema_version="finam_shadow_candidate_v1", model="imoexf", input_sha256=sha(source),
+    fees = fee_checks(model, actual["cases"])
+    candidate = dict(schema_version="finam_shadow_candidate_v1", model=model, input_sha256=sha(source),
                      implementation_id=implementation, evidence_kind="synthetic_fixture_not_production", trace=trace)
     write(out / "candidate.json", candidate)
     official = subprocess.run([sys.executable, "-B", str(root / "tools/compare_candidate.py"),
-                               "--model", "imoexf", "--candidate", str(out / "candidate.json")],
+                               "--model", model, "--candidate", str(out / "candidate.json")],
                               capture_output=True, text=True, timeout=60)
     (out / "official-comparator.txt").write_text(official.stdout + official.stderr)
     if official.returncode:
@@ -103,7 +105,10 @@ def main():
     mutate("unclosed_bar", lambda f: first_bar(f).__setitem__("observed_at_utc", first_bar(f)["value"]["close_time_utc"]+599))
     mutate("wrong_contract", lambda f: first_bar(f)["value"].__setitem__("symbol", "RIZ6"))
     mutate("observed_not_synthetic", lambda f: f.__setitem__("evidence_kind", "observed_runtime"))
-    mutate("changed_cost", lambda f: f["cases"][0]["config"]["costs"].__setitem__("components", 1))
+    if model == "imoexf":
+        mutate("changed_cost", lambda f: f["cases"][0]["config"]["costs"].__setitem__("components", 1))
+    else:
+        mutate("changed_profile", lambda f: f["cases"][0]["config"]["settings"].__setitem__("bo_wait", 2))
     mutate("expected_injection", lambda f: f.__setitem__("expected", []))
     mutate("corrupt_ohlcv", lambda f: first_bar(f)["value"].__setitem__("h", 1.0))
     candidate_negatives = {}
@@ -119,7 +124,7 @@ def main():
     verify_handoff(root)
     if sha(binary) != binary_sha or sources != {n:sha(repo/n) for n in sources}:
         raise ValueError("source/binary changed during qualification")
-    report = dict(result="PASS_LOCAL_NUMERICAL_PORT", model="imoexf", cases=len(trace),
+    report = dict(result="PASS_LOCAL_NUMERICAL_PORT", model=model, cases=len(trace),
                   state_rows=sum(len(c["rows"]) for c in trace), policies=sorted({c["identity"]["policy"] for c in trace}),
                   comparator_negative_mutations=negatives, candidate_negative_cases=candidate_negatives,
                   fee_arithmetic_trades=fees, input_sha256=sha(source), binary_sha256=binary_sha,

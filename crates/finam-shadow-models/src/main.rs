@@ -9,7 +9,7 @@ use std::{
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     if args.len() != 3 {
-        bail!("usage: finam-shadow-imoexf-fixture INPUT_JSON NEW_OUTPUT_JSON IMPLEMENTATION_ID");
+        bail!("usage: finam-shadow-reaction-fixture INPUT_JSON NEW_OUTPUT_JSON IMPLEMENTATION_ID");
     }
     let input = Path::new(&args[0]);
     ensure!(

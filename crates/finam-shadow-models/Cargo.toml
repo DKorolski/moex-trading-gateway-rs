@@ -18,5 +18,5 @@ serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"
 
 [[bin]]
-name = "finam-shadow-imoexf-fixture"
+name = "finam-shadow-reaction-fixture"
 path = "src/main.rs"

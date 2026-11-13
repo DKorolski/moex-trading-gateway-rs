@@ -2,6 +2,7 @@
 //! checkpoint/collector: no Intent, broker, Redis, filesystem or runtime route.
 //! Replaying a saved prefix reconstructs pending state, never re-emits orders.
 use crate::imoexf;
+use crate::usdrubf;
 
 use anyhow::{ensure, Context, Result};
 use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime};
@@ -22,6 +23,9 @@ pub enum Config {
     Imoexf {
         sleeve: Sleeve,
         costs: imoexf::Costs,
+    },
+    Usdrubf {
+        settings: usdrubf::Config,
     },
 }
 
@@ -65,6 +69,20 @@ impl Config {
                 );
                 Ok(Profile::ImoexfReaction07)
             }
+            Self::Usdrubf { settings } => {
+                settings.validate()?;
+                ensure!(
+                    settings.model_id == "previous_day07_h4_w4"
+                        && settings.family == usdrubf::Family::PreviousDay
+                        && settings.context_hour == 7
+                        && settings.clock_hour == 7
+                        && settings.mr_horizon == 4
+                        && settings.bo_wait == 4
+                        && settings.mr_start_delay == 0,
+                    "only frozen USDRUBF H4/W4 is selected"
+                );
+                Ok(Profile::UsdrubfPreviousDay07)
+            }
         }
     }
 }
@@ -87,10 +105,25 @@ fn imo_anchor(a: &Anchor) -> Result<imoexf::Observation> {
         count: a.distinct_bars,
     })
 }
+fn usd_anchor(a: &Anchor) -> Result<usdrubf::Metrics> {
+    Ok(usdrubf::Metrics {
+        first: local(a.first_bar_utc)?,
+        last: local(a.last_bar_utc)?,
+        open: a.open,
+        high: a.high,
+        low: a.low,
+        close: a.close,
+        count: a.distinct_bars,
+        // Previous-day never consumes prior-session VWAP accumulators.
+        numerator: usdrubf::Kahan::default(),
+        volume: usdrubf::Kahan::default(),
+    })
+}
 #[derive(Clone, Serialize)]
 #[serde(tag = "engine", content = "state", rename_all = "snake_case")]
 enum Engine {
     Imoexf(Box<imoexf::Engine>),
+    Usdrubf(Box<usdrubf::Engine>),
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -164,6 +197,11 @@ impl NumericalSession {
                 )?;
                 Engine::Imoexf(Box::new(e))
             }
+            Config::Usdrubf { settings } => {
+                let mut e = usdrubf::Engine::new(settings.clone());
+                e.start_frozen(usd_anchor(previous)?, usd_anchor(previous2)?)?;
+                Engine::Usdrubf(Box::new(e))
+            }
         };
         let clock_floor = frozen.frozen_at_utc;
         Ok(Self {
@@ -227,6 +265,19 @@ impl NumericalSession {
                 imoexf::validate_bars(&[b])?;
                 e.step_frozen(&b)?;
             }
+            Engine::Usdrubf(e) => {
+                let b = usdrubf::Bar {
+                    ts_local: label,
+                    open: bar.o,
+                    high: bar.h,
+                    low: bar.l,
+                    close: bar.close,
+                    volume: bar.v,
+                };
+                usdrubf::validate_raw(&[b])?;
+                ensure!(e.cfg.eligible(&b), "nontradable model input");
+                e.step_frozen(&b)?;
+            }
         }
         self.engine = staged;
         self.inputs.push(Input {
@@ -254,6 +305,7 @@ impl NumericalSession {
         );
         let flat = match &self.engine {
             Engine::Imoexf(e) => e.position.is_none() && e.pending.is_none(),
+            Engine::Usdrubf(e) => e.position.is_none() && e.pending.is_none(),
         };
         ensure!(flat, "unresolved position/pending at session end");
         Ok(())

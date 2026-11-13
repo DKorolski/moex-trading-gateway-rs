@@ -5,6 +5,7 @@ pub mod context;
 pub mod fixture;
 pub mod imoexf;
 pub mod session;
+pub mod usdrubf;
 
 use serde::{Deserialize, Serialize};
 
@@ -34,3 +35,6 @@ pub enum DataOrigin {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod usd_tests;

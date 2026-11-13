@@ -1,7 +1,7 @@
-// Adapted from the pinned ALOR handoff: IMOEXF-only, in-memory context; no ALOR collector or file IO.
+// Adapted from pinned ALOR handoff: selected IMOEXF/USD profiles, no collector or file IO.
 //! Opt-in context-only core for IMOEXF/USD reaction experiments. No Strategy,
-//! Intent or broker route. The collector submodule supplies a read-only durable
-//! ingress bridge; the core alone does not attest real receipts or a calendar.
+//! Intent or broker route. No collector is included in this local numerical port;
+//! this core alone does not attest real receipts or a production calendar.
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{ensure, Context, Result};
@@ -39,6 +39,7 @@ pub enum Policy {
 #[serde(rename_all = "snake_case")]
 pub enum Profile {
     ImoexfReaction07,
+    UsdrubfPreviousDay07,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -53,7 +54,10 @@ pub struct Identity {
 }
 impl Identity {
     pub fn validate(&self) -> Result<()> {
-        let symbol = "IMOEXF";
+        let symbol = match self.profile {
+            Profile::ImoexfReaction07 => "IMOEXF",
+            Profile::UsdrubfPreviousDay07 => "USDRUBF",
+        };
         ensure!(self.symbol == symbol, "profile/contract mismatch");
         ensure!(
             !self.receipt_stream.is_empty() && self.receipt_stream.len() <= 256,

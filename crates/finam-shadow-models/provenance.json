@@ -7,16 +7,19 @@
     "reference_rust/strategy-runtime/src/shadow_session_context.rs": "4b5c3c3c4fed7d210d69c4db796f55f1a3162a58e12110da2f8ca706dc673d87",
     "reference_rust/strategy-runtime/src/shadow_reaction.rs": "f83906e7423028ee524f6cfe0d5f6f7606b839d924d11cd06e32806d687f108f",
     "models/imoexf/profile.json": "df266b75c97f1784891f38f8bdcd5f5133daf335f79acf73db00179b61166026",
-    "fixtures/imoexf/inputs.json": "3f2cd3fe24da04f3813d5ffef483d7173d1bf93884dafb91ea4b80c07d473a5f"
+    "fixtures/imoexf/inputs.json": "3f2cd3fe24da04f3813d5ffef483d7173d1bf93884dafb91ea4b80c07d473a5f",
+    "reference_rust/strategy-runtime/src/bin/usdrubf_shadow_replay/model.rs": "062a5256fa97d46f985299f12f5a8bc5e06888afee2ab7ca47ee21e8c774ce38",
+    "models/usdrubf/profile.json": "8b8517e2c2b75d21d6a94686fe9a7abc7d52aa26b4456b17d1d9fccdfb3db496",
+    "fixtures/usdrubf/inputs.json": "bcc1f7bd9155a9fc9345f8bdd1f14304b919eb7ecc20fbab841b399167a50641"
   },
-  "scope": "IMOEXF combo, two context policies, numerical replay only",
+  "scope": "IMOEXF combo + USDRUBF H4/W4, four policy arms, numerical replay only",
   "adaptations": [
     "Local strict BarEvent/DataOrigin DTOs; no ALOR protocol or gateway dependency",
-    "IMOEXF-only context and facade; no USD/RI code included in this slice",
+    "Only selected IMOEXF/USDRUBF profiles in context/facade; RI not included yet",
     "Removed context collector and filesystem persistence helpers; checkpoint bytes remain offline artifacts",
     "Public in-memory freeze for the local input-only fixture adapter",
     "Equivalent Rust 1.80-compatible Option/grid syntax",
-    "Frozen combo and exact commission policy enforced at session construction",
+    "Frozen IMOEXF combo/costs and USDRUBF Previous-day07 H4/W4 enforced at session construction",
     "Independent local fixture exporter; expected outputs never supplied to Rust"
   ],
   "deployment": false,
