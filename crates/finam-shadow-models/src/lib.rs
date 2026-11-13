@@ -4,6 +4,10 @@
 pub mod context;
 pub mod fixture;
 pub mod imoexf;
+pub mod ri;
+pub mod ri_context;
+mod ri_engine;
+pub mod ri_fixture;
 pub mod session;
 pub mod usdrubf;
 
@@ -38,3 +42,6 @@ mod tests;
 
 #[cfg(test)]
 mod usd_tests;
+
+#[cfg(test)]
+mod ri_tests;

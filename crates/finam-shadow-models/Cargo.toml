@@ -20,3 +20,7 @@ sha2 = "0.10"
 [[bin]]
 name = "finam-shadow-reaction-fixture"
 path = "src/main.rs"
+
+[[bin]]
+name = "finam-shadow-ri-fixture"
+path = "src/ri_main.rs"
