@@ -1,0 +1,131 @@
+F0/FM — локальный разбор model-shadow, 13 ноября 2026
+
+НАЗНАЧЕНИЕ И ГРАНИЦА
+Baseline runtime: f581552e9079b68cba5ed58c896fbf078f717aac,
+ObservedBoRestTailRecoveryV6. Это только новый offline report и его тесты.
+Rust/Cargo, модель, transport, auth, deadlines, fills и EOD verifier не меняются.
+Ни установки, ни operational запуска, ни новой runtime authority этот файл не даёт.
+ТЗ: FINAM_PROGRAMMER_HANDOFF_20261113_R1.zip, SHA-256
+e96fcdfbf2aef47771ef98b986f2717581930e8ba70015167f854df340aeec39.
+
+ПЕРВЫЙ РЕЗУЛЬТАТ
+Сначала фактический F0 и FM, затем первая полная принятая модельная сессия и
+минимальный образец evidence. День без сигнала может быть clean; отсутствие
+естественного fill не доказывает отсутствие исполнителя. Не добавляются новые
+gates по WS share, ALOR availability, signal/fill/reconnect или auth renewal.
+ALOR подключается после первого принятого FM образца, не после всех десяти
+clean sessions. F2/F3 не блокируют первый model-shadow. F1 только по конкретному
+диагностическому пробелу. F4 gRPC и F5 реальные ордера — самостоятельные работы.
+
+ФАЙЛОВЫЙ CLI
+python3 -B scripts/ws_primary_f0_fm_report.py --journal ORIGINAL/state/observations/journal.jsonl --model-day ORIGINAL/state/inputs/model-day.json --kind observed_runtime --output NEW_REPORT_DIRECTORY
+
+Для снимка работающего процесса добавить --allow-prefix и --observed-until-ms
+с настоящим временем захвата. Завершённые строки проверяются строго. Последняя
+незавершённая строка в prefix не используется, даже если JSON без LF уже валиден.
+Её bytes остаются в original SHA, отдельно фиксируется analyzed prefix SHA.
+Никаких исправлений journal, перенумерации или подстановки текущего времени.
+Для окончательного export добавить --completion ORIGINAL/.../completion.json;
+это только проверка byte-binding completion, НЕ исполнение EOD verifier.
+
+--kind обязателен: observed_runtime / replayed_model / synthetic_fixture.
+Нельзя переименовывать исторический replay в observed delivery. Source origin
+RECOVERY_BACKFILL остаётся историческим внутри реально наблюдавшегося runtime.
+
+Выход: summary.json, m10.jsonl, m10.csv, README_RU.txt, manifest.json.
+Каталог только новый, существующий не дополняется и не перезаписывается.
+Exit0 = report построен, не PASS сессии; exit2 = report построен с findings;
+exit1 = некорректный/небезопасный вход либо IO error. Это не runtime HOLD.
+Пустой журнал не становится no-action. Completeness считается по model-day,
+а не по числу найденных строк. При наличии capture time будущие интервалы
+NOT_YET_DUE, отсутствующие уже закрытые M10 MISSING_DUE_AS_OF_SNAPSHOT.
+
+КАРТА ПОЛЕЙ F0
+Expected label/nominal close: отдельный production model-day, +600000 ms.
+Source и admission reason: canonical_source.receipt (canonical для recovery).
+Minute completeness: actual_m1.length, minute_bitmap; никакого gap fill.
+Current generation: receipt.generation и соответствующий readiness snapshot.
+Boundary/grace: receipt и последний snapshot до фактического source selection.
+WS candidate: только записанный WS_READY_CANDIDATE до selection, не вычисленная
+задним числом дата. При отсутствии witness время готовности невыбранного WS
+неизвестно. Readiness diagnostic сам по себе не является admission capability.
+REST choice: primary_precommit_rest_selected + source reason + preceding
+readiness + REST outcome. Отсутствующее объяснение остаётся неизвестным.
+REST audit/revision сохраняется отдельно и не заменяет canonical input.
+Source -> step -> feedback при intent -> commit связываются label, hashes,
+порядком строк и фактическими refs: sequence, byte offset, exact line SHA.
+Source/native admission hashes не пересчитываются новым Python report:
+для этого сохраняется штатный pinned Rust reader.
+
+КАРТА ПОЛЕЙ FM
+Step.before = состояние перед моделью.
+Step.after = состояние сразу после решения, ДО candle feedback.
+hypothetical_candle_feedback.state_after = состояние после исполнения и
+обратного on_broker_position. Отсутствующая фаза null с явной причиной.
+Request.sequence записан в fill.request; в Step отдельного request ID нет.
+Сцепление с решением выполняется по label/hash/action/quantity и порядку строк;
+новый native intent ID не изобретается. Повторный fill sequence — finding.
+No action сохраняет реальный reason, а не выводится из отсутствия заявки.
+LIVE_OBSERVED Step содержит measured clock; BACKFILL_REPLAY Step clock виртуален.
+Actual recovery start/result доступны в recovery_step_durable_publication и
+canonical_commit; они не подменяются virtual nominal close.
+Позиция/pending в summary — последнее записанное состояние, не EOD verdict.
+Неверная phase, missing/duplicate feedback, hash/order/position mismatch
+отмечаются как findings и не меняют исходный runtime.
+
+СОХРАНЯЕМАЯ ПОЛИТИКА
+moex.shadow.closed-m10-close.full-fill.one-lot.zero-cost.v1:
+полный условный fill по close принятой M10, один лот, нулевые издержки.
+Нет quotes, broker ID, реальных ордеров и dispatch. Контекст модели уже Paper,
+allow_live_orders=false. Источник исполнения: session.rs::apply_model_input ->
+model.on_bar_measured -> on_candle_close -> commit_position ->
+on_broker_position -> observer.record_candle_feedback.
+
+СУЩЕСТВУЮЩИЕ FM-ПРОВЕРКИ
+model::candle_tests::candle_exact_fill_once_and_no_fake_quote_or_backdated_time:
+один actual model/book effect, close price, повторный fill отклоняется.
+model::candle_tests::candle_exact_request_and_causal_times_or_terminal_no_book_effect:
+altered action/sequence/qty/times/hash/policy не меняют book.
+model::candle_tests::resilience_bo_decisions_and_feedback_are_invariant_to_valid_volume:
+frozen actual model tape, >=505 bars, >=10 feedback, три volume-варианта.
+session::primary_tests::same_data_capability_cannot_repeat_actual_model_callback:
+повтор source capability не вызывает модель повторно.
+session::primary_recovery::tail_tests::tail_v6_historical_bo_entry_feedback_and_next_live_use_same_book
+и ...historical_bo_exit_feedback...: actual model/book на recovery entry/exit.
+...tail_v6_nonflat_long_short_historical_hold_then_same_live_book:
+long/short book сохраняется при историческом hold и дальнейшем live.
+runner::primary::live::continuous::tests::eod::tail::tail_v6_full_eod_pending_renewed_ticket_historical_then_live_and_reader_negatives
+и ...tail::r1::tail_v6_r1_actual_replay_fences_match_in_prefix_and_full_reader:
+V6 full-day fixture, renewed tickets, replay fences, independent reader.
+...eod::calendar_eod_joins_workers_then_seals_a_separately_verifiable_semantic_result,
+...operator_stop_cannot_be_relabelled_as_calendar_eod и
+...verifier_rejects_rebound_receipts_counts_latches_partial_commits_and_origins:
+EOD/drain/seal и отрицательные варианты.
+Source locations/hashes проверяются по accepted source inventory. Passed lines
+закреплены в accepted Linux release logs/linux-release-tests.log. Это reuse
+принятого evidence, НЕ новый Rust run.
+
+Новые unittest проверяют только offline projection: long/short/exit DTO не
+являются новым исполнением реальной стратегии. Их пример feedback помечается
+SYNTHETIC_PARSER_DTO, отдельно от observed и accepted model-test evidence.
+
+ФАКТИЧЕСКИЕ ДИАГНОСТИЧЕСКИЕ ГРАНИЦЫ
+primary_http_completed содержит role/HttpReceipt, но не label/ticket ID.
+Нельзя приписывать его ближайшей M10 по положению или времени. В report такие
+receipts остаются journal-wide/unassigned, хотя label у REST outcome известен.
+HTTP status/Retry-After и раздельные auth wait/grant/GET phases в текущем receipt
+не записаны; это кандидаты F1, только если нужны для конкретного расследования.
+Отсутствующий unselected WS-ready witness не восстанавливается догадкой.
+Ни один из этих пробелов сам по себе не добавляет runtime или clean-session gate.
+
+ПОСЛЕ EOD ЛИБО HOLD
+1. Забрать оригинальный sealed result и sidecars. При раннем отказе сохранить
+   фактическое покрытие/причину; не дополнять день replay до full-session статуса.
+2. Применить accepted execution package/review_result.py: runtime classifier,
+   Python diagnostics, matching Mac Rust verifier, EOD/actual exit/cgroup checks.
+3. Применить этот report к тем же оригинальным файлам; завершить таблицу F0,
+   отдельно operational действия/no-action/feedback и synthetic branch evidence.
+4. Передать reviewer original hashes, runtime result, F0/FM report, policy,
+   last position/pending, EOD/drain/STOP и честный список ненаблюдавшихся ветвей.
+full_session_accepted=false, clean_full_sessions_added=0 и ALOR parity=false
+остаются в новом report всегда. Решение принимает существующая result-процедура.
