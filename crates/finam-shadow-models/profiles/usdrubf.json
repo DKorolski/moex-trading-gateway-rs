@@ -1,0 +1,24 @@
+{
+  "handoff_schema": "finam_shadow_profile_v1",
+  "model_id": "previous_day07_h4_w4",
+  "config": {
+    "engine": "usdrubf",
+    "settings": {
+      "model_id": "previous_day07_h4_w4",
+      "family": "previous_day",
+      "context_hour": 7,
+      "clock_hour": 7,
+      "mr_horizon": 4,
+      "bo_wait": 4,
+      "mr_start_delay": 0
+    }
+  },
+  "policies": ["weekday_only", "weekend_context_no_trades"],
+  "timeframe": "10m",
+  "bar_timestamp": "bar_begin_utc",
+  "model_timezone_offset_hours": 3,
+  "excluded_dates": ["2026-11-04"],
+  "order_emission_allowed": false,
+  "virtual_qty": 1,
+  "costs": {"point_value_rub": 1000.0, "tick_value_rub": 10.0, "rate_per_side": 0.0000462, "components": 2}
+}

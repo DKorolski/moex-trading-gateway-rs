@@ -1,9 +1,10 @@
-//! Local numerical port only. No FINAM/ALOR client, async runtime, Redis,
-//! account, quote, order/dispatch type or operational admission exists here.
+//! Local numerical ports and a bounded SQLite replay integration. No FINAM/ALOR
+//! client, async runtime, Redis, credential, order or operational admission.
 //! The current V6 runtime is not linked to this crate.
 pub mod context;
 pub mod fixture;
 pub mod imoexf;
+pub mod local;
 pub mod ri;
 pub mod ri_context;
 mod ri_engine;
@@ -45,3 +46,6 @@ mod usd_tests;
 
 #[cfg(test)]
 mod ri_tests;
+
+#[cfg(test)]
+mod local_tests;

@@ -16,6 +16,8 @@ chrono = { version = "0.4", default-features = false, features = ["std", "serde"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"
+rusqlite = { version = "0.32", features = ["bundled"] }
+rust_decimal = { version = "1", default-features = false, features = ["std"] }
 
 [[bin]]
 name = "finam-shadow-reaction-fixture"
@@ -24,3 +26,7 @@ path = "src/main.rs"
 [[bin]]
 name = "finam-shadow-ri-fixture"
 path = "src/ri_main.rs"
+
+[[bin]]
+name = "finam-shadow-local-session"
+path = "src/local_main.rs"
