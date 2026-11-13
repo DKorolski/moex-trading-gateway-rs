@@ -1,0 +1,22 @@
+[package]
+name = "finam-shadow-models"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT"
+description = "Offline numeric ports of the pinned ALOR shadow models; no broker transport"
+
+# Separate offline qualification: not linked into the accepted FINAM runtime.
+[workspace]
+resolver = "2"
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+sha2 = "0.10"
+
+[[bin]]
+name = "finam-shadow-imoexf-fixture"
+path = "src/main.rs"

@@ -1,0 +1,24 @@
+{
+  "upstream": "ALOR finam-shadow-models-2026-11-13.zip",
+  "upstream_zip_sha256": "2d272312dec9cda3693962e93692a5e6c194d890367cb1dbee0ac527b7905f55",
+  "upstream_source_ref": "4503b6a20d980408bf915807c08264aa160ed8c0",
+  "source_files": {
+    "reference_rust/strategy-runtime/src/bin/imoexf_shadow_replay/model.rs": "8f4b4ced7b5340c47be2ed0bd96434b637a50378c10b155596593b13447a8e0a",
+    "reference_rust/strategy-runtime/src/shadow_session_context.rs": "4b5c3c3c4fed7d210d69c4db796f55f1a3162a58e12110da2f8ca706dc673d87",
+    "reference_rust/strategy-runtime/src/shadow_reaction.rs": "f83906e7423028ee524f6cfe0d5f6f7606b839d924d11cd06e32806d687f108f",
+    "models/imoexf/profile.json": "df266b75c97f1784891f38f8bdcd5f5133daf335f79acf73db00179b61166026",
+    "fixtures/imoexf/inputs.json": "3f2cd3fe24da04f3813d5ffef483d7173d1bf93884dafb91ea4b80c07d473a5f"
+  },
+  "scope": "IMOEXF combo, two context policies, numerical replay only",
+  "adaptations": [
+    "Local strict BarEvent/DataOrigin DTOs; no ALOR protocol or gateway dependency",
+    "IMOEXF-only context and facade; no USD/RI code included in this slice",
+    "Removed context collector and filesystem persistence helpers; checkpoint bytes remain offline artifacts",
+    "Public in-memory freeze for the local input-only fixture adapter",
+    "Equivalent Rust 1.80-compatible Option/grid syntax",
+    "Frozen combo and exact commission policy enforced at session construction",
+    "Independent local fixture exporter; expected outputs never supplied to Rust"
+  ],
+  "deployment": false,
+  "order_emission_allowed": false
+}
