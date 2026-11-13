@@ -160,6 +160,7 @@ impl Engine {
             .is_some_and(|(p, p2)| {
                 p.range > 0.
                     && p.close > 0.
+                    && (p.high / p.low).is_finite()
                     && (p.close / p2.close - 1.).is_finite()
                     && d.weekday().number_from_monday() != 5
                     && !((5, 21)..=(7, 1)).contains(&month_day)
@@ -538,6 +539,20 @@ impl Engine {
         ensure!(
             !(self.mr.is_some() && self.bo.is_some()),
             "overlapping RI ownership"
+        );
+        ensure!(
+            [
+                self.high,
+                self.low,
+                self.first_high,
+                self.first_low,
+                self.long_level,
+                self.short_level
+            ]
+            .into_iter()
+            .flatten()
+            .all(|v| v.is_finite()),
+            "RI numerical feature overflow"
         );
         Ok(())
     }

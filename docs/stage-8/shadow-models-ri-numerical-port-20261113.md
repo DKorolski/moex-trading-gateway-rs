@@ -66,6 +66,8 @@ frozen view и возрастающий model label. Шаг stage-ится на 
 mark и не изменяет session. Duplicate не повторяет effect. Nonfinite raw payload
 может иметь quarantined digest в context, но не сериализуется как JSON null в
 restorable session prefix: session атомарно отклоняет такой вход.
+Переполнение вычисленных levels из конечных OHLCV тоже отклоняется до commit,
+не сериализуется как null. BO readiness сохраняет canonical finite H/L-ratio guard.
 
 Checkpoint содержит initial context bytes/clock, selected identity/generation/day,
 весь causally ordered input prefix с processing clock/routing, clock guard и
@@ -102,8 +104,8 @@ Mark audit дополнительно проверяет цены/ownership/кл
 Есть 6 comparator mutations и 8 invalid-input запусков реального RI CLI.
 
 Существующие IMOEXF/USD checks повторяются отдельно с reaction binary на прежних
-fixtures; их models/context/session не изменены. 48 unit tests в каждом из двух
-build modes: прежние25 и23 RI. Число state rows всех моделей =4148, не число
+fixtures; их models/context/session не изменены. 49 unit tests в каждом из двух
+build modes: прежние25 и24 RI. Число state rows всех моделей =4148, не число
 различных observed FINAM candles. 32 RI midpoint restores не добавляют новые
 fixture rows. Никакой full-session, operational или promotion verdict не выдаётся.
 

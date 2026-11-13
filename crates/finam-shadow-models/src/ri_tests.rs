@@ -579,3 +579,46 @@ fn ri_restore_guard_does_not_admit_new_processing_before_restart() {
     assert!(restored.process(&c, i, ts + 600).is_err());
     assert_eq!(restored.checkpoint_bytes().unwrap(), before);
 }
+
+#[test]
+fn ri_finite_ohlcv_feature_overflow_is_atomic_and_checkpoint_stays_restorable() {
+    let id = selected_identity(ContextPolicy::RuntimeAcceptedOnly, "ri-overflow".into()).unwrap();
+    let mut c = RiContextStore::new(id.clone()).unwrap();
+    let price = f64::MAX * 0.9;
+    for d in [date("2026-10-09"), date("2026-10-12")] {
+        for ts in (id.cutoff(d)..=epoch(d, 23, 30)).step_by(600) {
+            let mut b = bar(ts, price);
+            b.h = f64::MAX;
+            b.l = 1.;
+            b.origin = DataOrigin::History;
+            c.ingest(
+                ContextInput {
+                    sequence: c.last_sequence() + 1,
+                    bar: b,
+                    received_at_utc: Some(ts + 600),
+                    durable_at_utc: Some(ts + 600),
+                },
+                ts + 600,
+            )
+            .unwrap();
+        }
+    }
+    freeze(&mut c, day(), epoch(day(), 7, 0));
+    let mut s = RiSession::new(&c, day(), "unit-generation".into()).unwrap();
+    for m in (0..50).step_by(10) {
+        at(&mut c, &mut s, 7, m, price);
+    }
+    let bytes = s.checkpoint_bytes().unwrap();
+    let ts = epoch(day(), 7, 50);
+    let input = ContextInput {
+        sequence: c.last_sequence() + 1,
+        bar: bar(ts, price),
+        received_at_utc: Some(ts + 600),
+        durable_at_utc: Some(ts + 600),
+    };
+    c.ingest(input.clone(), ts + 600).unwrap();
+    let error = s.process(&c, input, ts + 600).err().unwrap().to_string();
+    assert!(error.contains("feature overflow"), "{error}");
+    assert_eq!(s.checkpoint_bytes().unwrap(), bytes);
+    RiSession::restore(&id, "unit-generation", day(), &bytes, epoch(day(), 7, 50)).unwrap();
+}
