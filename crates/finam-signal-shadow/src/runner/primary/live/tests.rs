@@ -393,7 +393,13 @@ fn unavailable_audit_does_not_block_two_subsequent_actual_ws_model_steps() {
                 accepted(&mut progress, stamp).await;
                 if i > 0 && i % 10 == 0 {
                     go(stamp + 1000);
-                    peer.send(data(vec![raw_row(stamp - 100)])).await.unwrap();
+                    let mut update = raw_row(stamp - 100);
+                    update["volume"] = json!({"value":"3"});
+                    peer.send(data(vec![update])).await.unwrap();
+                    // A distinct benign volume update carries this exact
+                    // receive stamp. Its ack proves Engine applied the writer
+                    // reply, not merely that the disk commit became visible.
+                    accepted(&mut progress, stamp + 1000).await;
                     until(|| {
                         trace(&path)
                             .iter()

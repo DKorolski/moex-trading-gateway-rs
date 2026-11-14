@@ -38,27 +38,6 @@ fn implementation_with_workspace(workspace: &[u8]) -> String {
     )
 }
 
-#[cfg(test)]
-mod fingerprint_tests {
-    #[test]
-    fn workspace_only_features_change_bridge_contract() {
-        let original = include_str!("../../../../Cargo.toml");
-        let altered = original.replace(
-            "serde_json = \"1\"",
-            "serde_json = { version = \"1\", features = [\"arbitrary_precision\"] }",
-        );
-        assert_ne!(original, altered);
-        assert_eq!(
-            super::implementation(),
-            super::implementation_with_workspace(original.as_bytes())
-        );
-        assert_ne!(
-            super::implementation(),
-            super::implementation_with_workspace(altered.as_bytes())
-        );
-    }
-}
-
 /// Only two IMOEXF arms receive data in this slice. The other four journal
 /// arms retain their accepted local initialization, not invented live inputs.
 pub struct ImoexfModelBridge {
@@ -307,5 +286,26 @@ fn crash_after_durable() {
         loop {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
+    }
+}
+
+#[cfg(test)]
+mod fingerprint_tests {
+    #[test]
+    fn workspace_only_features_change_bridge_contract() {
+        let original = include_str!("../../../../Cargo.toml");
+        let altered = original.replace(
+            "serde_json = \"1\"",
+            "serde_json = { version = \"1\", features = [\"arbitrary_precision\"] }",
+        );
+        assert_ne!(original, altered);
+        assert_eq!(
+            super::implementation(),
+            super::implementation_with_workspace(original.as_bytes())
+        );
+        assert_ne!(
+            super::implementation(),
+            super::implementation_with_workspace(altered.as_bytes())
+        );
     }
 }
