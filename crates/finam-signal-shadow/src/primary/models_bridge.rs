@@ -22,6 +22,9 @@ fn hash(value: &impl serde::Serialize) -> Result<String> {
     Ok(crate::seed::digest(&serde_json::to_vec(value)?))
 }
 fn implementation() -> String {
+    implementation_with_workspace(include_bytes!("../../../../Cargo.toml"))
+}
+fn implementation_with_workspace(workspace: &[u8]) -> String {
     crate::seed::digest(
         &[
             include_bytes!("models_bridge.rs").as_slice(),
@@ -29,9 +32,31 @@ fn implementation() -> String {
             include_bytes!("policy.rs").as_slice(),
             include_bytes!("../../Cargo.toml").as_slice(),
             include_bytes!("../../../../Cargo.lock").as_slice(),
+            workspace,
         ]
         .concat(),
     )
+}
+
+#[cfg(test)]
+mod fingerprint_tests {
+    #[test]
+    fn workspace_only_features_change_bridge_contract() {
+        let original = include_str!("../../../../Cargo.toml");
+        let altered = original.replace(
+            "serde_json = \"1\"",
+            "serde_json = { version = \"1\", features = [\"arbitrary_precision\"] }",
+        );
+        assert_ne!(original, altered);
+        assert_eq!(
+            super::implementation(),
+            super::implementation_with_workspace(original.as_bytes())
+        );
+        assert_ne!(
+            super::implementation(),
+            super::implementation_with_workspace(altered.as_bytes())
+        );
+    }
 }
 
 /// Only two IMOEXF arms receive data in this slice. The other four journal

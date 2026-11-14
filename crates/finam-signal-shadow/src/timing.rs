@@ -9,6 +9,13 @@ use std::time::Instant;
 pub(crate) fn sample_clock() -> (i64, Instant) {
     #[cfg(test)]
     if let Some(value) = FIXTURE_CLOCK.with(|v| *v.borrow()) {
+        if let Some(anchor) = RUNNING_FIXTURE_CLOCK.with(|v| *v.borrow()) {
+            let elapsed = anchor.elapsed();
+            return (
+                value.0 + i64::try_from(elapsed.as_millis()).unwrap(),
+                value.1 + elapsed,
+            );
+        }
         return value;
     }
     (Utc::now().timestamp_millis(), Instant::now())
@@ -21,6 +28,29 @@ pub(crate) fn now_ms() -> i64 {
 #[cfg(test)]
 thread_local! {
     static FIXTURE_CLOCK: std::cell::RefCell<Option<(i64, Instant)>> = const { std::cell::RefCell::new(None) };
+    static RUNNING_FIXTURE_CLOCK: std::cell::RefCell<Option<Instant>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Final fixture join/drain uses real elapsed time after manual wall jumps.
+/// Advance BOTH fake UTC and fake monotonic samples from one real anchor.
+/// No production clock, STOP tolerance or budget is changed.
+#[cfg(test)]
+pub(crate) struct RunningFixtureClock;
+#[cfg(test)]
+pub(crate) fn run_fixture_clock() -> RunningFixtureClock {
+    assert!(FIXTURE_CLOCK.with(|c| c.borrow().is_some()));
+    assert!(RUNNING_FIXTURE_CLOCK
+        .with(|c| c.replace(Some(Instant::now())))
+        .is_none());
+    RunningFixtureClock
+}
+#[cfg(test)]
+impl Drop for RunningFixtureClock {
+    fn drop(&mut self) {
+        let sample = sample_clock();
+        RUNNING_FIXTURE_CLOCK.with(|c| c.replace(None));
+        FIXTURE_CLOCK.with(|c| c.replace(Some(sample)));
+    }
 }
 
 #[cfg(test)]
@@ -30,19 +60,21 @@ pub(crate) fn with_fixture_clock<T>(wall: i64, work: impl FnOnce() -> T) -> T {
 
 #[cfg(test)]
 pub(crate) fn fixture_sample() -> Option<(i64, Instant)> {
-    FIXTURE_CLOCK.with(|c| *c.borrow())
+    FIXTURE_CLOCK.with(|c| c.borrow().as_ref().map(|_| sample_clock()))
 }
 
 #[cfg(test)]
 pub(crate) fn with_fixture_sample<T>(sample: (i64, Instant), work: impl FnOnce() -> T) -> T {
-    struct Restore(Option<(i64, Instant)>);
+    struct Restore(Option<(i64, Instant)>, Option<Instant>);
     impl Drop for Restore {
         fn drop(&mut self) {
             FIXTURE_CLOCK.with(|c| *c.borrow_mut() = self.0);
+            RUNNING_FIXTURE_CLOCK.with(|c| *c.borrow_mut() = self.1);
         }
     }
     let previous = FIXTURE_CLOCK.with(|c| c.replace(Some(sample)));
-    let _restore = Restore(previous);
+    let anchor = RUNNING_FIXTURE_CLOCK.with(|c| c.replace(None));
+    let _restore = Restore(previous, anchor);
     work()
 }
 

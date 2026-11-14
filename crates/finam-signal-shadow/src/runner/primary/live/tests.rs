@@ -402,7 +402,8 @@ fn unavailable_audit_does_not_block_two_subsequent_actual_ws_model_steps() {
                             == (i / 10) as usize
                     })
                     .await;
-                    progress.changed().await.unwrap();
+                    // The durable predicate is the barrier. watch coalesces
+                    // updates, so a second notification is not guaranteed.
                     progress.borrow_and_update();
                     if i == 60 {
                         until(|| {
@@ -412,7 +413,6 @@ fn unavailable_audit_does_not_block_two_subsequent_actual_ws_model_steps() {
                             })
                         })
                         .await;
-                        progress.changed().await.unwrap();
                         progress.borrow_and_update();
                     }
                 }

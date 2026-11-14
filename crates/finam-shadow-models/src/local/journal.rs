@@ -235,21 +235,80 @@ impl Journal {
             "readback chain"
         );
         for o in &outcomes {
-            let (seq,cp,cp_sha,state,state_sha): (u64,Vec<u8>,String,String,String) = tx.query_row(
-                "SELECT source_sequence,checkpoint,checkpoint_sha,state,state_sha FROM arms WHERE id=?1",
-                [&o.arm], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?)))?;
+            let expected_arm = self.arms.get(&o.arm).context("readback unknown arm")?;
+            let (symbol,seq,cp,cp_sha,state,state_sha): (String,u64,Vec<u8>,String,String,String) = tx.query_row(
+                "SELECT instrument,source_sequence,checkpoint,checkpoint_sha,state,state_sha FROM arms WHERE id=?1",
+                [&o.arm], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?)))?;
             ensure!(
-                seq >= sequence
+                symbol == instrument
+                    && symbol == expected_arm.instrument
+                    && seq >= sequence
                     && bytes_hash(&cp) == cp_sha
                     && bytes_hash(state.as_bytes()) == state_sha,
-                "readback checkpoint checksum"
+                "readback checkpoint identity/checksum"
             );
-            if seq == sequence {
-                ensure!(
-                    cp_sha == o.checkpoint_sha256 && state_sha == o.state_sha256,
-                    "readback latest checkpoint/outcome"
-                );
-            }
+            // A historical requested input may precede the current checkpoint.
+            // Bind that checkpoint to the ACTUAL latest committed input/outcome,
+            // not merely a larger SQL sequence supplied by an untrusted row.
+            let latest_revision: u64 = tx.query_row(
+                "SELECT MAX(revision) FROM inputs WHERE instrument=?1",
+                [instrument],
+                |r| r.get(0),
+            )?;
+            let (text, latest_sha, previous, head, prepared): (
+                String,
+                String,
+                String,
+                String,
+                i64,
+            ) = tx.query_row(
+                "SELECT input,input_sha,previous_chain,chain,write_prepared_at_ms
+                    FROM inputs WHERE revision=?1 AND instrument=?2 AND source_sequence=?3",
+                params![latest_revision, instrument, seq],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )?;
+            let latest_input: Candle = serde_json::from_str(&text)?;
+            ensure!(
+                latest_input.instrument == symbol
+                    && latest_input.source_sequence == seq
+                    && latest_input.sha256()? == latest_sha,
+                "readback latest input identity/hash"
+            );
+            let latest_pair = read_outcomes(&tx, latest_revision)?;
+            ensure!(
+                latest_pair.len() == 2
+                    && latest_pair.iter().all(|p| p.input_sha256 == latest_sha
+                        && p.source_sequence == seq
+                        && p.manifest_sha256 == manifest_sha),
+                "readback latest outcome links"
+            );
+            ensure!(
+                hash(&(
+                    previous,
+                    latest_revision,
+                    &latest_sha,
+                    &latest_pair,
+                    prepared
+                ))? == head,
+                "readback latest chain"
+            );
+            let latest = latest_pair
+                .iter()
+                .find(|p| p.arm == o.arm)
+                .context("readback latest arm outcome absent")?;
+            let last_arm_revision: u64 = tx.query_row(
+                "SELECT MAX(revision) FROM outcomes WHERE arm=?1",
+                [&o.arm],
+                |r| r.get(0),
+            )?;
+            ensure!(
+                last_arm_revision == latest_revision
+                    && latest_revision >= revision
+                    && cp_sha == latest.checkpoint_sha256
+                    && state_sha == latest.state_sha256
+                    && state == serde_json::to_string(&latest.state)?,
+                "readback latest checkpoint/outcome frontier"
+            );
         }
         let record = CommittedInput {
             candle,

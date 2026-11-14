@@ -637,6 +637,7 @@ async fn day_scenario(
             tokio::task::yield_now().await;
         }
         go(f.binding.eod_check_at_ms);
+        let _running_clock = crate::timing::run_fixture_clock();
         tokio::time::pause();
         tokio::time::advance(Duration::from_secs(60)).await;
         tokio::time::resume();

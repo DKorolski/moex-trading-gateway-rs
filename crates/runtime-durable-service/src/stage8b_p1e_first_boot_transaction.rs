@@ -1669,7 +1669,7 @@ fn rename_noreplace_between(
                 std::io::Error::last_os_error().kind(),
             ));
         }
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -3196,7 +3196,7 @@ fn rename_noreplace(
                 std::io::Error::last_os_error().kind(),
             ));
         }
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(target_os = "linux"))]
     {

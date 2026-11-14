@@ -1,5 +1,6 @@
 //! Synthetic native-admission tests. No network, credential or observed claim.
 use super::*;
+mod reviewer_cases;
 use crate::primary::models_bridge::{ImoexfModelBridge, MAPPING_SHA256};
 use finam_shadow_models::local::{contract::*, implementation_sha256, Commit, VERSION};
 use std::path::{Path, PathBuf};
