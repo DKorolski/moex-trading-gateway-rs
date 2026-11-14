@@ -198,9 +198,10 @@ async fn scenario(mode: Mode) {
             })
             .await;
             drop(running_clock.take());
-            go(T + 608000);
+            let fresh_at = (T + 608000).max(crate::timing::now_ms() + 1);
+            go(fresh_at);
             peers[1].send(data(T + 600000)).await.unwrap();
-            accepted(&mut ack, T + 608000).await;
+            accepted(&mut ack, fresh_at).await;
             until(|| {
                 trace(&path)
                     .iter()
@@ -225,9 +226,13 @@ async fn scenario(mode: Mode) {
                     .count(),
                 1
             );
-            go(T + 604100);
+            // A slow fixture may already be past the nominal continuation
+            // timestamp. Never rewind UTC/monotonic time after a real wait.
+            go((T + 610000).max(crate::timing::now_ms()));
+            let fresh_at = (T + 604100).max(crate::timing::now_ms() + 1);
+            go(fresh_at);
             peers[0].send(data(T + 600000)).await.unwrap();
-            accepted(&mut ack, T + 604100).await;
+            accepted(&mut ack, fresh_at).await;
             feed(&mut peers[0], &mut ack, &path, 11, 20, 2).await;
             root.stop();
         }
