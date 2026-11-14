@@ -714,10 +714,13 @@ where
                     }
                 }
                 Err(cause) => {
-                    if self.root.is_stopped() {
+                    if self.root.is_stopped()
+                        && !(self.policy.data_wait_recovery()
+                            && matches!(cause, Cause::Recovery(_)))
+                    {
                         return Err(self.faults.first().unwrap_or(cause));
                     }
-                    let error = match cause {
+                    let error = match cause.clone() {
                         Cause::Socket(failure) => match failure.kind {
                             crate::socket::primary::Kind::Auth(class) => {
                                 reconnect::Error::Auth(class)
@@ -732,6 +735,9 @@ where
                         self.record_attempt_failure(&episode, stage, error).await?;
                     } else {
                         episode.attempt_failed(error);
+                    }
+                    if self.root.is_stopped() {
+                        return Err(self.faults.first().unwrap_or(cause));
                     }
                 }
             }
@@ -820,10 +826,11 @@ where
         error: reconnect::Error,
     ) -> Result<(), Cause> {
         episode.attempt_failed(error);
-        if !self.root.is_stopped() {
-            // Metadata only: an expired market-data episode must still retain
-            // its failure. This grants no extra GET, callback or recovery time.
-            self.apply(
+        // Metadata only: an expired writer wait may already have latched STOP.
+        // Keep the reason before finalization, using the existing writer drain
+        // path. This grants no extra GET, callback or episode time.
+        self.writer
+            .call_until(
                 Operation::RecoveryFailure {
                     audit: episode.audit().snapshot(),
                     stage,
@@ -831,7 +838,6 @@ where
                 Some(Instant::now() + Duration::from_secs(1)),
             )
             .await?;
-        }
         Ok(())
     }
     async fn recover_rest_tail(&mut self, episode: &Episode, cutover: i64) -> Result<(), Cause> {

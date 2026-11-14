@@ -1,6 +1,26 @@
 //! V7 managed-driver regressions: real local WS codec, stub REST, no FINAM.
 use super::*;
 
+// A timeout future may be scheduled before a simultaneously completed state
+// predicate. Check the reached state once more at the test-only wait boundary;
+// do not change any runner/HTTP/episode deadline.
+#[track_caller]
+fn until(mut check: impl FnMut() -> bool) -> impl Future<Output = ()> {
+    let caller = std::panic::Location::caller();
+    async move {
+        let result = tokio::time::timeout(Duration::from_secs(5), async {
+            while !check() {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await;
+        assert!(
+            result.is_ok() || check(),
+            "fixture state not reached at {caller}"
+        );
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
     Quiet,
@@ -320,4 +340,57 @@ fn v7_real_socket_fault_promotes_data_wait_to_physical_recovery() {
 #[test]
 fn v7_no_first_data_expires_at_original_episode_deadline_and_retains_reason() {
     with_fixture_clock(T - 100, || runtime(scenario(Mode::Deadline)));
+}
+
+#[test]
+fn v7_terminal_failure_metadata_survives_already_latched_stop_without_market_actions() {
+    with_fixture_clock(T - 100, || {
+        runtime(async {
+            let (owner, _, root, path) = crate::runner::primary::live::tests::context_delivery(
+                false,
+                crate::primary::DeliveryPolicy::ObservedBoDataWaitRecoveryV7,
+            );
+            let mut writer = Writer::spawn(
+                owner,
+                DateTime::from_timestamp_millis(T - 3600000).unwrap(),
+                root.clone(),
+                Faults::default(),
+                FailureSlot::default(),
+            )
+            .unwrap();
+            root.stop();
+            writer
+                .call(Operation::RecoveryFailure {
+                    stage: reconnect::Stage::FirstData,
+                    audit: reconnect::Snapshot {
+                        episode: 1,
+                        attempt: 1,
+                        generation: 2,
+                        stage: reconnect::Stage::Failed,
+                        original: Failure {
+                            generation: 1,
+                            kind: crate::socket::primary::Kind::Close,
+                            liveness: None,
+                        },
+                        fault_observed_at_ms: T - 45000,
+                        deadline_ms: T,
+                        transport_unresolved: true,
+                        canonical_unresolved: true,
+                        last_error: Some(reconnect::Error::EpisodeDeadline),
+                        terminal: Some(reconnect::Error::EpisodeDeadline),
+                    },
+                })
+                .await
+                .unwrap();
+            assert!(writer.join(Instant::now() + Duration::from_secs(1)).await);
+            let rows = trace(&path);
+            assert!(rows
+                .iter()
+                .any(|r| r["event"]["event"] == "primary_recovery_attempt_failed"
+                    && r["event"]["audit"]["last_error"] == "EpisodeDeadline"));
+            assert!(!rows
+                .iter()
+                .any(|r| matches!(r["kind"].as_str(), Some("model_step" | "canonical_commit"))));
+        })
+    });
 }

@@ -45,6 +45,9 @@ attempts (a subsequent physical generation may therefore skip a number).
 Each retryable recovery failure records stage and error before a later attempt
 can overwrite its audit last_error. A completed REST resync waiting for fresh
 DATA has its own diagnostic event, explicitly not readiness.
+An expired writer reply may already have latched STOP: its failure metadata
+still uses the existing writer drain path before finalization, rather than
+silently losing the terminal attempt reason. No further market action is issued.
 
 ## Required checks
 
