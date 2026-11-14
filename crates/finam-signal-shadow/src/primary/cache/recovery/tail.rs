@@ -29,6 +29,23 @@ pub enum RecoveryOutcome {
 }
 
 impl PrimaryProcessor {
+    /// A completed transient failure consumes a request, not a source proof.
+    /// The driver validates its real command receipt before calling this.
+    pub(crate) fn retire_failed_recovery_request(
+        &mut self,
+        plan: &RecoveryPlan,
+        now: i64,
+    ) -> Result<(), PrimaryError> {
+        self.clock(now)?;
+        if !self.policy.data_wait_recovery() || !self.recovery_request_active(plan) {
+            return Err(PrimaryError::Continuity);
+        }
+        self.recovery_pending
+            .as_mut()
+            .ok_or(PrimaryError::Continuity)?
+            .responded = true;
+        Ok(())
+    }
     pub(crate) fn rest_tail_recovery(&self) -> bool {
         self.policy.rest_tail_recovery()
     }

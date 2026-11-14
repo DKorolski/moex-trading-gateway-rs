@@ -151,6 +151,8 @@ fn stop_faults_still_visit_http_socket_and_writer_and_never_make_unknown_eod_pas
                 totals.audit.scheduled = 1;
                 let engine = Engine {
                     bound_subscription: None,
+                    deferred_bootstrap: None,
+                    last_transport_fault: None,
                     writer,
                     connection,
                     fetch: unused_fetch,

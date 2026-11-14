@@ -3,7 +3,10 @@ use super::*;
 use crate::{primary::DeliveryPolicy, session::primary_tests::wire};
 
 fn setup() -> (PrimaryProcessor, RecoveryPlan, i64) {
-    let mut p = processor_delivery(DeliveryPolicy::ObservedBoRestTailRecoveryV6);
+    setup_delivery(DeliveryPolicy::ObservedBoRestTailRecoveryV6)
+}
+fn setup_delivery(delivery: DeliveryPolicy) -> (PrimaryProcessor, RecoveryPlan, i64) {
+    let mut p = processor_delivery(delivery);
     committed(&mut p, 2);
     for i in 21..30 {
         p.ingest(
@@ -27,6 +30,46 @@ fn setup() -> (PrimaryProcessor, RecoveryPlan, i64) {
         )
         .unwrap();
     (p, plan, now)
+}
+
+#[test]
+fn v7_r1_failed_ticket_is_consumed_without_source_and_cannot_cross_owner_or_generation() {
+    let (mut p, plan, now) = setup_delivery(DeliveryPolicy::ObservedBoDataWaitRecoveryV7);
+    let (_, foreign, _) = setup_delivery(DeliveryPolicy::ObservedBoDataWaitRecoveryV7);
+    let before = (
+        p.next,
+        p.committed.len(),
+        p.reference.len(),
+        p.retained_ws.len(),
+        p.source_changes.len(),
+    );
+    assert!(p.retire_failed_recovery_request(&foreign, now).is_err());
+    let mut scope = plan.scope().unwrap();
+    scope.ordinal += 1;
+    assert!(p
+        .issue_recovery_request(T + 1800000, now, scope, Some(&plan))
+        .is_err());
+    p.retire_failed_recovery_request(&plan, now + 1).unwrap();
+    assert!(p.retire_failed_recovery_request(&plan, now + 1).is_err());
+    assert!(p
+        .prepare_recovery_request(&plan, &evidence(&plan, rows(&plan), now + 1), now + 1)
+        .is_err());
+    assert_eq!(
+        (
+            p.next,
+            p.committed.len(),
+            p.reference.len(),
+            p.retained_ws.len(),
+            p.source_changes.len()
+        ),
+        before
+    );
+    let next = p
+        .issue_recovery_request(T + 1800000, now + 1001, scope, Some(&plan))
+        .unwrap();
+    assert_ne!(next.sha256(), plan.sha256());
+    p.begin_generation(3, now + 1002).unwrap();
+    assert!(p.retire_failed_recovery_request(&next, now + 1002).is_err());
 }
 
 #[test]

@@ -4,6 +4,8 @@ use super::*;
 use crate::primary::{RecoveryRequestScope, MAX_REST_READS, REST_BACKOFF_MS};
 use broker_core::event::Bar;
 use broker_finam::sparse_m10::AdmittedClosedM1Snapshot;
+#[cfg(test)]
+mod failed_tests;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum State {
@@ -56,6 +58,7 @@ pub(crate) fn validate(
     let mut last_serial = BTreeMap::<String, u64>::new();
     let mut calendar = None::<String>;
     let mut eod = config.base.run_deadline_utc_ms;
+    let mut recovery_http_receipt = None;
     for line in std::str::from_utf8(bytes)
         .map_err(|_| VerifyError::Decode)?
         .lines()
@@ -75,6 +78,9 @@ pub(crate) fn validate(
             seen.insert(string(e, "snapshot_sha256")?.to_owned());
         }
         match name {
+            "primary_http_completed" if e["role"] == "Recovery" => {
+                recovery_http_receipt = Some(e["receipt"].clone());
+            }
             "primary_calendar_bound" => {
                 calendar = Some(string(&e["evidence"], "calendar_sha256")?.into());
                 eod = integer(&e["evidence"]["binding"], "eod_check_at_ms")?;
@@ -226,6 +232,37 @@ pub(crate) fn validate(
                         .is_none(),
                 )?;
                 active = Some(hash);
+            }
+            "primary_recovery_request_failed" => {
+                require(config.primary.data_wait_recovery())?;
+                let hash = string(e, "ticket_sha256")?;
+                require(active.as_deref() == Some(hash))?;
+                let r = requests.get_mut(hash).ok_or(VerifyError::Source)?;
+                let receipt = &e["receipt"];
+                require(recovery_http_receipt.take().as_ref() == Some(receipt))?;
+                let at = integer(e, "at_ms")?;
+                let started = integer(receipt, "started_at_ms")?;
+                let finished = integer(receipt, "finished_at_ms")?;
+                require(
+                    r.state == State::Active
+                        && e["scope"] == r.value["scope"]
+                        && Some(number(e, "generation")?) == generation
+                        && matches!(e["error"].as_str(), Some("Unavailable" | "Timeout"))
+                        && e["callback"] == false
+                        && e["validated_source"] == false
+                        && (receipt["executor_completed"].is_null()
+                            || receipt["executor_completed"] == true)
+                        && receipt["deadline_ms"] == r.value["deadline_ms"]
+                        && started >= integer(&r.value, "issued_at_ms")?
+                        && finished >= started
+                        && finished <= at
+                        && at <= now
+                        && number(receipt, "get_attempts")? <= 1
+                        && (receipt["get_attempts"] == 0
+                            || receipt["auth_generation"].as_u64().is_some()),
+                )?;
+                r.state = State::Pending;
+                r.pending_at = Some(at);
             }
             "primary_recovery_data_not_ready" => {
                 let hash = string(e, "ticket_sha256")?;

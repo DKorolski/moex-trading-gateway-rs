@@ -67,6 +67,22 @@ mod tests {
         assert!(!gate.resolve(1, gate.snapshot().revision));
         assert!(!gate.data_gap(1));
     }
+    #[test]
+    fn v7_r1_atomic_data_wait_returns_the_physical_fault_that_won_the_race() {
+        let gate = ContinuityGate::new(1);
+        assert!(gate.healthy()); // an obsolete caller observation
+        gate.fault(failure(1));
+        let before = gate.snapshot();
+        let state = gate.data_gap_state(1).unwrap();
+        assert_eq!(state.revision, before.revision);
+        assert!(state.lost);
+        assert!(matches!(state.failure.unwrap().kind, Kind::Close));
+        assert!(gate.data_gap_state(2).is_none());
+        let clean = ContinuityGate::new(1);
+        let entered = clean.data_gap_state(1).unwrap();
+        assert!(entered.lost && entered.failure.is_none());
+        assert_eq!(clean.data_gap_state(1).unwrap().revision, entered.revision);
+    }
 }
 #[derive(Clone)]
 pub(crate) struct Snapshot {
@@ -103,6 +119,7 @@ impl ContinuityGate {
     }
     /// Canonical uncertainty fences callbacks, but does NOT occupy the
     /// transport failure slot. A real network fault can still latch atomically.
+    #[cfg(test)]
     pub(crate) fn data_gap(&self, generation: u64) -> bool {
         let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
         if s.generation != generation || s.failure.is_some() || s.lost {
@@ -111,6 +128,24 @@ impl ContinuityGate {
         s.lost = true;
         s.revision += 1;
         true
+    }
+    /// Enter canonical wait OR return the physical fault that won the race,
+    /// under the same lock. No healthy()/transition check-then-act window.
+    pub(crate) fn data_gap_state(&self, generation: u64) -> Option<Snapshot> {
+        let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if s.generation != generation {
+            return None;
+        }
+        if !s.lost && s.failure.is_none() {
+            s.lost = true;
+            s.revision += 1;
+        }
+        Some(Snapshot {
+            generation: s.generation,
+            revision: s.revision,
+            lost: s.lost,
+            failure: s.failure.clone(),
+        })
     }
     pub fn begin_generation(&self, generation: u64) -> Option<u64> {
         let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());

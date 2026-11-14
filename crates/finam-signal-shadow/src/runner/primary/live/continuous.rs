@@ -334,10 +334,12 @@ struct Engine<F> {
     calendar_sha256: Option<String>,
     clock_uncertainty_ms: u64,
     critical: Option<HttpJob>,
+    deferred_bootstrap: Option<BootstrapTicket>,
     audit: Option<HttpJob>,
     totals: HttpTotals,
     data: Option<LiveDataStamp>,
     bound_subscription: Option<Subscription>,
+    last_transport_fault: Option<Failure>,
     bootstrap_pending: bool,
     wake: Instant,
     committed: u64,
@@ -373,7 +375,9 @@ where
             return Err(Cause::Socket(Box::new(failure.clone())));
         }
         if update.episode.is_none() {
-            if let Some(error) = update.recovery_error {
+            if let Some(error) = update.recovery_error.filter(|_| {
+                !(self.policy.data_wait_recovery() && update.completed_recovery_sha256.is_some())
+            }) {
                 return Err(Cause::Recovery(error));
             }
         }
@@ -395,9 +399,29 @@ where
         if let Some(ticket) = &update.audit {
             self.schedule(Job::Audit(ticket.clone()))?;
         }
+        if self.critical.is_none() {
+            if let Some(ticket) = self.deferred_bootstrap.take() {
+                self.schedule(Job::Bootstrap(ticket))?;
+            }
+        }
         Ok(update)
     }
     fn schedule(&mut self, job: Job) -> Result<(), Cause> {
+        if self.policy.data_wait_recovery()
+            && matches!(&job, Job::Bootstrap(_))
+            && self
+                .critical
+                .as_ref()
+                .is_some_and(|j| matches!(j.job, Job::Recovery(_)))
+        {
+            if self.deferred_bootstrap.is_some() {
+                return Err(Cause::RoleOverlap);
+            }
+            if let Job::Bootstrap(ticket) = job {
+                self.deferred_bootstrap = Some(ticket);
+            }
+            return Ok(());
+        }
         let audit = matches!(job, Job::Audit(_));
         let target = if audit {
             &mut self.audit
@@ -549,6 +573,7 @@ where
         drained
     }
     async fn retire(&mut self, deadline: Instant) -> Result<(), Cause> {
+        self.deferred_bootstrap = None;
         self.connection.stop.stop();
         let jobs = self.drain_jobs(deadline, false).await;
         let (socket, report) = self.connection.drain(deadline).await;
@@ -570,6 +595,18 @@ where
         G: Fn(Open) -> GF + Clone + Send + 'static,
         GF: Future<Output = Result<SocketReport, Failure>> + Send + 'static,
     {
+        let failure = if self.policy.data_wait_recovery() {
+            self.gate
+                .snapshot()
+                .failure
+                .filter(|f| f.generation == failure.generation)
+                .unwrap_or(failure)
+        } else {
+            failure
+        };
+        if !matches!(failure.kind, crate::socket::primary::Kind::Source(_)) {
+            self.last_transport_fault = Some(failure.clone());
+        }
         // The physical driver's slot already latched the cross-task fault.
         // The writer now atomically retires old tickets and opens the episode.
         let reuse = self.policy.data_wait_recovery()
@@ -648,7 +685,10 @@ where
                 Err(cause) => {
                     let stage = episode.audit().snapshot().stage;
                     let error = match &cause {
-                        Cause::Socket(f) => reconnect::Error::Transport(f.kind),
+                        Cause::Socket(f) => {
+                            self.last_transport_fault = Some((**f).clone());
+                            reconnect::Error::Transport(f.kind)
+                        }
                         Cause::Recovery(e) => *e,
                         _ => return Err(cause),
                     };
@@ -721,12 +761,15 @@ where
                         return Err(self.faults.first().unwrap_or(cause));
                     }
                     let error = match cause.clone() {
-                        Cause::Socket(failure) => match failure.kind {
-                            crate::socket::primary::Kind::Auth(class) => {
-                                reconnect::Error::Auth(class)
+                        Cause::Socket(failure) => {
+                            self.last_transport_fault = Some((*failure).clone());
+                            match failure.kind {
+                                crate::socket::primary::Kind::Auth(class) => {
+                                    reconnect::Error::Auth(class)
+                                }
+                                kind => reconnect::Error::Transport(kind),
                             }
-                            kind => reconnect::Error::Transport(kind),
-                        },
+                        }
                         Cause::Recovery(error) => error,
                         other => return Err(other),
                     };
@@ -843,6 +886,13 @@ where
     async fn recover_rest_tail(&mut self, episode: &Episode, cutover: i64) -> Result<(), Cause> {
         let mut previous = None;
         loop {
+            // Mandatory bootstrap requested during backoff keeps its own
+            // deadline and finishes before the next critical recovery GET.
+            if self.policy.data_wait_recovery() {
+                while self.critical.is_some() {
+                    self.poll(Some(episode.deadline()), false).await?;
+                }
+            }
             let mut update = self
                 .apply(
                     Operation::RecoveryRequest { cutover, previous },
@@ -853,13 +903,25 @@ where
             self.schedule(Job::Recovery(plan.clone()))?;
             let mut completion = None;
             while self.critical.is_some() {
-                completion = Some(self.poll(Some(episode.deadline()), false).await?);
+                let update = self.poll(Some(episode.deadline()), false).await?;
+                if !self.policy.data_wait_recovery()
+                    || update.completed_recovery_sha256.as_deref() == Some(plan.sha256())
+                {
+                    completion = Some(update);
+                }
             }
             let update = completion.ok_or(Cause::Binding)?;
             if update.recovery_ready {
                 return Ok(());
             }
-            if update.recovery_wait.is_none() {
+            let transient = match update.recovery_error {
+                Some(reconnect::Error::Rest(
+                    error @ (RestFailure::Unavailable | RestFailure::Timeout),
+                )) if self.policy.data_wait_recovery() => Some(error),
+                Some(error) => return Err(Cause::Recovery(error)),
+                None => None,
+            };
+            if update.recovery_wait.is_none() && transient.is_none() {
                 return Err(Cause::Binding);
             }
             let scope = plan.scope().ok_or(Cause::Binding)?;
@@ -913,7 +975,24 @@ where
             audit.latch_candidate_fault(failure);
         }
         let recovery: Vec<_> = self.recovery.iter().map(|audit| audit.snapshot()).collect();
-        let unresolved_transport_fault = if state.lost {
+        let unresolved_transport_fault = if self.policy.data_wait_recovery() {
+            if state.lost
+                && (state.failure.is_some()
+                    || recovery.last().is_some_and(|r| r.transport_unresolved))
+            {
+                state
+                    .failure
+                    .clone()
+                    .filter(|f| !matches!(f.kind, crate::socket::primary::Kind::Source(_)))
+                    .or_else(|| {
+                        self.last_transport_fault
+                            .clone()
+                            .filter(|f| !matches!(f.kind, crate::socket::primary::Kind::Source(_)))
+                    })
+            } else {
+                None
+            }
+        } else if state.lost {
             state
                 .failure
                 .or_else(|| recovery.last().map(|r| r.original.clone()))
@@ -925,11 +1004,14 @@ where
             .all(|r| !r.transport_unresolved && !r.canonical_unresolved && r.terminal.is_none());
         let cause = self.faults.first().unwrap_or(cause);
         let update = if Instant::now() < deadline {
-            let event = serde_json::json!({"event":"primary_async_shutdown",
+            let mut event = serde_json::json!({"event":"primary_async_shutdown",
             "cause":cause,"recovery":recovery,"continuity_lost":state.lost,"continuity_generation":state.generation,
             "unresolved_transport_fault":unresolved_transport_fault,"socket_drained":socket_drained&&self.all_connections_drained,
             "http_drained":http_drained,"http":self.totals,"drained_http":self.drained_http,
             "requested_calendar_eod":requested_eod,"stop_started_at_ms":stop_sample.0,"full_session_qualified":false});
+            if self.policy.data_wait_recovery() {
+                event["unresolved_canonical_gap"] = serde_json::json!(state.lost);
+            }
             self.writer
                 .call(Operation::Finalize(crate::primary::eod::FinishFacts {
                     event,
@@ -1094,10 +1176,12 @@ where
         calendar_sha256,
         clock_uncertainty_ms,
         critical: None,
+        deferred_bootstrap: None,
         audit: None,
         totals: HttpTotals::default(),
         data: None,
         bound_subscription: None,
+        last_transport_fault: None,
         bootstrap_pending: false,
         wake: Instant::now() + Duration::from_secs(60),
         committed: 0,

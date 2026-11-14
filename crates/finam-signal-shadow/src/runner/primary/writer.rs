@@ -57,6 +57,7 @@ pub(super) struct Update {
     pub recovery_error: Option<super::reconnect::Error>,
     pub recovery_wait: Option<crate::primary::RecoveryWait>,
     pub recovery_ready: bool,
+    pub completed_recovery_sha256: Option<String>,
     pub transport_failure: Option<crate::socket::primary::Failure>,
     pub bootstrap: Option<BootstrapTicket>,
     pub proof: Option<RestTicket>,
@@ -400,6 +401,7 @@ impl Core {
                                     .complete_recovery_request(&plan, &source)
                                     .map_err(Cause::Coordinator)?;
                                 let mut update = self.update();
+                                update.completed_recovery_sha256 = Some(plan.sha256().to_owned());
                                 match progress {
                                     RecoveryProgress::DataNotReady(wait) => {
                                         update.recovery_wait = Some(wait)
@@ -414,7 +416,30 @@ impl Core {
                                 .map_err(Cause::Coordinator)?;
                         }
                         Err(error @ (RestFailure::Unavailable | RestFailure::Timeout)) => {
+                            if self.owner.processor.data_wait_recovery() {
+                                let r = &outcome.receipt;
+                                let now = crate::timing::now_ms();
+                                if !r.executor_completed
+                                    || r.deadline_ms != plan.deadline_ms()
+                                    || r.started_at_ms < plan.issued_at_ms()
+                                    || r.finished_at_ms < r.started_at_ms
+                                    || r.finished_at_ms > now
+                                    || r.get_attempts > 1
+                                    || (r.get_attempts > 0 && r.auth_generation.is_none())
+                                {
+                                    return Err(Cause::Http(RestFailure::Integrity));
+                                }
+                                self.owner
+                                    .processor
+                                    .retire_failed_recovery_request(&plan, now)
+                                    .map_err(|e| Cause::Coordinator(CoordinatorError::Source(e)))?;
+                                self.owner.event(serde_json::json!({"event":"primary_recovery_request_failed",
+                                    "ticket_sha256":plan.sha256(),"scope":plan.scope(),"generation":plan.generation(),
+                                    "error":error,"receipt":r,"at_ms":now,"callback":false,
+                                    "validated_source":false})).map_err(Cause::Coordinator)?;
+                            }
                             let mut update = self.update();
+                            update.completed_recovery_sha256 = Some(plan.sha256().to_owned());
                             update.recovery_error = Some(super::reconnect::Error::Rest(error));
                             return Ok(update);
                         }
@@ -518,15 +543,20 @@ impl Core {
         };
         if !self.recovering && self.owner.processor.gap_unresolved() {
             if let Some(gate) = &self.gate {
-                if gate.healthy() {
+                if self.owner.processor.data_wait_recovery() || gate.healthy() {
                     let failure = crate::socket::primary::Failure {
                         generation: self.owner.processor.generation(),
                         kind: crate::socket::primary::Kind::Source(PrimaryError::Continuity),
                         liveness: None,
                     };
                     if self.owner.processor.data_wait_recovery() {
-                        if !gate.data_gap(failure.generation) {
-                            return Err(Cause::Binding);
+                        let state = gate
+                            .data_gap_state(failure.generation)
+                            .ok_or(Cause::Binding)?;
+                        if let Some(physical) = state.failure {
+                            let mut update = self.update();
+                            update.transport_failure = Some(physical);
+                            return Ok(update);
                         }
                         self.owner.event(serde_json::json!({"event":"primary_data_wait_started",
                             "generation":failure.generation,"reason":"CanonicalBoundaryOrRecentTailUnproven",
@@ -567,6 +597,7 @@ impl Core {
             recovery_error: None,
             recovery_wait: None,
             recovery_ready: false,
+            completed_recovery_sha256: None,
             transport_failure: None,
             bootstrap: None,
             proof: None,

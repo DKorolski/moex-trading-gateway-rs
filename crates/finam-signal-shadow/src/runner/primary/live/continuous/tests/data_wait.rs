@@ -1,5 +1,7 @@
 //! V7 managed-driver regressions: real local WS codec, stub REST, no FINAM.
 use super::*;
+mod r1;
+mod reviewer;
 
 // A timeout future may be scheduled before a simultaneously completed state
 // predicate. Check the reached state once more at the test-only wait boundary;
