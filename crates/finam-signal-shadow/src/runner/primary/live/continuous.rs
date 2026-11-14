@@ -595,6 +595,8 @@ where
         G: Fn(Open) -> GF + Clone + Send + 'static,
         GF: Future<Output = Result<SocketReport, Failure>> + Send + 'static,
     {
+        // Causal diagnostics belong to this episode, never a previous one.
+        self.last_transport_fault = None;
         let failure = if self.policy.data_wait_recovery() {
             self.gate
                 .snapshot()
