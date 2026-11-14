@@ -73,6 +73,16 @@ pub struct Subscription {
     pub(crate) owner: Arc<()>,
 }
 impl Subscription {
+    /// Retain the SAME physical send receipt for private data-only recovery.
+    /// This does not send SUBSCRIBE or mint a generation/market admission.
+    pub(crate) fn retained_for_recovery(&self) -> Self {
+        Self {
+            generation: self.generation,
+            sent_at_ms: self.sent_at_ms,
+            auth_generation: self.auth_generation,
+            owner: self.owner.clone(),
+        }
+    }
     pub fn generation(&self) -> u64 {
         self.generation
     }

@@ -25,6 +25,9 @@ pub enum DeliveryPolicy {
     ObservedBoConsistentSourcesV5,
     /// V5 sources plus bounded, non-destructive recent-tail recovery requests.
     ObservedBoRestTailRecoveryV6,
+    /// V6 admission plus data-only repair and resync independent of first DATA.
+    /// Explicit opt-in; V6 and earlier retain their historical behavior.
+    ObservedBoDataWaitRecoveryV7,
 }
 
 fn strict_delivery(value: &DeliveryPolicy) -> bool {
@@ -91,6 +94,7 @@ impl PrimaryPolicy {
                 | DeliveryPolicy::ObservedBoAdmittedRestV4
                 | DeliveryPolicy::ObservedBoConsistentSourcesV5
                 | DeliveryPolicy::ObservedBoRestTailRecoveryV6
+                | DeliveryPolicy::ObservedBoDataWaitRecoveryV7
         )
     }
 
@@ -102,6 +106,7 @@ impl PrimaryPolicy {
                 | DeliveryPolicy::ObservedBoAdmittedRestV4
                 | DeliveryPolicy::ObservedBoConsistentSourcesV5
                 | DeliveryPolicy::ObservedBoRestTailRecoveryV6
+                | DeliveryPolicy::ObservedBoDataWaitRecoveryV7
         )
     }
 
@@ -112,6 +117,7 @@ impl PrimaryPolicy {
                 | DeliveryPolicy::ObservedBoAdmittedRestV4
                 | DeliveryPolicy::ObservedBoConsistentSourcesV5
                 | DeliveryPolicy::ObservedBoRestTailRecoveryV6
+                | DeliveryPolicy::ObservedBoDataWaitRecoveryV7
         )
     }
 
@@ -121,6 +127,7 @@ impl PrimaryPolicy {
             DeliveryPolicy::ObservedBoAdmittedRestV4
                 | DeliveryPolicy::ObservedBoConsistentSourcesV5
                 | DeliveryPolicy::ObservedBoRestTailRecoveryV6
+                | DeliveryPolicy::ObservedBoDataWaitRecoveryV7
         )
     }
 
@@ -129,11 +136,20 @@ impl PrimaryPolicy {
             self.delivery,
             DeliveryPolicy::ObservedBoConsistentSourcesV5
                 | DeliveryPolicy::ObservedBoRestTailRecoveryV6
+                | DeliveryPolicy::ObservedBoDataWaitRecoveryV7
         )
     }
 
     pub(crate) fn rest_tail_recovery(&self) -> bool {
-        self.delivery == DeliveryPolicy::ObservedBoRestTailRecoveryV6
+        matches!(
+            self.delivery,
+            DeliveryPolicy::ObservedBoRestTailRecoveryV6
+                | DeliveryPolicy::ObservedBoDataWaitRecoveryV7
+        )
+    }
+
+    pub(crate) fn data_wait_recovery(&self) -> bool {
+        self.delivery == DeliveryPolicy::ObservedBoDataWaitRecoveryV7
     }
 
     pub(crate) fn proof_wait_ms(&self) -> i64 {
@@ -213,5 +229,41 @@ impl WsPrimaryConfig {
         let mut bytes = b"moex.signal-shadow.semantic-config.v2\0".to_vec();
         bytes.extend(serde_json::to_vec(&value).map_err(|_| PrimaryError::Configuration)?);
         Ok(crate::seed::digest(&bytes))
+    }
+}
+
+#[cfg(test)]
+mod data_wait_tests {
+    use super::*;
+    #[test]
+    fn v7_is_explicitly_versioned_and_preserves_all_source_and_latency_budgets() {
+        let strict = PrimaryPolicy::default();
+        let v6 = PrimaryPolicy {
+            delivery: DeliveryPolicy::ObservedBoRestTailRecoveryV6,
+            ..strict.clone()
+        };
+        let v7 = PrimaryPolicy {
+            delivery: DeliveryPolicy::ObservedBoDataWaitRecoveryV7,
+            ..v6.clone()
+        };
+        for policy in [&strict, &v6, &v7] {
+            policy.validate().unwrap();
+        }
+        assert!(!strict.data_wait_recovery());
+        assert!(!v6.data_wait_recovery());
+        assert!(v7.data_wait_recovery());
+        assert!(v7.rest_tail_recovery() && v7.consistent_sources());
+        assert_ne!(v6.fingerprint().unwrap(), v7.fingerprint().unwrap());
+        let mut v7_fields = serde_json::to_value(&v7).unwrap();
+        v7_fields["delivery"] = serde_json::json!(v6.delivery);
+        assert_eq!(v7_fields, serde_json::to_value(&v6).unwrap());
+        assert_eq!(
+            serde_json::to_value(&v6).unwrap()["delivery"],
+            "ObservedBoRestTailRecoveryV6"
+        );
+        assert!(serde_json::to_value(&strict)
+            .unwrap()
+            .get("delivery")
+            .is_none());
     }
 }

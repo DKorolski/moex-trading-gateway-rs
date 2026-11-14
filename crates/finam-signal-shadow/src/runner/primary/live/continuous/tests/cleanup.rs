@@ -150,6 +150,7 @@ fn stop_faults_still_visit_http_socket_and_writer_and_never_make_unknown_eod_pas
                 totals.proof.scheduled = 1;
                 totals.audit.scheduled = 1;
                 let engine = Engine {
+                    bound_subscription: None,
                     writer,
                     connection,
                     fetch: unused_fetch,

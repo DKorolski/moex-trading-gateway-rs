@@ -337,6 +337,7 @@ struct Engine<F> {
     audit: Option<HttpJob>,
     totals: HttpTotals,
     data: Option<LiveDataStamp>,
+    bound_subscription: Option<Subscription>,
     bootstrap_pending: bool,
     wake: Instant,
     committed: u64,
@@ -357,6 +358,9 @@ where
             .await?;
         self.committed = update.committed;
         self.data = update.data.clone();
+        if let Some(receipt) = update.subscription.as_ref() {
+            self.bound_subscription = Some(receipt.retained_for_recovery());
+        }
         self.bootstrap_pending = update.bootstrap_pending;
         self.wake = Instant::now()
             + Duration::from_millis(
@@ -568,9 +572,95 @@ where
     {
         // The physical driver's slot already latched the cross-task fault.
         // The writer now atomically retires old tickets and opens the episode.
-        let mut update = self.apply(Operation::BeginRecovery(failure), None).await?;
+        let reuse = self.policy.data_wait_recovery()
+            && failure.kind
+                == crate::socket::primary::Kind::Source(crate::primary::PrimaryError::Continuity)
+            && self.gate.snapshot().failure.is_none()
+            && self.connection.slot.first().is_none()
+            && self
+                .connection
+                .worker
+                .as_ref()
+                .is_some_and(|w| !w.is_finished())
+            && self.data.is_some()
+            && self.bound_subscription.is_some();
+        let mut update = self
+            .apply(
+                if reuse {
+                    Operation::BeginDataRecovery(failure)
+                } else {
+                    Operation::BeginRecovery(failure)
+                },
+                None,
+            )
+            .await?;
         let mut episode = update.episode.take().ok_or(Cause::Binding)?;
         self.recovery.push(episode.audit());
+        if reuse {
+            let attempt = episode.reuse_bound_attempt().map_err(Cause::Recovery)?;
+            let subscription = self
+                .bound_subscription
+                .as_ref()
+                .ok_or(Cause::Binding)?
+                .retained_for_recovery();
+            episode
+                .transport_ready(&attempt, subscription, self.data.as_ref())
+                .map_err(Cause::Recovery)?;
+            // Retire outstanding HTTP tickets, not the healthy physical WS.
+            if !self
+                .drain_jobs(
+                    episode
+                        .deadline()
+                        .min(Instant::now() + Duration::from_secs(5)),
+                    false,
+                )
+                .await
+            {
+                return Err(Cause::DrainTimeout);
+            }
+            let result = self
+                .recover_rest_tail(
+                    &episode,
+                    crate::timing::now_ms().div_euclid(600000) * 600000,
+                )
+                .await;
+            match result {
+                Ok(()) => {
+                    let mut update = self
+                        .apply(
+                            Operation::ResolveRecovery(Box::new((episode, attempt))),
+                            None,
+                        )
+                        .await?;
+                    if update.episode.is_none() {
+                        return Ok(());
+                    }
+                    episode = update.episode.take().ok_or(Cause::Binding)?;
+                    let error = update
+                        .recovery_error
+                        .unwrap_or(reconnect::Error::NoCanonicalReceipt);
+                    let stage = episode.audit().snapshot().stage;
+                    self.record_attempt_failure(&episode, stage, error).await?;
+                    if !matches!(error, reconnect::Error::Transport(_)) {
+                        return Err(Cause::Recovery(error));
+                    }
+                }
+                Err(cause) => {
+                    let stage = episode.audit().snapshot().stage;
+                    let error = match &cause {
+                        Cause::Socket(f) => reconnect::Error::Transport(f.kind),
+                        Cause::Recovery(e) => *e,
+                        _ => return Err(cause),
+                    };
+                    self.record_attempt_failure(&episode, stage, error).await?;
+                    // A genuine new transport fault may promote this episode
+                    // to physical reconnect. Data unavailability never does.
+                    if !matches!(cause, Cause::Socket(_)) {
+                        return Err(cause);
+                    }
+                }
+            }
+        }
         self.retire(
             episode
                 .deadline()
@@ -597,6 +687,7 @@ where
                 &self.policy,
                 factory.clone(),
             )?;
+            self.bound_subscription = None;
             self.scope.socket = self.connection.worker.as_ref().map(|h| h.abort_handle());
             let result = self.recover_attempt(&mut episode, &attempt).await;
             match result {
@@ -609,11 +700,15 @@ where
                         .await?;
                     if let Some(returned) = update.episode.take() {
                         episode = returned;
-                        episode.attempt_failed(
-                            update.recovery_error.unwrap_or(reconnect::Error::Source(
-                                PrimaryError::ReferenceUnproven,
-                            )),
-                        );
+                        let error = update
+                            .recovery_error
+                            .unwrap_or(reconnect::Error::Source(PrimaryError::ReferenceUnproven));
+                        if self.policy.data_wait_recovery() {
+                            let stage = episode.audit().snapshot().stage;
+                            self.record_attempt_failure(&episode, stage, error).await?;
+                        } else {
+                            episode.attempt_failed(error);
+                        }
                     } else {
                         return Ok(());
                     }
@@ -632,8 +727,19 @@ where
                         Cause::Recovery(error) => error,
                         other => return Err(other),
                     };
-                    episode.attempt_failed(error);
+                    let stage = episode.audit().snapshot().stage;
+                    if self.policy.data_wait_recovery() {
+                        self.record_attempt_failure(&episode, stage, error).await?;
+                    } else {
+                        episode.attempt_failed(error);
+                    }
                 }
+            }
+            if self.policy.data_wait_recovery() && Instant::now() >= episode.deadline() {
+                // The recovery allowance is over; final STOP still owns its
+                // original independent drain budget. Do not turn this into a
+                // zero-budget retire and mask EpisodeDeadline as DrainTimeout.
+                return Err(Cause::Recovery(reconnect::Error::EpisodeDeadline));
             }
             self.retire(
                 episode
@@ -659,6 +765,34 @@ where
                 (subscription.sent_at_ms() + 5000 - crate::timing::now_ms()).max(0) as u64,
             ))
         .min(episode.deadline());
+        if self.policy.data_wait_recovery() {
+            episode
+                .bound_for_resync(attempt, &subscription)
+                .map_err(Cause::Recovery)?;
+            self.recover_rest_tail(episode, crate::timing::now_ms().div_euclid(600000) * 600000)
+                .await?;
+            episode.waiting_for_data().map_err(Cause::Recovery)?;
+            self.apply(
+                Operation::RecoveryDataWait(episode.audit().snapshot()),
+                Some(episode.deadline()),
+            )
+            .await?;
+            while self.data.is_none() {
+                self.poll(Some(episode.deadline()), false)
+                    .await
+                    .map_err(|cause| {
+                        if matches!(cause, Cause::Recovery(reconnect::Error::NoFreshData)) {
+                            Cause::Recovery(reconnect::Error::EpisodeDeadline)
+                        } else {
+                            cause
+                        }
+                    })?;
+            }
+            episode
+                .transport_ready(attempt, subscription, self.data.as_ref())
+                .map_err(Cause::Recovery)?;
+            return Ok(());
+        }
         while self.data.is_none() {
             self.poll(Some(first_data_deadline), false).await?;
         }
@@ -676,6 +810,27 @@ where
         self.schedule(Job::Recovery(plan))?;
         while self.critical.is_some() {
             self.poll(Some(episode.deadline()), false).await?;
+        }
+        Ok(())
+    }
+    async fn record_attempt_failure(
+        &mut self,
+        episode: &Episode,
+        stage: reconnect::Stage,
+        error: reconnect::Error,
+    ) -> Result<(), Cause> {
+        episode.attempt_failed(error);
+        if !self.root.is_stopped() {
+            // Metadata only: an expired market-data episode must still retain
+            // its failure. This grants no extra GET, callback or recovery time.
+            self.apply(
+                Operation::RecoveryFailure {
+                    audit: episode.audit().snapshot(),
+                    stage,
+                },
+                Some(Instant::now() + Duration::from_secs(1)),
+            )
+            .await?;
         }
         Ok(())
     }
@@ -936,6 +1091,7 @@ where
         audit: None,
         totals: HttpTotals::default(),
         data: None,
+        bound_subscription: None,
         bootstrap_pending: false,
         wake: Instant::now() + Duration::from_secs(60),
         committed: 0,

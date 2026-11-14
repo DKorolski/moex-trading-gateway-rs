@@ -15,6 +15,7 @@ type Peer = WebSocketStream<tokio::io::DuplexStream>;
 mod cleanup;
 mod cohort;
 mod consistent_sources;
+mod data_wait;
 mod eod;
 mod nonblocking_rest;
 mod proof_race;

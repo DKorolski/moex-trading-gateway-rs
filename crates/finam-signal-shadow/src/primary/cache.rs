@@ -216,6 +216,9 @@ impl PrimaryProcessor {
     pub(crate) fn rest_nonblocking(&self) -> bool {
         self.policy.rest_nonblocking()
     }
+    pub(crate) fn data_wait_recovery(&self) -> bool {
+        self.policy.data_wait_recovery()
+    }
 
     pub(crate) fn assess_rest(
         &self,

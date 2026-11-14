@@ -22,6 +22,12 @@ use tokio::{
 
 pub(super) enum Operation {
     BeginRecovery(crate::socket::primary::Failure),
+    BeginDataRecovery(crate::socket::primary::Failure),
+    RecoveryDataWait(super::reconnect::Snapshot),
+    RecoveryFailure {
+        audit: super::reconnect::Snapshot,
+        stage: super::reconnect::Stage,
+    },
     PrepareAttempt {
         generation: u64,
         slot: FailureSlot,
@@ -80,6 +86,15 @@ struct Core {
 }
 impl Core {
     fn step(&mut self, op: Operation) -> Result<Update, Cause> {
+        if let Operation::RecoveryFailure { audit, stage } = op {
+            self.owner
+                .event(
+                    serde_json::json!({"event":"primary_recovery_attempt_failed",
+                "stage_at_failure":stage,"audit":audit}),
+                )
+                .map_err(Cause::Coordinator)?;
+            return Ok(self.update());
+        }
         if let Operation::Finalize(facts) = op {
             return self.finalize(facts);
         }
@@ -150,6 +165,7 @@ impl Core {
                 if !matches!(
                     op,
                     Operation::BeginRecovery(_)
+                        | Operation::BeginDataRecovery(_)
                         | Operation::PrepareAttempt { .. }
                         | Operation::ResolveRecovery(_)
                 ) {
@@ -160,7 +176,19 @@ impl Core {
             }
         }
         match op {
-            Operation::BeginRecovery(failure) => {
+            Operation::RecoveryDataWait(audit) => {
+                if !self.owner.processor.data_wait_recovery() || !self.recovering {
+                    return Err(Cause::Binding);
+                }
+                self.owner
+                    .event(
+                        serde_json::json!({"event":"primary_recovery_waiting_first_data",
+                    "audit":audit,"history_proves_live_readiness":false}),
+                    )
+                    .map_err(Cause::Coordinator)?;
+                return Ok(self.update());
+            }
+            Operation::BeginRecovery(failure) | Operation::BeginDataRecovery(failure) => {
                 let episode = self
                     .recovery_budget
                     .begin(&mut self.owner, failure)
@@ -168,6 +196,17 @@ impl Core {
                 self.owner.event(serde_json::json!({"event":"primary_recovery_episode_started","audit":episode.audit().snapshot()})).map_err(Cause::Coordinator)?;
                 self.recovering = true;
                 self.recovery_reads = 0;
+                if self.owner.processor.data_wait_recovery() {
+                    let gate = self.gate.as_ref().ok_or(Cause::Binding)?;
+                    let state = gate.snapshot();
+                    if state.generation == self.owner.processor.generation()
+                        && state.lost
+                        && state.failure.is_none()
+                    {
+                        self.expected_revision = state.revision;
+                        self.seen_revision = state.revision;
+                    }
+                }
                 let mut update = self.update();
                 update.episode = Some(episode);
                 return Ok(update);
@@ -213,7 +252,13 @@ impl Core {
                 if !self.recovering
                     || audit.generation != self.owner.processor.generation()
                     || !audit.canonical_unresolved
-                    || audit.transport_unresolved
+                    || (audit.transport_unresolved
+                        && !(self.owner.processor.data_wait_recovery()
+                            && audit.stage == super::reconnect::Stage::Resync
+                            && self
+                                .gate
+                                .as_ref()
+                                .is_some_and(|g| g.snapshot().failure.is_none())))
                 {
                     return Err(Cause::Binding);
                 }
@@ -444,6 +489,9 @@ impl Core {
             Operation::Final(_) => unreachable!(),
             Operation::Finalize(_) | Operation::DrainAudit(_, _) => unreachable!(),
             Operation::BeginRecovery(_)
+            | Operation::BeginDataRecovery(_)
+            | Operation::RecoveryFailure { .. }
+            | Operation::RecoveryDataWait(_)
             | Operation::PrepareAttempt { .. }
             | Operation::RecoveryPlan(_)
             | Operation::RecoveryRequest { .. }
@@ -476,7 +524,16 @@ impl Core {
                         kind: crate::socket::primary::Kind::Source(PrimaryError::Continuity),
                         liveness: None,
                     };
-                    self.socket_fault.record(failure.clone());
+                    if self.owner.processor.data_wait_recovery() {
+                        if !gate.data_gap(failure.generation) {
+                            return Err(Cause::Binding);
+                        }
+                        self.owner.event(serde_json::json!({"event":"primary_data_wait_started",
+                            "generation":failure.generation,"reason":"CanonicalBoundaryOrRecentTailUnproven",
+                            "physical_reconnect":false})).map_err(Cause::Coordinator)?;
+                    } else {
+                        self.socket_fault.record(failure.clone());
+                    }
                     let mut update = self.update();
                     update.transport_failure = Some(failure);
                     return Ok(update);

@@ -106,6 +106,7 @@ pub struct Attempt {
     ordinal: u8,
     generation: u64,
     deadline: Instant,
+    reused_transport: bool,
 }
 impl Attempt {
     pub fn generation(&self) -> u64 {
@@ -132,6 +133,7 @@ pub struct Episode {
     completed: bool,
     last_wall_ms: i64,
     stage_mask: u8,
+    data_wait: bool,
 }
 fn recoverable(kind: Kind) -> bool {
     matches!(
@@ -242,6 +244,7 @@ impl RunBudget {
             completed: false,
             last_wall_ms: now,
             stage_mask: 0,
+            data_wait: owner.processor().data_wait_recovery(),
         })
     }
 }
@@ -305,7 +308,14 @@ impl Episode {
     fn permit(&self, attempt: &Attempt) -> bool {
         Arc::ptr_eq(&self.owner, &attempt.owner)
             && attempt.ordinal == self.attempt
-            && attempt.generation == self.previous_generation + u64::from(self.attempt)
+            && attempt.generation
+                == self.previous_generation
+                    + if attempt.reused_transport {
+                        0
+                    } else {
+                        u64::from(self.attempt)
+                    }
+            && (!attempt.reused_transport || self.data_wait)
             && attempt.deadline == self.deadline
     }
     pub async fn next_attempt(&mut self) -> Result<Attempt, Error> {
@@ -343,7 +353,52 @@ impl Episode {
             ordinal: self.attempt,
             generation,
             deadline: self.deadline,
+            reused_transport: false,
         })
+    }
+    pub(crate) fn reuse_bound_attempt(&mut self) -> Result<Attempt, Error> {
+        self.check()?;
+        if !self.data_wait || self.attempt != 0 {
+            return Err(self.fail(Error::Binding));
+        }
+        self.attempt = 1;
+        self.audit.update(|s| {
+            s.attempt = 1;
+            s.generation = self.previous_generation;
+            s.stage = Stage::Resync;
+        });
+        Ok(Attempt {
+            owner: self.owner.clone(),
+            ordinal: 1,
+            generation: self.previous_generation,
+            deadline: self.deadline,
+            reused_transport: true,
+        })
+    }
+    /// A physical SUBSCRIBE permits GET resync, NOT LIVE/readiness by history.
+    pub(crate) fn bound_for_resync(
+        &mut self,
+        attempt: &Attempt,
+        subscription: &Subscription,
+    ) -> Result<(), Error> {
+        self.check()?;
+        if !self.data_wait
+            || !self.permit(attempt)
+            || subscription.generation() != attempt.generation
+        {
+            return Err(self.fail(Error::Binding));
+        }
+        self.subscription = Some(subscription.retained_for_recovery());
+        self.audit.update(|s| s.stage = Stage::Resync);
+        Ok(())
+    }
+    pub(crate) fn waiting_for_data(&mut self) -> Result<(), Error> {
+        self.check()?;
+        if !self.data_wait || self.subscription.is_none() {
+            return Err(self.fail(Error::Binding));
+        }
+        self.audit.update(|s| s.stage = Stage::FirstData);
+        Ok(())
     }
     /// Auth/connect/subscribe/bootstrap/first-DATA and REST proof consume the
     /// SAME episode/run budget. The factory still validates each command grant.
@@ -425,7 +480,10 @@ impl Episode {
             || data.received_at_ms < subscription.sent_at_ms()
             || data.received_at_ms > now
             || data.received_mono > Instant::now()
-            || data.received_at_ms - subscription.sent_at_ms() > 5000
+            || (!self.data_wait && data.received_at_ms - subscription.sent_at_ms() > 5000)
+            || (self.data_wait
+                && (data.received_at_ms >= self.wall_deadline_ms
+                    || now - data.received_at_ms >= 1_200_000))
         {
             return Err(self.fail(Error::Binding));
         }

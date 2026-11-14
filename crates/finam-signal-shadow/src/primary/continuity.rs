@@ -51,6 +51,22 @@ mod tests {
         assert!(gate.resolve(2, revision));
         assert!(!gate.resolve(2, revision));
     }
+    #[test]
+    fn data_gap_fences_callbacks_without_hiding_a_later_physical_fault() {
+        let gate = ContinuityGate::new(1);
+        assert!(!gate.data_gap(2));
+        assert!(gate.data_gap(1));
+        let revision = gate.snapshot().revision;
+        assert!(!gate.healthy());
+        assert!(gate.snapshot().failure.is_none());
+        assert!(!gate.data_gap(1));
+        gate.fault(failure(1));
+        assert!(gate.snapshot().failure.is_some());
+        assert!(gate.snapshot().revision > revision);
+        assert!(!gate.resolve(1, revision));
+        assert!(!gate.resolve(1, gate.snapshot().revision));
+        assert!(!gate.data_gap(1));
+    }
 }
 #[derive(Clone)]
 pub(crate) struct Snapshot {
@@ -84,6 +100,17 @@ impl ContinuityGate {
             s.lost = true;
             s.failure = Some(failure);
         }
+    }
+    /// Canonical uncertainty fences callbacks, but does NOT occupy the
+    /// transport failure slot. A real network fault can still latch atomically.
+    pub(crate) fn data_gap(&self, generation: u64) -> bool {
+        let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if s.generation != generation || s.failure.is_some() || s.lost {
+            return false;
+        }
+        s.lost = true;
+        s.revision += 1;
+        true
     }
     pub fn begin_generation(&self, generation: u64) -> Option<u64> {
         let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
