@@ -195,7 +195,17 @@ impl Core {
                     .recovery_budget
                     .begin_impl_for_writer(&mut self.owner, failure, data_only)
                     .map_err(Cause::Recovery)?;
-                self.owner.event(serde_json::json!({"event":"primary_recovery_episode_started","audit":episode.audit().snapshot()})).map_err(Cause::Coordinator)?;
+                let mut event = serde_json::json!({"event":"primary_recovery_episode_started","audit":episode.audit().snapshot()});
+                if self.owner.processor.ws_historical_recovery() {
+                    event["continuity_revision"] = serde_json::json!(
+                        self.gate
+                            .as_ref()
+                            .ok_or(Cause::Binding)?
+                            .snapshot()
+                            .revision
+                    );
+                }
+                self.owner.event(event).map_err(Cause::Coordinator)?;
                 self.recovering = true;
                 self.recovery_reads = 0;
                 if self.owner.processor.data_wait_recovery() {

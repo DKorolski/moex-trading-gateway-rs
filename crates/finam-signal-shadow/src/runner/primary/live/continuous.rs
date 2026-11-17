@@ -354,10 +354,20 @@ where
     FF: Future<Output = HttpOutcome> + Send + 'static,
 {
     async fn apply(&mut self, op: Operation, limit: Option<Instant>) -> Result<Update, Cause> {
-        let update = self
-            .writer
-            .call_until(op, Some(limit.unwrap_or(self.deadline).min(self.deadline)))
-            .await?;
+        // Bound an already submitted historical publication command, NOT a
+        // readiness wake. call_until retains/drains its reply on STOP/deadline.
+        let historical = matches!(&op, Operation::Rest(Job::Recovery(_), _))
+            || (self.policy.ws_historical_recovery()
+                && matches!(&op, Operation::Tick | Operation::Frame(_))
+                && self
+                    .recovery
+                    .last()
+                    .is_some_and(|a| a.snapshot().canonical_unresolved));
+        let mut limit = limit.unwrap_or(self.deadline).min(self.deadline);
+        if historical {
+            limit = limit.min(Instant::now() + Duration::from_secs(10));
+        }
+        let update = self.writer.call_until(op, Some(limit)).await?;
         self.committed = update.committed;
         self.data = update.data.clone();
         if let Some(receipt) = update.subscription.as_ref() {
@@ -497,15 +507,6 @@ where
                 Ok(Some(frame))=>Operation::Frame(frame),Ok(None)=>return Err(Cause::RequestedStop),Err(error)=>return Err(ingress_failure(&self.policy,&self.gate,&self.connection.slot,error)),
             },
             _=tokio::time::sleep_until(self.wake),if tick&&!self.bootstrap_pending=>Operation::Tick,
-        };
-        let phase = if matches!(&operation, Operation::Rest(Job::Recovery(_), _)) {
-            Some(
-                phase
-                    .unwrap_or(self.deadline)
-                    .min(Instant::now() + Duration::from_secs(10)),
-            )
-        } else {
-            phase
         };
         self.apply(operation, phase).await.map(Some)
     }

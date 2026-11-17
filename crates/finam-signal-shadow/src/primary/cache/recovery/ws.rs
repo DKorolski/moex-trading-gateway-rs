@@ -246,7 +246,10 @@ impl PrimaryProcessor {
                 })
                 .collect(),
             virtual_callback_at_ms: close,
-            replay_deadline_ms: episode_deadline_ms.min(self.run_deadline_ms),
+            replay_deadline_ms: now
+                .saturating_add(10000)
+                .min(episode_deadline_ms)
+                .min(self.run_deadline_ms),
         };
         let batch = Arc::new(());
         let gap = permit.gap.clone();
@@ -286,7 +289,9 @@ impl PrimaryProcessor {
             || Some(r.label_ms) != self.next_label_ms()
             || r.generation != self.generation
             || now < r.canonical_ready_at_ms
-            || now >= input.receipt.replay_deadline_ms
+            || now > input.receipt.replay_deadline_ms
+            || now >= input.receipt.episode_deadline_ms
+            || now >= self.run_deadline_ms
             || !self
                 .gap_owner
                 .as_ref()

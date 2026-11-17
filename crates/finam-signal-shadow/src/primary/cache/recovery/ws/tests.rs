@@ -194,3 +194,70 @@ fn v8_boundary_receipt_retains_first_frame_after_forming_boundary_updates() {
         Some(T + 601364)
     );
 }
+
+// Reviewer target regressions: not yet executed in the reviewer environment.
+#[test]
+fn reviewer_v8_preserves_ten_second_post_admission_budget() {
+    let mut p = fixture(DeliveryPolicy::ObservedBoWsHistoricalRecoveryV8, true);
+    latch(&mut p);
+    let ready = T + 602364;
+    let episode = T + 646904;
+    let a = p
+        .prepare_ws_recovery(1, episode, 1, ready)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        a.input.receipt().replay_deadline_ms,
+        (ready + 10000).min(episode),
+        "WS historical publication must not borrow the remaining entire episode"
+    );
+}
+
+#[test]
+fn reviewer_v8_rejects_consumption_after_ten_seconds_without_new_commit() {
+    for delay in [9999, 10000, 10001] {
+        let mut p = fixture(DeliveryPolicy::ObservedBoWsHistoricalRecoveryV8, true);
+        latch(&mut p);
+        let ready = T + 602364;
+        let a = p
+            .prepare_ws_recovery(1, T + 646904, 1, ready)
+            .unwrap()
+            .unwrap();
+        let result = p.recovered_ws(a.input, ready + delay);
+        if delay <= 10000 {
+            assert!(result.is_ok(), "positive bounded control");
+            assert_eq!(p.counters.committed, 1);
+        } else {
+            assert!(result.is_err(), "late publication must be refused");
+            assert_eq!(p.counters.committed, 0);
+        }
+    }
+}
+
+#[test]
+fn v8_r1_episode_and_run_deadlines_stay_exclusive_when_clipping_replay() {
+    let ready = T + 602364;
+    for (episode_delta, run_delta, delay, accepted) in [
+        (44540, 60000, 10000, true),
+        (7000, 60000, 6999, true),
+        (7000, 60000, 7000, false),
+        (10000, 60000, 10000, false),
+        (44540, 8000, 8000, false),
+    ] {
+        let mut p = fixture(DeliveryPolicy::ObservedBoWsHistoricalRecoveryV8, true);
+        latch(&mut p);
+        p.run_deadline_ms = ready + run_delta;
+        let a = p
+            .prepare_ws_recovery(1, ready + episode_delta, 1, ready)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            a.input.receipt().replay_deadline_ms,
+            (ready + 10000)
+                .min(ready + run_delta)
+                .min(ready + episode_delta)
+        );
+        assert_eq!(p.recovered_ws(a.input, ready + delay).is_ok(), accepted);
+        assert_eq!(p.counters.committed, u64::from(accepted));
+    }
+}

@@ -1,5 +1,6 @@
 //! Synthetic full day, same live codec/writer/feedback, strict independent EOD.
 use super::*;
+mod r1;
 #[test]
 fn v8_historical_ws_runtime_journal_eod_and_resealed_reader_negatives() {
     let mut f = Fixture::historical();
@@ -169,6 +170,54 @@ fn v8_historical_ws_runtime_journal_eod_and_resealed_reader_negatives() {
                 }
             });
             assert!(duplicate.verify().is_err(), "resealed duplicate callback");
+            for delay in [9999, 10000, 10001] {
+                let mut timed = artifact.clone();
+                timed.change_journal(|rows| {
+                    let source = rows
+                        .iter()
+                        .find(|r| {
+                            r["kind"] == "canonical_source"
+                                && r["event"]["receipt"]["origin"] == "WS_RECOVERY_BACKFILL"
+                        })
+                        .unwrap();
+                    let hash = source["event"]["source_sha256"].clone();
+                    let publication = source["event"]["receipt"]["canonical_ready_at_ms"]
+                        .as_i64()
+                        .unwrap()
+                        + delay;
+                    for row in rows {
+                        let commit = row["kind"] == "canonical_commit";
+                        let Some(e) = row.get_mut("event") else {
+                            continue;
+                        };
+                        if e["source_sha256"] == hash {
+                            if commit {
+                                e["model_result_at_ms"] = json!(publication);
+                                e["publication_checked_at_ms"] = json!(publication);
+                            } else if e["event"] == "recovery_step_durable_publication" {
+                                e["actual_model_result_at_ms"] = json!(publication);
+                            } else if e["event"] == "primary_canonical_recovery_resolved" {
+                                e["resolved_at_ms"] = json!(publication + 1);
+                            }
+                        }
+                    }
+                });
+                assert_eq!(
+                    timed.verify().is_ok(),
+                    delay <= 10000,
+                    "resealed publication delay {delay}: {:?}; scan {:?}",
+                    timed.verify(),
+                    crate::primary::restart::journal::complete(
+                        &timed.config,
+                        &timed.journal,
+                        &(0..101)
+                            .map(|n| timed.config.base.observation_start_utc_ms + n * 600000)
+                            .collect::<Vec<_>>(),
+                        timed.now
+                    )
+                    .err()
+                );
+            }
             if let Some(path) = std::env::var_os("FINAM_V8_REVIEW_EVIDENCE_DIR") {
                 let d = std::path::PathBuf::from(path).join("synthetic-ws-historical-eod");
                 std::fs::create_dir_all(&d).unwrap();

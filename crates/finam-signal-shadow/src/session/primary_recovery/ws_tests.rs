@@ -4,6 +4,9 @@ use crate::primary::{CanonicalStatus, DeliveryPolicy, PrimaryProcessor};
 use serde_json::{json, Value};
 
 fn run(want_exit: bool, pending: bool) {
+    run_timed(want_exit, pending, 0, false);
+}
+fn run_timed(want_exit: bool, pending: bool, delay: u64, stop: bool) {
     let (mut model, bar) = super::tail_tests::before_action(want_exit);
     let label = bar.close_time_utc * 1000;
     let close = label + 600000;
@@ -57,13 +60,17 @@ fn run(want_exit: bool, pending: bool) {
             .prepare_ws_recovery(1, close + 46904, 1, close + 2364)
             .unwrap()
             .unwrap();
+        crate::timing::advance_fixture_clock(delay);
+        if stop {
+            session.stop.stop();
+        }
         let result = session.ws_recovery(&a.input);
         let rows: Vec<Value> = std::fs::read_to_string(&path)
             .unwrap()
             .lines()
             .map(|l| serde_json::from_str(l).unwrap())
             .collect();
-        if pending {
+        if pending || delay > 10000 || stop {
             assert!(result.is_err());
             assert_eq!(session.model.observation(), before);
             assert!(!rows
@@ -107,4 +114,11 @@ fn v8_ws_historical_open_position_exit_feedback_is_not_suppressed() {
 #[test]
 fn v8_ws_historical_pending_mutation_refuses_callback_without_changing_book() {
     run(false, true);
+}
+#[test]
+fn v8_r1_session_publication_budget_boundary_and_stop_do_not_mutate_a_late_book() {
+    for delay in [9999, 10000, 10001] {
+        run_timed(false, false, delay, false);
+    }
+    run_timed(false, false, 1, true);
 }

@@ -101,3 +101,46 @@ broker_execution и дублируют callback при заново посчит
 В этой source-работе VPS, installed V7, таймеры, P0/O3/DB0, ключи,
 FINAM API, main и origin не меняются. CI/governance acceptance принятой
 истории данным документом не переоткрывается и не подменяется.
+
+## Correction R1 по source review 17.11.2026
+
+R0 commit 3f0ae05f получил SOURCE CHANGES REQUIRED: V8-1 и V8-2 (P2).
+Его ZIP/evidence не изменены и не переименованы в принятый baseline.
+
+V8-1: reader сопоставляет REST winner с конкретными label/generation, request
+scope/episode и continuity revision. Revision закреплена также в V8 episode-start
+event (прежние V1–V7 events не меняются). WS authority погашается только после
+matching durable REST commit и matching episode Ready. Новое разрешение между
+ними, чужой commit/Ready или revision не могут освободить authority. Prefix,
+оканчивающийся после подтверждённого commit до Ready, остаётся допустимым для
+исторической реконструкции, но не выдаёт transport/EOD readiness.
+
+Парный ticket automaton также освобождает Ready REST ticket только при
+закрытии именно его episode и подтверждённом committed frontier. Это устраняет
+stale ticket на втором data gap, не разрешая renewal между разными episodes.
+Managed REST→WS, REST→REST и WS→WS проходят 101 M10, full EOD reader и prefix
+reader на втором эпизоде; subscription/generation не меняются.
+
+V8-2: историческое ожидание полного источника и публикация уже допущенного
+входа снова имеют разные пределы:
+replay_deadline = min(canonical_ready + 10000, episode_deadline, run_deadline).
+10-секундная replay-граница включительна; episode/run границы исключительны.
+Producer, session и независимый reader проверяют эти реальные часы, не virtual
+close time. REST semantics не расширяются. Actor wait cap применяется также
+к V8 Frame/Tick в незавершённом episode, включая прямой Tick перед GET.
+Обычный readiness/backoff wake не оборачивает отправленную команду отменяемым
+future; прежний call_until сохраняет STOP/deadline drain.
+
+Reviewer test-only patch сначала применён к неизменённому R0 production
+source: все три target regression воспроизвели ожидаемый FAIL в Rust.
+Исходный patch и failure log сохранены отдельно. Для R1 standalone reader
+test усилен generation/request/scope/revision полями: неполный mock receipt
+из оригинального patch не используется как повод ослаблять новые проверки.
+Два budget tests дополнены контролем равенства deadline.
+
+Дополнительные regressions: чужие label/generation/revision/ticket/Ready,
+duplicate authorization/callback, запрет выдачи нового права до Ready;
+реальный session callback на ready+9999/+10000 и отказ на +10001/STOP;
+resealed full-journal publication на этих трёх сроках;
+writer-reply во время wake, operator STOP и 10-секундного actor cap.
+Все market/source continuations в этих тестах synthetic, не новый FINAM soak.

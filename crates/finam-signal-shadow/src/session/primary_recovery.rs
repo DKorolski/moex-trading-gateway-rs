@@ -72,7 +72,7 @@ impl ObservedSession {
             &receipt.canonical,
             input.model_bar(),
             hash,
-            receipt.replay_deadline_ms,
+            (receipt.replay_deadline_ms, None),
             receipt.actual_received_at_ms,
         )
     }
@@ -89,6 +89,13 @@ impl ObservedSession {
             let r = input.receipt();
             let c = &r.canonical;
             let policy = self.config.primary_policy().ok_or(SessionError::Input)?;
+            let now = crate::timing::now_ms();
+            if now < c.canonical_ready_at_ms
+                || now > r.replay_deadline_ms
+                || now >= r.episode_deadline_ms
+            {
+                return Err(SessionError::Timing);
+            }
             if !self.recoverable_primary()
                 || !policy.ws_historical_recovery()
                 || c.config_sha256 != self.config.fingerprint()
@@ -114,7 +121,7 @@ impl ObservedSession {
                 c,
                 input.model_bar(),
                 hash,
-                r.replay_deadline_ms,
+                (r.replay_deadline_ms, Some(r.episode_deadline_ms)),
                 c.boundary_received_at_ms.ok_or(SessionError::Input)?,
             )
         })();
@@ -129,13 +136,15 @@ impl ObservedSession {
         canonical: &crate::primary::CanonicalReceipt,
         bar: &HybridRuntimeBarEvent,
         hash: String,
-        replay_deadline_ms: i64,
+        replay_bounds: (i64, Option<i64>),
         actual_source_received_at_ms: i64,
     ) -> Result<CanonicalPublication, SessionError> {
+        // The replay cap is inclusive; the enclosing episode is exclusive.
+        let (replay_deadline_ms, episode_deadline_ms) = replay_bounds;
         let check = |now| {
             if now < canonical.canonical_ready_at_ms
                 || now > replay_deadline_ms
-                || (canonical.origin == "WS_RECOVERY_BACKFILL" && now == replay_deadline_ms)
+                || episode_deadline_ms.is_some_and(|deadline| now >= deadline)
             {
                 Err(SessionError::Timing)
             } else {

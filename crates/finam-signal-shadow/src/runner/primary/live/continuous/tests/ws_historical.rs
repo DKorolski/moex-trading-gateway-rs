@@ -3,6 +3,7 @@
 use super::*;
 use crate::primary::restart::{RestartBinding, RestartError};
 use crate::primary::{DeliveryPolicy, WsPrimaryConfig};
+mod reply_budget;
 
 fn restart_check(
     config: &WsPrimaryConfig,

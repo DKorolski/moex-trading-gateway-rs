@@ -14,6 +14,21 @@ enum R1Scenario {
     RepeatedWitness,
     RestTail,
     WsHistorical,
+    RestThenWs,
+    RestThenRest,
+    WsThenWs,
+}
+impl R1Scenario {
+    // Synthetic source competition at two different labels, same generation.
+    fn historical_at(self, close_minute: i64) -> Option<bool> {
+        match (self, close_minute) {
+            (Self::WsHistorical, 30)
+            | (Self::RestThenWs | Self::WsThenWs, 40)
+            | (Self::WsThenWs, 30) => Some(false), // WS winner
+            (Self::RestThenWs | Self::RestThenRest, 30) | (Self::RestThenRest, 40) => Some(true),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -214,16 +229,23 @@ async fn day_scenario(
                     },
                 }
             } else {
-                if scenario == R1Scenario::WsHistorical
-                    && (matches!(&job, Job::Recovery(_))
-                        || matches!(&job, Job::Proof(t) if t.label_ms() == f.open() + 1200000))
-                {
+                let historical_winner = match &job {
+                    Job::Recovery(p) => scenario
+                        .historical_at((p.request().end().timestamp_millis() - f.open()) / 60000),
+                    Job::Proof(t) => {
+                        scenario.historical_at((t.label_ms() + 600000 - f.open()) / 60000)
+                    }
+                    _ => None,
+                };
+                if let Some(rest_winner) = historical_winner {
                     let plan = job.plan().unwrap();
                     let mut evidence = f.rest(&plan).evidence().clone();
                     let part = &mut evidence.parts[0];
                     let mut raw: Value = serde_json::from_str(&part.raw_body).unwrap();
                     let n = raw["bars"].as_array().unwrap().len();
-                    raw["bars"].as_array_mut().unwrap().truncate(n - 8);
+                    if !rest_winner || matches!(&job, Job::Proof(_)) {
+                        raw["bars"].as_array_mut().unwrap().truncate(n - 8);
+                    }
                     part.raw_body = raw.to_string();
                     part.declared_body_bytes = Some(part.raw_body.len() as u64);
                     part.response_sha256 = crate::seed::digest(part.raw_body.as_bytes());
@@ -428,7 +450,7 @@ async fn day_scenario(
     let minutes = if early_stop { 21 } else { 1010 };
     for minute in i64::from(startup_recovery || scenario == R1Scenario::StaleReference)..minutes {
         let label = f.open() + minute * 60000;
-        if scenario == R1Scenario::WsHistorical && minute == 30 {
+        if let Some(rest_winner) = scenario.historical_at(minute) {
             go(label + 1000);
             peer.send(data(label - 60000)).await.unwrap();
             until(|| {
@@ -443,18 +465,23 @@ async fn day_scenario(
             accepted(&mut accepted_data, label + 1364).await;
             go(label + 1904);
             peer.send(data(label - 60000)).await.unwrap();
+            if !rest_winner {
+                until(|| {
+                    trace(&path).iter().any(|r| {
+                        r["event"]["event"] == "primary_recovery_data_not_ready"
+                            && r["event"]["assessment"]["label_ms"] == label - 600000
+                    })
+                })
+                .await;
+                go(label + 2364);
+                peer.send(data(label)).await.unwrap();
+            }
             until(|| {
                 trace(&path)
                     .iter()
-                    .any(|r| r["event"]["event"] == "primary_recovery_data_not_ready")
-            })
-            .await;
-            go(label + 2364);
-            peer.send(data(label)).await.unwrap();
-            until(|| {
-                trace(&path)
-                    .iter()
-                    .any(|r| r["event"]["event"] == "primary_recovery_episode_ready")
+                    .filter(|r| r["event"]["event"] == "primary_recovery_episode_ready")
+                    .count()
+                    == if minute == 40 { 2 } else { 1 }
             })
             .await;
             assert_eq!(
@@ -462,7 +489,7 @@ async fn day_scenario(
                     .iter()
                     .filter(|r| r["kind"] == "canonical_commit")
                     .count(),
-                3
+                minute as usize / 10
             );
             continue;
         }

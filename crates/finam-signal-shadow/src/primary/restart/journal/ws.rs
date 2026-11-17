@@ -57,6 +57,11 @@ pub(super) fn inspect(
         || r.replay_deadline_ms
             != r.episode_deadline_ms
                 .min(validated.config().run_deadline_utc_ms)
+                .min(
+                    c.canonical_ready_at_ms
+                        .checked_add(10000)
+                        .ok_or(RestartError::Source)?,
+                )
         || !hash(&r.boundary_frame_sha256)
         || c.actual_m1.len() != 10
         || r.versions.len() != 10

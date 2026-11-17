@@ -114,6 +114,26 @@ pub(crate) fn validate(
                     }
                 }
             }
+            "primary_recovery_episode_ready" if config.primary.ws_historical_recovery() => {
+                if let Some(hash) = active.as_ref() {
+                    let r = requests.get(hash).ok_or(VerifyError::Source)?;
+                    let a = &e["audit"];
+                    let cutover = integer(&r.value, "cutover_ms")?;
+                    require(
+                        r.state == State::Ready
+                            && a["episode"] == r.scope.episode
+                            && a["generation"] == r.value["generation"]
+                            && a["stage"] == "Ready"
+                            && a["canonical_unresolved"] == false
+                            && a["transport_unresolved"] == false
+                            && committed.len()
+                                == required.partition_point(|label| *label < cutover),
+                    )?;
+                    // This completed ticket belongs to the closed episode,
+                    // not to the next same-generation data gap.
+                    active = None;
+                }
+            }
             "primary_ws_historical_source_selected" => {
                 require(config.primary.ws_historical_recovery())?;
                 if let Some(hash) = active.take() {
