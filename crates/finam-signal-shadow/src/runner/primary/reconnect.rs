@@ -185,6 +185,36 @@ impl RunBudget {
     }
     /// Synchronous original-fault + canonical latch BEFORE the first await.
     pub fn begin(&mut self, owner: &mut Coordinator, failure: Failure) -> Result<Episode, Error> {
+        self.begin_impl(owner, failure, false)
+    }
+    pub(super) fn begin_data(
+        &mut self,
+        owner: &mut Coordinator,
+        failure: Failure,
+    ) -> Result<Episode, Error> {
+        if failure.kind != Kind::Source(crate::primary::PrimaryError::Continuity) {
+            return Err(Error::Binding);
+        }
+        self.begin_impl(owner, failure, true)
+    }
+    pub(super) fn begin_impl_for_writer(
+        &mut self,
+        owner: &mut Coordinator,
+        failure: Failure,
+        data_only: bool,
+    ) -> Result<Episode, Error> {
+        if data_only {
+            self.begin_data(owner, failure)
+        } else {
+            self.begin(owner, failure)
+        }
+    }
+    fn begin_impl(
+        &mut self,
+        owner: &mut Coordinator,
+        failure: Failure,
+        data_only: bool,
+    ) -> Result<Episode, Error> {
         if failure.generation != owner.processor().generation()
             || owner.processor().config_sha256() != self.config_sha256
         {
@@ -202,7 +232,12 @@ impl RunBudget {
         }
         // A valid new fault fences canonical authority even when no further
         // attempt is authorized. Budget refusal is not restoration success.
-        owner.latch_recovery().map_err(|_| Error::Binding)?;
+        if data_only {
+            owner.latch_data_recovery()
+        } else {
+            owner.latch_recovery()
+        }
+        .map_err(|_| Error::Binding)?;
         if self.last.as_ref().is_some_and(|a| {
             let s = a.snapshot();
             s.transport_unresolved || s.canonical_unresolved

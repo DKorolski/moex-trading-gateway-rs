@@ -4,6 +4,7 @@ use super::*;
 use broker_finam::sparse_m10::ClosedM1RequestPlan;
 use chrono::{Datelike, Timelike};
 mod tail;
+pub(crate) mod ws;
 pub use tail::{
     RecoveryOutcome, RecoveryRequestScope, RecoveryWait, MAX_REST_READS, REST_BACKOFF_MS,
 };

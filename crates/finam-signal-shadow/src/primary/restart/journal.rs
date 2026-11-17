@@ -7,6 +7,7 @@ use broker_finam::sparse_m10::{
 use chrono::{DateTime, Utc};
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use std::collections::BTreeMap;
+mod ws;
 
 // Owned persisted schema, in the SAME serialization order as CanonicalReceipt.
 // Recomputing its typed digest is intentionally not hashing a JSON object map.
@@ -48,6 +49,10 @@ struct Recovery {
 #[cfg(test)]
 pub(crate) fn test_recovery_hash(value: Value) -> Result<String, RestartError> {
     typed_hash(&serde_json::from_value::<Recovery>(value).map_err(|_| RestartError::Source)?)
+}
+#[cfg(test)]
+pub(crate) fn test_ws_hash(value: Value) -> String {
+    ws::reseal(value)
 }
 struct Pending {
     origin: String,
@@ -591,8 +596,15 @@ fn canonical(
 ) -> Result<Pending, RestartError> {
     let (config, policy, session_end_allowed) = identity;
     let value = &event["receipt"];
-    let historical = value["origin"] == "RECOVERY_BACKFILL";
-    let (r, digest, replay_deadline) = if historical {
+    let ws_historical = value["origin"] == "WS_RECOVERY_BACKFILL";
+    let historical = value["origin"] == "RECOVERY_BACKFILL" || ws_historical;
+    let (r, digest, replay_deadline) = if ws_historical {
+        if !event["rest_evidence"].is_null() || !event["retained_rest_snapshot_sha256"].is_null() {
+            return Err(RestartError::Source);
+        }
+        let (r, hash, deadline) = ws::inspect(value.clone(), validated)?;
+        (r, hash, Some(deadline))
+    } else if historical {
         let r: Recovery =
             serde_json::from_value(value.clone()).map_err(|_| RestartError::Source)?;
         if !hash(&r.recovery_plan_sha256)
@@ -637,7 +649,7 @@ fn canonical(
     }
     let bar = math(&r.actual_m1, label, r.minute_bitmap, &r.canonical_digest)?;
     match r.origin.as_str() {
-        "WS_LIVE" => {
+        "WS_LIVE" | "WS_RECOVERY_BACKFILL" => {
             let boundary = r.boundary_received_at_ms.ok_or(RestartError::Source)?;
             if r.reason.is_some()
                 || r.minute_bitmap != 1023

@@ -167,6 +167,17 @@ impl Runtimes {
     pub fn finish(&mut self, reason: &str) -> Result<(), SessionError> {
         self.each(|s| s.finish(reason))
     }
+    pub fn ws_recovery(
+        &mut self,
+        input: &crate::primary::WsRecoveryInput,
+    ) -> Result<CanonicalPublication, SessionError> {
+        self.publish(
+            input.receipt().canonical.label_ms,
+            input.receipt().canonical.close_ms,
+            Some(input.receipt().replay_deadline_ms),
+            |s| s.ws_recovery(input),
+        )
+    }
     /// A single-journal Completion cannot attest all independent cohort files.
     /// Fail closed rather than present a primary consumer's EOD as cohort PASS.
     pub fn eod_model_ready(&self) -> bool {

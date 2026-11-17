@@ -46,6 +46,7 @@ pub(crate) fn validate(
     sources: &BTreeMap<String, AdmittedClosedM1Snapshot>,
     now: i64,
 ) -> Result<(), VerifyError> {
+    super::ws::validate(config, bytes, required, now)?;
     let enabled = config.primary.rest_tail_recovery();
     let mut requests = BTreeMap::<String, Request>::new();
     let mut episodes = BTreeMap::<u8, (i64, i64, u8)>::new(); // fault, deadline, reads
@@ -111,6 +112,18 @@ pub(crate) fn validate(
                     if r.state != State::Ready {
                         r.state = State::Invalidated;
                     }
+                }
+            }
+            "primary_ws_historical_source_selected" => {
+                require(config.primary.ws_historical_recovery())?;
+                if let Some(hash) = active.take() {
+                    let r = requests.get_mut(&hash).ok_or(VerifyError::Source)?;
+                    require(
+                        matches!(r.state, State::Active | State::Pending)
+                            && e["episode"] == r.scope.episode
+                            && e["generation"] == r.value["generation"],
+                    )?;
+                    r.state = State::Invalidated;
                 }
             }
             "primary_recovery_request_retired" => {

@@ -928,8 +928,22 @@ pub(crate) mod tests {
         AdmittedClosedM1Snapshot,
         std::path::PathBuf,
     ) {
+        primary_fixture_delivery_input_limit(label, audit, delivery, 100_000)
+    }
+    pub(crate) fn primary_fixture_delivery_input_limit(
+        label: i64,
+        audit: bool,
+        delivery: crate::primary::DeliveryPolicy,
+        input_limit: u64,
+    ) -> (
+        ObservedSession,
+        crate::primary::WsPrimaryConfig,
+        AdmittedClosedM1Snapshot,
+        std::path::PathBuf,
+    ) {
         let (mut session, source, old_path) = composition_fixture_policy(true);
         let mut base = session.config.config().clone();
+        base.max_input_bytes = input_limit;
         base.observation_start_utc_ms = label;
         session.next_label_ms = base.observation_start_utc_ms;
         base.lmax_ms = 10000;

@@ -216,12 +216,22 @@ impl Coordinator {
     /// Called synchronously before reconnect/proof awaits. Retire old tickets,
     /// but never reset the model or clear a failed callback.
     pub fn latch_recovery(&mut self) -> Result<(), CoordinatorError> {
+        self.latch_recovery_impl(false)
+    }
+    pub(super) fn latch_data_recovery(&mut self) -> Result<(), CoordinatorError> {
+        self.latch_recovery_impl(true)
+    }
+    fn latch_recovery_impl(&mut self, data_only: bool) -> Result<(), CoordinatorError> {
         self.check()?;
         if !self.session.recoverable_primary() {
             self.failed = true;
             return Err(CoordinatorError::Held);
         }
-        self.processor.break_continuity();
+        if data_only {
+            self.processor.relatch_data_gap();
+        } else {
+            self.processor.break_continuity();
+        }
         self.recovery_completion = None;
         for slot in self.proofs.values_mut() {
             slot.completed = true;
@@ -231,6 +241,52 @@ impl Coordinator {
             self.audit_status = AuditStatus::Unavailable;
         }
         Ok(())
+    }
+
+    pub(super) fn try_ws_recovery(
+        &mut self,
+        episode: u8,
+        deadline: i64,
+        revision: u64,
+    ) -> Result<bool, CoordinatorError> {
+        self.check()?;
+        if self.recovery_completion.is_some() {
+            return Ok(false);
+        }
+        let now = crate::timing::now_ms();
+        let Some(admitted) = self
+            .processor
+            .prepare_ws_recovery(episode, deadline, revision, now)
+            .map_err(CoordinatorError::Source)?
+        else {
+            return Ok(false);
+        };
+        self.failed = true;
+        let receipt = admitted.input.receipt();
+        self.event(
+            serde_json::json!({"event":"primary_ws_historical_source_selected",
+            "episode":episode,"generation":self.processor.generation(),
+            "label_ms":admitted.input.receipt().canonical.label_ms,
+            "at_ms":now,"continuity_revision":revision,"physical_reconnect":false,
+            "source_sha256":admitted.input.provenance_sha256().map_err(CoordinatorError::Source)?,
+            "ws_witness":{
+                "subscribed_at_ms":receipt.canonical.subscribed_at_ms,
+                "boundary_received_at_ms":receipt.canonical.boundary_received_at_ms,
+                "boundary_frame_sha256":receipt.boundary_frame_sha256,
+                "versions":receipt.versions,
+            }}),
+        )?;
+        let publication = self
+            .session
+            .ws_recovery(&admitted.input)
+            .map_err(CoordinatorError::Session)?;
+        self.processor
+            .recovered_ws(admitted.input, publication.committed_at_ms)
+            .map_err(CoordinatorError::Source)?;
+        self.last_committed = Some(publication.label_ms);
+        self.recovery_completion = Some(admitted.completion);
+        self.failed = false;
+        Ok(true)
     }
     pub fn plan_recovery(
         &mut self,

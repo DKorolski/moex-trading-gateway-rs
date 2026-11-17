@@ -28,6 +28,8 @@ pub enum DeliveryPolicy {
     /// V6 admission plus data-only repair and resync independent of first DATA.
     /// Explicit opt-in; V6 and earlier retain their historical behavior.
     ObservedBoDataWaitRecoveryV7,
+    /// V7 plus same-connection, late historical WS repair. Never live authority.
+    ObservedBoWsHistoricalRecoveryV8,
 }
 
 fn strict_delivery(value: &DeliveryPolicy) -> bool {
@@ -95,6 +97,7 @@ impl PrimaryPolicy {
                 | DeliveryPolicy::ObservedBoConsistentSourcesV5
                 | DeliveryPolicy::ObservedBoRestTailRecoveryV6
                 | DeliveryPolicy::ObservedBoDataWaitRecoveryV7
+                | DeliveryPolicy::ObservedBoWsHistoricalRecoveryV8
         )
     }
 
@@ -107,6 +110,7 @@ impl PrimaryPolicy {
                 | DeliveryPolicy::ObservedBoConsistentSourcesV5
                 | DeliveryPolicy::ObservedBoRestTailRecoveryV6
                 | DeliveryPolicy::ObservedBoDataWaitRecoveryV7
+                | DeliveryPolicy::ObservedBoWsHistoricalRecoveryV8
         )
     }
 
@@ -118,6 +122,7 @@ impl PrimaryPolicy {
                 | DeliveryPolicy::ObservedBoConsistentSourcesV5
                 | DeliveryPolicy::ObservedBoRestTailRecoveryV6
                 | DeliveryPolicy::ObservedBoDataWaitRecoveryV7
+                | DeliveryPolicy::ObservedBoWsHistoricalRecoveryV8
         )
     }
 
@@ -128,6 +133,7 @@ impl PrimaryPolicy {
                 | DeliveryPolicy::ObservedBoConsistentSourcesV5
                 | DeliveryPolicy::ObservedBoRestTailRecoveryV6
                 | DeliveryPolicy::ObservedBoDataWaitRecoveryV7
+                | DeliveryPolicy::ObservedBoWsHistoricalRecoveryV8
         )
     }
 
@@ -137,6 +143,7 @@ impl PrimaryPolicy {
             DeliveryPolicy::ObservedBoConsistentSourcesV5
                 | DeliveryPolicy::ObservedBoRestTailRecoveryV6
                 | DeliveryPolicy::ObservedBoDataWaitRecoveryV7
+                | DeliveryPolicy::ObservedBoWsHistoricalRecoveryV8
         )
     }
 
@@ -145,11 +152,20 @@ impl PrimaryPolicy {
             self.delivery,
             DeliveryPolicy::ObservedBoRestTailRecoveryV6
                 | DeliveryPolicy::ObservedBoDataWaitRecoveryV7
+                | DeliveryPolicy::ObservedBoWsHistoricalRecoveryV8
         )
     }
 
     pub(crate) fn data_wait_recovery(&self) -> bool {
-        self.delivery == DeliveryPolicy::ObservedBoDataWaitRecoveryV7
+        matches!(
+            self.delivery,
+            DeliveryPolicy::ObservedBoDataWaitRecoveryV7
+                | DeliveryPolicy::ObservedBoWsHistoricalRecoveryV8
+        )
+    }
+
+    pub(crate) fn ws_historical_recovery(&self) -> bool {
+        self.delivery == DeliveryPolicy::ObservedBoWsHistoricalRecoveryV8
     }
 
     pub(crate) fn proof_wait_ms(&self) -> i64 {

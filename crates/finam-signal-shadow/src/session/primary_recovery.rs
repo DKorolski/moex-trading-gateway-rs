@@ -1,8 +1,11 @@
 //! Continue the SAME owned model/book through source-bound historical inputs.
 //! Real IO/replay times remain separate from the declared virtual close clock.
 use super::*;
+use broker_core::hybrid_strategy_boundary::HybridRuntimeBarEvent;
 #[cfg(test)]
 mod tail_tests;
+#[cfg(test)]
+mod ws_tests;
 impl ObservedSession {
     #[cfg(test)]
     pub(crate) fn fail_primary_evidence(&mut self, kind: &'static str) {
@@ -65,12 +68,88 @@ impl ObservedSession {
             .observer
             .record_recovery_source(input, source)
             .map_err(|_| SessionError::Evidence)?;
+        self.publish_historical(
+            &receipt.canonical,
+            input.model_bar(),
+            hash,
+            receipt.replay_deadline_ms,
+            receipt.actual_received_at_ms,
+        )
+    }
+
+    pub(crate) fn ws_recovery(
+        &mut self,
+        input: &crate::primary::WsRecoveryInput,
+    ) -> Result<CanonicalPublication, SessionError> {
+        if self.closed {
+            return Err(SessionError::Closed);
+        }
+        let result = (|| {
+            self.check()?;
+            let r = input.receipt();
+            let c = &r.canonical;
+            let policy = self.config.primary_policy().ok_or(SessionError::Input)?;
+            if !self.recoverable_primary()
+                || !policy.ws_historical_recovery()
+                || c.config_sha256 != self.config.fingerprint()
+                || c.policy_sha256 != policy.fingerprint().map_err(|_| SessionError::Input)?
+                || c.origin != "WS_RECOVERY_BACKFILL"
+                || c.label_ms != self.next_label_ms
+                || c.rest_snapshot_sha256.is_some()
+                || c.proof_received_at_ms.is_some()
+                || input.model_bar().origin != HybridRuntimeBarOrigin::Replay
+                || c.canonical_digest
+                    != crate::input::canonical_digest(input.model_bar())
+                        .map_err(|_| SessionError::Input)?
+                || r.virtual_callback_at_ms != c.close_ms
+                || r.broker_execution
+            {
+                return Err(SessionError::Input);
+            }
+            let hash = self
+                .observer
+                .record_ws_recovery_source(input)
+                .map_err(|_| SessionError::Evidence)?;
+            self.publish_historical(
+                c,
+                input.model_bar(),
+                hash,
+                r.replay_deadline_ms,
+                c.boundary_received_at_ms.ok_or(SessionError::Input)?,
+            )
+        })();
+        match result {
+            Ok(publication) => Ok(publication),
+            Err(error) => self.fail(error),
+        }
+    }
+
+    fn publish_historical(
+        &mut self,
+        canonical: &crate::primary::CanonicalReceipt,
+        bar: &HybridRuntimeBarEvent,
+        hash: String,
+        replay_deadline_ms: i64,
+        actual_source_received_at_ms: i64,
+    ) -> Result<CanonicalPublication, SessionError> {
+        let check = |now| {
+            if now < canonical.canonical_ready_at_ms
+                || now > replay_deadline_ms
+                || (canonical.origin == "WS_RECOVERY_BACKFILL" && now == replay_deadline_ms)
+            {
+                Err(SessionError::Timing)
+            } else {
+                Ok(())
+            }
+        };
+        self.fence.check_now().map_err(|_| SessionError::Timing)?;
+        check(crate::timing::now_ms())?;
         let actual_start = crate::timing::now_ms();
         let before = self.model.observation();
         self.model.select_backfill();
         let intent = self
             .model
-            .on_bar(input.model_bar().clone(), receipt.virtual_callback_at_ms)
+            .on_bar(bar.clone(), canonical.close_ms)
             .map_err(|_| SessionError::Model)?;
         let after = self.model.observation();
         let decision = Decision::from_model_observation(
@@ -82,7 +161,7 @@ impl ObservedSession {
         self.observer
             .record_step(&Step {
                 mode: ObservationMode::BackfillReplay,
-                instrument: input.model_bar().instrument.symbol.clone(),
+                instrument: bar.instrument.symbol.clone(),
                 model_label_utc_ms: canonical.label_ms,
                 nominal_close_utc_ms: canonical.close_ms,
                 provider_at_ms: None,
@@ -117,10 +196,10 @@ impl ObservedSession {
         self.fence.check_now().map_err(|_| SessionError::Timing)?;
         let actual_result = crate::timing::now_ms();
         check(actual_result)?;
-        self.observer.record_transport(&serde_json::json!({"event":"recovery_step_durable_publication","origin":"RECOVERY_BACKFILL",
+        self.observer.record_transport(&serde_json::json!({"event":"recovery_step_durable_publication","origin":canonical.origin,
             "mode":ObservationMode::BackfillReplay,"model_label_utc_ms":canonical.label_ms,"virtual_callback_at_ms":canonical.close_ms,
             "actual_model_start_at_ms":actual_start,"actual_model_result_at_ms":actual_result,
-            "actual_source_received_at_ms":receipt.actual_received_at_ms,"source_sha256":hash,"history_proves_live_readiness":false})).map_err(|_|SessionError::Evidence)?;
+            "actual_source_received_at_ms":actual_source_received_at_ms,"source_sha256":hash,"history_proves_live_readiness":false})).map_err(|_|SessionError::Evidence)?;
         let published = crate::timing::now_ms();
         self.observer
             .record_canonical_commit(canonical.label_ms, &hash, actual_result, published)

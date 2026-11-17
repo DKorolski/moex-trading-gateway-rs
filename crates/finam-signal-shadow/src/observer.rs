@@ -358,6 +358,32 @@ impl Observer {
         Ok(hash)
     }
 
+    pub(crate) fn record_ws_recovery_source(
+        &mut self,
+        input: &crate::primary::WsRecoveryInput,
+    ) -> Result<String, Error> {
+        let receipt = input.receipt();
+        let c = &receipt.canonical;
+        if self.terminal
+            || self.pending_canonical.is_some()
+            || c.config_sha256 != self.header.config_sha256
+            || c.origin != "WS_RECOVERY_BACKFILL"
+            || c.rest_snapshot_sha256.is_some()
+            || self.last_label.is_some_and(|label| c.label_ms <= label)
+        {
+            return Err(Error::Invalid);
+        }
+        let hash = input.provenance_sha256().map_err(|_| Error::Invalid)?;
+        self.append(
+            "canonical_source",
+            &serde_json::json!({
+                "source_sha256":hash, "receipt":receipt, "rest_evidence":null,
+            }),
+        )?;
+        self.pending_canonical = Some((c.label_ms, hash.clone()));
+        Ok(hash)
+    }
+
     pub(crate) fn record_canonical_commit(
         &mut self,
         label: i64,

@@ -343,6 +343,7 @@ fn tail_v6_real_november_12_result_old_policy_holds_new_policy_waits() {
                     first_received_ms: t + 100,
                     last_changed_ms: t + 100,
                     frame_sha256: "1".repeat(64),
+                    first_frame_sha256: "1".repeat(64),
                 },
             );
         }

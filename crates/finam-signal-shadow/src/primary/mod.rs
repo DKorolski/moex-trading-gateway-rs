@@ -5,13 +5,13 @@
 //! The socket adapter binds physical generations and receive clocks to this
 //! core. Explicit v2 entry is separate from the legacy REST-driven runner.
 mod cache;
-#[cfg(feature = "models-bridge")]
-pub mod models_bridge;
 pub mod calendar;
 mod continuity;
 pub mod entry;
 pub mod eod;
 mod json;
+#[cfg(feature = "models-bridge")]
+pub mod models_bridge;
 pub mod verify;
 pub(crate) use continuity::ContinuityGate;
 mod ingress;
@@ -25,7 +25,7 @@ pub use cache::{
     AdmittedCanonicalM10, AdmittedRecovery, CanonicalReceipt, CanonicalStatus, Counters,
     ExceptionReason, PipelineState, PrimaryProcessor, RecoveryCompletion, RecoveryInput,
     RecoveryOutcome, RecoveryPlan, RecoveryReceipt, RecoveryRequestScope, RecoveryWait,
-    ResolvedRecovery, MAX_REST_READS, REST_BACKOFF_MS,
+    ResolvedRecovery, WsRecoveryInput, WsRecoveryReceipt, MAX_REST_READS, REST_BACKOFF_MS,
 };
 pub use ingress::{bounded_ingress, IngressReceiver, IngressSender};
 pub use policy::{DeliveryPolicy, PrimaryPolicy, WsPrimaryConfig, WS_PRIMARY_POLICY};

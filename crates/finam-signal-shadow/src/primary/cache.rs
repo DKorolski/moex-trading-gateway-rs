@@ -17,6 +17,7 @@ mod calendar;
 mod proof;
 mod readiness;
 mod recovery;
+pub use recovery::ws::{WsRecoveryInput, WsRecoveryReceipt};
 mod restart;
 pub use recovery::{
     AdmittedRecovery, RecoveryCompletion, RecoveryInput, RecoveryOutcome, RecoveryPlan,
@@ -160,6 +161,7 @@ struct Version {
     first_received_ms: i64,
     last_changed_ms: i64,
     frame_sha256: String,
+    first_frame_sha256: String,
 }
 
 /// One instrument/frontier, independent of number of future runtime consumers.
@@ -195,6 +197,7 @@ pub struct PrimaryProcessor {
     in_flight: Option<Arc<()>>,
     gap_unresolved: bool,
     gap_owner: Option<Arc<()>>,
+    late_ws_gap: Option<recovery::ws::DataGap>,
     last_resolution: Option<Arc<()>>,
     recovery_pending: Option<recovery::Pending>,
     recovery_request_serial: u64,
@@ -218,6 +221,9 @@ impl PrimaryProcessor {
     }
     pub(crate) fn data_wait_recovery(&self) -> bool {
         self.policy.data_wait_recovery()
+    }
+    pub(crate) fn ws_historical_recovery(&self) -> bool {
+        self.policy.ws_historical_recovery()
     }
 
     pub(crate) fn assess_rest(
@@ -423,6 +429,7 @@ impl PrimaryProcessor {
             in_flight: None,
             gap_unresolved: false,
             gap_owner: None,
+            late_ws_gap: None,
             last_resolution: None,
             recovery_pending: None,
             recovery_request_serial: 0,
@@ -864,6 +871,13 @@ impl PrimaryProcessor {
                 .get(&key)
                 .filter(|old| old.generation == self.generation)
                 .map_or(frame.received_at_ms, |old| old.first_received_ms);
+            let first_frame_sha256 = cache
+                .get(&key)
+                .filter(|old| old.generation == self.generation)
+                .map_or_else(
+                    || frame.sha256.clone(),
+                    |old| old.first_frame_sha256.clone(),
+                );
             cache.insert(
                 key,
                 Version {
@@ -872,6 +886,7 @@ impl PrimaryProcessor {
                     first_received_ms,
                     last_changed_ms: frame.received_at_ms,
                     frame_sha256: frame.sha256.clone(),
+                    first_frame_sha256,
                 },
             );
             counters.valid_updates += 1;
@@ -921,6 +936,7 @@ impl PrimaryProcessor {
     /// Fresh DATA cannot clear this canonical gap. Only a source-bound completed
     /// historical batch plus explicit readiness resolution may clear it.
     pub fn break_continuity(&mut self) {
+        self.late_ws_gap = None;
         self.gap_unresolved = true;
         self.last_resolution = None;
         // Every new fault invalidates any staged proof, including a fault that
@@ -1024,7 +1040,11 @@ impl PrimaryProcessor {
             });
         }
         if self.policy.observed_bo() && now_ms - close + self.clock_uncertainty_ms > 2000 {
+            let data_gap = !self.gap_unresolved && self.ws_gap_eligible();
             self.break_continuity();
+            if data_gap {
+                self.capture_ws_data_gap(now_ms);
+            }
             return Ok(CanonicalStatus::PendingProof {
                 label_ms: label,
                 reason: ExceptionReason::BoundaryUnproven,

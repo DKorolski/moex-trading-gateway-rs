@@ -20,6 +20,7 @@ mod eod;
 mod nonblocking_rest;
 mod proof_race;
 mod tail;
+mod ws_historical;
 
 #[test]
 fn consistent_v5_dequeued_stale_fault_closes_gate_synchronously_clock_does_not_retry() {

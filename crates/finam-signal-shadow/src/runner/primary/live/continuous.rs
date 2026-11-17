@@ -887,12 +887,25 @@ where
     }
     async fn recover_rest_tail(&mut self, episode: &Episode, cutover: i64) -> Result<(), Cause> {
         let mut previous = None;
+        let ws_historical = self.policy.ws_historical_recovery()
+            && !episode.audit().snapshot().transport_unresolved;
         loop {
             // Mandatory bootstrap requested during backoff keeps its own
             // deadline and finishes before the next critical recovery GET.
             if self.policy.data_wait_recovery() {
                 while self.critical.is_some() {
-                    self.poll(Some(episode.deadline()), false).await?;
+                    let update = self.poll(Some(episode.deadline()), ws_historical).await?;
+                    if update.recovery_ready && self.critical.is_none() {
+                        return Ok(());
+                    }
+                }
+            }
+            if ws_historical {
+                let update = self
+                    .apply(Operation::Tick, Some(episode.deadline()))
+                    .await?;
+                if update.recovery_ready {
+                    return Ok(());
                 }
             }
             let mut update = self
@@ -905,7 +918,7 @@ where
             self.schedule(Job::Recovery(plan.clone()))?;
             let mut completion = None;
             while self.critical.is_some() {
-                let update = self.poll(Some(episode.deadline()), false).await?;
+                let update = self.poll(Some(episode.deadline()), ws_historical).await?;
                 if !self.policy.data_wait_recovery()
                     || update.completed_recovery_sha256.as_deref() == Some(plan.sha256())
                 {
@@ -928,17 +941,33 @@ where
             }
             let scope = plan.scope().ok_or(Cause::Binding)?;
             if scope.ordinal >= crate::primary::MAX_REST_READS {
+                if ws_historical {
+                    // The GET cap is not a reset or a fifth request. Keep the
+                    // SAME episode/connection alive for an authorized WS source.
+                    loop {
+                        if self
+                            .poll(Some(episode.deadline()), true)
+                            .await?
+                            .recovery_ready
+                        {
+                            return Ok(());
+                        }
+                    }
+                }
                 return Err(Cause::Recovery(reconnect::Error::RestTailRequestsExhausted));
             }
             let delay = crate::primary::REST_BACKOFF_MS[usize::from(scope.ordinal - 1)];
             let wake = (Instant::now() + Duration::from_millis(delay)).min(episode.deadline());
             // Keep servicing this same connection and STOP while waiting for
             // source availability. Neither latch is reset by Pending.
-            while self
-                .poll_with_wake(Some(episode.deadline()), false, Some(wake))
+            while let Some(update) = self
+                .poll_with_wake(Some(episode.deadline()), ws_historical, Some(wake))
                 .await?
-                .is_some()
-            {}
+            {
+                if update.recovery_ready && self.critical.is_none() {
+                    return Ok(());
+                }
+            }
             previous = Some(Box::new(plan));
         }
     }

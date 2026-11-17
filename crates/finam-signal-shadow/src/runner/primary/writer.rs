@@ -87,6 +87,7 @@ struct Core {
 }
 impl Core {
     fn step(&mut self, op: Operation) -> Result<Update, Cause> {
+        let data_only = matches!(&op, Operation::BeginDataRecovery(_));
         if let Operation::RecoveryFailure { audit, stage } = op {
             self.owner
                 .event(
@@ -192,7 +193,7 @@ impl Core {
             Operation::BeginRecovery(failure) | Operation::BeginDataRecovery(failure) => {
                 let episode = self
                     .recovery_budget
-                    .begin(&mut self.owner, failure)
+                    .begin_impl_for_writer(&mut self.owner, failure, data_only)
                     .map_err(Cause::Recovery)?;
                 self.owner.event(serde_json::json!({"event":"primary_recovery_episode_started","audit":episode.audit().snapshot()})).map_err(Cause::Coordinator)?;
                 self.recovering = true;
@@ -429,10 +430,28 @@ impl Core {
                                 {
                                     return Err(Cause::Http(RestFailure::Integrity));
                                 }
-                                self.owner
-                                    .processor
-                                    .retire_failed_recovery_request(&plan, now)
-                                    .map_err(|e| Cause::Coordinator(CoordinatorError::Source(e)))?;
+                                if self.owner.processor.recovery_request_active(&plan) {
+                                    self.owner
+                                        .processor
+                                        .retire_failed_recovery_request(&plan, now)
+                                        .map_err(|e| {
+                                            Cause::Coordinator(CoordinatorError::Source(e))
+                                        })?;
+                                } else if self.owner.processor.ws_historical_recovery()
+                                    && self.owner.recovery_completion.is_some()
+                                {
+                                    self.owner.event(serde_json::json!({
+                                        "event":"primary_recovery_request_stale_discarded",
+                                        "ticket_sha256":plan.sha256(),"generation":plan.generation(),
+                                        "at_ms":now,"callback":false,"error":error
+                                    })).map_err(Cause::Coordinator)?;
+                                    let mut update = self.update();
+                                    update.completed_recovery_sha256 =
+                                        Some(plan.sha256().to_owned());
+                                    return Ok(update);
+                                } else {
+                                    return Err(Cause::Binding);
+                                }
                                 self.owner.event(serde_json::json!({"event":"primary_recovery_request_failed",
                                     "ticket_sha256":plan.sha256(),"scope":plan.scope(),"generation":plan.generation(),
                                     "error":error,"receipt":r,"at_ms":now,"callback":false,
@@ -525,6 +544,27 @@ impl Core {
         if self.stop.is_stopped() {
             return Err(Cause::RequestedStop);
         }
+        if self.recovering
+            && !self.bootstrap.pending()
+            && self.owner.processor.ws_historical_recovery()
+        {
+            let state = self.gate.as_ref().ok_or(Cause::Binding)?.snapshot();
+            if state.failure.is_none()
+                && state.revision == self.expected_revision
+                && self.socket_fault.first().is_none()
+            {
+                let audit = self
+                    .recovery_budget
+                    .last_audit()
+                    .ok_or(Cause::Binding)?
+                    .snapshot();
+                if !audit.transport_unresolved {
+                    self.owner
+                        .try_ws_recovery(audit.episode, audit.deadline_ms, state.revision)
+                        .map_err(Cause::Coordinator)?;
+                }
+            }
+        }
         let tick = if self.bootstrap.pending() || self.recovering {
             None
         } else {
@@ -561,6 +601,11 @@ impl Core {
                         self.owner.event(serde_json::json!({"event":"primary_data_wait_started",
                             "generation":failure.generation,"reason":"CanonicalBoundaryOrRecentTailUnproven",
                             "physical_reconnect":false})).map_err(Cause::Coordinator)?;
+                        if let Some(evidence) =
+                            self.owner.processor.ws_data_gap_evidence(state.revision)
+                        {
+                            self.owner.event(evidence).map_err(Cause::Coordinator)?;
+                        }
                     } else {
                         self.socket_fault.record(failure.clone());
                     }
@@ -596,7 +641,8 @@ impl Core {
             recovery_plan: None,
             recovery_error: None,
             recovery_wait: None,
-            recovery_ready: false,
+            recovery_ready: self.owner.processor.ws_historical_recovery()
+                && self.owner.recovery_completion.is_some(),
             completed_recovery_sha256: None,
             transport_failure: None,
             bootstrap: None,

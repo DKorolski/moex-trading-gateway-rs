@@ -10,7 +10,7 @@ fn fixture() -> Fixture {
     f.config.base.previous_segment_id = None;
     f
 }
-fn plan(f: &Fixture, startup: Startup) -> Plan {
+pub(crate) fn plan(f: &Fixture, startup: Startup) -> Plan {
     let mut binding = f.binding.clone();
     binding.config_sha256 = f.config.fingerprint().unwrap();
     binding.model_day_sha256 = digest(&serde_json::to_vec(&f.model).unwrap());
@@ -25,7 +25,11 @@ fn plan(f: &Fixture, startup: Startup) -> Plan {
         startup,
     }
 }
-fn prepared(f: &Fixture, plan: Plan, prefix: Option<&[u8]>) -> Result<PreparedEntry, EntryError> {
+pub(crate) fn prepared(
+    f: &Fixture,
+    plan: Plan,
+    prefix: Option<&[u8]>,
+) -> Result<PreparedEntry, EntryError> {
     let model = serde_json::to_vec(&f.model).unwrap();
     let raw = serde_json::to_vec(&f.raw).unwrap();
     prepare(

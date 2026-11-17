@@ -6,12 +6,14 @@ use crate::primary::{
 };
 mod r1;
 mod tail;
+mod ws_historical;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum R1Scenario {
     None,
     StaleReference,
     RepeatedWitness,
     RestTail,
+    WsHistorical,
 }
 
 #[derive(Clone)]
@@ -212,6 +214,38 @@ async fn day_scenario(
                     },
                 }
             } else {
+                if scenario == R1Scenario::WsHistorical
+                    && (matches!(&job, Job::Recovery(_))
+                        || matches!(&job, Job::Proof(t) if t.label_ms() == f.open() + 1200000))
+                {
+                    let plan = job.plan().unwrap();
+                    let mut evidence = f.rest(&plan).evidence().clone();
+                    let part = &mut evidence.parts[0];
+                    let mut raw: Value = serde_json::from_str(&part.raw_body).unwrap();
+                    let n = raw["bars"].as_array().unwrap().len();
+                    raw["bars"].as_array_mut().unwrap().truncate(n - 8);
+                    part.raw_body = raw.to_string();
+                    part.declared_body_bytes = Some(part.raw_body.len() as u64);
+                    part.response_sha256 = crate::seed::digest(part.raw_body.as_bytes());
+                    let admitted = broker_finam::sparse_m10::AdmittedClosedM1Snapshot::admit(
+                        evidence,
+                        &plan,
+                        at(crate::timing::now_ms()),
+                    )
+                    .unwrap();
+                    return HttpOutcome {
+                        result: Ok(admitted),
+                        receipt: HttpReceipt {
+                            started_at_ms: crate::timing::now_ms(),
+                            finished_at_ms: crate::timing::now_ms(),
+                            deadline_ms: job.deadline_ms(),
+                            get_attempts: 1,
+                            auth_generation: Some(1),
+                            body: None,
+                            executor_completed: true,
+                        },
+                    };
+                }
                 assert!(
                     matches!(&job,Job::Proof(t) if t.reason()==Some(ExceptionReason::SessionEnd))
                         || (f.config.primary.admitted_rest_source()
@@ -394,6 +428,44 @@ async fn day_scenario(
     let minutes = if early_stop { 21 } else { 1010 };
     for minute in i64::from(startup_recovery || scenario == R1Scenario::StaleReference)..minutes {
         let label = f.open() + minute * 60000;
+        if scenario == R1Scenario::WsHistorical && minute == 30 {
+            go(label + 1000);
+            peer.send(data(label - 60000)).await.unwrap();
+            until(|| {
+                trace(&path).iter().any(|r| {
+                    r["event"]["event"] == "primary_rest_observation"
+                        && r["event"]["label_ms"] == label - 600000
+                })
+            })
+            .await;
+            go(label + 1364);
+            peer.send(data(label)).await.unwrap();
+            accepted(&mut accepted_data, label + 1364).await;
+            go(label + 1904);
+            peer.send(data(label - 60000)).await.unwrap();
+            until(|| {
+                trace(&path)
+                    .iter()
+                    .any(|r| r["event"]["event"] == "primary_recovery_data_not_ready")
+            })
+            .await;
+            go(label + 2364);
+            peer.send(data(label)).await.unwrap();
+            until(|| {
+                trace(&path)
+                    .iter()
+                    .any(|r| r["event"]["event"] == "primary_recovery_episode_ready")
+            })
+            .await;
+            assert_eq!(
+                trace(&path)
+                    .iter()
+                    .filter(|r| r["kind"] == "canonical_commit")
+                    .count(),
+                3
+            );
+            continue;
+        }
         if (f.config.primary.admitted_rest_source() && minute == 50)
             || (f.config.primary.consistent_sources() && minute == 60)
         {

@@ -13,6 +13,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 pub(crate) mod tail;
 mod versions;
+mod ws;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -47,6 +48,15 @@ pub struct VerifiedEod {
     pub network_qualified: bool,
     pub cgroup_qualified: bool,
     pub parity_accepted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delivery_evidence: Option<DeliveryEvidence>,
+}
+#[derive(Debug, Serialize)]
+pub struct DeliveryEvidence {
+    pub complete_model_inventory: bool,
+    pub historical_ws_inputs: usize,
+    pub historical_model_inputs: usize,
+    pub all_inputs_published_live: bool,
 }
 
 pub fn verify(
@@ -168,6 +178,7 @@ pub fn verify(
     let mut any_model_step = false;
     let mut committed_so_far = 0usize;
     let mut validated_sources = BTreeMap::<u64, String>::new();
+    let mut ws_validated_sources = BTreeMap::<(u64, String), i64>::new();
     let mut canonical_resolved = BTreeSet::new();
     let mut proof_jobs = BTreeMap::new();
     let mut proof_failures = BTreeSet::new();
@@ -386,6 +397,22 @@ pub fn verify(
             }
             Some("primary_canonical_recovery_resolved") => {
                 let generation = number(event, "generation")?;
+                let hash = string(event, "source_sha256")?;
+                if let Some(cutover) = ws_validated_sources.remove(&(generation, hash.to_owned())) {
+                    if !config.primary.ws_historical_recovery()
+                        || Some(generation) != current_generation
+                        || integer(event, "cutover_ms")? != cutover
+                        || !scan.inputs[..committed_so_far].iter().any(|i| {
+                            i.source_sha256 == hash
+                                && i.origin == "WS_RECOVERY_BACKFILL"
+                                && i.step.nominal_close_utc_ms == cutover
+                        })
+                    {
+                        return Err(VerifyError::Source);
+                    }
+                    canonical_resolved.insert(generation);
+                    continue;
+                }
                 let hash = validated_sources
                     .get(&generation)
                     .ok_or(VerifyError::Unresolved)?;
@@ -393,7 +420,8 @@ pub fn verify(
                 if Some(generation) != current_generation
                     || event["source_sha256"] != hash.as_str()
                     || integer(event, "cutover_ms")? != source.evidence().end.timestamp_millis()
-                    || !canonical_resolved.insert(generation)
+                    || (!canonical_resolved.insert(generation)
+                        && !config.primary.ws_historical_recovery())
                 {
                     return Err(VerifyError::Source);
                 }
@@ -495,6 +523,20 @@ pub fn verify(
             }
             _ => (),
         }
+        if name == Some("primary_ws_historical_source_selected")
+            && (!config.primary.ws_historical_recovery()
+                || ws_validated_sources
+                    .insert(
+                        (
+                            number(event, "generation")?,
+                            string(event, "source_sha256")?.to_owned(),
+                        ),
+                        integer(event, "label_ms")? + 600000,
+                    )
+                    .is_some())
+        {
+            return Err(VerifyError::Source);
+        }
         if name == Some("primary_recovery_source_validated") {
             let generation = match event.get("generation") {
                 Some(value) => value.as_u64().ok_or(VerifyError::Decode)?,
@@ -504,7 +546,8 @@ pub fn verify(
             let source = scan.sources.get(hash).ok_or(VerifyError::Source)?;
             if Some(generation) != current_generation
                 || source.evidence().end.timestamp_millis() != integer(event, "cutover_ms")?
-                || validated_sources.insert(generation, hash.into()).is_some()
+                || (validated_sources.insert(generation, hash.into()).is_some()
+                    && !config.primary.ws_historical_recovery())
             {
                 return Err(VerifyError::Source);
             }
@@ -562,8 +605,14 @@ pub fn verify(
         // A comparison-only outage can be discharged by the same-generation WS
         // commit, or by validated and resolved source-bound historical repair.
         if !(origin == "WS_LIVE" && generation == scheduled_generation
+            || origin == "WS_RECOVERY_BACKFILL"
+                && config.primary.ws_historical_recovery()
+                && generation == scheduled_generation
+                && canonical_resolved.contains(generation)
             || origin == "RECOVERY_BACKFILL"
-                && generation > scheduled_generation
+                && (generation > scheduled_generation
+                    || config.primary.ws_historical_recovery()
+                        && generation == scheduled_generation)
                 && canonical_resolved.contains(generation)
                 && ready
                     .values()
@@ -691,6 +740,20 @@ pub fn verify(
         network_qualified: false,
         cgroup_qualified: false,
         parity_accepted: false,
+        delivery_evidence: config
+            .primary
+            .ws_historical_recovery()
+            .then(|| DeliveryEvidence {
+                complete_model_inventory: scan.inputs.len() == cal.required().len(),
+                historical_ws_inputs: scan
+                    .inputs
+                    .iter()
+                    .filter(|i| i.origin == "WS_RECOVERY_BACKFILL")
+                    .count(),
+                historical_model_inputs: scan.inputs.len() - ws_live_labels - rest_exception_labels,
+                all_inputs_published_live: scan.inputs.len()
+                    == ws_live_labels + rest_exception_labels,
+            }),
     })
 }
 // File-only diagnostic attestation. This is not called by the runtime owner

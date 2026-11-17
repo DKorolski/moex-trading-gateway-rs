@@ -7,7 +7,7 @@ use broker_finam::sparse_m10::{
 };
 use serde_json::{json, Value};
 
-fn before_action(want_exit: bool) -> (crate::model::ShadowModel, HybridRuntimeBarEvent) {
+pub(super) fn before_action(want_exit: bool) -> (crate::model::ShadowModel, HybridRuntimeBarEvent) {
     let mut before = crate::model::candle_tests::empty_model();
     let mut probe = crate::model::candle_tests::empty_model();
     let instrument = crate::session::primary_tests::wire(1793678400000, 1793678400100).rows[0]
@@ -54,7 +54,7 @@ fn before_action(want_exit: bool) -> (crate::model::ShadowModel, HybridRuntimeBa
     }
     panic!("frozen fixture must cover the requested BO action")
 }
-fn rows(bar: &HybridRuntimeBarEvent) -> Vec<Value> {
+pub(super) fn rows(bar: &HybridRuntimeBarEvent) -> Vec<Value> {
     (0..10).map(|i|json!({"timestamp":DateTime::<Utc>::from_timestamp_millis(bar.close_time_utc*1000+i*60000).unwrap().to_rfc3339(),
         "open":{"value":bar.open.to_string()},"high":{"value":bar.high.to_string()},"low":{"value":bar.low.to_string()},"close":{"value":bar.close.to_string()},"volume":{"value":"2"}})).collect()
 }
