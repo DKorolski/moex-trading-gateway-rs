@@ -70,6 +70,7 @@ pub struct Subscription {
     generation: u64,
     sent_at_ms: i64,
     auth_generation: u64,
+    instrument: broker_finam::ShadowInstrument,
     pub(crate) owner: Arc<()>,
 }
 impl Subscription {
@@ -80,6 +81,7 @@ impl Subscription {
             generation: self.generation,
             sent_at_ms: self.sent_at_ms,
             auth_generation: self.auth_generation,
+            instrument: self.instrument,
             owner: self.owner.clone(),
         }
     }
@@ -91,6 +93,9 @@ impl Subscription {
     }
     pub fn auth_generation(&self) -> u64 {
         self.auth_generation
+    }
+    pub(crate) fn instrument(&self) -> broker_finam::ShadowInstrument {
+        self.instrument
     }
 }
 #[derive(Debug, serde::Serialize)]
@@ -124,6 +129,26 @@ impl Drop for ConnectGuard {
 }
 impl PrimarySocket {
     pub async fn connect(
+        grant: PrimaryAuthGrant,
+        generation: u64,
+        stop: StopHandle,
+        deadline: chrono::DateTime<Utc>,
+        run_deadline: chrono::DateTime<Utc>,
+        failure_slot: FailureSlot,
+    ) -> Result<Self, Failure> {
+        Self::connect_for(
+            broker_finam::ShadowInstrument::Imoexf,
+            grant,
+            generation,
+            stop,
+            deadline,
+            run_deadline,
+            failure_slot,
+        )
+        .await
+    }
+    pub async fn connect_for(
+        instrument: broker_finam::ShadowInstrument,
         grant: PrimaryAuthGrant,
         generation: u64,
         stop: StopHandle,
@@ -174,17 +199,17 @@ impl PrimarySocket {
             }
         };
         guard.completed = true;
-        Ok(Self {
-            driver: Driver::new(
-                socket,
-                grant.grant.lease,
-                grant.grant.generation,
-                generation,
-                stop,
-                run_deadline,
-                failure_slot,
-            ),
-        })
+        let mut driver = Driver::new(
+            socket,
+            grant.grant.lease,
+            grant.grant.generation,
+            generation,
+            stop,
+            run_deadline,
+            failure_slot,
+        );
+        driver.instrument = instrument;
+        Ok(Self { driver })
     }
     pub async fn pump(
         self,
@@ -214,6 +239,7 @@ struct Driver<S> {
     finished: bool,
     frames: u64,
     owner: Arc<()>,
+    instrument: broker_finam::ShadowInstrument,
 }
 impl<S> Drop for Driver<S> {
     fn drop(&mut self) {
@@ -262,6 +288,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Driver<S> {
             finished: false,
             frames: 0,
             owner: Arc::new(()),
+            instrument: broker_finam::ShadowInstrument::Imoexf,
         }
     }
     fn fail(&self, kind: Kind) -> Failure {
@@ -374,10 +401,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Driver<S> {
                                     Some("HANDSHAKE_SUCCESS")=>{
                                         if self.subscribed{return Err(Kind::Protocol);}
                                         lease_valid(&self.lease).map_err(|_|Kind::Lease)?;
-                                        let request=broker_finam::build_ws_subscribe_bars_request("IMOEXF@RTSX","TIME_FRAME_M1",self.lease.token());
+                                        let request=broker_finam::build_ws_subscribe_bars_request(self.instrument.venue_symbol(),"TIME_FRAME_M1",self.lease.token());
                                         self.send(Message::Text(request.to_string())).await?;
                                         self.subscribed=true;
-                                        let receipt=Subscription{generation:self.generation,sent_at_ms:crate::timing::now_ms(),auth_generation:self.auth_generation,owner:self.owner.clone()};
+                                        let receipt=Subscription{generation:self.generation,sent_at_ms:crate::timing::now_ms(),auth_generation:self.auth_generation,instrument:self.instrument,owner:self.owner.clone()};
                                         started.take().ok_or(Kind::Protocol)?.send(receipt).map_err(|_|Kind::OwnerGone)?;
                                     }
                                     Some("CONNECTION_CLOSED")=>return Err(Kind::Close),_=>(),
@@ -388,7 +415,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Driver<S> {
                             let key=envelope.subscription_key.as_deref().filter(|key|!key.is_empty()&&key.len()<=256).ok_or(Kind::Protocol)?;
                             if self.key.as_ref().is_some_and(|old|old!=key){return Err(Kind::Protocol);}
                             let received=chrono::DateTime::from_timestamp_millis(received_ms).ok_or(Kind::Clock)?;
-                            let mut frame=WireFrame::normalize(&text,self.generation,key,received).map_err(Kind::Source)?;
+                            let mut frame=WireFrame::normalize_for(self.instrument,&text,self.generation,key,received).map_err(Kind::Source)?;
                             frame.received_mono=received_mono;
                             frame.owner=Some(self.owner.clone());
                             self.key=Some(key.to_owned());ingress.offer(frame).map_err(Kind::Source)?;self.frames+=1;
@@ -411,10 +438,23 @@ mod tests;
 
 #[cfg(test)]
 pub(crate) fn fixture_subscription(generation: u64, sent_at_ms: i64) -> Subscription {
+    fixture_subscription_for(
+        broker_finam::ShadowInstrument::Imoexf,
+        generation,
+        sent_at_ms,
+    )
+}
+#[cfg(test)]
+pub(crate) fn fixture_subscription_for(
+    instrument: broker_finam::ShadowInstrument,
+    generation: u64,
+    sent_at_ms: i64,
+) -> Subscription {
     Subscription {
         generation,
         sent_at_ms,
         auth_generation: 1,
+        instrument,
         owner: Arc::new(()),
     }
 }

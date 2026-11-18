@@ -69,21 +69,21 @@ pub(crate) enum Projection<'a> {
     Ws(&'a WsRecoveryInput),
 }
 impl Projection<'_> {
-    fn receipt(&self) -> &CanonicalReceipt {
+    pub(crate) fn receipt(&self) -> &CanonicalReceipt {
         match self {
             Self::Canonical(i) => i.receipt(),
             Self::Rest(i, _) => &i.receipt().canonical,
             Self::Ws(i) => &i.receipt().canonical,
         }
     }
-    fn bar(&self) -> &broker_core::HybridRuntimeBarEvent {
+    pub(crate) fn bar(&self) -> &broker_core::HybridRuntimeBarEvent {
         match self {
             Self::Canonical(i) => i.model_bar(),
             Self::Rest(i, _) => i.model_bar(),
             Self::Ws(i) => i.model_bar(),
         }
     }
-    fn provenance(&self) -> Result<(String, Value, Value, String)> {
+    pub(crate) fn provenance(&self) -> Result<(String, Value, Value, String)> {
         Ok(match self {
             Self::Canonical(i) => (
                 i.provenance_sha256().map_err(|e| anyhow!("{e:?}"))?,

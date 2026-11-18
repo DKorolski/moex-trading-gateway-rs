@@ -28,13 +28,17 @@ fn lease(ttl: u64) -> AccessTokenLease {
     )
 }
 async fn pair(lease: AccessTokenLease) -> Pair {
+    pair_for(lease, broker_finam::ShadowInstrument::Imoexf).await
+}
+async fn pair_for(lease: AccessTokenLease, instrument: broker_finam::ShadowInstrument) -> Pair {
     let (a, b) = tokio::io::duplex(512 * 1024);
     let socket = WebSocketStream::from_raw_socket(a, Role::Client, Some(config())).await;
     let peer = WebSocketStream::from_raw_socket(b, Role::Server, Some(config())).await;
     let deadline = Utc::now() + chrono::Duration::hours(1);
     let (stop, _) = ReadOnlyCollector::new(deadline, Duration::from_secs(1)).unwrap();
     let slot = FailureSlot::default();
-    let driver = Driver::new(socket, lease, 4, 1, stop.clone(), deadline, slot.clone());
+    let mut driver = Driver::new(socket, lease, 4, 1, stop.clone(), deadline, slot.clone());
+    driver.instrument = instrument;
     let (tx, rx) = bounded_ingress(&PrimaryPolicy::default(), 1).unwrap();
     let (feedback, acks) = watch::channel(None);
     let (start, started) = oneshot::channel();
@@ -47,6 +51,42 @@ async fn pair(lease: AccessTokenLease) -> Pair {
         started,
         stop,
         slot,
+    }
+}
+
+#[tokio::test]
+async fn additional_ws_subscription_and_physical_data_are_exactly_selected() {
+    for i in [
+        broker_finam::ShadowInstrument::Usdrubf,
+        broker_finam::ShadowInstrument::Riz6,
+    ] {
+        let mut p = pair_for(lease(900), i).await;
+        p.peer
+            .send(Message::Text(
+                r#"{"type":"EVENT","eventInfo":{"event":"HANDSHAKE_SUCCESS"}}"#.into(),
+            ))
+            .await
+            .unwrap();
+        let Some(Ok(Message::Text(text))) = p.peer.next().await else {
+            panic!("missing SUBSCRIBE")
+        };
+        let value: Value = serde_json::from_str(&text).unwrap();
+        assert!(value.to_string().contains(i.venue_symbol()));
+        assert!(!value.to_string().contains("IMOEXF"));
+        let sub = (&mut p.started).await.unwrap();
+        assert_eq!(sub.instrument(), i);
+        let t = minute();
+        let mut v = row(t);
+        for k in ["open", "high", "low", "close"] {
+            v[k] =
+                json!({"value":if i==broker_finam::ShadowInstrument::Riz6{"100000"}else{"100.01"}});
+        }
+        p.peer.send(Message::Text(json!({"type":"DATA","subscriptionType":"BARS","subscriptionKey":"fixture","payload":{"symbol":i.venue_symbol(),"bars":[v]}}).to_string())).await.unwrap();
+        let frame = p.rx.receive(&p.stop).await.unwrap().unwrap();
+        assert_eq!(frame.rows[0].bar.instrument, i.instrument());
+        assert!(Arc::ptr_eq(frame.owner.as_ref().unwrap(), &sub.owner));
+        p.stop.stop();
+        assert!(p.task.await.unwrap().is_ok());
     }
 }
 async fn subscribe(p: &mut Pair) -> Subscription {

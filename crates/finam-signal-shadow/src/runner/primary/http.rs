@@ -304,12 +304,40 @@ async fn execute_inner(
         _=tokio::time::sleep_until(end)=>return Err(RestFailure::Timeout),
         value=client.fetch_closed_m1_primary(grant.grant.lease.token(),plan,attempts)=>value.map_err(get_failure)?,
     };
-    classify_completed_body(evidence, plan, start, chrono::Utc::now(), deadline, receipt)
+    classify_completed_body_for(
+        client.shadow_instrument(),
+        evidence,
+        plan,
+        start,
+        chrono::Utc::now(),
+        deadline,
+        receipt,
+    )
 }
 
 /// A completed body is intrinsically admitted BEFORE timing disposition. A
 /// timer that wins without a complete body never enters this classifier.
+#[cfg(test)]
 fn classify_completed_body(
+    evidence: broker_finam::sparse_m10::ClosedM1SnapshotEvidenceV1,
+    plan: &ClosedM1RequestPlan,
+    started: chrono::DateTime<chrono::Utc>,
+    finished: chrono::DateTime<chrono::Utc>,
+    deadline: Deadline,
+    receipt: &mut HttpReceipt,
+) -> Result<AdmittedClosedM1Snapshot, RestFailure> {
+    classify_completed_body_for(
+        broker_finam::ShadowInstrument::Imoexf,
+        evidence,
+        plan,
+        started,
+        finished,
+        deadline,
+        receipt,
+    )
+}
+fn classify_completed_body_for(
+    instrument: broker_finam::ShadowInstrument,
     evidence: broker_finam::sparse_m10::ClosedM1SnapshotEvidenceV1,
     plan: &ClosedM1RequestPlan,
     started: chrono::DateTime<chrono::Utc>,
@@ -327,7 +355,7 @@ fn classify_completed_body(
         intrinsic_admission_valid: false,
         raw_body_included: false,
     });
-    let admitted = AdmittedClosedM1Snapshot::admit(evidence, plan, finished);
+    let admitted = AdmittedClosedM1Snapshot::admit_for(instrument, evidence, plan, finished);
     if deadline.late_as_timeout || deadline.evidence_only_late {
         receipt.body = metadata.map(|mut m| {
             m.intrinsic_admission_valid = admitted.is_ok();

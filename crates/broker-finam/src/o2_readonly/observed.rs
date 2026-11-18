@@ -61,11 +61,15 @@ impl Stage8bP1fO2GetOnlyClientV1 {
             parts.push(ClosedM1RestPartV1 {
                 method: "GET".into(),
                 endpoint: format!(
-                    "{STAGE8B_P1F_O2_FINAM_BASE_URL}/v1/instruments/{STAGE8B_P1F_O2_VENUE_SYMBOL}/bars"
+                    "{STAGE8B_P1F_O2_FINAM_BASE_URL}/v1/instruments/{}/bars",
+                    self.venue_symbol
                 ),
-                symbol: STAGE8B_P1F_O2_VENUE_SYMBOL.into(),
+                symbol: self.venue_symbol.clone(),
                 timeframe: STAGE8B_P1F_O2_BARS_TIMEFRAME.into(),
-                start, end, requested_at, received_at,
+                start,
+                end,
+                requested_at,
+                received_at,
                 status: 200,
                 transport_complete: true,
                 declared_body_bytes,

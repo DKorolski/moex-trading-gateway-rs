@@ -4,6 +4,8 @@
 //! A canonical capability cannot be deserialized or constructed from a bare Bar.
 //! The socket adapter binds physical generations and receive clocks to this
 //! core. Explicit v2 entry is separate from the legacy REST-driven runner.
+#[cfg(feature = "models-bridge")]
+pub mod additional_models;
 mod cache;
 pub mod calendar;
 mod continuity;

@@ -85,12 +85,29 @@ impl Stage8bP1fO2GetOnlyClientV1 {
         if received_at < requested_at {
             return Err(PrimaryGetFailure::Integrity);
         }
-        Ok(ClosedM1SnapshotEvidenceV1{policy:OBSERVED_M1_POLICY_V1.into(),start,end,
-            parts:vec![ClosedM1RestPartV1{method:"GET".into(),
-                endpoint:format!("{STAGE8B_P1F_O2_FINAM_BASE_URL}/v1/instruments/{STAGE8B_P1F_O2_VENUE_SYMBOL}/bars"),
-                symbol:STAGE8B_P1F_O2_VENUE_SYMBOL.into(),timeframe:STAGE8B_P1F_O2_BARS_TIMEFRAME.into(),
-                start,end,requested_at,received_at,status:200,transport_complete:true,declared_body_bytes,
-                response_sha256:lower_hex(&Sha256::digest(raw_body.as_bytes())),raw_body}]})
+        Ok(ClosedM1SnapshotEvidenceV1 {
+            policy: OBSERVED_M1_POLICY_V1.into(),
+            start,
+            end,
+            parts: vec![ClosedM1RestPartV1 {
+                method: "GET".into(),
+                endpoint: format!(
+                    "{STAGE8B_P1F_O2_FINAM_BASE_URL}/v1/instruments/{}/bars",
+                    self.venue_symbol
+                ),
+                symbol: self.venue_symbol.clone(),
+                timeframe: STAGE8B_P1F_O2_BARS_TIMEFRAME.into(),
+                start,
+                end,
+                requested_at,
+                received_at,
+                status: 200,
+                transport_complete: true,
+                declared_body_bytes,
+                response_sha256: lower_hex(&Sha256::digest(raw_body.as_bytes())),
+                raw_body,
+            }],
+        })
     }
 }
 

@@ -6,6 +6,10 @@ use super::WsPrimaryConfig;
 use crate::{seed::digest, ValidatedConfig};
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "models-bridge")]
+mod additional;
+#[cfg(feature = "models-bridge")]
+pub(crate) use additional::admit_additional;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

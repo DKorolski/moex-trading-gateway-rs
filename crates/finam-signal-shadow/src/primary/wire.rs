@@ -56,6 +56,21 @@ impl WireFrame {
         subscription_key: &str,
         received_at: DateTime<Utc>,
     ) -> Result<Self, PrimaryError> {
+        Self::normalize_for(
+            broker_finam::ShadowInstrument::Imoexf,
+            text,
+            generation,
+            subscription_key,
+            received_at,
+        )
+    }
+    pub fn normalize_for(
+        instrument: broker_finam::ShadowInstrument,
+        text: &str,
+        generation: u64,
+        subscription_key: &str,
+        received_at: DateTime<Utc>,
+    ) -> Result<Self, PrimaryError> {
         let received_mono = tokio::time::Instant::now();
         if text.len() > 256 * 1024 || generation == 0 || subscription_key.is_empty() {
             return Err(PrimaryError::Wire);
@@ -75,7 +90,7 @@ impl WireFrame {
             Some(value) => value.clone(),
             None => return Err(PrimaryError::Wire),
         };
-        if payload.get("symbol").and_then(Value::as_str) != Some("IMOEXF@RTSX")
+        if payload.get("symbol").and_then(Value::as_str) != Some(instrument.venue_symbol())
             || payload
                 .get("timeframe")
                 .is_some_and(|v| v != "TIME_FRAME_M1")
@@ -117,7 +132,7 @@ impl WireFrame {
         // The mapper is used for pure Decimal DTO conversion, not finality.
         let events = broker_finam::map_ws_market_data_events(
             &envelope,
-            Some("IMOEXF@RTSX"),
+            Some(instrument.venue_symbol()),
             60,
             received_at,
         )
@@ -132,7 +147,7 @@ impl WireFrame {
             };
             bar.instrument.market = broker_core::Market::Futures;
             bar.is_final = false;
-            check_bar(&bar, received_at.timestamp_millis())?;
+            check_bar_for(&bar, received_at.timestamp_millis(), instrument)?;
             rows.push(WireRow { bar, presence });
         }
         Ok(Self {
@@ -164,8 +179,17 @@ pub struct LiveDataStamp {
     pub(crate) owner: Option<std::sync::Arc<()>>,
 }
 
-pub(super) fn check_bar(bar: &Bar, received_ms: i64) -> Result<(), PrimaryError> {
-    if bar.instrument.venue_symbol.as_deref() != Some("IMOEXF@RTSX") || bar.timeframe_sec != 60 {
+pub(super) fn check_bar(bar: &Bar, received_at_ms: i64) -> Result<(), PrimaryError> {
+    check_bar_for(bar, received_at_ms, broker_finam::ShadowInstrument::Imoexf)
+}
+pub(super) fn check_bar_for(
+    bar: &Bar,
+    received_ms: i64,
+    instrument: broker_finam::ShadowInstrument,
+) -> Result<(), PrimaryError> {
+    if bar.instrument.venue_symbol.as_deref() != Some(instrument.venue_symbol())
+        || bar.timeframe_sec != 60
+    {
         return Err(PrimaryError::Identity);
     }
     if bar.open_ts.timestamp_millis() < 0
@@ -188,7 +212,7 @@ pub(super) fn check_bar(bar: &Bar, received_ms: i64) -> Result<(), PrimaryError>
         || !bar.volume.fract().is_zero()
         || [bar.open, bar.high, bar.low, bar.close]
             .iter()
-            .any(|p| !(*p % Decimal::new(5, 1)).is_zero())
+            .any(|p| !(*p % instrument.tick()).is_zero())
     {
         return Err(PrimaryError::Numeric);
     }

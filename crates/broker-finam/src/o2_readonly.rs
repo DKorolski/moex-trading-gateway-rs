@@ -10,7 +10,7 @@ use reqwest::redirect::Policy;
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
 
-use crate::AccessToken;
+use crate::{AccessToken, ShadowInstrument};
 
 mod observed;
 pub use observed::PrimaryGetFailure;
@@ -24,6 +24,8 @@ const MAX_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
 pub enum Stage8bP1fO2GetRouteV1 {
     Account,
     AccountOrders,
+    /// Available only on the explicitly selected USD/RI market-data client.
+    AssetMetadata,
     AssetParams,
     AssetSchedule,
     Bars {
@@ -36,6 +38,7 @@ pub enum Stage8bP1fO2GetRouteV1 {
 pub enum Stage8bP1fO2GetRouteKindV1 {
     Account,
     AccountOrders,
+    AssetMetadata,
     AssetParams,
     AssetSchedule,
     Bars,
@@ -70,6 +73,7 @@ pub struct Stage8bP1fO2GetOnlyClientV1 {
     http: reqwest::Client,
     account_id: String,
     venue_symbol: String,
+    additional_shadow: bool,
 }
 
 impl std::fmt::Debug for Stage8bP1fO2GetOnlyClientV1 {
@@ -87,7 +91,23 @@ impl std::fmt::Debug for Stage8bP1fO2GetOnlyClientV1 {
 
 impl Stage8bP1fO2GetOnlyClientV1 {
     pub fn new(account_id: impl Into<String>) -> Result<Self, Stage8bP1fO2GetErrorV1> {
-        let account_id = account_id.into();
+        Self::construct(account_id.into(), ShadowInstrument::Imoexf, false)
+    }
+    /// Separate opt-in: market-data GETs only, no account/order routes.
+    pub fn for_shadow_instrument(
+        account_id: impl Into<String>,
+        instrument: ShadowInstrument,
+    ) -> Result<Self, Stage8bP1fO2GetErrorV1> {
+        if instrument == ShadowInstrument::Imoexf {
+            return Err(Stage8bP1fO2GetErrorV1::GuardRejected);
+        }
+        Self::construct(account_id.into(), instrument, true)
+    }
+    fn construct(
+        account_id: String,
+        instrument: ShadowInstrument,
+        additional_shadow: bool,
+    ) -> Result<Self, Stage8bP1fO2GetErrorV1> {
         if !canonical_identity(&account_id) {
             return Err(Stage8bP1fO2GetErrorV1::GuardRejected);
         }
@@ -101,8 +121,12 @@ impl Stage8bP1fO2GetOnlyClientV1 {
         Ok(Self {
             http,
             account_id,
-            venue_symbol: STAGE8B_P1F_O2_VENUE_SYMBOL.to_string(),
+            venue_symbol: instrument.venue_symbol().into(),
+            additional_shadow,
         })
+    }
+    pub fn shadow_instrument(&self) -> ShadowInstrument {
+        ShadowInstrument::from_venue(&self.venue_symbol).expect("closed private client constructor")
     }
 
     pub fn account_id(&self) -> &str {
@@ -126,6 +150,9 @@ impl Stage8bP1fO2GetOnlyClientV1 {
                 Stage8bP1fO2GetRouteV1::AccountOrders => {
                     segments.extend(["v1", "accounts", &self.account_id, "orders"]);
                 }
+                Stage8bP1fO2GetRouteV1::AssetMetadata => {
+                    segments.extend(["v1", "assets", &self.venue_symbol]);
+                }
                 Stage8bP1fO2GetRouteV1::AssetParams => {
                     segments.extend(["v1", "assets", &self.venue_symbol, "params"]);
                 }
@@ -138,7 +165,7 @@ impl Stage8bP1fO2GetOnlyClientV1 {
             }
         }
         match route {
-            Stage8bP1fO2GetRouteV1::AssetParams => {
+            Stage8bP1fO2GetRouteV1::AssetParams | Stage8bP1fO2GetRouteV1::AssetMetadata => {
                 url.query_pairs_mut()
                     .append_pair("account_id", &self.account_id);
             }
@@ -160,12 +187,13 @@ impl Stage8bP1fO2GetOnlyClientV1 {
             .query_pairs()
             .map(|(key, value)| (key.into_owned(), value.into_owned()))
             .collect::<Vec<_>>();
-        validate_stage8b_p1f_o2_get_request_v1(
+        validate_get_request(
             "GET",
             url.path(),
             &query,
             &self.account_id,
             &self.venue_symbol,
+            self.additional_shadow,
         )?;
         Ok(url)
     }
@@ -237,15 +265,40 @@ pub fn validate_stage8b_p1f_o2_get_request_v1(
     expected_account_id: &str,
     expected_venue_symbol: &str,
 ) -> Result<Stage8bP1fO2GetRouteKindV1, Stage8bP1fO2GetErrorV1> {
+    validate_get_request(
+        method,
+        encoded_path,
+        query,
+        expected_account_id,
+        expected_venue_symbol,
+        false,
+    )
+}
+fn validate_get_request(
+    method: &str,
+    encoded_path: &str,
+    query: &[(String, String)],
+    expected_account_id: &str,
+    expected_venue_symbol: &str,
+    additional_shadow: bool,
+) -> Result<Stage8bP1fO2GetRouteKindV1, Stage8bP1fO2GetErrorV1> {
     if method != "GET"
         || !canonical_identity(expected_account_id)
-        || expected_venue_symbol != STAGE8B_P1F_O2_VENUE_SYMBOL
+        || if additional_shadow {
+            !matches!(
+                ShadowInstrument::from_venue(expected_venue_symbol),
+                Some(ShadowInstrument::Usdrubf | ShadowInstrument::Riz6)
+            )
+        } else {
+            expected_venue_symbol != STAGE8B_P1F_O2_VENUE_SYMBOL
+        }
     {
         return Err(Stage8bP1fO2GetErrorV1::GuardRejected);
     }
     let account_path = encoded_path_for(&["v1", "accounts", expected_account_id])?;
     let orders_path = encoded_path_for(&["v1", "accounts", expected_account_id, "orders"])?;
     let params_path = encoded_path_for(&["v1", "assets", expected_venue_symbol, "params"])?;
+    let metadata_path = encoded_path_for(&["v1", "assets", expected_venue_symbol])?;
     let schedule_path = encoded_path_for(&["v1", "assets", expected_venue_symbol, "schedule"])?;
     let bars_path = encoded_path_for(&["v1", "instruments", expected_venue_symbol, "bars"])?;
     let unique_keys = query
@@ -256,9 +309,17 @@ pub fn validate_stage8b_p1f_o2_get_request_v1(
         return Err(Stage8bP1fO2GetErrorV1::GuardRejected);
     }
     match encoded_path {
-        path if path == account_path && query.is_empty() => Ok(Stage8bP1fO2GetRouteKindV1::Account),
-        path if path == orders_path && query.is_empty() => {
+        path if !additional_shadow && path == account_path && query.is_empty() => {
+            Ok(Stage8bP1fO2GetRouteKindV1::Account)
+        }
+        path if !additional_shadow && path == orders_path && query.is_empty() => {
             Ok(Stage8bP1fO2GetRouteKindV1::AccountOrders)
+        }
+        path if additional_shadow
+            && path == metadata_path
+            && query == [("account_id".into(), expected_account_id.into())] =>
+        {
+            Ok(Stage8bP1fO2GetRouteKindV1::AssetMetadata)
         }
         path if path == params_path
             && query == [("account_id".to_string(), expected_account_id.to_string())] =>
@@ -292,6 +353,7 @@ fn route_kind(route: &Stage8bP1fO2GetRouteV1) -> Stage8bP1fO2GetRouteKindV1 {
     match route {
         Stage8bP1fO2GetRouteV1::Account => Stage8bP1fO2GetRouteKindV1::Account,
         Stage8bP1fO2GetRouteV1::AccountOrders => Stage8bP1fO2GetRouteKindV1::AccountOrders,
+        Stage8bP1fO2GetRouteV1::AssetMetadata => Stage8bP1fO2GetRouteKindV1::AssetMetadata,
         Stage8bP1fO2GetRouteV1::AssetParams => Stage8bP1fO2GetRouteKindV1::AssetParams,
         Stage8bP1fO2GetRouteV1::AssetSchedule => Stage8bP1fO2GetRouteKindV1::AssetSchedule,
         Stage8bP1fO2GetRouteV1::Bars { .. } => Stage8bP1fO2GetRouteKindV1::Bars,
@@ -328,6 +390,71 @@ fn lower_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn additional_shadow_clients_are_exact_market_only_and_legacy_stays_closed() {
+        use crate::ShadowInstrument;
+        assert!(Stage8bP1fO2GetOnlyClientV1::new("FIXTURE_ACCOUNT")
+            .unwrap()
+            .render_and_validate(&Stage8bP1fO2GetRouteV1::AssetMetadata)
+            .is_err());
+        assert!(Stage8bP1fO2GetOnlyClientV1::for_shadow_instrument(
+            "FIXTURE_ACCOUNT",
+            ShadowInstrument::Imoexf
+        )
+        .is_err());
+        for i in [ShadowInstrument::Usdrubf, ShadowInstrument::Riz6] {
+            let c =
+                Stage8bP1fO2GetOnlyClientV1::for_shadow_instrument("FIXTURE_ACCOUNT", i).unwrap();
+            assert_eq!(c.shadow_instrument(), i);
+            for route in [
+                Stage8bP1fO2GetRouteV1::AssetMetadata,
+                Stage8bP1fO2GetRouteV1::AssetParams,
+                Stage8bP1fO2GetRouteV1::AssetSchedule,
+                Stage8bP1fO2GetRouteV1::Bars {
+                    start_time: "2026-11-18T04:00:00Z".into(),
+                    end_time: "2026-11-18T04:10:00Z".into(),
+                },
+            ] {
+                c.render_and_validate(&route).unwrap();
+            }
+            assert!(c
+                .render_and_validate(&Stage8bP1fO2GetRouteV1::Account)
+                .is_err());
+            assert!(c
+                .render_and_validate(&Stage8bP1fO2GetRouteV1::AccountOrders)
+                .is_err());
+            let path = encoded_path_for(&["v1", "assets", i.venue_symbol()]).unwrap();
+            let query = vec![("account_id".into(), "FIXTURE_ACCOUNT".into())];
+            assert!(validate_stage8b_p1f_o2_get_request_v1(
+                "GET",
+                &path,
+                &query,
+                "FIXTURE_ACCOUNT",
+                i.venue_symbol()
+            )
+            .is_err());
+            assert!(validate_get_request(
+                "POST",
+                &path,
+                &query,
+                "FIXTURE_ACCOUNT",
+                i.venue_symbol(),
+                true
+            )
+            .is_err());
+            let foreign = encoded_path_for(&["v1", "assets", "IMOEXF@RTSX"]).unwrap();
+            assert!(validate_get_request(
+                "GET",
+                &foreign,
+                &query,
+                "FIXTURE_ACCOUNT",
+                i.venue_symbol(),
+                true
+            )
+            .is_err());
+        }
+    }
 
     #[test]
     fn exact_allowlist_accepts_all_five_routes() {

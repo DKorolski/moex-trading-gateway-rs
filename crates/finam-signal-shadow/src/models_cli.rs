@@ -4,7 +4,10 @@ pub(super) fn handles(args: &[OsString]) -> bool {
     args.first().and_then(|s| s.to_str()).is_some_and(|s| {
         matches!(
             s,
-            "validate-ws-primary-models" | "observe-ws-primary-models" | "verify-ws-primary-models"
+            "validate-ws-primary-models"
+                | "observe-ws-primary-models"
+                | "verify-ws-primary-models"
+                | "verify-usd-ri-source-component"
         )
     })
 }
@@ -28,6 +31,20 @@ pub(super) async fn run(args: &[OsString]) -> Result<u8, &'static str> {
         .first()
         .and_then(|s| s.to_str())
         .ok_or("models_command")?;
+    if command == "verify-usd-ri-source-component" {
+        if args.len() != 2 {
+            return Err("usage: verify-usd-ri-source-component OUTPUT_DIRECTORY");
+        }
+        let result =
+            finam_signal_shadow::primary::additional_models::reader::inspect(Path::new(&args[1]))
+                .map_err(|_| "additional_component_verification_refused")?;
+        println!("{result}");
+        return Ok(if result["status"] == "COMPONENT_PREFIX_VERIFIED" {
+            0
+        } else {
+            2
+        });
+    }
     if command == "verify-ws-primary-models" {
         if args.len() != 3 {
             return Err("usage: verify-ws-primary-models CONFIG OUTPUT_DIRECTORY");

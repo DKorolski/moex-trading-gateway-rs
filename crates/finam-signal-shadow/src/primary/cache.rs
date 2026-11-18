@@ -1,5 +1,5 @@
 use super::{
-    wire::{check_bar, same_values},
+    wire::{check_bar_for, same_values},
     PrimaryError, PrimaryPolicy, SnapshotPresence, WireFrame,
 };
 use broker_core::{
@@ -168,6 +168,7 @@ struct Version {
 /// Until runner/session integration is complete this core is OFFLINE ONLY.
 pub struct PrimaryProcessor {
     instrument: InstrumentId,
+    source_instrument: broker_finam::ShadowInstrument,
     pub(super) policy: PrimaryPolicy,
     pub(super) source_changes: Vec<super::revisions::SourceChange>,
     policy_sha256: String,
@@ -322,6 +323,44 @@ impl PrimaryProcessor {
         processor.run_deadline_ms = config.base.run_deadline_utc_ms;
         Ok(processor)
     }
+    /// Explicit additional-model source. Does not enable the legacy entry or
+    /// attach its IMOEXF numerical runtime. Caller must bind admitted calendar
+    /// and a matching physical SUBSCRIBE before market data can be admitted.
+    #[cfg(feature = "models-bridge")]
+    pub(crate) fn from_additional_source(
+        config_sha256: String,
+        instrument: broker_finam::ShadowInstrument,
+        required: Vec<i64>,
+        generation: u64,
+        subscribed_at_ms: i64,
+        run_deadline_ms: i64,
+    ) -> Result<Self, PrimaryError> {
+        if instrument == broker_finam::ShadowInstrument::Imoexf
+            || config_sha256.len() != 64
+            || !config_sha256
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            || run_deadline_ms <= subscribed_at_ms
+        {
+            return Err(PrimaryError::Configuration);
+        }
+        let policy = PrimaryPolicy {
+            delivery: super::DeliveryPolicy::ObservedBoWsHistoricalRecoveryV8,
+            ..PrimaryPolicy::default()
+        };
+        let mut p = Self::new_for(
+            instrument.instrument(),
+            policy,
+            required,
+            generation,
+            subscribed_at_ms,
+            instrument,
+        )?;
+        p.config_sha256 = config_sha256;
+        p.run_deadline_ms = run_deadline_ms;
+        p.clock_uncertainty_ms = 100;
+        Ok(p)
+    }
     #[cfg(test)]
     pub(crate) fn from_fixture(
         config: &super::WsPrimaryConfig,
@@ -347,6 +386,9 @@ impl PrimaryProcessor {
         source: &crate::socket::primary::Subscription,
         now: i64,
     ) -> Result<(), PrimaryError> {
+        if source.instrument() != self.source_instrument {
+            return Err(PrimaryError::Identity);
+        }
         if !self.calendar_subscribed {
             if let Some(calendar) = &self.calendar {
                 calendar
@@ -381,6 +423,23 @@ impl PrimaryProcessor {
         generation: u64,
         subscribed_at_ms: i64,
     ) -> Result<Self, PrimaryError> {
+        Self::new_for(
+            instrument,
+            policy,
+            required,
+            generation,
+            subscribed_at_ms,
+            broker_finam::ShadowInstrument::Imoexf,
+        )
+    }
+    fn new_for(
+        instrument: InstrumentId,
+        policy: PrimaryPolicy,
+        required: Vec<i64>,
+        generation: u64,
+        subscribed_at_ms: i64,
+        source_instrument: broker_finam::ShadowInstrument,
+    ) -> Result<Self, PrimaryError> {
         policy.validate()?;
         if generation == 0
             || subscribed_at_ms < 0
@@ -394,7 +453,7 @@ impl PrimaryProcessor {
             })
             || DateTime::<Utc>::from_timestamp_millis(subscribed_at_ms).is_none()
             || required.windows(2).any(|w| w[0] >= w[1])
-            || instrument.venue_symbol.as_deref() != Some("IMOEXF@RTSX")
+            || instrument.venue_symbol.as_deref() != Some(source_instrument.venue_symbol())
             || instrument.market != broker_core::Market::Futures
         {
             return Err(PrimaryError::Configuration);
@@ -402,6 +461,7 @@ impl PrimaryProcessor {
         let policy_sha256 = policy.fingerprint()?;
         Ok(Self {
             instrument,
+            source_instrument,
             policy,
             source_changes: Vec::new(),
             policy_sha256,
@@ -732,7 +792,7 @@ impl PrimaryProcessor {
         let mut has_fresh_update = false;
         for row in &frame.rows {
             let bar = &row.bar;
-            check_bar(bar, frame.received_at_ms)?;
+            check_bar_for(bar, frame.received_at_ms, self.source_instrument)?;
             if bar.instrument != self.instrument {
                 return Err(PrimaryError::Identity);
             }
