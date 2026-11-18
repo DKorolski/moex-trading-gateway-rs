@@ -174,3 +174,23 @@ are refused. Publication/write order and LIVE 2s/U100/replay/episode/STOP budget
 are unchanged. R1 synthetic managed fixtures now use current-morning acquisition
 of all historical sessions, and resealed negative CLI fixtures use matching R1
 implementation identity; stale-fingerprint errors earn no corrective credit.
+
+## Source R2: final shutdown facts (ME-2-R1)
+
+The common post-join reader now decodes final recovery snapshots with required
+typed fields and derives recovery_resolved using the runtime's exact formula:
+all snapshots have neither unresolved latch nor a terminal error. Unknown
+shapes do not default to resolved. V8 final gap, continuity_lost and the
+completion continuity flag must describe the same state.
+
+HTTP role totals are typed and checked with overflow-safe scheduled =
+completed + cancelled/unaccounted arithmetic. Clean qualification additionally
+uses the same known-unaccounted and drain-outcome policy as the native reader.
+Optional Proof/Audit Timeout and executor-incomplete outcomes remain allowed
+when accounted; no successful REST comparison, EOD GET count or flat book is
+required for bounded completion. Correctly unfinished facts remain PARTIAL.
+
+New matching resealed counterexamples preserve source/SQL/manifest identity;
+actual CLI stderr and observed Rust guard diagnostics are retained separately.
+Producer/runtime, bootstrap, strategy, deadlines and marker-order semantics
+are unchanged. This closes no additional operational surface.

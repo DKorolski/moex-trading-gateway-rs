@@ -38,6 +38,7 @@ fn implementation_with_workspace(workspace: &[u8]) -> String {
             include_bytes!("models_entry/seed.rs").as_slice(),
             include_bytes!("models_entry/reader.rs").as_slice(),
             include_bytes!("models_entry/reader/post_join.rs").as_slice(),
+            include_bytes!("models_entry/reader/post_join/facts.rs").as_slice(),
             include_bytes!("models_entry/reader/publication.rs").as_slice(),
             include_bytes!("models_entry/artifacts.rs").as_slice(),
             include_bytes!("entry.rs").as_slice(),

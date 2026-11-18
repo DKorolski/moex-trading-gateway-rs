@@ -310,9 +310,9 @@ pub(crate) fn evaluate(
                 .all(|s| s["ready"] == true && s["bars_processed"] == revision),
         "model final states"
     );
-    let r = post_join::validate(config, &rows, report, now)?;
+    let (r, accounted) = post_join::validate(config, &rows, report, now)?;
     let done = &r.completion;
-    let drained = r.drained(source);
+    let drained = r.drained(source) && accounted;
     let mut status = "PARTIAL";
     if coherent && drained && source > 0 {
         match plan.stop {

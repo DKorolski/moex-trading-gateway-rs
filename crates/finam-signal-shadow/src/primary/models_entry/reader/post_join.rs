@@ -1,6 +1,7 @@
 //! Common bounded/EOD post-join validation. No flat/full-grid condition here.
 use super::*;
 use crate::primary::calendar::{self, CalendarBinding, CalendarInputs};
+mod facts;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -34,7 +35,7 @@ pub(super) fn validate(
     rows: &[Value],
     value: &Value,
     now: i64,
-) -> Result<Report> {
+) -> Result<(Report, bool)> {
     ensure!(
         value.as_object().is_some_and(|o| o.len() == 1),
         "post-join result schema"
@@ -124,7 +125,8 @@ pub(super) fn validate(
     );
     // Socket report is diagnostic, never an independent join witness.
     let _ = &r.socket;
-    Ok(r)
+    let accounted = facts::validate(config, rows, shutdown, d)?;
+    Ok((r, accounted))
 }
 impl Report {
     pub(super) fn drained(&self, source: u64) -> bool {
