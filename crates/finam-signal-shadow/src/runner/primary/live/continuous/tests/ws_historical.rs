@@ -253,7 +253,12 @@ async fn incident(winner: Winner) {
                     .unwrap()["event"]["receipt"];
                 receipt[field] = match field {
                     "generation" => json!(2),
-                    "boundary_received_at_ms" => json!(close + 9000),
+                    // A fixed +9000 can equal the real boundary after four
+                    // GETs. Mutate beyond actual ready: ALWAYS contradictory,
+                    // independent of host scheduling, without weaker guards.
+                    "boundary_received_at_ms" => {
+                        json!(r["canonical_ready_at_ms"].as_i64().unwrap() + 1)
+                    }
                     "canonical_ready_at_ms" => json!(close + 1364),
                     "data_gap_at_ms" => json!(close + 1900),
                     "continuity_revision" => json!(999),

@@ -119,6 +119,7 @@ fn manifest() -> Manifest {
         generation: "fixture-three-symbol-session".into(),
         implementation_sha256: implementation_sha256().unwrap(),
         evidence: Evidence::DeclaredClockReplay,
+        initial_context: InitialContext::OrdinaryIngest,
         session_date: day(),
         freeze_at_ms: at(day(), 7, 0),
         seeds,

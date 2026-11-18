@@ -176,6 +176,15 @@ pub struct Journal {
     poisoned: bool,
 }
 impl Journal {
+    /// Pure initial state preview. Uses the exact same bootstrap as create,
+    /// reopen causal replay and checkpoint validation; never opens a database.
+    pub fn initial_states(manifest: &Manifest) -> Result<Vec<Value>> {
+        manifest.validate()?;
+        initial(manifest)?
+            .values()
+            .map(|a| a.state(manifest.session_date))
+            .collect()
+    }
     /// One coherent, checked input/outcome read. No numerical step or marks
     /// are returned. Used to settle response-loss only for exact redelivery.
     pub fn committed_input(

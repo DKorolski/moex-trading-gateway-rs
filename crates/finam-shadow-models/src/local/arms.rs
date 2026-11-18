@@ -1,5 +1,5 @@
 use super::{
-    contract::{Candle, Manifest, Purpose, Seed},
+    contract::{Candle, InitialContext, Manifest, Purpose, Seed},
     hash,
 };
 use crate::{context, ri, ri_context, session, DataOrigin};
@@ -141,17 +141,35 @@ impl Arm {
             let id = reaction_identity(symbol, policy, &manifest.generation)?;
             let config = config(symbol)?;
             let mut context = context::Store::new(id.clone())?;
-            for c in &seed.history {
-                context.ingest(
-                    context::Receipt {
+            let receipts = seed
+                .history
+                .iter()
+                .map(|c| {
+                    Ok(context::Receipt {
                         sequence: c.source_sequence,
                         source_id: c.sha256()?,
                         bar: c.numerical_bar(context_origin(c))?,
                         received_at_utc: Some(c.received_ms / 1000),
                         durable_at_utc: Some(c.durable_ms / 1000),
-                    },
-                    c.source_processed_ms / 1000,
-                )?;
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            if symbol == "IMOEXF" && manifest.initial_context == InitialContext::ImoexfFirstSession
+            {
+                // One-time import into an empty context, as of the latest
+                // declared processing time, strictly before this session's
+                // cutoff. Do not change any original source clocks.
+                let as_of = seed
+                    .history
+                    .iter()
+                    .map(|c| c.source_processed_ms / 1000)
+                    .max()
+                    .context("empty first-session seed")?;
+                context.bootstrap(&receipts, manifest.session_date, as_of)?;
+            } else {
+                for (receipt, c) in receipts.into_iter().zip(&seed.history) {
+                    context.ingest(receipt, c.source_processed_ms / 1000)?;
+                }
             }
             let f = context.freeze(
                 manifest.session_date,

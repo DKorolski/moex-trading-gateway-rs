@@ -436,7 +436,12 @@ impl Store {
 
     // Not a retrospective receipt override: this one-time context import is
     // admitted only before a future activation and retains the actual clocks.
-    fn bootstrap(&mut self, receipts: &[Receipt], day: NaiveDate, now: i64) -> Result<()> {
+    pub(crate) fn bootstrap(
+        &mut self,
+        receipts: &[Receipt],
+        day: NaiveDate,
+        now: i64,
+    ) -> Result<()> {
         self.bootstrap_inner(receipts, day, now, false)
     }
 

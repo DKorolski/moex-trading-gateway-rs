@@ -176,6 +176,7 @@ pub fn build(
         generation: p.generation.clone(),
         implementation_sha256: finam_shadow_models::local::implementation_sha256()?,
         evidence: Evidence::DeclaredClockReplay,
+        initial_context: InitialContext::ImoexfFirstSession,
         session_date: (at(freeze)? + chrono::Duration::hours(3)).date_naive(),
         freeze_at_ms: freeze,
         seeds,
@@ -184,71 +185,18 @@ pub fn build(
     Ok(manifest)
 }
 pub(crate) fn require_ready(manifest: &Manifest) -> Result<()> {
-    // Bootstrap is in-memory: no output/database or model callbacks are created.
-    let seed = manifest
-        .seeds
+    ensure!(
+        manifest.initial_context == InitialContext::ImoexfFirstSession,
+        "qualified initial context required"
+    );
+    let states = finam_shadow_models::local::Journal::initial_states(manifest)?;
+    let selected: Vec<_> = states
         .iter()
-        .find(|s| s.binding.instrument == "IMOEXF")
-        .context("IMOEXF seed")?;
-    let profile: Value = serde_json::from_slice(include_bytes!(
-        "../../../../finam-shadow-models/profiles/imoexf.json"
-    ))?;
-    let config: finam_shadow_models::session::Config =
-        serde_json::from_value(profile["config"].clone())?;
-    for policy in [
-        finam_shadow_models::context::Policy::WeekdayOnly,
-        finam_shadow_models::context::Policy::WeekendContextNoTrades,
-    ] {
-        let identity = finam_shadow_models::context::Identity {
-            profile: finam_shadow_models::context::Profile::ImoexfReaction07,
-            symbol: "IMOEXF".into(),
-            model_config_sha256: config.fingerprint()?,
-            receipt_stream: format!("{}/IMOEXF/declared-clock", manifest.generation),
-            policy,
-            excluded_dates: BTreeSet::from([chrono::NaiveDate::from_ymd_opt(2026, 11, 4).unwrap()]),
-        };
-        let mut context = finam_shadow_models::context::Store::new(identity.clone())?;
-        // Reuse the accepted numerical DTO conversion through serde, not a new kernel.
-        for candle in &seed.history {
-            let v = &candle.data;
-            let number = |s: &str| s.parse::<f64>().context("numerical history");
-            context.ingest(
-                finam_shadow_models::context::Receipt {
-                    sequence: candle.source_sequence,
-                    source_id: candle.sha256()?,
-                    bar: finam_shadow_models::BarEvent {
-                        symbol: "IMOEXF".into(),
-                        close_time_utc: candle.start_ms / 1000,
-                        o: number(&v.open)?,
-                        h: number(&v.high)?,
-                        l: number(&v.low)?,
-                        close: number(&v.close)?,
-                        v: number(&v.volume)?,
-                        origin: finam_shadow_models::DataOrigin::History,
-                    },
-                    received_at_utc: Some(candle.received_ms / 1000),
-                    durable_at_utc: Some(candle.durable_ms / 1000),
-                },
-                candle.source_processed_ms / 1000,
-            )?;
-        }
-        context.freeze(
-            manifest.session_date,
-            manifest.freeze_at_ms / 1000,
-            &finam_shadow_models::context::Barrier {
-                receipt_stream: identity.receipt_stream,
-                through_utc: manifest.freeze_at_ms / 1000,
-                last_sequence: context.last_sequence(),
-                ingress_sha256: context.ingress_sha256()?,
-                attested_at_utc: manifest.freeze_at_ms / 1000,
-            },
-        )?;
-        ensure!(
-            context
-                .frozen(manifest.session_date)
-                .is_some_and(|f| f.ready()),
-            "both model contexts must be ready"
-        );
-    }
+        .filter(|s| s["arm"].as_str().is_some_and(|arm| ARMS.contains(&arm)))
+        .collect();
+    ensure!(
+        selected.len() == 2 && selected.iter().all(|s| s["ready"] == true),
+        "both model contexts must be ready"
+    );
     Ok(())
 }

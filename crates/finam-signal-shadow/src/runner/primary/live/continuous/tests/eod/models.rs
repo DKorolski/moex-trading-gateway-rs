@@ -2,6 +2,7 @@
 use super::*;
 use crate::primary::models_entry::{self, reader, ModelPlan};
 use finam_shadow_models::local::contract::Manifest;
+mod r1;
 pub(super) async fn answer_pings(peer: &mut Peer) {
     use futures_util::FutureExt;
     while let Some(Some(Ok(message))) = peer.next().now_or_never() {
@@ -132,6 +133,9 @@ pub(super) fn export_models(
         assert_eq!(origins[0], "WS_LIVE");
         assert!(origins[2].contains("RECOVERY"));
         assert_eq!(origins[3], "WS_LIVE");
+        if origins[2] == "WS_RECOVERY_BACKFILL" {
+            r1::negatives(f, &plan, &manifest, &rows, &db, &report_value);
+        }
     }
     // Semantic negatives, not merely stale outer file digests.
     let mut bad = rows.clone();

@@ -2,6 +2,8 @@
 use super::*;
 use finam_shadow_models::local::{contract::Manifest, Journal};
 use std::collections::{BTreeMap, BTreeSet};
+mod post_join;
+mod publication;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -127,6 +129,7 @@ pub(crate) fn evaluate(
         control == inputs.len() && commits.len() == inputs.len(),
         "control/SQL commits disagree"
     );
+    publication::validate(&rows, &required, inputs.len(), advances.len(), now)?;
     for (i, (row, native)) in inputs.iter().zip(&scan.inputs).enumerate() {
         let candle = &row["candle"];
         let provenance = &candle["construction"]["provenance"];
@@ -267,17 +270,6 @@ pub(crate) fn evaluate(
             "source advance lineage"
         );
         let label = required[i];
-        let position = |name: &str| {
-            rows.iter()
-                .position(|r| r["event"]["event"] == name && r["event"]["label_ms"] == label)
-        };
-        let commit_at = position("primary_imoexf_models_commit").context("model commit order")?;
-        let barrier_at = position("primary_runtime_cohort_barrier").context("barrier order")?;
-        let advance_at = position("primary_models_source_advanced").context("advance order")?;
-        ensure!(
-            commit_at < barrier_at && barrier_at < advance_at,
-            "cohort publication order"
-        );
         let stamp = advance["source_advanced_at_ms"]
             .as_i64()
             .context("source publication clock")?;
@@ -318,45 +310,19 @@ pub(crate) fn evaluate(
                 .all(|s| s["ready"] == true && s["bars_processed"] == revision),
         "model final states"
     );
-    let r = report.get("Ok").context("post-join report missing")?;
-    let done = &r["completion"];
-    let drained = [
-        "all_workers_drained",
-        "socket_drained",
-        "http_drained",
-        "writer_drained",
-        "session_finalized",
-    ]
-    .iter()
-    .all(|k| r[k] == true)
-        && [
-            "clock_consistent",
-            "socket_drained",
-            "http_drained",
-            "writer_drained",
-            "fault_free",
-            "continuity_resolved",
-            "recovery_resolved",
-        ]
-        .iter()
-        .all(|k| done[k] == true)
-        && r["canonical_commits"] == source
-        && r["unresolved_transport_fault"].is_null();
+    let r = post_join::validate(config, &rows, report, now)?;
+    let done = &r.completion;
+    let drained = r.drained(source);
     let mut status = "PARTIAL";
     if coherent && drained && source > 0 {
         match plan.stop {
             StopMode::Bounded { stop_at_ms }
-                if r["cause"] == "RequestedStop"
-                    && done["stop_started_at_ms"]
-                        .as_i64()
-                        .is_some_and(|t| t >= stop_at_ms)
-                    && done["joined_at_ms"].as_i64().is_some_and(|t| {
-                        t <= now
-                            && t >= stop_at_ms
-                            && t <= stop_at_ms
-                                + config.base.stop_timeout_ms.min(15000) as i64
-                                + config.base.clock_uncertainty_ms as i64
-                    }) =>
+                if r.cause == "RequestedStop"
+                    && done.stop_started_at_ms >= stop_at_ms
+                    && done.joined_at_ms
+                        <= stop_at_ms
+                            + config.base.stop_timeout_ms.min(15000) as i64
+                            + config.base.clock_uncertainty_ms as i64 =>
             {
                 status = "BOUNDED_COMPLETE"
             }
@@ -367,10 +333,7 @@ pub(crate) fn evaluate(
                 let binding = super::super::verify::EvidenceBinding {
                     schema_version: 1,
                     config_sha256: plan.source_config_sha256.clone(),
-                    calendar_sha256: done["calendar_sha256"]
-                        .as_str()
-                        .context("calendar hash")?
-                        .into(),
+                    calendar_sha256: done.calendar_sha256.clone(),
                     journal_sha256: digest(journal),
                     completion_sha256: digest(&completion),
                 };
@@ -426,6 +389,14 @@ pub fn verify_directory(config: &WsPrimaryConfig, output: &Path) -> Result<Compl
         &artifacts::read(&output.join("models-post-join-report.json"), 1024 * 1024)?,
         1024 * 1024,
     )?;
+    let ordinary_report: Value = parse(
+        &artifacts::read(&output.join("run-report.json"), 1024 * 1024)?,
+        1024 * 1024,
+    )?;
+    ensure!(
+        report == ordinary_report,
+        "post-join report copies disagree"
+    );
     let journal = artifacts::read(
         &output.join("journal.jsonl"),
         config.base.max_output_bytes.min(64 * 1024 * 1024),

@@ -90,9 +90,10 @@ Aggregate EOD additionally invokes the full existing source/calendar/feedback
 verifier, then checks the SQL/model linkage. It is not derived from one journal.
 
 `Journal::inspect` adds true SQLite READ_ONLY inspection while reusing the accepted
-full replay/checkpoint verifier. This is the only change in finam-shadow-models;
-strategy/params/context/session/arm contracts are untouched. The implementation
-digest changes accordingly; old DBs are not migrated/adopted into a new run.
+full replay/checkpoint verifier. R1 additionally qualifies the initial context
+through an explicit manifest mode; strategy/profile parameters remain unchanged.
+The implementation digest changes accordingly; old DBs are not migrated/adopted
+into a new run.
 
 The reader checks exact receipts and their original serialized hashes, M1/OHLCV,
 label/sequence, SQL revision, exactly two expected result IDs, ready/final states,
@@ -141,3 +142,35 @@ native qualification and real latency spans under unchanged LIVE/STOP budgets,
 including post-join export/inspection duration. Only then an execution package
 and separately authorized bounded launch. Automatic cohort restart, intraday
 cold start, USDRUBF/RI activation, VPS/P0/O3/DB0 changes and live orders stay closed.
+
+## Source R1: ME-1, ME-2, ME-3
+
+Production manifests now pin `initial_context=imoexf_first_session`. Only the
+IMOEXF initial context uses the existing strict one-time bootstrap into an empty
+store: bounded 14-day history, original clocks, before target-session cutoff,
+2–4 complete regular sessions, paired anchors, no missing regular session,
+ordinary weekday/weekend and approved calendar exclusions. Its as-of time is the
+latest declared source processing time, not a backdated candle-date clock.
+Ordinary live ingest cutoff is unchanged. Default local offline manifests retain
+`ordinary_ingest` and their accepted not-ready semantics; no mode is inferred
+from timestamps/generation. Missing/invalid first-session history is refused.
+
+Pure `Journal::initial_states`, actual SQL creation and read-only replay all use
+the same initial-arm construction. Preflight requires both selected arms ready.
+The existing context operation log replays Bootstrap with the same strict method;
+no alternative restore path or source-clock rewrite is added.
+
+Bounded and EOD share a strict typed post-join validator: schema/config, calendar
+re-admission from retained raw inputs, UTC/monotonic elapsed and stop budget, unique
+control shutdown with matching cause/clocks/drain/recovery/HTTP facts, and equal
+saved report copies. Bounded may still have journal=null and nonflat/pending;
+full-grid/flat requirements remain EOD-only.
+
+Every model commit, cohort barrier and source advance is unique per label and
+source-bound, with one native consumer plus exactly two SQL arms, matching
+LIVE/historical mode and native -> consumer -> readback -> source chronology.
+Markers with a foreign source/consumer, duplicate markers or readback after ACK
+are refused. Publication/write order and LIVE 2s/U100/replay/episode/STOP budgets
+are unchanged. R1 synthetic managed fixtures now use current-morning acquisition
+of all historical sessions, and resealed negative CLI fixtures use matching R1
+implementation identity; stale-fingerprint errors earn no corrective credit.

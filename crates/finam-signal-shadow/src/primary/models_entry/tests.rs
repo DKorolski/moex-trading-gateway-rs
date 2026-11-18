@@ -2,6 +2,7 @@ use super::*;
 use crate::primary::calendar::tests::{Dir, Fixture};
 use crate::timing::with_fixture_clock;
 use chrono::{Datelike, Duration};
+mod morning;
 
 pub(crate) fn fixture() -> Fixture {
     let mut f = Fixture::historical();
@@ -39,6 +40,16 @@ pub(crate) fn inputs(f: &Fixture) -> (ModelPlan, Vec<u8>, Vec<u8>) {
             evidence: source.evidence().clone(),
         });
         required.extend(labels);
+    }
+    // Real first-start shape: several historical days fetched THIS morning,
+    // without pretending their acquisition happened on their candle dates.
+    for (i, snapshot) in snapshots.iter_mut().enumerate() {
+        let requested = f.open() - 900000 + i as i64 * 100;
+        for part in &mut snapshot.evidence.parts {
+            part.requested_at = chrono::DateTime::from_timestamp_millis(requested).unwrap();
+            part.received_at = chrono::DateTime::from_timestamp_millis(requested + 34).unwrap();
+        }
+        snapshot.admitted_at_ms = requested + 50;
     }
     let history = serde_json::to_vec(&seed::HistoryBundle {
         schema_version: 1,

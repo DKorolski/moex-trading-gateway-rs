@@ -16,6 +16,20 @@ pub const INSTRUMENTS: [&str; 3] = ["IMOEXF", "USDRUBF", "RIZ6"];
 pub enum Evidence {
     DeclaredClockReplay,
 }
+/// Explicit initialization contract; never inferred from receipt age or a
+/// generation name. Ordinary offline replay retains its not-ready semantics.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum InitialContext {
+    #[default]
+    OrdinaryIngest,
+    ImoexfFirstSession,
+}
+impl InitialContext {
+    fn ordinary(&self) -> bool {
+        *self == Self::OrdinaryIngest
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum MappingBasis {
@@ -436,6 +450,8 @@ pub struct Manifest {
     pub generation: String,
     pub implementation_sha256: String,
     pub evidence: Evidence,
+    #[serde(default, skip_serializing_if = "InitialContext::ordinary")]
+    pub initial_context: InitialContext,
     pub session_date: NaiveDate,
     pub freeze_at_ms: i64,
     pub seeds: Vec<Seed>,
@@ -475,6 +491,14 @@ impl Manifest {
             "local replay freeze must use exact cutoff"
         );
         ensure!(self.seeds.len() == 3, "all three mappings required");
+        if self.initial_context == InitialContext::ImoexfFirstSession {
+            ensure!(
+                self.seeds
+                    .iter()
+                    .any(|s| s.binding.instrument == "IMOEXF" && !s.history.is_empty()),
+                "first-session IMOEXF seed required"
+            );
+        }
         let mut symbols = BTreeSet::new();
         for seed in &self.seeds {
             seed.binding.validate()?;
