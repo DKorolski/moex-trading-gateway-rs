@@ -34,7 +34,7 @@ impl Drop for Temp {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
-fn manifest() -> Manifest {
+pub(crate) fn manifest() -> Manifest {
     use chrono::{Datelike, Duration, NaiveDate};
     let day = NaiveDate::from_ymd_opt(2026, 11, 2).unwrap();
     let mut seeds = Vec::new();

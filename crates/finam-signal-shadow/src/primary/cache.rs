@@ -1185,7 +1185,7 @@ impl PrimaryProcessor {
 
     /// Check the same owner/frontier/deadline BEFORE a downstream transaction.
     /// This advances no source frontier; committed() repeats it after readback.
-    pub(super) fn validate_pending_admission(
+    pub(crate) fn validate_pending_admission(
         &mut self,
         input: &AdmittedCanonicalM10,
         published_at_ms: i64,

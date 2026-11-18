@@ -283,6 +283,26 @@ impl PrimaryProcessor {
         input: WsRecoveryInput,
         now: i64,
     ) -> Result<(), PrimaryError> {
+        self.validate_ws_recovery_admission(&input, now)?;
+        let r = &input.receipt.canonical;
+        self.committed_sources
+            .insert(r.label_ms, input.provenance_sha256()?);
+        self.cache
+            .retain(|k, _| *k < r.label_ms || *k >= r.close_ms);
+        for row in input.receipt.canonical.actual_m1 {
+            self.committed.insert(row.open_ts.timestamp_millis(), row);
+        }
+        self.next += 1;
+        self.counters.committed += 1;
+        self.counters.recovery_committed += 1;
+        self.late_ws_gap = None;
+        Ok(())
+    }
+    pub(crate) fn validate_ws_recovery_admission(
+        &mut self,
+        input: &WsRecoveryInput,
+        now: i64,
+    ) -> Result<(), PrimaryError> {
         self.clock(now)?;
         let r = &input.receipt.canonical;
         if !self.gap_unresolved
@@ -302,17 +322,6 @@ impl PrimaryProcessor {
         {
             return self.hold(PrimaryError::Continuity);
         }
-        self.committed_sources
-            .insert(r.label_ms, input.provenance_sha256()?);
-        self.cache
-            .retain(|k, _| *k < r.label_ms || *k >= r.close_ms);
-        for row in input.receipt.canonical.actual_m1 {
-            self.committed.insert(row.open_ts.timestamp_millis(), row);
-        }
-        self.next += 1;
-        self.counters.committed += 1;
-        self.counters.recovery_committed += 1;
-        self.late_ws_gap = None;
         Ok(())
     }
 }

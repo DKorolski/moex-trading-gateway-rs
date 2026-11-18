@@ -10,6 +10,8 @@ use crate::{
 };
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
+#[cfg(feature = "models-bridge")]
+mod models;
 
 pub(crate) fn members(
     f: &Fixture,

@@ -16,7 +16,7 @@ const T: i64 = 1793640000000; // fixed M10 label, no dependence on wall-clock da
 const C: i64 = T + 600000;
 mod consistent_sources;
 #[cfg(feature = "models-bridge")]
-mod models_bridge;
+pub(crate) mod models_bridge;
 mod resilience;
 fn at(ms: i64) -> DateTime<Utc> {
     DateTime::from_timestamp_millis(ms).unwrap()
@@ -78,7 +78,12 @@ fn ready(p: &mut PrimaryProcessor, now: i64) -> Box<AdmittedCanonicalM10> {
     };
     input
 }
-fn reference(rows: Vec<Value>, start: i64, end: i64, now: i64) -> AdmittedClosedM1Snapshot {
+pub(crate) fn reference(
+    rows: Vec<Value>,
+    start: i64,
+    end: i64,
+    now: i64,
+) -> AdmittedClosedM1Snapshot {
     let raw = json!({"symbol":"IMOEXF@RTSX", "bars":rows}).to_string();
     AdmittedClosedM1Snapshot::admit(
         ClosedM1SnapshotEvidenceV1 {

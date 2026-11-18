@@ -550,6 +550,33 @@ impl PrimaryProcessor {
         input: RecoveryInput,
         published_at_ms: i64,
     ) -> Result<(), PrimaryError> {
+        self.validate_recovery_admission(&input, published_at_ms)?;
+        let receipt = &input.receipt.canonical;
+        self.cache
+            .retain(|key, _| *key < receipt.label_ms || *key >= receipt.close_ms);
+        if self.policy.consistent_sources() {
+            self.committed_sources
+                .insert(receipt.label_ms, input.provenance_sha256()?);
+        }
+        for row in input.receipt.canonical.actual_m1 {
+            if self.policy.consistent_sources() {
+                self.committed_rest.insert(row.open_ts.timestamp_millis());
+                self.quarantined.remove(&row.open_ts.timestamp_millis());
+            }
+            self.committed.insert(row.open_ts.timestamp_millis(), row);
+        }
+        self.next += 1;
+        self.counters.committed += 1;
+        self.counters.recovery_committed += 1;
+        Ok(())
+    }
+    /// Same capability/clock check before and after downstream durable work.
+    /// This never advances the source or consumes the batch capability.
+    pub(crate) fn validate_recovery_admission(
+        &mut self,
+        input: &RecoveryInput,
+        published_at_ms: i64,
+    ) -> Result<(), PrimaryError> {
         self.clock(published_at_ms)?;
         let receipt = &input.receipt.canonical;
         if !self.gap_unresolved
@@ -567,22 +594,6 @@ impl PrimaryProcessor {
         {
             return self.hold(PrimaryError::Continuity);
         }
-        self.cache
-            .retain(|key, _| *key < receipt.label_ms || *key >= receipt.close_ms);
-        if self.policy.consistent_sources() {
-            self.committed_sources
-                .insert(receipt.label_ms, input.provenance_sha256()?);
-        }
-        for row in input.receipt.canonical.actual_m1 {
-            if self.policy.consistent_sources() {
-                self.committed_rest.insert(row.open_ts.timestamp_millis());
-                self.quarantined.remove(&row.open_ts.timestamp_millis());
-            }
-            self.committed.insert(row.open_ts.timestamp_millis(), row);
-        }
-        self.next += 1;
-        self.counters.committed += 1;
-        self.counters.recovery_committed += 1;
         Ok(())
     }
     pub(crate) fn finish_recovery(

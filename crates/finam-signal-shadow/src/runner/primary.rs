@@ -276,6 +276,11 @@ impl Coordinator {
                 "versions":receipt.versions,
             }}),
         )?;
+        if self.session.has_models() {
+            self.processor
+                .validate_ws_recovery_admission(&admitted.input, crate::timing::now_ms())
+                .map_err(CoordinatorError::Source)?;
+        }
         let publication = self
             .session
             .ws_recovery(&admitted.input)
@@ -414,6 +419,11 @@ impl Coordinator {
         }
         self.event(validated)?;
         for input in admitted.inputs {
+            if self.session.has_models() {
+                self.processor
+                    .validate_recovery_admission(&input, crate::timing::now_ms())
+                    .map_err(CoordinatorError::Source)?;
+            }
             let publication = self
                 .session
                 .recovery(&input, source)
@@ -471,6 +481,35 @@ impl Coordinator {
         sessions: Vec<ObservedSession>,
     ) -> Result<Self, CoordinatorError> {
         Self::with_consumers(processor, runtimes::Runtimes::group(sessions)?)
+    }
+    /// Opt-in bounded source composition, NOT an executable/deployment switch.
+    /// The existing baseline observer is a control, never the new arms' book.
+    /// No aggregate EOD seal or automatic native restart is issued in this slice.
+    #[cfg(feature = "models-bridge")]
+    pub fn new_with_imoexf_models(
+        processor: PrimaryProcessor,
+        session: ObservedSession,
+        models: crate::primary::models_bridge::ImoexfModelBridge,
+    ) -> Result<Self, CoordinatorError> {
+        let (hash, label, _) = session.primary_binding().ok_or(CoordinatorError::Binding)?;
+        if !session.recoverable_primary()
+            || hash != processor.config_sha256()
+            || Some(label) != processor.next_label_ms()
+        {
+            return Err(CoordinatorError::Binding);
+        }
+        models
+            .validate_frontier(&processor)
+            .map_err(|_| CoordinatorError::Binding)?;
+        let sessions = runtimes::Runtimes::single(session).with_imoexf_models(models)?;
+        Self::with_consumers(processor, sessions)
+    }
+    /// Historical evidence only; never re-emits committed model marks.
+    #[cfg(feature = "models-bridge")]
+    pub fn imoexf_model_export(&self) -> Result<Option<serde_json::Value>, CoordinatorError> {
+        self.session
+            .model_export()
+            .map_err(CoordinatorError::Session)
     }
     fn with_consumers(
         processor: PrimaryProcessor,
@@ -636,6 +675,11 @@ impl Coordinator {
                     return Err(error);
                 }
             }
+        }
+        if self.session.has_models() {
+            self.processor
+                .validate_pending_admission(&input, crate::timing::now_ms())
+                .map_err(CoordinatorError::Source)?;
         }
         let publication = self
             .session

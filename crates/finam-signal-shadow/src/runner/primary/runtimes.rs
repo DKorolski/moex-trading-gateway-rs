@@ -3,11 +3,15 @@
 //! The existing executable still opens one runtime. A multi-consumer cohort is
 //! bounded library composition, not aggregate EOD/restart qualification.
 use super::*;
+#[cfg(feature = "models-bridge")]
+use crate::primary::models_bridge::{ImoexfModelBridge, Projection};
 use crate::{session::CanonicalPublication, transport::StopHandle, ValidatedConfig};
 use serde_json::json;
 
 pub(super) struct Runtimes {
     members: Vec<ObservedSession>,
+    #[cfg(feature = "models-bridge")]
+    models: Option<ImoexfModelBridge>,
     #[cfg(test)]
     barrier_fault: Option<(u64, bool)>,
 }
@@ -15,6 +19,8 @@ impl Runtimes {
     pub fn single(session: ObservedSession) -> Self {
         Self {
             members: vec![session],
+            #[cfg(feature = "models-bridge")]
+            models: None,
             #[cfg(test)]
             barrier_fault: None,
         }
@@ -37,6 +43,8 @@ impl Runtimes {
         }
         let mut result = Self {
             members,
+            #[cfg(feature = "models-bridge")]
+            models: None,
             #[cfg(test)]
             barrier_fault: None,
         };
@@ -50,6 +58,45 @@ impl Runtimes {
             }
         }
         Ok(result)
+    }
+    #[cfg(feature = "models-bridge")]
+    pub fn with_imoexf_models(
+        mut self,
+        models: ImoexfModelBridge,
+    ) -> Result<Self, CoordinatorError> {
+        // A control observer and two INDEPENDENT reaction arms. They do not
+        // share its old close-fill book or count as observed ALOR parity.
+        if self.members.len() != 1 || self.models.is_some() {
+            return Err(CoordinatorError::Binding);
+        }
+        let binding = models.export().map_err(|_| CoordinatorError::Binding)?;
+        self.models = Some(models);
+        self.record_transport(&json!({"event":"primary_runtime_cohort_bound",
+            "runtime_count":3,"model_arms":2,"model_instrument":"IMOEXF",
+            "manifest_sha256":binding["manifest_sha256"],
+            "initial_model_chain_sha256":binding["chain_sha256"],
+            "source_config_sha256":self.primary_binding().unwrap().0,
+            "model_evidence":"declared_clock_replay","order_emission_allowed":false,
+            "aggregate_eod_and_restart_qualified":false}))
+            .map_err(CoordinatorError::Session)?;
+        Ok(self)
+    }
+    pub fn has_models(&self) -> bool {
+        #[cfg(feature = "models-bridge")]
+        {
+            self.models.is_some()
+        }
+        #[cfg(not(feature = "models-bridge"))]
+        {
+            false
+        }
+    }
+    #[cfg(feature = "models-bridge")]
+    pub fn model_export(&self) -> Result<Option<serde_json::Value>, SessionError> {
+        self.models
+            .as_ref()
+            .map(|m| m.export().map_err(|_| SessionError::Evidence))
+            .transpose()
     }
     pub fn primary_binding(&self) -> Option<(&str, i64, &crate::primary::PrimaryPolicy)> {
         self.members[0].primary_binding()
@@ -68,7 +115,7 @@ impl Runtimes {
         }
     }
     fn stop_group_on_error<T>(&self, result: Result<T, SessionError>) -> Result<T, SessionError> {
-        if result.is_err() && self.members.len() > 1 {
+        if result.is_err() && (self.members.len() > 1 || self.has_models()) {
             if let Some((_, root)) = self.primary_runtime() {
                 root.stop();
             }
@@ -102,6 +149,7 @@ impl Runtimes {
         label: i64,
         close: i64,
         replay_deadline: Option<i64>,
+        #[cfg(feature = "models-bridge")] model_input: Projection<'_>,
         mut work: impl FnMut(&mut ObservedSession) -> Result<CanonicalPublication, SessionError>,
     ) -> Result<CanonicalPublication, SessionError> {
         let result = (|| {
@@ -116,9 +164,28 @@ impl Runtimes {
             {
                 return Err(SessionError::Input);
             }
-            if self.members.len() > 1 {
+            #[cfg(feature = "models-bridge")]
+            if self.models.is_some() {
+                for session in &mut self.members {
+                    session.check_shared_publication(close, replay_deadline)?;
+                }
+                let committed = self
+                    .models
+                    .as_mut()
+                    .unwrap()
+                    .publish(model_input)
+                    .map_err(|_| SessionError::Model)?;
+                self.record_transport(&json!({"event":"primary_imoexf_models_commit",
+                    "label_ms":label,"source_sha256":first.source_sha256,
+                    "commit":committed,"readback_verified":true,
+                    "readback_completed_at_ms":crate::timing::now_ms(),
+                    "source_frontier_not_yet_advanced":true}))?;
+            }
+            if self.members.len() > 1 || self.has_models() {
                 self.record_transport(&json!({"event":"primary_runtime_cohort_barrier",
-                    "label_ms":label,"source_sha256":first.source_sha256,"runtime_count":self.members.len(),
+                    "label_ms":label,"source_sha256":first.source_sha256,
+                    "runtime_count":self.members.len() + if self.has_models(){2}else{0},
+                    "additional_sqlite_model_arms":if self.has_models(){2}else{0},
                     "consumer_commits":publications.iter().enumerate().map(|(index,p)|json!({
                         "runtime_index":index,"committed_at_ms":p.committed_at_ms})).collect::<Vec<_>>(),
                     "shared_frontier_not_yet_advanced":true,"recovery":replay_deadline.is_some()}))?;
@@ -134,7 +201,7 @@ impl Runtimes {
                 }
             }
             let mut publication = publications.remove(0);
-            if self.members.len() > 1 {
+            if self.members.len() > 1 || self.has_models() {
                 publication.committed_at_ms = crate::timing::now_ms();
             }
             Ok(publication)
@@ -149,6 +216,8 @@ impl Runtimes {
             input.receipt().label_ms,
             input.receipt().close_ms,
             None,
+            #[cfg(feature = "models-bridge")]
+            Projection::Canonical(input),
             |s| s.canonical(input),
         )
     }
@@ -161,6 +230,8 @@ impl Runtimes {
             input.receipt().canonical.label_ms,
             input.receipt().canonical.close_ms,
             Some(input.receipt().replay_deadline_ms),
+            #[cfg(feature = "models-bridge")]
+            Projection::Rest(input, source),
             |s| s.recovery(input, source),
         )
     }
@@ -175,16 +246,22 @@ impl Runtimes {
             input.receipt().canonical.label_ms,
             input.receipt().canonical.close_ms,
             Some(input.receipt().replay_deadline_ms),
+            #[cfg(feature = "models-bridge")]
+            Projection::Ws(input),
             |s| s.ws_recovery(input),
         )
     }
     /// A single-journal Completion cannot attest all independent cohort files.
     /// Fail closed rather than present a primary consumer's EOD as cohort PASS.
     pub fn eod_model_ready(&self) -> bool {
-        self.members.len() == 1 && self.members[0].eod_model_ready()
+        self.members.len() == 1 && !self.has_models() && self.members[0].eod_model_ready()
     }
     pub fn eod_snapshot(&self) -> serde_json::Value {
         let mut value = self.members[0].eod_snapshot();
+        if self.has_models() {
+            value["additional_imoexf_model_arms"] = json!(2);
+            value["aggregate_eod_qualified"] = json!(false);
+        }
         if self.members.len() > 1 {
             value["runtime_cohort"] = json!(self
                 .members
@@ -195,7 +272,7 @@ impl Runtimes {
         value
     }
     pub fn journal_seal(&self) -> Option<crate::primary::eod::JournalSeal> {
-        if self.members.len() == 1 {
+        if self.members.len() == 1 && !self.has_models() {
             self.members[0].journal_seal()
         } else {
             None
