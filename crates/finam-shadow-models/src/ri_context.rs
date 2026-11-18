@@ -253,6 +253,18 @@ struct Checkpoint {
     journal: Vec<ReceiptRecord>,
     frozen: BTreeMap<NaiveDate, FrozenContext>,
     last_processed_at_utc: Option<i64>,
+    /// Absent in ordinary/legacy checkpoints. Original imported inputs permit
+    /// deterministic reconstruction; no permanent late-ingest exemption.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    bootstrap: Option<Bootstrap>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Bootstrap {
+    inputs: Vec<ContextInput>,
+    first_decision_session: NaiveDate,
+    processed_at_utc: i64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -310,6 +322,7 @@ impl RiContextStore {
                 journal: vec![],
                 frozen: BTreeMap::new(),
                 last_processed_at_utc: None,
+                bootstrap: None,
             },
         })
     }
@@ -318,6 +331,15 @@ impl RiContextStore {
         &self,
         input: &ContextInput,
         processed: i64,
+    ) -> Result<Option<QuarantineReason>> {
+        self.validate_input_at(input, processed, None)
+    }
+
+    fn validate_input_at(
+        &self,
+        input: &ContextInput,
+        processed: i64,
+        bootstrap_cutoff: Option<i64>,
     ) -> Result<Option<QuarantineReason>> {
         use QuarantineReason::*;
         let cfg = &self.state.identity;
@@ -363,7 +385,7 @@ impl RiContextStore {
         if received < b.close_time_utc + 600 {
             return Ok(Some(BarNotClosed));
         }
-        if durable >= cfg.next_cutoff(dt.date())? {
+        if durable >= bootstrap_cutoff.unwrap_or(cfg.next_cutoff(dt.date())?) {
             return Ok(Some(AtOrAfterCutoff));
         }
         match b.origin {
@@ -391,6 +413,15 @@ impl RiContextStore {
     }
 
     pub fn ingest(&mut self, input: ContextInput, processed_at_utc: i64) -> Result<ContextRoute> {
+        self.ingest_inner(input, processed_at_utc, None)
+    }
+
+    fn ingest_inner(
+        &mut self,
+        input: ContextInput,
+        processed_at_utc: i64,
+        bootstrap_cutoff: Option<i64>,
+    ) -> Result<ContextRoute> {
         self.check_clock(processed_at_utc)?;
         let digest = input.digest()?;
         ensure!(input.sequence > 0, "ingress sequence starts at one");
@@ -409,7 +440,10 @@ impl RiContextStore {
             self.state.journal.len() < LIMIT,
             "context journal full; explicit rotation required"
         );
-        let reason = self.validate_input(&input, processed_at_utc)?;
+        let reason = match bootstrap_cutoff {
+            Some(cutoff) => self.validate_input_at(&input, processed_at_utc, Some(cutoff))?,
+            None => self.validate_input(&input, processed_at_utc)?,
+        };
         let route = if let Some(reason) = reason {
             ContextRoute::Quarantined(reason)
         } else if let Some(old) = self.state.canonical.get(&input.bar.close_time_utc) {
@@ -442,6 +476,105 @@ impl RiContextStore {
         });
         self.state.last_processed_at_utc = Some(processed_at_utc);
         Ok(route)
+    }
+
+    /// One-time historical context import BEFORE a future first session.
+    /// Original receipt/durable clocks and ordinary ingest rules are retained.
+    /// No market capability, cutoff attestation or numerical action is minted.
+    pub(crate) fn bootstrap(
+        &mut self,
+        inputs: &[ContextInput],
+        day: NaiveDate,
+        now: i64,
+    ) -> Result<()> {
+        self.check_clock(now)?;
+        ensure!(
+            self.state.journal.is_empty()
+                && self.state.canonical.is_empty()
+                && self.state.frozen.is_empty()
+                && self.state.bootstrap.is_none(),
+            "RI bootstrap requires empty context"
+        );
+        let cutoff = self.identity().cutoff(day);
+        ensure!(
+            self.identity().regular_date(day) && now < cutoff,
+            "RI bootstrap must precede first decision cutoff"
+        );
+        ensure!(
+            !inputs.is_empty() && inputs.len() <= 1000,
+            "RI bootstrap row bound"
+        );
+        let mut staged = self.clone();
+        for (i, input) in inputs.iter().enumerate() {
+            let dt = local(input.bar.close_time_utc)?;
+            ensure!(
+                input.sequence == i as u64 + 1
+                    && dt.date() < day
+                    && day.signed_duration_since(dt.date()).num_days() <= 14,
+                "RI bootstrap sequence/historical window"
+            );
+            ensure!(
+                input.bar.symbol == self.identity().symbol
+                    && input.bar.origin != DataOrigin::Replay,
+                "RI bootstrap contract/origin"
+            );
+            let received = input
+                .received_at_utc
+                .context("RI bootstrap receipt missing")?;
+            let durable = input
+                .durable_at_utc
+                .context("RI bootstrap durability missing")?;
+            ensure!(
+                received >= input.bar.close_time_utc + 600 && received <= durable && durable <= now,
+                "RI bootstrap original clocks"
+            );
+            ensure!(
+                dt.minute() % 10 == 0
+                    && dt.second() == 0
+                    && [
+                        input.bar.o,
+                        input.bar.h,
+                        input.bar.l,
+                        input.bar.close,
+                        input.bar.v
+                    ]
+                    .iter()
+                    .all(|v| v.is_finite())
+                    && input.bar.l > 0.
+                    && input.bar.v >= 0.
+                    && input.bar.h >= input.bar.l
+                    && input.bar.o >= input.bar.l
+                    && input.bar.o <= input.bar.h
+                    && input.bar.close >= input.bar.l
+                    && input.bar.close <= input.bar.h,
+                "RI bootstrap grid/OHLCV"
+            );
+            let route = staged.ingest_inner(input.clone(), now, Some(cutoff))?;
+            ensure!(
+                matches!(
+                    route,
+                    ContextRoute::ContextOnly
+                        | ContextRoute::DuplicateQuote
+                        | ContextRoute::Quarantined(
+                            QuarantineReason::NonModelBar | QuarantineReason::RecoveryDisabled
+                        )
+                ),
+                "RI bootstrap rejected source: {route:?}"
+            );
+        }
+        // Reuse RI's own anchor completeness rules (not IMOEXF's 101-bar gate).
+        let (anchors, _) = staged.collect_anchors(day, cutoff, staged.last_sequence())?;
+        ensure!(
+            (2..=6).contains(&anchors.len()),
+            "RI bootstrap needs 2..6 complete regular anchors"
+        );
+        staged.state.bootstrap = Some(Bootstrap {
+            inputs: inputs.to_vec(),
+            first_decision_session: day,
+            processed_at_utc: now,
+        });
+        *self = staged;
+        Ok(())
     }
 
     pub fn last_sequence(&self) -> u64 {
@@ -495,11 +628,33 @@ impl RiContextStore {
                 || self.state.journal[(barrier.last_sequence - 1) as usize].processed_at_utc <= now,
             "barrier includes unprocessed future evidence"
         );
+        let (mut anchors, skipped) = self.collect_anchors(date, cutoff, barrier.last_sequence)?;
+        let previous = anchors.pop();
+        let previous2 = anchors.pop();
+        Ok(FrozenContext {
+            identity_sha256: hash(cfg)?,
+            session_date: date,
+            cutoff_utc: cutoff,
+            frozen_at_utc: now,
+            barrier: barrier.clone(),
+            previous,
+            previous2,
+            skipped_incomplete: skipped,
+        })
+    }
+
+    fn collect_anchors(
+        &self,
+        date: NaiveDate,
+        cutoff: i64,
+        last_sequence: u64,
+    ) -> Result<(Vec<SessionAnchor>, Vec<SkippedSession>)> {
+        let cfg = &self.state.identity;
         let mut days: BTreeMap<NaiveDate, Vec<&ContextInput>> = BTreeMap::new();
         for input in self.state.canonical.values() {
             let d = local(input.bar.close_time_utc)?.date();
             if d < date
-                && input.sequence <= barrier.last_sequence
+                && input.sequence <= last_sequence
                 && input.durable_at_utc.is_some_and(|r| r < cutoff)
             {
                 days.entry(d).or_default().push(input);
@@ -546,18 +701,7 @@ impl RiContextStore {
                 source_sha256: hash(&bars)?,
             });
         }
-        let previous = anchors.pop();
-        let previous2 = anchors.pop();
-        Ok(FrozenContext {
-            identity_sha256: hash(cfg)?,
-            session_date: date,
-            cutoff_utc: cutoff,
-            frozen_at_utc: now,
-            barrier: barrier.clone(),
-            previous,
-            previous2,
-            skipped_incomplete: skipped,
-        })
+        Ok((anchors, skipped))
     }
 
     pub fn freeze(&mut self, date: NaiveDate, now: i64, barrier: &ReceiptBarrier) -> Result<()> {
@@ -661,6 +805,37 @@ impl RiContextStore {
             "oversized context journal"
         );
         store.check_clock(now)?;
+        let bootstrap_prefix = if let Some(b) = &store.state.bootstrap {
+            ensure!(
+                store
+                    .state
+                    .frozen
+                    .keys()
+                    .all(|d| *d >= b.first_decision_session),
+                "RI bootstrap/freeze chronology"
+            );
+            let mut replay = Self::new(expected.clone())?;
+            replay.bootstrap(&b.inputs, b.first_decision_session, b.processed_at_utc)?;
+            let n = b.inputs.len();
+            ensure!(
+                n <= store.state.journal.len() && replay.state.journal == store.state.journal[..n],
+                "RI bootstrap journal reconstruction mismatch"
+            );
+            ensure!(
+                store
+                    .state
+                    .canonical
+                    .iter()
+                    .filter(|(_, i)| i.sequence <= n as u64)
+                    .map(|(ts, i)| (*ts, i.clone()))
+                    .collect::<BTreeMap<_, _>>()
+                    == replay.state.canonical,
+                "RI bootstrap canonical reconstruction mismatch"
+            );
+            Some((n as u64, expected.cutoff(b.first_decision_session)))
+        } else {
+            None
+        };
         let mut last = None;
         for (i, record) in store.state.journal.iter().enumerate() {
             ensure!(
@@ -683,7 +858,13 @@ impl RiContextStore {
                 record.route == ContextRoute::ContextOnly
                     && input.digest()? == record.input_sha256
                     && store
-                        .validate_input(input, record.processed_at_utc)?
+                        .validate_input_at(
+                            input,
+                            record.processed_at_utc,
+                            bootstrap_prefix
+                                .filter(|(n, _)| input.sequence <= *n)
+                                .map(|(_, cutoff)| cutoff)
+                        )?
                         .is_none(),
                 "invalid canonical provenance"
             );

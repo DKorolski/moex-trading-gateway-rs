@@ -4,6 +4,7 @@ use crate::{BarEvent, DataOrigin};
 use chrono::{Datelike, Duration, NaiveDate};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+mod bootstrap;
 
 fn date(s: &str) -> NaiveDate {
     NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()

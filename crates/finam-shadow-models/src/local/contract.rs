@@ -24,6 +24,8 @@ pub enum InitialContext {
     #[default]
     OrdinaryIngest,
     ImoexfFirstSession,
+    /// Explicit local preparation of USD/RI only. Never enables their producer.
+    UsdRiFirstSession,
 }
 impl InitialContext {
     fn ordinary(&self) -> bool {
@@ -497,6 +499,34 @@ impl Manifest {
                     .iter()
                     .any(|s| s.binding.instrument == "IMOEXF" && !s.history.is_empty()),
                 "first-session IMOEXF seed required"
+            );
+        }
+        if self.initial_context == InitialContext::UsdRiFirstSession {
+            for (instrument, provider, tick) in [
+                ("USDRUBF", "USDRUBF@RTSX", "0.01"),
+                ("RIZ6", "RIZ6@RTSX", "10"),
+            ] {
+                let seed = self
+                    .seeds
+                    .iter()
+                    .find(|s| s.binding.instrument == instrument)
+                    .context("USD/RI first-session mapping missing")?;
+                ensure!(
+                    !seed.history.is_empty()
+                        && seed.binding.provider_id == provider
+                        && seed.binding.tick == tick
+                        && seed.binding.lot == 1
+                        && seed.binding.basis == MappingBasis::DeclaredCatalogSnapshot
+                        && seed.binding.catalog_sha256
+                            == "9e06d4ff4c66a9f88534bd4f46404b12588a1c716f1c64373a97174401376b0c",
+                    "USD/RI first-session requires exact accepted catalog bindings"
+                );
+            }
+            ensure!(
+                self.seeds
+                    .iter()
+                    .any(|s| s.binding.instrument == "IMOEXF" && s.history.is_empty()),
+                "USD/RI initialization cannot silently initialize IMOEXF"
             );
         }
         let mut symbols = BTreeSet::new();

@@ -1,5 +1,6 @@
 use crate::local::{contract::*, implementation_sha256, Commit, Journal, VERSION};
 mod br1_reviewer;
+mod usd_ri;
 use chrono::{Datelike, Duration, NaiveDate};
 use serde_json::{json, Value};
 use std::{

@@ -97,16 +97,30 @@ impl Arm {
                 format!("{}/{symbol}/declared-clock", manifest.generation),
             )?;
             let mut context = ri_context::RiContextStore::new(id.clone())?;
-            for c in &seed.history {
-                context.ingest(
-                    ri_context::ContextInput {
+            let inputs = seed
+                .history
+                .iter()
+                .map(|c| {
+                    Ok(ri_context::ContextInput {
                         sequence: c.source_sequence,
                         bar: c.numerical_bar(context_origin(c))?,
                         received_at_utc: Some(c.received_ms / 1000),
                         durable_at_utc: Some(c.durable_ms / 1000),
-                    },
-                    c.source_processed_ms / 1000,
-                )?;
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            if manifest.initial_context == InitialContext::UsdRiFirstSession {
+                let as_of = seed
+                    .history
+                    .iter()
+                    .map(|c| c.source_processed_ms / 1000)
+                    .max()
+                    .context("empty RI first-session seed")?;
+                context.bootstrap(&inputs, manifest.session_date, as_of)?;
+            } else {
+                for (input, c) in inputs.into_iter().zip(&seed.history) {
+                    context.ingest(input, c.source_processed_ms / 1000)?;
+                }
             }
             context.freeze(
                 manifest.session_date,
@@ -154,7 +168,10 @@ impl Arm {
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
-            if symbol == "IMOEXF" && manifest.initial_context == InitialContext::ImoexfFirstSession
+            if (symbol == "IMOEXF"
+                && manifest.initial_context == InitialContext::ImoexfFirstSession)
+                || (symbol == "USDRUBF"
+                    && manifest.initial_context == InitialContext::UsdRiFirstSession)
             {
                 // One-time import into an empty context, as of the latest
                 // declared processing time, strictly before this session's
