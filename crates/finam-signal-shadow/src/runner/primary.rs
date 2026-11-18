@@ -136,6 +136,10 @@ pub struct Coordinator {
     frame_reply_pause: Option<(i64, Arc<writer::tests::Pause>)>,
 }
 impl Coordinator {
+    #[cfg(all(test, feature = "models-bridge"))]
+    pub(crate) fn stop_after_model_sql(&mut self) {
+        self.session.stop_after_model_sql();
+    }
     // Successful installation is independent of resuming the original WS frame.
     // Old -> new diagnostics precede this fact and the reader's map update.
     fn reference_installed(
@@ -288,6 +292,7 @@ impl Coordinator {
         self.processor
             .recovered_ws(admitted.input, publication.committed_at_ms)
             .map_err(CoordinatorError::Source)?;
+        self.record_models_advanced(publication.label_ms, &publication.source_sha256)?;
         self.last_committed = Some(publication.label_ms);
         self.recovery_completion = Some(admitted.completion);
         self.failed = false;
@@ -431,6 +436,7 @@ impl Coordinator {
             self.processor
                 .recovered(input, publication.committed_at_ms)
                 .map_err(CoordinatorError::Source)?;
+            self.record_models_advanced(publication.label_ms, &publication.source_sha256)?;
             self.last_committed = Some(publication.label_ms);
         }
         self.recovery_completion = Some(admitted.completion);
@@ -688,6 +694,7 @@ impl Coordinator {
         self.processor
             .committed(input, publication.committed_at_ms)
             .map_err(CoordinatorError::Source)?;
+        self.record_models_advanced(label, &publication.source_sha256)?;
         self.failed = false;
         self.last_committed = Some(label);
         if let Some(source) = comparison {
@@ -709,6 +716,18 @@ impl Coordinator {
                     && p.received_at.timestamp_millis() <= ticket.deadline_ms
                     && p.received_at.timestamp_millis() <= now
             })
+    }
+    fn record_models_advanced(
+        &mut self,
+        label: i64,
+        source_sha256: &str,
+    ) -> Result<(), CoordinatorError> {
+        if self.session.has_models() {
+            self.event(serde_json::json!({"event":"primary_models_source_advanced","label_ms":label,
+                "source_sha256":source_sha256,"source_committed":self.processor.counters().committed,
+                "next_label_ms":self.processor.next_label_ms(),"source_advanced_at_ms":crate::timing::now_ms()}))?;
+        }
+        Ok(())
     }
     pub fn complete_proof(
         &mut self,

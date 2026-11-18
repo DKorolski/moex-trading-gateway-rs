@@ -10,6 +10,7 @@ use serde_json::json;
 
 pub(super) struct Runtimes {
     members: Vec<ObservedSession>,
+    model_eod_sealed: bool,
     #[cfg(feature = "models-bridge")]
     models: Option<ImoexfModelBridge>,
     #[cfg(test)]
@@ -19,6 +20,7 @@ impl Runtimes {
     pub fn single(session: ObservedSession) -> Self {
         Self {
             members: vec![session],
+            model_eod_sealed: false,
             #[cfg(feature = "models-bridge")]
             models: None,
             #[cfg(test)]
@@ -43,6 +45,7 @@ impl Runtimes {
         }
         let mut result = Self {
             members,
+            model_eod_sealed: false,
             #[cfg(feature = "models-bridge")]
             models: None,
             #[cfg(test)]
@@ -169,12 +172,17 @@ impl Runtimes {
                 for session in &mut self.members {
                     session.check_shared_publication(close, replay_deadline)?;
                 }
-                let committed = self
-                    .models
-                    .as_mut()
-                    .unwrap()
-                    .publish(model_input)
-                    .map_err(|_| SessionError::Model)?;
+                let committed =
+                    self.models
+                        .as_mut()
+                        .unwrap()
+                        .publish(model_input)
+                        .map_err(|error| {
+                            #[cfg(test)]
+                            eprintln!("synthetic model commit error: {error:#}");
+                            let _ = error;
+                            SessionError::Model
+                        })?;
                 self.record_transport(&json!({"event":"primary_imoexf_models_commit",
                     "label_ms":label,"source_sha256":first.source_sha256,
                     "commit":committed,"readback_verified":true,
@@ -236,7 +244,10 @@ impl Runtimes {
         )
     }
     pub fn finish(&mut self, reason: &str) -> Result<(), SessionError> {
-        self.each(|s| s.finish(reason))
+        let result = self.each(|s| s.finish(reason));
+        self.model_eod_sealed =
+            self.has_models() && reason == crate::primary::eod::PREPARED_REASON && result.is_ok();
+        result
     }
     pub fn ws_recovery(
         &mut self,
@@ -254,7 +265,12 @@ impl Runtimes {
     /// A single-journal Completion cannot attest all independent cohort files.
     /// Fail closed rather than present a primary consumer's EOD as cohort PASS.
     pub fn eod_model_ready(&self) -> bool {
-        self.members.len() == 1 && !self.has_models() && self.members[0].eod_model_ready()
+        let ready = self.members.len() == 1 && self.members[0].eod_model_ready();
+        #[cfg(feature = "models-bridge")]
+        if let Some(models) = &self.models {
+            return ready && models.model_eod_ready();
+        }
+        ready
     }
     pub fn eod_snapshot(&self) -> serde_json::Value {
         let mut value = self.members[0].eod_snapshot();
@@ -272,15 +288,23 @@ impl Runtimes {
         value
     }
     pub fn journal_seal(&self) -> Option<crate::primary::eod::JournalSeal> {
-        if self.members.len() == 1 && !self.has_models() {
-            self.members[0].journal_seal()
-        } else {
-            None
+        if self.members.len() != 1 {
+            return None;
         }
+        if self.has_models() && !self.model_eod_sealed {
+            return None;
+        }
+        // Called AFTER finish closed the control session. Readiness was checked
+        // before finish; do not re-test the control's !closed predicate here.
+        self.members[0].journal_seal()
     }
     #[cfg(test)]
     pub fn fail_primary_evidence(&mut self, kind: &'static str) {
         self.members[0].fail_primary_evidence(kind);
+    }
+    #[cfg(all(test, feature = "models-bridge"))]
+    pub fn stop_after_model_sql(&mut self) {
+        self.barrier_fault = Some((0, true));
     }
 }
 

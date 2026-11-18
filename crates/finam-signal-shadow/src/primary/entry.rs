@@ -136,6 +136,32 @@ impl PreparedEntry {
         })
     }
     pub(crate) fn open(self, output: &Path, stop: StopHandle) -> Result<Opened, EntryError> {
+        self.open_inner(
+            output,
+            stop,
+            #[cfg(feature = "models-bridge")]
+            None,
+        )
+    }
+    #[cfg(feature = "models-bridge")]
+    pub(crate) fn open_models(
+        self,
+        output: &Path,
+        stop: StopHandle,
+        manifest: finam_shadow_models::local::contract::Manifest,
+        binding: serde_json::Value,
+    ) -> Result<Opened, EntryError> {
+        self.open_inner(output, stop, Some((manifest, binding)))
+    }
+    fn open_inner(
+        self,
+        output: &Path,
+        stop: StopHandle,
+        #[cfg(feature = "models-bridge")] models: Option<(
+            finam_shadow_models::local::contract::Manifest,
+            serde_json::Value,
+        )>,
+    ) -> Result<Opened, EntryError> {
         if stop.is_stopped() {
             return Err(EntryError::Stopped);
         }
@@ -171,6 +197,25 @@ impl PreparedEntry {
         session
             .record_run_plan(&receipt)
             .map_err(|_| EntryError::Session)?;
+        #[cfg(feature = "models-bridge")]
+        let owner = if let Some((manifest, binding)) = models {
+            session
+                .record_transport(
+                    &serde_json::json!({"event":"primary_models_seed_binding","binding":binding}),
+                )
+                .map_err(|_| EntryError::Session)?;
+            let bridge = super::models_bridge::ImoexfModelBridge::create(
+                &output.join("models.sqlite"),
+                manifest,
+                &self.config,
+            )
+            .map_err(|_| EntryError::Seed)?;
+            Coordinator::new_with_imoexf_models(processor, session, bridge)
+        } else {
+            Coordinator::new(processor, session)
+        }
+        .map_err(|_| EntryError::Binding)?;
+        #[cfg(not(feature = "models-bridge"))]
         let owner = Coordinator::new(processor, session).map_err(|_| EntryError::Binding)?;
         Ok(Opened {
             owner,
@@ -290,7 +335,7 @@ pub async fn run(
     let report = live::run(owner, calendar, auth, client).await;
     artifacts.finish(&config, &calendar_sha256, report.as_ref())
 }
-fn instrument() -> broker_core::InstrumentId {
+pub(super) fn instrument() -> broker_core::InstrumentId {
     broker_core::InstrumentId {
         symbol: "IMOEXF".into(),
         venue_symbol: Some("IMOEXF@RTSX".into()),

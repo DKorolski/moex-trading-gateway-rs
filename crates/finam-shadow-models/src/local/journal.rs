@@ -391,6 +391,24 @@ impl Journal {
     pub fn open(path: &Path, manifest: Manifest) -> Result<Self> {
         manifest.validate()?;
         let conn = connect(path)?;
+        Self::open_connection(conn, manifest)
+    }
+    /// File-only inspection: SQLite enforces read-only access, including when
+    /// validation fails. Uses the SAME replay/checkpoint/readback verifier.
+    pub fn inspect(path: &Path, manifest: Manifest) -> Result<Value> {
+        manifest.validate()?;
+        let conn = Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        conn.busy_timeout(Duration::from_secs(2))?;
+        ensure!(
+            conn.query_row("PRAGMA quick_check", [], |r| r.get::<_, String>(0))? == "ok",
+            "SQLite quick_check"
+        );
+        Self::open_connection(conn, manifest)?.export()
+    }
+    fn open_connection(conn: Connection, manifest: Manifest) -> Result<Self> {
         // A consistent bounded read snapshot; errors drop/rollback this
         // newly opened connection. A later writer is detected by apply().
         conn.execute_batch("BEGIN DEFERRED")?;

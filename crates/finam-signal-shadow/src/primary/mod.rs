@@ -12,6 +12,8 @@ pub mod eod;
 mod json;
 #[cfg(feature = "models-bridge")]
 pub mod models_bridge;
+#[cfg(feature = "models-bridge")]
+pub mod models_entry;
 pub mod verify;
 pub(crate) use continuity::ContinuityGate;
 mod ingress;

@@ -668,6 +668,14 @@ impl Core {
         }
     }
     fn finalize(&mut self, facts: crate::primary::eod::FinishFacts) -> Result<Update, Cause> {
+        if self.owner.session.has_models() {
+            self.owner
+                .event(serde_json::json!({"event":"primary_models_final_frontier",
+                "source_committed":self.owner.processor.counters().committed,
+                "next_label_ms":self.owner.processor.next_label_ms(),"held":self.owner.failed,
+                "at_ms":crate::timing::now_ms(),"writer_join_attested":false}))
+                .map_err(Cause::Coordinator)?;
+        }
         let ready = facts.requested_eod
             && facts.io_drained
             && facts.continuity_resolved

@@ -77,7 +77,7 @@ pub(super) fn admit(
     required: &[i64],
     now: i64,
 ) -> Result<CommittedPrefix, RestartError> {
-    let result = scan(config, &binding, bytes, required, now, false)?;
+    let result = scan(config, &binding, bytes, required, now, false, false)?;
     Ok(CommittedPrefix {
         binding,
         header: result.header,
@@ -113,7 +113,30 @@ pub(crate) fn complete(
         committed_labels: required.len(),
         max_reconstruction_ms: 10000,
     };
-    scan(config, &expected, bytes, required, now, true)
+    scan(config, &expected, bytes, required, now, true, false)
+}
+/// Inspection only, never returns a native restart capability. The matching
+/// cohort reader additionally checks every SQL arm/source/barrier linkage.
+#[cfg(feature = "models-bridge")]
+pub(crate) fn inspect_models(
+    config: &super::super::WsPrimaryConfig,
+    bytes: &[u8],
+    required: &[i64],
+    committed: usize,
+    now: i64,
+) -> Result<JournalScan, RestartError> {
+    let config_hash = config.fingerprint().map_err(|_| RestartError::Binding)?;
+    let binding = RestartBinding {
+        schema_version: 1,
+        config_sha256: config_hash.clone(),
+        previous_config_sha256: config_hash,
+        previous_journal_sha256: digest(bytes),
+        previous_segment_id: config.base.segment_id.clone(),
+        required_labels_sha256: inventory_sha256(required),
+        committed_labels: committed,
+        max_reconstruction_ms: 10000,
+    };
+    scan(config, &binding, bytes, required, now, true, true)
 }
 fn scan(
     config: &super::super::WsPrimaryConfig,
@@ -122,6 +145,7 @@ fn scan(
     required: &[i64],
     now: i64,
     full: bool,
+    models: bool,
 ) -> Result<JournalScan, RestartError> {
     let validated = ValidatedConfig::from_ws_primary(config).map_err(|_| RestartError::Binding)?;
     let c = validated.config();
@@ -155,7 +179,9 @@ fn scan(
         || required
             .windows(2)
             .any(|p| p[1].checked_sub(p[0]) != Some(600000))
-        || if full {
+        || if models {
+            binding.committed_labels > required.len()
+        } else if full {
             binding.committed_labels != required.len()
         } else {
             binding.committed_labels >= required.len()
@@ -165,7 +191,12 @@ fn scan(
         return Err(RestartError::Bounds);
     }
     if now
-        < if full {
+        < if models {
+            required
+                .get(binding.committed_labels.saturating_sub(1))
+                .unwrap_or(&required[0])
+                + 600000
+        } else if full {
             required.last().unwrap() + 600000
         } else {
             required[binding.committed_labels]
@@ -248,7 +279,7 @@ fn scan(
         let event = &row["event"];
         // The single-journal restart/EOD protocol cannot attest a cohort's
         // shared publication frontier using only one consumer's local commit.
-        if event["event"] == "primary_runtime_cohort_bound" {
+        if !models && event["event"] == "primary_runtime_cohort_bound" {
             return Err(RestartError::Incomplete);
         }
         match row["kind"].as_str().ok_or(RestartError::Journal)? {

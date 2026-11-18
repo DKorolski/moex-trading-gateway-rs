@@ -10,6 +10,7 @@ use finam_signal_shadow::{
 use serde::Deserialize;
 use std::{fs::File, io::Read, path::Path, process::ExitCode};
 mod credential_permissions;
+mod models_cli;
 mod primary_cli;
 
 #[derive(Deserialize)]
@@ -273,6 +274,15 @@ fn restart(args: &[std::ffi::OsString]) -> Result<bool, &'static str> {
 #[tokio::main]
 async fn main() -> ExitCode {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
+    if models_cli::handles(&args) {
+        return match models_cli::run(&args).await {
+            Ok(code) => ExitCode::from(code),
+            Err(reason) => {
+                eprintln!("{reason}");
+                ExitCode::from(1)
+            }
+        };
+    }
     if primary_cli::handles(&args) {
         return match primary_cli::run(&args).await {
             Ok(code) => ExitCode::from(code),

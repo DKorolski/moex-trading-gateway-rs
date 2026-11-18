@@ -19,12 +19,12 @@ use std::path::Path;
 
 /// Exact public mapping artifact accepted at 6a508df3; not an API body hash.
 pub const MAPPING_SHA256: &str = "9e06d4ff4c66a9f88534bd4f46404b12588a1c716f1c64373a97174401376b0c";
-const SCHEMA: &str = "finam.shadow.imoexf-admitted-projection.v1";
+pub(crate) const SCHEMA: &str = "finam.shadow.imoexf-admitted-projection.v1";
 
 fn hash(value: &impl serde::Serialize) -> Result<String> {
     Ok(crate::seed::digest(&serde_json::to_vec(value)?))
 }
-fn implementation() -> String {
+pub(crate) fn implementation() -> String {
     implementation_with_workspace(include_bytes!("../../../../Cargo.toml"))
 }
 fn implementation_with_workspace(workspace: &[u8]) -> String {
@@ -34,6 +34,15 @@ fn implementation_with_workspace(workspace: &[u8]) -> String {
             include_bytes!("cache.rs").as_slice(),
             include_bytes!("cache/recovery.rs").as_slice(),
             include_bytes!("cache/recovery/ws.rs").as_slice(),
+            include_bytes!("models_entry.rs").as_slice(),
+            include_bytes!("models_entry/seed.rs").as_slice(),
+            include_bytes!("models_entry/reader.rs").as_slice(),
+            include_bytes!("models_entry/artifacts.rs").as_slice(),
+            include_bytes!("entry.rs").as_slice(),
+            include_bytes!("restart/journal.rs").as_slice(),
+            include_bytes!("verify.rs").as_slice(),
+            include_bytes!("../../src/models_cli.rs").as_slice(),
+            include_bytes!("../../src/runner/primary/writer.rs").as_slice(),
             include_bytes!("../../src/runner/primary/runtimes.rs").as_slice(),
             include_bytes!("../../src/runner/primary.rs").as_slice(),
             include_bytes!("policy.rs").as_slice(),
@@ -405,6 +414,33 @@ impl ImoexfModelBridge {
     /// Historical evidence only, including after a held completion.
     pub fn export(&self) -> Result<Value> {
         self.journal.export()
+    }
+    pub(crate) fn model_eod_ready(&self) -> bool {
+        if self.failed {
+            return false;
+        }
+        let Ok(value) = self.export() else {
+            return false;
+        };
+        value["inputs"]
+            .as_array()
+            .is_some_and(|rows| rows.len() == 101)
+            && value["states"].as_array().is_some_and(|states| {
+                states
+                    .iter()
+                    .filter(|s| {
+                        s["arm"]
+                            .as_str()
+                            .is_some_and(|id| id.starts_with("IMOEXF/"))
+                    })
+                    .filter(|s| s["ready"] == true && s["full_grid_flat"] == true)
+                    .count()
+                    == 2
+            })
+            && self
+                .journal
+                .committed_input("IMOEXF", self.history_len + 101)
+                .is_ok_and(|v| v.is_some())
     }
 }
 

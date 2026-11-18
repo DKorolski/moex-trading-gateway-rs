@@ -370,3 +370,56 @@ fn executable_rejects_legacy_config_restart_mode_and_unverified_completion() {
         "primary_config_invalid"
     );
 }
+
+#[test]
+fn executable_model_commands_are_explicit_and_never_fallback_or_open_a_secret_on_bad_inputs() {
+    let f = Fixture::new();
+    let plan = f.path.join("models-plan");
+    let history = f.path.join("models-history");
+    let calendar = f.path.join("models-calendar");
+    for path in [&plan, &history, &calendar] {
+        std::fs::write(path, b"{}").unwrap();
+    }
+    let extra = [
+        plan.into_os_string(),
+        history.into_os_string(),
+        calendar.into_os_string(),
+    ];
+    for command in ["validate-ws-primary-models", "observe-ws-primary-models"] {
+        let mut args = extra.to_vec();
+        if command.starts_with("observe") {
+            args.push(f.path.join("MISSING_SECRET_NEVER_READ").into_os_string());
+            args.push(f.path.join("NO_MODEL_OUTPUT").into_os_string());
+        }
+        let output = f.command(command, &args);
+        assert!(!output.status.success());
+        let error = String::from_utf8(output.stderr).unwrap();
+        #[cfg(feature = "models-bridge")]
+        assert_eq!(error.trim(), "models_plan_invalid");
+        #[cfg(not(feature = "models-bridge"))]
+        assert_eq!(error.trim(), "models_feature_required");
+        assert!(!f.path.join("NO_MODEL_OUTPUT").exists());
+        assert!(output.stdout.is_empty());
+    }
+}
+#[test]
+fn executable_model_reader_is_file_only_and_rejects_a_missing_cohort() {
+    let f = Fixture::new();
+    let output = Command::new(env!("CARGO_BIN_EXE_finam-signal-shadow"))
+        .arg("verify-ws-primary-models")
+        .arg(&f.files[0])
+        .arg(f.path.join("MISSING_COHORT"))
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    #[cfg(feature = "models-bridge")]
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap().trim(),
+        "models_verification_refused"
+    );
+    #[cfg(not(feature = "models-bridge"))]
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap().trim(),
+        "models_feature_required"
+    );
+}

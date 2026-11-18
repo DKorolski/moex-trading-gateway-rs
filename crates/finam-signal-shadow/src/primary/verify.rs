@@ -66,6 +66,26 @@ pub fn verify(
     completion: &[u8],
     now: i64,
 ) -> Result<VerifiedEod, VerifyError> {
+    verify_inner(config, binding, journal, completion, now, false)
+}
+#[cfg(feature = "models-bridge")]
+pub(crate) fn verify_models_control(
+    config: &WsPrimaryConfig,
+    binding: &EvidenceBinding,
+    journal: &[u8],
+    completion: &[u8],
+    now: i64,
+) -> Result<VerifiedEod, VerifyError> {
+    verify_inner(config, binding, journal, completion, now, true)
+}
+fn verify_inner(
+    config: &WsPrimaryConfig,
+    binding: &EvidenceBinding,
+    journal: &[u8],
+    completion: &[u8],
+    now: i64,
+    models: bool,
+) -> Result<VerifiedEod, VerifyError> {
     let config_hash = config.fingerprint().map_err(|_| VerifyError::Binding)?;
     if binding.schema_version != 1
         || binding.config_sha256 != config_hash
@@ -150,8 +170,25 @@ pub fn verify(
     {
         return Err(VerifyError::Calendar);
     }
-    let scan = super::restart::journal::complete(config, journal, cal.required(), now)
-        .map_err(|_| VerifyError::Journal)?;
+    let scan = if models {
+        #[cfg(feature = "models-bridge")]
+        {
+            super::restart::journal::inspect_models(
+                config,
+                journal,
+                cal.required(),
+                cal.required().len(),
+                now,
+            )
+        }
+        #[cfg(not(feature = "models-bridge"))]
+        {
+            return Err(VerifyError::Binding);
+        }
+    } else {
+        super::restart::journal::complete(config, journal, cal.required(), now)
+    }
+    .map_err(|_| VerifyError::Journal)?;
     let seal = done.journal.as_ref().ok_or(VerifyError::Completion)?;
     if seal.sha256 != binding.journal_sha256
         || seal.bytes != journal.len() as u64

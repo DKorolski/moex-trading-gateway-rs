@@ -4,6 +4,8 @@ use crate::primary::{
     calendar::tests::{at, Dir, Fixture},
     verify::{self, EvidenceBinding},
 };
+#[cfg(feature = "models-bridge")]
+mod models;
 mod r1;
 mod tail;
 mod ws_historical;
@@ -17,10 +19,24 @@ enum R1Scenario {
     RestThenWs,
     RestThenRest,
     WsThenWs,
+    #[cfg(feature = "models-bridge")]
+    ModelsWs,
+    #[cfg(feature = "models-bridge")]
+    ModelsRest,
+    #[cfg(feature = "models-bridge")]
+    ModelsEod,
+    #[cfg(feature = "models-bridge")]
+    ModelsStop,
 }
 impl R1Scenario {
     // Synthetic source competition at two different labels, same generation.
     fn historical_at(self, close_minute: i64) -> Option<bool> {
+        #[cfg(feature = "models-bridge")]
+        match (self, close_minute) {
+            (Self::ModelsWs, 30) => return Some(false),
+            (Self::ModelsRest, 30) => return Some(true),
+            _ => (),
+        }
         match (self, close_minute) {
             (Self::WsHistorical, 30)
             | (Self::RestThenWs | Self::WsThenWs, 40)
@@ -28,6 +44,17 @@ impl R1Scenario {
             (Self::RestThenWs | Self::RestThenRest, 30) | (Self::RestThenRest, 40) => Some(true),
             _ => None,
         }
+    }
+    fn model_cohort(self) -> bool {
+        #[cfg(feature = "models-bridge")]
+        {
+            matches!(
+                self,
+                Self::ModelsWs | Self::ModelsRest | Self::ModelsEod | Self::ModelsStop
+            )
+        }
+        #[cfg(not(feature = "models-bridge"))]
+        false
     }
 }
 
@@ -130,14 +157,44 @@ async fn day_scenario(
     let output = d.0.join("output");
     let path = output.join("journal.jsonl");
     let f = Arc::new(f);
-    let prepared = crate::primary::entry::tests::fresh(&f);
     let root = StopHandle::default();
+    #[cfg(feature = "models-bridge")]
+    let mut model_state = None;
+    #[cfg(feature = "models-bridge")]
+    let opened = if scenario.model_cohort() {
+        let (mut p, h, c) = crate::primary::models_entry::tests::inputs(&f);
+        p.stop = if early_stop {
+            crate::primary::models_entry::StopMode::Bounded {
+                stop_at_ms: f.open() + 50 * 60000 + 5000,
+            }
+        } else {
+            crate::primary::models_entry::StopMode::ModelEod
+        };
+        let state = crate::primary::models_entry::tests::prepare_fixture(&f, p, &h, &c)
+            .unwrap()
+            .open(&output, root.clone())
+            .unwrap();
+        model_state = Some((state.plan, state.manifest));
+        state.opened
+    } else {
+        crate::primary::entry::tests::fresh(&f)
+            .open(&output, root.clone())
+            .unwrap()
+    };
+    #[cfg(not(feature = "models-bridge"))]
+    let opened = crate::primary::entry::tests::fresh(&f)
+        .open(&output, root.clone())
+        .unwrap();
     let crate::primary::entry::Opened {
         mut owner,
         calendar,
         artifacts,
         config: _,
-    } = prepared.open(&output, root.clone()).unwrap();
+    } = opened;
+    #[cfg(feature = "models-bridge")]
+    if scenario == R1Scenario::ModelsStop {
+        owner.stop_after_model_sql();
+    }
     let reference = at(calendar.reference_start_ms());
     let calendar_sha = calendar.sha256().to_owned();
     owner.bind_calendar(calendar).unwrap();
@@ -447,8 +504,20 @@ async fn day_scenario(
             0
         );
     }
-    let minutes = if early_stop { 21 } else { 1010 };
+    let minutes = if early_stop {
+        if scenario.model_cohort() {
+            51
+        } else {
+            21
+        }
+    } else {
+        1010
+    };
     for minute in i64::from(startup_recovery || scenario == R1Scenario::StaleReference)..minutes {
+        #[cfg(feature = "models-bridge")]
+        if scenario.model_cohort() {
+            models::answer_pings(&mut peer).await;
+        }
         let label = f.open() + minute * 60000;
         if let Some(rest_winner) = scenario.historical_at(minute) {
             go(label + 1000);
@@ -700,11 +769,35 @@ async fn day_scenario(
                     == minute as usize / 10
             })
             .await;
-            accepted_data.changed().await.unwrap();
+            #[cfg(feature = "models-bridge")]
+            if scenario == R1Scenario::ModelsStop && root.is_stopped() {
+                break;
+            }
+            #[cfg(feature = "models-bridge")]
+            if scenario.model_cohort() && scenario != R1Scenario::ModelsStop {
+                models::advanced(&path, minute as usize / 10).await;
+            }
+            let progress_result = accepted_data.changed().await;
+            #[cfg(feature = "models-bridge")]
+            if scenario == R1Scenario::ModelsStop && progress_result.is_err() {
+                assert!(root.is_stopped());
+                break;
+            }
+            progress_result.unwrap_or_else(|_| {
+                eprintln!(
+                    "synthetic eod writer stopped at minute {minute}: {:?}",
+                    trace(&path).iter().rev().take(5).collect::<Vec<_>>()
+                );
+                panic!("synthetic writer closed");
+            });
             accepted_data.borrow_and_update();
         }
     }
     if early_stop {
+        #[cfg(feature = "models-bridge")]
+        if scenario.model_cohort() && scenario != R1Scenario::ModelsStop {
+            go(f.open() + 50 * 60000 + 5000);
+        }
         root.stop();
         drop(peer);
     } else {
@@ -730,6 +823,10 @@ async fn day_scenario(
                 == 101
         })
         .await;
+        #[cfg(feature = "models-bridge")]
+        if scenario.model_cohort() {
+            models::advanced(&path, 101).await;
+        }
         accepted_data.changed().await.unwrap();
         accepted_data.borrow_and_update();
         for _ in 0..8 {
@@ -754,9 +851,33 @@ async fn day_scenario(
                 report.completion.as_ref().unwrap().semantic_eod_passed
             );
         }
+        #[cfg(feature = "models-bridge")]
+        if let Some((plan, manifest)) = model_state {
+            return models::export_models(
+                report,
+                &f,
+                &artifacts,
+                &output,
+                &calendar_sha,
+                plan,
+                manifest,
+            );
+        }
         return export(report, &f, &artifacts, &output, &calendar_sha);
     }
     let report = task.await.unwrap().unwrap();
+    #[cfg(feature = "models-bridge")]
+    if let Some((plan, manifest)) = model_state {
+        return models::export_models(
+            report,
+            &f,
+            &artifacts,
+            &output,
+            &calendar_sha,
+            plan,
+            manifest,
+        );
+    }
     export(report, &f, &artifacts, &output, &calendar_sha)
 }
 
