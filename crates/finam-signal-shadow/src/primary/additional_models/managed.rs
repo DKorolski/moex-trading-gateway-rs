@@ -35,7 +35,7 @@ use std::{
 
 pub mod reader;
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
 
 pub(crate) enum Input<'a> {
     Canonical(AdmittedCanonicalM10),

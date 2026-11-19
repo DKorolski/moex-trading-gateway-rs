@@ -54,6 +54,15 @@ pub(crate) fn validate_diagnostic(path: &Path) -> Result<(), &'static str> {
     )
 }
 
+#[cfg(feature = "models-bridge")]
+pub(crate) fn validate_usd_ri(path: &Path) -> Result<(), &'static str> {
+    validate_at(
+        path,
+        "/run/credentials/usd-ri-shadow.service",
+        "/run/credentials/usd-ri-shadow.service/finam-read-only-secret",
+    )
+}
+
 fn validate_at(path: &Path, directory: &str, file: &str) -> Result<(), &'static str> {
     #[cfg(unix)]
     {
@@ -117,6 +126,18 @@ mod tests {
         assert!(!protected_mount_at(
             &mount.replace(directory, "/run/credentials/untrusted.service"),
             directory
+        ));
+    }
+    #[test]
+    fn usd_ri_mount_is_exact_and_does_not_cross_existing_namespaces() {
+        let directory = "/run/credentials/usd-ri-shadow.service";
+        let mount = MOUNT.replace(DIRECTORY, directory);
+        assert!(protected_mount_at(&mount, directory));
+        assert!(!protected_mount_at(MOUNT, directory));
+        assert!(!protected_mount(&mount));
+        assert!(!protected_mount_at(
+            &mount,
+            "/run/credentials/signal-shadow-auth-ws-diagnostic.service"
         ));
     }
     #[test]

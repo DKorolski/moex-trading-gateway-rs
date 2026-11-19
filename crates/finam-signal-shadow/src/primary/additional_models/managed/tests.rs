@@ -471,9 +471,25 @@ fn observed_pair(reconnect: bool) -> Dir {
     observed_pair_case(reconnect, false)
 }
 fn observed_pair_case(reconnect: bool, stop_after_sql: bool) -> Dir {
-    with_fixture_clock(f::T, || {
+    observed_pair_inner(reconnect, stop_after_sql, None).0
+}
+// Test-only seam: exercise a real executable-opened store with the existing
+// physical WS fixtures. No transport factory is exposed by production glue.
+pub(in crate::primary::additional_models) fn executable_fixture(
+    managed: Managed,
+    directory: Dir,
+) -> (Dir, Finished) {
+    observed_pair_inner(true, false, Some((managed, directory)))
+}
+fn observed_pair_inner(
+    reconnect: bool,
+    stop_after_sql: bool,
+    external: Option<(Managed, Dir)>,
+) -> (Dir, Finished) {
+    let external_run = external.is_some();
+    let work = || {
         tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async{
-            let d=Dir::new();let mut managed=f::prepared().into_managed(&d.0.join("managed"),StopHandle::default()).unwrap();
+            let (mut managed,d)=external.unwrap_or_else(||{let d=Dir::new();let m=f::prepared().into_managed(&d.0.join("managed"),StopHandle::default()).unwrap();(m,d)});
             managed.store.lock().unwrap().stop_after_sql=stop_after_sql;
             let path=managed.output.join("managed-control.jsonl");
             let mut tasks=Vec::new();let mut feeds=Vec::new();
@@ -549,14 +565,14 @@ fn observed_pair_case(reconnect: bool, stop_after_sql: bool) -> Dir {
                 assert!(report.all_workers_drained&&report.session_finalized,"{report:?}");
                 reports.push((i,Ok(report)));
             }
-            finalize(&managed.store,&managed.output,reports.try_into().unwrap()).unwrap();
+            let finished=finalize(&managed.store,&managed.output,reports.try_into().unwrap()).unwrap();
             let before=std::fs::read(managed.output.join("models.sqlite")).unwrap();
             let verified=reader::inspect(&managed.output).unwrap();
             if stop_after_sql {
                 assert_eq!(verified["status"],"HELD","{verified}");
                 assert_eq!(verified["inputs"],1);
                 assert_eq!(verified["checked_inputs"],0);
-                return d;
+                return (d,finished);
             }
             assert_eq!(verified["status"],"MANAGED_PREFIX_VERIFIED","{}\n{}",verified,control(&path).last().unwrap());assert_eq!(verified["inputs"],if reconnect{4}else{2});
             assert_eq!(before,std::fs::read(managed.output.join("models.sqlite")).unwrap());
@@ -581,11 +597,16 @@ fn observed_pair_case(reconnect: bool, stop_after_sql: bool) -> Dir {
                 }
             }
             std::fs::write(&path,rehash(&mut original.clone())).unwrap();
-            if let Ok(retain)=std::env::var(if reconnect{"FINAM_USD_RI_RECONNECT_FIXTURE"}else{"FINAM_USD_RI_MANAGED_FIXTURE"}){
+            if let Ok(retain)=std::env::var(if external_run{"FINAM_USD_RI_EXECUTABLE_CORE_FIXTURE"}else if reconnect{"FINAM_USD_RI_RECONNECT_FIXTURE"}else{"FINAM_USD_RI_MANAGED_FIXTURE"}){
                 let retained=PathBuf::from(retain);std::fs::create_dir(&retained).unwrap();
                 for name in ["managed-control.jsonl","model-manifest.json","models.sqlite"]{std::fs::copy(managed.output.join(name),retained.join(name)).unwrap();}
             }
-            d
+            (d,finished)
         })
-    })
+    };
+    if external_run {
+        work()
+    } else {
+        with_fixture_clock(f::T, work)
+    }
 }

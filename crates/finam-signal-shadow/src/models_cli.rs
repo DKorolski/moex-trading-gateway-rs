@@ -1,5 +1,7 @@
 //! Explicit model commands. Disabled builds fail closed, never baseline fallback.
 use std::ffi::OsString;
+#[cfg(feature = "models-bridge")]
+mod usd_ri;
 pub(super) fn handles(args: &[OsString]) -> bool {
     args.first().and_then(|s| s.to_str()).is_some_and(|s| {
         matches!(
@@ -9,6 +11,10 @@ pub(super) fn handles(args: &[OsString]) -> bool {
                 | "verify-ws-primary-models"
                 | "verify-usd-ri-source-component"
                 | "verify-usd-ri-managed"
+                | "prepare-usd-ri-managed"
+                | "validate-usd-ri-managed"
+                | "observe-usd-ri-managed"
+                | "verify-usd-ri-executable"
         )
     })
 }
@@ -32,6 +38,15 @@ pub(super) async fn run(args: &[OsString]) -> Result<u8, &'static str> {
         .first()
         .and_then(|s| s.to_str())
         .ok_or("models_command")?;
+    if matches!(
+        command,
+        "prepare-usd-ri-managed"
+            | "validate-usd-ri-managed"
+            | "observe-usd-ri-managed"
+            | "verify-usd-ri-executable"
+    ) {
+        return usd_ri::run(args).await;
+    }
     if command == "verify-usd-ri-managed" {
         if args.len() != 2 {
             return Err("usage: verify-usd-ri-managed OUTPUT_DIRECTORY");
