@@ -7,6 +7,8 @@ use broker_finam::sparse_m10::{
 use chrono::{DateTime, Utc};
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use std::collections::BTreeMap;
+#[cfg(test)]
+mod rest_precision;
 mod ws;
 
 // Owned persisted schema, in the SAME serialization order as CanonicalReceipt.
@@ -867,13 +869,17 @@ fn admit_rest(
     let collected = e
         .parts
         .iter()
-        .map(|p| p.received_at.timestamp_millis())
+        .map(|p| p.received_at)
         .max()
         .ok_or(RestartError::Source)?;
-    if collected > now {
+    if collected.timestamp_millis() > now {
         return Err(RestartError::Source);
     }
-    AdmittedClosedM1Snapshot::admit(e, &plan, at(collected)?).map_err(|_| RestartError::Source)
+    // Admission compares received_at to its trusted as-of at full DateTime
+    // precision. Flooring this original receipt to milliseconds makes valid
+    // sub-millisecond responses appear to arrive after that as-of. The outer
+    // `now` guard keeps its existing millisecond clock contract unchanged.
+    AdmittedClosedM1Snapshot::admit(e, &plan, collected).map_err(|_| RestartError::Source)
 }
 pub(crate) fn math(
     rows: &[Bar],
