@@ -757,14 +757,14 @@ impl Writer {
         if let Some(gate) = &gate {
             owner.session.bind_live_continuity(gate.clone());
         }
-        let (config, _) = owner.session.primary_runtime().ok_or(Cause::Binding)?;
-        let run_deadline_ms = config.config().run_deadline_utc_ms;
-        let stop_budget = Duration::from_millis(config.config().stop_timeout_ms.min(15000));
+        let (config, _) = owner.session.runtime_settings().ok_or(Cause::Binding)?;
+        let run_deadline_ms = config.deadline_ms;
+        let stop_budget = Duration::from_millis(config.stop_timeout_ms.min(15000));
         let bootstrap = BootstrapBridge::new(
             owner.processor.config_sha256().into(),
             owner.processor.generation(),
             reference_start,
-            config.config().run_deadline_utc_ms,
+            config.deadline_ms,
         )
         .map_err(Cause::Coordinator)?;
         let recovery_budget = super::reconnect::RunBudget::new(&owner).map_err(Cause::Recovery)?;

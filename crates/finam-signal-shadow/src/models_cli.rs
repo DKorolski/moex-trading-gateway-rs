@@ -8,6 +8,7 @@ pub(super) fn handles(args: &[OsString]) -> bool {
                 | "observe-ws-primary-models"
                 | "verify-ws-primary-models"
                 | "verify-usd-ri-source-component"
+                | "verify-usd-ri-managed"
         )
     })
 }
@@ -31,6 +32,21 @@ pub(super) async fn run(args: &[OsString]) -> Result<u8, &'static str> {
         .first()
         .and_then(|s| s.to_str())
         .ok_or("models_command")?;
+    if command == "verify-usd-ri-managed" {
+        if args.len() != 2 {
+            return Err("usage: verify-usd-ri-managed OUTPUT_DIRECTORY");
+        }
+        let report = finam_signal_shadow::primary::additional_models::managed::reader::inspect(
+            Path::new(&args[1]),
+        )
+        .map_err(|_| "additional_managed_verification_refused")?;
+        println!("{report}");
+        return Ok(if report["status"] == "MANAGED_PREFIX_VERIFIED" {
+            0
+        } else {
+            2
+        });
+    }
     if command == "verify-usd-ri-source-component" {
         if args.len() != 2 {
             return Err("usage: verify-usd-ri-source-component OUTPUT_DIRECTORY");

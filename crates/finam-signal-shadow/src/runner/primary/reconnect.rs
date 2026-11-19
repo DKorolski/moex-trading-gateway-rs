@@ -166,11 +166,11 @@ fn retryable(error: Error) -> bool {
 }
 impl RunBudget {
     pub fn new(owner: &Coordinator) -> Result<Self, Error> {
-        let (config, stop) = owner.session.primary_runtime().ok_or(Error::Binding)?;
+        let (config, stop) = owner.session.runtime_settings().ok_or(Error::Binding)?;
         Ok(Self {
             episodes: 0,
-            config_sha256: config.fingerprint().into(),
-            run_deadline_ms: config.config().run_deadline_utc_ms.min(
+            config_sha256: config.config_sha256,
+            run_deadline_ms: config.deadline_ms.min(
                 owner
                     .processor()
                     .calendar()

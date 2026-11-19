@@ -6,7 +6,7 @@ use crate::{
     runner::primary::reconnect::{self, Attempt, Episode},
 };
 
-pub(super) struct Open {
+pub(crate) struct Open {
     pub generation: u64,
     /// Establishment/recovery budget, not the subscription lifetime.
     pub deadline_ms: i64,
@@ -23,7 +23,9 @@ pub(super) async fn run(
     auth: Arc<AuthLifecycle>,
     client: Arc<Stage8bP1fO2GetOnlyClientV1>,
 ) -> Result<RunReport, Cause> {
-    if !auth.binds(client.account_id()) {
+    if !auth.binds(client.account_id())
+        || client.shadow_instrument() != owner.processor().source_instrument()
+    {
         return Err(Cause::Binding);
     }
     let ws_first_proof = owner.processor().rest_precommit_ws_first();
@@ -34,6 +36,7 @@ pub(super) async fn run(
         .validate_entry(crate::timing::now_ms())
         .map_err(Cause::Calendar)?;
     owner.bind_calendar(calendar).map_err(Cause::Coordinator)?;
+    let instrument = owner.processor().source_instrument();
     let connection_auth = auth.clone();
     let factory = move |request: Open| {
         let auth = connection_auth.clone();
@@ -54,7 +57,8 @@ pub(super) async fn run(
                 _=request.stop.cancelled()=>return Err(error(crate::socket::primary::Kind::Cancelled)),
                 grant=auth.grant_primary_budget(Duration::from_millis(remaining as u64))=>grant.map_err(|e|error(crate::socket::primary::Kind::Auth(e.class)))?,
             };
-            let socket = PrimarySocket::connect(
+            let socket = PrimarySocket::connect_for(
+                instrument,
                 grant,
                 request.generation,
                 request.stop,
@@ -1140,7 +1144,7 @@ where
     }
 }
 
-pub(super) async fn drive<G, GF, F, FF>(
+pub(crate) async fn drive<G, GF, F, FF>(
     owner: Coordinator,
     reference_start: DateTime<Utc>,
     factory: G,
@@ -1152,13 +1156,13 @@ where
     F: Fn(Job, StopHandle) -> FF + Clone + Send + 'static,
     FF: Future<Output = HttpOutcome> + Send + 'static,
 {
-    let (config, root) = owner.session.primary_runtime().ok_or(Cause::Binding)?;
-    let deadline_ms = config.config().run_deadline_utc_ms;
-    let clock_uncertainty_ms = config.config().clock_uncertainty_ms;
-    let config_sha256 = config.fingerprint().to_owned();
+    let (config, root) = owner.session.runtime_settings().ok_or(Cause::Binding)?;
+    let deadline_ms = config.deadline_ms;
+    let clock_uncertainty_ms = config.clock_uncertainty_ms;
+    let config_sha256 = config.config_sha256;
     let calendar_sha256 = owner.processor().calendar().map(|c| c.sha256().to_owned());
     let eod_ms = owner.processor().calendar().map(|c| c.eod_check_at_ms());
-    let policy = config.primary_policy().ok_or(Cause::Binding)?.clone();
+    let policy = config.policy;
     let remaining = deadline_ms
         .checked_sub(crate::timing::now_ms())
         .filter(|ms| *ms > 0 && *ms <= 86400000)

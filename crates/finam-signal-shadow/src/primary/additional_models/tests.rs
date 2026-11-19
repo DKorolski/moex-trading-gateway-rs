@@ -15,15 +15,15 @@ use finam_shadow_models::local::contract::*;
 use serde_json::{json, Value};
 mod references;
 
-const T: i64 = 1_793_592_000_000; // synthetic 02-Nov first session, never current DATA
-const ACCOUNT: &str = "SYNTHETIC_ACCOUNT_ONLY";
+pub(super) const T: i64 = 1_793_592_000_000; // synthetic 02-Nov first session, never current DATA
+pub(super) const ACCOUNT: &str = "SYNTHETIC_ACCOUNT_ONLY";
 fn at(t: i64) -> DateTime<Utc> {
     DateTime::from_timestamp_millis(t).unwrap()
 }
-fn go(t: i64) {
+pub(super) fn go(t: i64) {
     advance_fixture_clock((t - now_ms()).try_into().unwrap());
 }
-fn manifest() -> Manifest {
+pub(super) fn manifest() -> Manifest {
     let mut m = crate::primary::tests::models_bridge::manifest();
     m.initial_context = InitialContext::UsdRiFirstSession;
     m.generation = "synthetic-usd-ri-native-component".into();
@@ -55,7 +55,7 @@ fn manifest() -> Manifest {
     }
     m
 }
-fn plan(m: &Manifest) -> Plan {
+pub(super) fn plan(m: &Manifest) -> Plan {
     Plan {
         schema: "finam.shadow.usd-ri.source-component.v1".into(),
         manifest_sha256: m.sha256().unwrap(),
@@ -82,7 +82,7 @@ fn snapshot(i: ShadowInstrument, suffix: &str, v: Value) -> ScheduleSnapshot {
         raw_body: raw,
     }
 }
-fn evidence(i: ShadowInstrument) -> InstrumentEvidence {
+pub(super) fn evidence(i: ShadowInstrument) -> InstrumentEvidence {
     let ri = i == ShadowInstrument::Riz6;
     let asset = snapshot(
         i,
@@ -112,14 +112,14 @@ fn evidence(i: ShadowInstrument) -> InstrumentEvidence {
         bootstrap_reference_start_ms: T - 86400000,
     }
 }
-fn prepared() -> Prepared {
+pub(super) fn prepared() -> Prepared {
     let m = manifest();
     Prepared::admit(plan(&m), m, INSTRUMENTS.map(evidence).into()).unwrap()
 }
-fn row(t: i64, price: &str) -> Value {
+pub(super) fn row(t: i64, price: &str) -> Value {
     json!({"timestamp":at(t).to_rfc3339(),"open":{"value":price},"high":{"value":price},"low":{"value":price},"close":{"value":price},"volume":{"value":"2"}})
 }
-fn frame(
+pub(super) fn frame(
     i: ShadowInstrument,
     rows: Vec<Value>,
     t: i64,

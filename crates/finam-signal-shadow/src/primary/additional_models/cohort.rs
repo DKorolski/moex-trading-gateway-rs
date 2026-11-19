@@ -45,14 +45,14 @@ pub(super) struct Log {
     head: String,
 }
 impl Log {
-    fn create(path: &Path) -> Result<Self> {
+    pub(super) fn create(path: &Path) -> Result<Self> {
         Ok(Self {
             file: OpenOptions::new().create_new(true).write(true).open(path)?,
             index: 0,
             head: "0".repeat(64),
         })
     }
-    fn append(&mut self, kind: &str, data: Value) -> Result<()> {
+    pub(super) fn append(&mut self, kind: &str, data: Value) -> Result<()> {
         let payload =
             json!({"index":self.index,"previous_sha256":self.head,"kind":kind,"data":data});
         let record = json!({"sha256":hash(&payload)?,"payload":payload});
@@ -358,7 +358,14 @@ pub(super) fn project(
     config: &str,
     input: &AdmittedCanonicalM10,
 ) -> Result<Candle> {
-    let projection = Projection::Canonical(input);
+    project_native(m, i, config, Projection::Canonical(input))
+}
+pub(super) fn project_native(
+    m: &Manifest,
+    i: ShadowInstrument,
+    config: &str,
+    projection: Projection<'_>,
+) -> Result<Candle> {
     let r = projection.receipt();
     ensure!(
         r.config_sha256 == config
@@ -382,8 +389,11 @@ pub(super) fn project(
         &r.actual_m1,
     )
     .map_err(|e| anyhow::anyhow!("M1 aggregate: {e:?}"))?;
-    let expected = crate::primary::cache::runtime_bar(&aggregate.provisional_bar)
+    let mut expected = crate::primary::cache::runtime_bar(&aggregate.provisional_bar)
         .map_err(|e| anyhow::anyhow!("projection: {e:?}"))?;
+    if !matches!(projection, Projection::Canonical(_)) {
+        expected.origin = broker_core::HybridRuntimeBarOrigin::Replay;
+    }
     ensure!(
         expected == *projection.bar() && aggregate.minute_bitmap == r.minute_bitmap,
         "native aggregate/projection"
@@ -394,10 +404,13 @@ pub(super) fn project(
         .iter()
         .find(|s| s.binding.instrument == i.symbol())
         .context("seed")?;
-    let (source_hash, rest, _, source_json) = projection.provenance()?;
-    let provenance = json!({"schema":"finam.shadow.usd-ri.native-projection.v1","implementation_sha256":super::implementation(),"canonical_receipt":r,
+    let (source_hash, rest, recovery, source_json) = projection.provenance()?;
+    let mut provenance = json!({"schema":"finam.shadow.usd-ri.native-projection.v1","implementation_sha256":super::implementation(),"canonical_receipt":r,
         "source_receipt_sha256":source_hash,"source_receipt_json":source_json,"rest_evidence":rest,
         "clock_basis":"declared_numerical_availability_not_physical_durability","observed_clean_session":false,"order_emission_allowed":false});
+    if !recovery.is_null() {
+        provenance["recovery_receipt"] = recovery;
+    }
     Ok(Candle {
         instrument: i.symbol().into(),
         source_sequence: seed.history.len() as u64 + (offset / 600000) as u64 + 1,

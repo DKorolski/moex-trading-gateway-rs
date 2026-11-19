@@ -56,7 +56,7 @@ impl Faults {
     }
 }
 #[derive(Debug, Clone, Copy, serde::Serialize)]
-pub(super) enum Role {
+pub(crate) enum Role {
     SessionEnd,
     Recovery,
     Bootstrap,
@@ -64,7 +64,7 @@ pub(super) enum Role {
     Audit,
 }
 #[derive(Clone)]
-pub(super) enum Job {
+pub(crate) enum Job {
     Recovery(crate::primary::RecoveryPlan),
     Bootstrap(BootstrapTicket),
     Proof(RestTicket),
@@ -80,14 +80,14 @@ impl Job {
             Self::Audit(_) => Role::Audit,
         }
     }
-    fn plan(&self) -> Result<ClosedM1RequestPlan, PrimaryError> {
+    pub(crate) fn plan(&self) -> Result<ClosedM1RequestPlan, PrimaryError> {
         match self {
             Self::Recovery(t) => Ok(t.request().clone()),
             Self::Bootstrap(t) => Ok(t.plan().clone()),
             Self::Proof(t) | Self::Audit(t) => t.request_plan(),
         }
     }
-    fn deadline_ms(&self) -> i64 {
+    pub(crate) fn deadline_ms(&self) -> i64 {
         match self {
             Self::Recovery(t) => t.deadline_ms(),
             Self::Bootstrap(t) => t.deadline_ms(),
@@ -540,6 +540,6 @@ where
     })
 }
 
-mod continuous;
+pub(crate) mod continuous;
 #[cfg(test)]
 mod tests;

@@ -49,102 +49,7 @@ pub fn inspect(output: &Path) -> Result<Value> {
             && prep["orders"] == false,
         "source component preparation"
     );
-    let plan: super::Plan = serde_json::from_value(prep["plan"].clone())?;
-    plan.validate(&manifest)?;
-    let configs: BTreeMap<ShadowInstrument, String> =
-        serde_json::from_value(prep["source_configs"].clone())?;
-    let identities: BTreeMap<ShadowInstrument, super::IdentityReceipt> =
-        serde_json::from_value(prep["identities"].clone())?;
-    ensure!(
-        configs.len() == 2 && identities.len() == 2,
-        "two distinct identities/configs"
-    );
-    let calendars = prep["calendars"].as_array().context("calendars")?;
-    ensure!(calendars.len() == 2, "two calendars");
-    let mut admitted_calendars = BTreeMap::new();
-    for i in INSTRUMENTS {
-        let identity = identities.get(&i).context("identity")?;
-        ensure!(
-            identity.instrument == i
-                && identity.account_sha256 == plan.account_sha256
-                && sha(&identity.asset_response_sha256)
-                && sha(&identity.params_response_sha256)
-                && identity.public_asset["id"] == i.asset_id()
-                && identity.public_asset["ticker"] == i.symbol()
-                && identity.public_asset["tick"] == i.tick().to_string()
-                && super::plan::decimal(&identity.public_asset["reference_lot_size"])?
-                    == super::plan::frozen_size(i)?
-                && super::plan::decimal(&identity.public_asset["contract_size"])?
-                    == super::plan::frozen_size(i)?
-                && identity.public_params
-                    == json!({"symbol":i.venue_symbol(),"trade_lot_size":"1","is_tradable":true}),
-            "public identity projection"
-        );
-        let c = calendars
-            .iter()
-            .filter(|c| c["instrument"] == serde_json::to_value(i).unwrap())
-            .collect::<Vec<_>>();
-        ensure!(c.len() == 1, "independent unique calendar");
-        let e = &c[0]["evidence"];
-        let raw: crate::primary::calendar::RawCalendar = serde_json::from_str(
-            e["raw_calendar_raw_json"]
-                .as_str()
-                .context("raw calendar")?,
-        )?;
-        let binding: crate::primary::calendar::CalendarBinding =
-            serde_json::from_value(e["binding"].clone())?;
-        let model: crate::primary::calendar::ModelDay =
-            serde_json::from_str(e["model_day_raw_json"].as_str().context("model day")?)?;
-        ensure!(
-            model.session_date == manifest.session_date.to_string()
-                && binding.next_label_ms == manifest.freeze_at_ms
-                && binding.start_not_before_ms == plan.start_not_before_ms
-                && binding.start_before_ms == plan.start_before_ms,
-            "calendar belongs to exact manifest/entry window"
-        );
-        let mapping = e["mapping_raw_json"].as_str().context("mapping JSON")?;
-        let admitted_at = e["admitted_at_ms"]
-            .as_i64()
-            .context("calendar admission clock")?;
-        for n in 0..2 {
-            ensure!(
-                identity.requested_at_ms[n] >= 0
-                    && identity.received_at_ms[n] >= identity.requested_at_ms[n]
-                    && identity.received_at_ms[n] - identity.requested_at_ms[n] <= 5000
-                    && admitted_at
-                        .checked_sub(identity.received_at_ms[n])
-                        .is_some_and(|age| (0..=300000).contains(&age)),
-                "metadata original request/receive/admission clocks"
-            );
-        }
-        let calendar = crate::primary::calendar::admit_additional(
-            i,
-            binding.clone(),
-            model,
-            raw.clone(),
-            mapping.as_bytes(),
-            admitted_at,
-        )
-        .map_err(|e| anyhow::anyhow!("calendar verification: {e:?}"))?;
-        ensure!(
-            e["calendar_sha256"] == calendar.sha256(),
-            "calendar exact inputs"
-        );
-        ensure!(
-            configs[&i]
-                == hash(&(
-                    &plan,
-                    identity,
-                    &raw,
-                    binding.bootstrap_reference_start_ms,
-                    super::plan::policy(),
-                    super::implementation()
-                ))?
-                && binding.config_sha256 == configs[&i],
-            "exact source configuration"
-        );
-        admitted_calendars.insert(i, calendar);
-    }
+    let (plan, configs, admitted_calendars) = check_preparation(prep, &manifest)?;
     let db = output.join("models.sqlite");
     let metadata = std::fs::symlink_metadata(&db)?;
     ensure!(
@@ -471,4 +376,118 @@ fn check_projection(c: &Candle, i: ShadowInstrument, config: &str) -> Result<()>
         "exact M1 canonical aggregation"
     );
     Ok(())
+}
+
+pub(super) type Preparation = (
+    super::Plan,
+    BTreeMap<ShadowInstrument, String>,
+    BTreeMap<ShadowInstrument, crate::primary::calendar::AdmittedCalendar>,
+);
+pub(super) fn check_preparation(prep: &Value, manifest: &Manifest) -> Result<Preparation> {
+    ensure!(
+        prep["schema"] == "finam.shadow.usd-ri.preparation.v1"
+            && prep["implementation_sha256"] == super::implementation()
+            && prep["scope"] == "source_component_only"
+            && prep["network_entry_enabled"] == false
+            && prep["operational_activation"] == false
+            && prep["orders"] == false,
+        "component preparation identity"
+    );
+    let plan: super::Plan = serde_json::from_value(prep["plan"].clone())?;
+    plan.validate(manifest)?;
+    let configs: BTreeMap<ShadowInstrument, String> =
+        serde_json::from_value(prep["source_configs"].clone())?;
+    let identities: BTreeMap<ShadowInstrument, super::IdentityReceipt> =
+        serde_json::from_value(prep["identities"].clone())?;
+    ensure!(
+        configs.len() == 2 && identities.len() == 2,
+        "two distinct identities/configs"
+    );
+    let calendars = prep["calendars"].as_array().context("calendars")?;
+    ensure!(calendars.len() == 2, "two calendars");
+    let mut admitted_calendars = BTreeMap::new();
+    for i in INSTRUMENTS {
+        let identity = identities.get(&i).context("identity")?;
+        ensure!(
+            identity.instrument == i
+                && identity.account_sha256 == plan.account_sha256
+                && sha(&identity.asset_response_sha256)
+                && sha(&identity.params_response_sha256)
+                && identity.public_asset["id"] == i.asset_id()
+                && identity.public_asset["ticker"] == i.symbol()
+                && identity.public_asset["tick"] == i.tick().to_string()
+                && super::plan::decimal(&identity.public_asset["reference_lot_size"])?
+                    == super::plan::frozen_size(i)?
+                && super::plan::decimal(&identity.public_asset["contract_size"])?
+                    == super::plan::frozen_size(i)?
+                && identity.public_params
+                    == json!({"symbol":i.venue_symbol(),"trade_lot_size":"1","is_tradable":true}),
+            "public identity projection"
+        );
+        let c = calendars
+            .iter()
+            .filter(|c| c["instrument"] == serde_json::to_value(i).unwrap())
+            .collect::<Vec<_>>();
+        ensure!(c.len() == 1, "independent unique calendar");
+        let e = &c[0]["evidence"];
+        let raw: crate::primary::calendar::RawCalendar = serde_json::from_str(
+            e["raw_calendar_raw_json"]
+                .as_str()
+                .context("raw calendar")?,
+        )?;
+        let binding: crate::primary::calendar::CalendarBinding =
+            serde_json::from_value(e["binding"].clone())?;
+        let model: crate::primary::calendar::ModelDay =
+            serde_json::from_str(e["model_day_raw_json"].as_str().context("model day")?)?;
+        ensure!(
+            model.session_date == manifest.session_date.to_string()
+                && binding.next_label_ms == manifest.freeze_at_ms
+                && binding.start_not_before_ms == plan.start_not_before_ms
+                && binding.start_before_ms == plan.start_before_ms,
+            "calendar belongs to exact manifest/entry window"
+        );
+        let mapping = e["mapping_raw_json"].as_str().context("mapping JSON")?;
+        let admitted_at = e["admitted_at_ms"]
+            .as_i64()
+            .context("calendar admission clock")?;
+        for n in 0..2 {
+            ensure!(
+                identity.requested_at_ms[n] >= 0
+                    && identity.received_at_ms[n] >= identity.requested_at_ms[n]
+                    && identity.received_at_ms[n] - identity.requested_at_ms[n] <= 5000
+                    && admitted_at
+                        .checked_sub(identity.received_at_ms[n])
+                        .is_some_and(|age| (0..=300000).contains(&age)),
+                "metadata original request/receive/admission clocks"
+            );
+        }
+        let calendar = crate::primary::calendar::admit_additional(
+            i,
+            binding.clone(),
+            model,
+            raw.clone(),
+            mapping.as_bytes(),
+            admitted_at,
+        )
+        .map_err(|e| anyhow::anyhow!("calendar verification: {e:?}"))?;
+        ensure!(
+            e["calendar_sha256"] == calendar.sha256(),
+            "calendar exact inputs"
+        );
+        ensure!(
+            configs[&i]
+                == hash(&(
+                    &plan,
+                    identity,
+                    &raw,
+                    binding.bootstrap_reference_start_ms,
+                    super::plan::policy(),
+                    super::implementation()
+                ))?
+                && binding.config_sha256 == configs[&i],
+            "exact source configuration"
+        );
+        admitted_calendars.insert(i, calendar);
+    }
+    Ok((plan, configs, admitted_calendars))
 }

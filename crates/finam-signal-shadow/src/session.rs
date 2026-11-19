@@ -46,7 +46,7 @@ pub struct CanonicalPublication {
     pub(crate) label_ms: i64,
     pub(crate) source_sha256: String,
     pub(crate) committed_at_ms: i64,
-    model_result_at_ms: i64,
+    pub(crate) model_result_at_ms: i64,
 }
 
 impl ObservedSession {

@@ -508,6 +508,9 @@ impl PrimaryProcessor {
     pub fn state(&self) -> PipelineState {
         self.state
     }
+    pub(crate) fn source_instrument(&self) -> broker_finam::ShadowInstrument {
+        self.source_instrument
+    }
     pub fn config_sha256(&self) -> &str {
         &self.config_sha256
     }

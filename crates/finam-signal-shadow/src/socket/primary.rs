@@ -504,12 +504,38 @@ pub(crate) async fn fixture_pump_until<S: AsyncRead + AsyncWrite + Unpin>(
     started: oneshot::Sender<Subscription>,
     run_deadline: chrono::DateTime<Utc>,
 ) -> Result<Report, Failure> {
+    fixture_pump_for_until(
+        broker_finam::ShadowInstrument::Imoexf,
+        socket,
+        generation,
+        stop,
+        slot,
+        ingress,
+        feedback,
+        started,
+        run_deadline,
+    )
+    .await
+}
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn fixture_pump_for_until<S: AsyncRead + AsyncWrite + Unpin>(
+    instrument: broker_finam::ShadowInstrument,
+    socket: WebSocketStream<S>,
+    generation: u64,
+    stop: StopHandle,
+    slot: FailureSlot,
+    ingress: IngressSender,
+    feedback: watch::Receiver<Option<LiveDataStamp>>,
+    started: oneshot::Sender<Subscription>,
+    run_deadline: chrono::DateTime<Utc>,
+) -> Result<Report, Failure> {
     let lease = AccessTokenLease::new(
         broker_finam::AccessToken::new("synthetic-only"),
         std::time::Instant::now(),
         broker_finam::FinamAuthPolicy::default(),
     );
-    Driver::new(
+    let mut driver = Driver::new(
         socket,
         lease,
         generation,
@@ -517,7 +543,7 @@ pub(crate) async fn fixture_pump_until<S: AsyncRead + AsyncWrite + Unpin>(
         stop,
         run_deadline,
         slot,
-    )
-    .pump(ingress, feedback, started)
-    .await
+    );
+    driver.instrument = instrument;
+    driver.pump(ingress, feedback, started).await
 }

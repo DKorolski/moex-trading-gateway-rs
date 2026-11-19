@@ -2,7 +2,7 @@
 use super::*;
 use finam_shadow_models::local::{contract::Manifest, Journal};
 use std::collections::{BTreeMap, BTreeSet};
-mod post_join;
+pub(crate) mod post_join;
 mod publication;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]

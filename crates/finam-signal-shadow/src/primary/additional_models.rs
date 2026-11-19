@@ -1,6 +1,7 @@
 //! Native USD/RI source-to-model composition. Not a deployment permission.
 //! Legacy IMOEXF entry/config/reader stay closed to these instruments.
 mod cohort;
+pub mod managed;
 mod plan;
 pub mod reader;
 pub use cohort::{Cohort, Finish, Progress};
@@ -16,6 +17,14 @@ pub fn implementation() -> String {
             include_bytes!("additional_models/plan.rs").as_slice(),
             include_bytes!("additional_models/cohort.rs").as_slice(),
             include_bytes!("additional_models/reader.rs").as_slice(),
+            include_bytes!("additional_models/managed.rs").as_slice(),
+            include_bytes!("additional_models/managed/reader.rs").as_slice(),
+            include_bytes!("../../src/runner/primary/live.rs").as_slice(),
+            include_bytes!("../../src/runner/primary/live/continuous.rs").as_slice(),
+            include_bytes!("../../src/runner/primary/reconnect.rs").as_slice(),
+            include_bytes!("../../src/runner/primary/bootstrap.rs").as_slice(),
+            include_bytes!("../../src/auth.rs").as_slice(),
+            include_bytes!("../../src/models_cli.rs").as_slice(),
             include_bytes!("calendar/additional.rs").as_slice(),
             include_bytes!("calendar.rs").as_slice(),
             include_bytes!("wire.rs").as_slice(),

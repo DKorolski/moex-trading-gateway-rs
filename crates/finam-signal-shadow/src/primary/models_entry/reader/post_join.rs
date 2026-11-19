@@ -1,11 +1,11 @@
 //! Common bounded/EOD post-join validation. No flat/full-grid condition here.
 use super::*;
 use crate::primary::calendar::{self, CalendarBinding, CalendarInputs};
-mod facts;
+pub(crate) mod facts;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Report {
+pub(crate) struct Report {
     pub completion: crate::primary::eod::Completion,
     pub recovery: Value,
     pub unresolved_transport_fault: Value,

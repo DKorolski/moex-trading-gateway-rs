@@ -86,6 +86,14 @@ pub(super) fn validate(
     shutdown: &Value,
     done: &crate::primary::eod::Completion,
 ) -> Result<bool> {
+    validate_policy(&config.primary, rows, shutdown, done)
+}
+pub(crate) fn validate_policy(
+    policy: &crate::primary::PrimaryPolicy,
+    rows: &[Value],
+    shutdown: &Value,
+    done: &crate::primary::eod::Completion,
+) -> Result<bool> {
     let recovery: Vec<Recovery> = serde_json::from_value(shutdown["recovery"].clone())
         .context("final recovery snapshot schema")?;
     let resolved = recovery
@@ -95,7 +103,7 @@ pub(super) fn validate(
         done.recovery_resolved == resolved,
         "final recovery facts contradict completion"
     );
-    if config.primary.data_wait_recovery() {
+    if policy.data_wait_recovery() {
         let gap = shutdown["unresolved_canonical_gap"]
             .as_bool()
             .context("final V8 gap flag")?;
@@ -140,7 +148,7 @@ pub(super) fn validate(
             c.completed.checked_add(c.cancelled_or_unaccounted) == Some(c.scheduled),
             "final HTTP accounting arithmetic"
         );
-        let optional = config.primary.rest_nonblocking() && matches!(role, "proof" | "audit");
+        let optional = policy.rest_nonblocking() && matches!(role, "proof" | "audit");
         let expected = if optional {
             unknown.get(wire_role).copied().unwrap_or(0)
         } else {
@@ -156,8 +164,8 @@ pub(super) fn validate(
         let granted = event["receipt"]["auth_generation"]
             .as_u64()
             .is_some_and(|g| g > 0);
-        let optional = config.primary.rest_nonblocking()
-            && matches!(event["role"].as_str(), Some("Proof" | "Audit"));
+        let optional =
+            policy.rest_nonblocking() && matches!(event["role"].as_str(), Some("Proof" | "Audit"));
         let class = event["class"].as_str();
         accounted &= (optional
             && (granted || matches!(class, Some("Timeout" | "Unavailable" | "Cancelled"))))

@@ -14,7 +14,7 @@ pub mod bootstrap;
 pub mod http;
 pub mod live;
 pub mod reconnect;
-mod runtimes;
+pub(crate) mod runtimes;
 mod writer;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -287,11 +287,7 @@ impl Coordinator {
         }
         let publication = self
             .session
-            .ws_recovery(&admitted.input)
-            .map_err(CoordinatorError::Session)?;
-        self.processor
-            .recovered_ws(admitted.input, publication.committed_at_ms)
-            .map_err(CoordinatorError::Source)?;
+            .consume_ws(&mut self.processor, admitted.input)?;
         self.record_models_advanced(publication.label_ms, &publication.source_sha256)?;
         self.last_committed = Some(publication.label_ms);
         self.recovery_completion = Some(admitted.completion);
@@ -431,11 +427,7 @@ impl Coordinator {
             }
             let publication = self
                 .session
-                .recovery(&input, source)
-                .map_err(CoordinatorError::Session)?;
-            self.processor
-                .recovered(input, publication.committed_at_ms)
-                .map_err(CoordinatorError::Source)?;
+                .consume_recovery(&mut self.processor, input, source)?;
             self.record_models_advanced(publication.label_ms, &publication.source_sha256)?;
             self.last_committed = Some(publication.label_ms);
         }
@@ -517,6 +509,13 @@ impl Coordinator {
             .model_export()
             .map_err(CoordinatorError::Session)
     }
+    #[cfg(feature = "models-bridge")]
+    pub(crate) fn with_additional(
+        processor: PrimaryProcessor,
+        lane: crate::primary::additional_models::managed::Lane,
+    ) -> Result<Self, CoordinatorError> {
+        Self::with_consumers(processor, runtimes::Runtimes::additional(lane))
+    }
     fn with_consumers(
         processor: PrimaryProcessor,
         session: runtimes::Runtimes,
@@ -546,6 +545,19 @@ impl Coordinator {
             #[cfg(test)]
             frame_reply_pause: None,
         })
+    }
+    #[cfg(all(test, feature = "models-bridge"))]
+    pub(crate) fn fixture_additional_gate(&mut self, gate: crate::primary::ContinuityGate) {
+        self.session.bind_live_continuity(gate);
+    }
+    #[cfg(all(test, feature = "models-bridge"))]
+    pub(crate) fn fixture_additional_ws_recovery(
+        &mut self,
+        deadline: i64,
+        revision: u64,
+    ) -> Result<bool, CoordinatorError> {
+        self.latch_data_recovery()?;
+        self.try_ws_recovery(1, deadline, revision)
     }
     pub fn processor(&self) -> &PrimaryProcessor {
         &self.processor
@@ -687,13 +699,7 @@ impl Coordinator {
                 .validate_pending_admission(&input, crate::timing::now_ms())
                 .map_err(CoordinatorError::Source)?;
         }
-        let publication = self
-            .session
-            .canonical(&input)
-            .map_err(CoordinatorError::Session)?;
-        self.processor
-            .committed(input, publication.committed_at_ms)
-            .map_err(CoordinatorError::Source)?;
+        let publication = self.session.consume_canonical(&mut self.processor, input)?;
         self.record_models_advanced(label, &publication.source_sha256)?;
         self.failed = false;
         self.last_committed = Some(label);
