@@ -1,6 +1,7 @@
 //! Synthetic qualification; never FINAM DATA or native process evidence.
 use super::super::tests as f;
 use super::*;
+mod source_last;
 use crate::{
     primary::calendar::tests::Dir,
     runner::primary::http::{HttpOutcome, HttpReceipt},
@@ -466,10 +467,14 @@ fn two_actual_v8_drivers_join_bounded_workers_and_matching_reader_refuses_semant
 fn physical_reconnect_resubscribes_only_usd_and_continues_without_resetting_models() {
     observed_pair(true);
 }
-fn observed_pair(reconnect: bool) {
+fn observed_pair(reconnect: bool) -> Dir {
+    observed_pair_case(reconnect, false)
+}
+fn observed_pair_case(reconnect: bool, stop_after_sql: bool) -> Dir {
     with_fixture_clock(f::T, || {
         tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async{
             let d=Dir::new();let mut managed=f::prepared().into_managed(&d.0.join("managed"),StopHandle::default()).unwrap();
+            managed.store.lock().unwrap().stop_after_sql=stop_after_sql;
             let path=managed.output.join("managed-control.jsonl");
             let mut tasks=Vec::new();let mut feeds=Vec::new();
             for (i,mut owner,calendar) in std::mem::take(&mut managed.sources){
@@ -496,6 +501,7 @@ fn observed_pair(reconnect: bool) {
                 }
             }
             f::go(f::T+601100);
+            if !stop_after_sql {
             for (i,peers,_ack,_) in &mut feeds{
                 let peer=&mut peers[0];
                 let price=if *i==ShadowInstrument::Riz6{"103000"}else{"100"};
@@ -535,6 +541,7 @@ fn observed_pair(reconnect: bool) {
                 }
                 until(||control(&path).iter().filter(|r|r["payload"]["data"]["event"]["event"]=="primary_models_source_advanced").count()==4).await;
             }
+            } else { until(||tasks.iter().all(|(_,task)|task.is_finished())).await; }
             managed.stop.stop();
             let mut reports=Vec::new();
             for (i,task) in tasks{
@@ -545,6 +552,12 @@ fn observed_pair(reconnect: bool) {
             finalize(&managed.store,&managed.output,reports.try_into().unwrap()).unwrap();
             let before=std::fs::read(managed.output.join("models.sqlite")).unwrap();
             let verified=reader::inspect(&managed.output).unwrap();
+            if stop_after_sql {
+                assert_eq!(verified["status"],"HELD","{verified}");
+                assert_eq!(verified["inputs"],1);
+                assert_eq!(verified["checked_inputs"],0);
+                return d;
+            }
             assert_eq!(verified["status"],"MANAGED_PREFIX_VERIFIED","{}\n{}",verified,control(&path).last().unwrap());assert_eq!(verified["inputs"],if reconnect{4}else{2});
             assert_eq!(before,std::fs::read(managed.output.join("models.sqlite")).unwrap());
             let original=control(&path);
@@ -572,6 +585,7 @@ fn observed_pair(reconnect: bool) {
                 let retained=PathBuf::from(retain);std::fs::create_dir(&retained).unwrap();
                 for name in ["managed-control.jsonl","model-manifest.json","models.sqlite"]{std::fs::copy(managed.output.join(name),retained.join(name)).unwrap();}
             }
-        });
-    });
+            d
+        })
+    })
 }

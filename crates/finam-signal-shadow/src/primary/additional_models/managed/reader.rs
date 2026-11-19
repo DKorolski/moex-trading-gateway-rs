@@ -23,6 +23,118 @@ fn unique<'a>(rows: &'a [Value], name: &str) -> Result<&'a Value> {
     ensure!(found.next().is_none(), "duplicate managed lane event");
     Ok(r)
 }
+struct Checked {
+    candle: Candle,
+    at_ms: i64,
+}
+/// File-only accounting, never a native source or replay capability. SQL
+/// readback and actual source advance are deliberately DIFFERENT frontiers.
+#[derive(Default)]
+pub(super) struct SourceProgress {
+    committed: u64,
+    pending: Option<Checked>,
+    last_advance_ms: Option<i64>,
+    closed: bool,
+}
+impl SourceProgress {
+    fn before_intent(&self) -> Result<()> {
+        ensure!(!self.closed, "source advance input after final frontier");
+        ensure!(
+            self.pending.is_none(),
+            "source advance missing before next input"
+        );
+        Ok(())
+    }
+    pub(super) fn readback(&mut self, candle: Candle, at_ms: i64) -> Result<()> {
+        self.before_intent()?;
+        self.pending = Some(Checked { candle, at_ms });
+        Ok(())
+    }
+    pub(super) fn advance(
+        &mut self,
+        event: &Value,
+        recorded_at_ms: i64,
+        stop_at_ms: i64,
+        required: &[i64],
+    ) -> Result<()> {
+        ensure!(!self.closed, "source advance after final frontier");
+        let checked = self
+            .pending
+            .as_ref()
+            .context("source advance without checked readback")?;
+        let c = &checked.candle;
+        let Construction::DeclaredCanonicalProjectionV1 { provenance: p, .. } = &c.construction
+        else {
+            anyhow::bail!("source advance without native projection")
+        };
+        let index = usize::try_from(self.committed).context("source advance index")?;
+        let next = serde_json::to_value(required.get(index + 1).copied())?;
+        ensure!(
+            event["event"] == "primary_models_source_advanced"
+                && required.get(index) == Some(&c.start_ms)
+                && event["label_ms"] == c.start_ms
+                && event["source_sha256"] == p["source_receipt_sha256"]
+                && event["source_committed"] == self.committed + 1
+                && event.get("next_label_ms") == Some(&next),
+            "source advance identity/frontier mismatch"
+        );
+        let at = stamp(event, "source_advanced_at_ms").context("source advance actual clock")?;
+        ensure!(
+            at >= checked.at_ms
+                && at >= c.durable_ms
+                && at <= recorded_at_ms
+                && self.last_advance_ms.map_or(true, |previous| at >= previous),
+            "source advance readback/record clock"
+        );
+        ensure!(at < stop_at_ms, "source advance bounded deadline");
+        match p["canonical_receipt"]["origin"].as_str() {
+            Some("WS_LIVE" | "REST_EXCEPTION") => {
+                ensure!(
+                    i128::from(at) - i128::from(c.end_ms) + 100 <= 2000,
+                    "source advance LIVE deadline"
+                );
+            }
+            Some("RECOVERY_BACKFILL" | "WS_RECOVERY_BACKFILL") => {
+                let replay = &p["recovery_receipt"];
+                ensure!(
+                    at <= stamp(replay, "replay_deadline_ms")?
+                        && i128::from(at) - i128::from(c.durable_ms) <= 10000,
+                    "source advance historical deadline"
+                );
+                if p["canonical_receipt"]["origin"] == "WS_RECOVERY_BACKFILL" {
+                    ensure!(
+                        at < stamp(replay, "episode_deadline_ms")?,
+                        "source advance historical episode deadline"
+                    );
+                }
+            }
+            _ => anyhow::bail!("source advance unknown origin"),
+        }
+        self.pending = None;
+        self.committed += 1;
+        self.last_advance_ms = Some(at);
+        Ok(())
+    }
+    fn final_frontier(
+        &mut self,
+        event: &Value,
+        recorded_at_ms: i64,
+        required: &[i64],
+    ) -> Result<()> {
+        let next = serde_json::to_value(required.get(self.committed as usize).copied())?;
+        let at = stamp(event, "at_ms").context("source advance final clock")?;
+        ensure!(
+            !self.closed
+                && event["source_committed"] == self.committed
+                && event.get("next_label_ms") == Some(&next)
+                && at <= recorded_at_ms
+                && self.last_advance_ms.map_or(true, |previous| at >= previous),
+            "source advance final frontier mismatch"
+        );
+        self.closed = true;
+        Ok(())
+    }
+}
 fn snapshot(
     i: ShadowInstrument,
     e: ClosedM1SnapshotEvidenceV1,
@@ -219,6 +331,8 @@ pub fn inspect(output: &Path) -> Result<Value> {
     let mut matched = 0usize;
     let mut intent: Option<Candle> = None;
     let mut counts: BTreeMap<_, u64> = INSTRUMENTS.map(|i| (i, 0)).into();
+    let mut progress: BTreeMap<_, SourceProgress> =
+        INSTRUMENTS.map(|i| (i, SourceProgress::default())).into();
     let mut generations: BTreeMap<_, u64> = INSTRUMENTS.map(|i| (i, 0)).into();
     let mut events: BTreeMap<_, Vec<Value>> = INSTRUMENTS.map(|i| (i, vec![])).into();
     let mut snapshots = BTreeMap::new();
@@ -271,6 +385,21 @@ pub fn inspect(output: &Path) -> Result<Value> {
                     }
                     generations.insert(i, generation);
                 }
+                if name == "primary_models_source_advanced" {
+                    progress.get_mut(&i).unwrap().advance(
+                        e,
+                        at,
+                        plan.stop_at_ms,
+                        calendars[&i].required(),
+                    )?;
+                }
+                if name == "primary_models_final_frontier" {
+                    progress.get_mut(&i).unwrap().final_frontier(
+                        e,
+                        at,
+                        calendars[&i].required(),
+                    )?;
+                }
                 events.get_mut(&i).unwrap().push(json!({"event":e}));
             }
             "snapshot" => {
@@ -289,6 +418,7 @@ pub fn inspect(output: &Path) -> Result<Value> {
                 snapshots.insert(source.sha256().into(), source);
             }
             "publication_intent" => {
+                progress[&i].before_intent()?;
                 ensure!(
                     intent.is_none() && generations[&i] > 0 && at < plan.stop_at_ms,
                     "serialized publication/bound source/window"
@@ -296,7 +426,8 @@ pub fn inspect(output: &Path) -> Result<Value> {
                 let c: Candle = serde_json::from_value(d["candle"].clone())?;
                 ensure!(
                     c.instrument == i.symbol()
-                        && c.start_ms == manifest.freeze_at_ms + counts[&i] as i64 * 600000
+                        && c.start_ms
+                            == manifest.freeze_at_ms + progress[&i].committed as i64 * 600000
                         && c.durable_ms <= at,
                     "independent contiguous source prefix"
                 );
@@ -339,6 +470,7 @@ pub fn inspect(output: &Path) -> Result<Value> {
                 }
                 matched += 1;
                 *counts.get_mut(&i).unwrap() += 1;
+                progress.get_mut(&i).unwrap().readback(c, at)?;
             }
             _ => anyhow::bail!("unsupported managed control kind"),
         }
@@ -355,6 +487,16 @@ pub fn inspect(output: &Path) -> Result<Value> {
         "truthful managed completion scope/clock"
     );
     let held = done["held"].as_bool().context("held")?;
+    for i in INSTRUMENTS {
+        ensure!(
+            counts[&i] == progress[&i].committed + u64::from(progress[&i].pending.is_some()),
+            "source advance/readback count mismatch"
+        );
+        ensure!(
+            held || progress[&i].pending.is_none(),
+            "source advance missing at completion"
+        );
+    }
     ensure!(
         matched <= inputs.len() && inputs.len() <= matched + usize::from(intent.is_some()),
         "SQL/control prefix"
@@ -375,6 +517,12 @@ pub fn inspect(output: &Path) -> Result<Value> {
         ensure!(INSTRUMENTS.contains(&i) && seen.insert(i), "unique reports");
         if !entry["result"]["Err"].is_null() {
             ensure!(held, "error result not held");
+            ensure!(
+                counts[&i] == 0
+                    && progress[&i].committed == 0
+                    && !intent.as_ref().is_some_and(|c| c.instrument == i.symbol()),
+                "source advance unaccounted error report"
+            );
             coherent = false;
             continue;
         }
@@ -385,7 +533,10 @@ pub fn inspect(output: &Path) -> Result<Value> {
             .as_u64()
             .context("final source count")?;
         ensure!(
-            n <= counts[&i] && counts[&i] <= n + u64::from(held) && r.canonical_commits == n,
+            n == progress[&i].committed
+                && n <= counts[&i]
+                && counts[&i] <= n + u64::from(held)
+                && r.canonical_commits == n,
             "source advance versus checked SQL"
         );
         let next = if n == 101 {
@@ -460,7 +611,9 @@ pub fn inspect(output: &Path) -> Result<Value> {
     }
     Ok(
         json!({"schema":"finam.shadow.usd-ri.managed-inspection.v1","status":if coherent{"MANAGED_PREFIX_VERIFIED"}else{"HELD"},
-        "inputs":inputs.len(),"checked_inputs":matched,"control_head_sha256":head,"source_counts":counts,"models":sql["states"],
+        "inputs":inputs.len(),"checked_inputs":matched,"control_head_sha256":head,
+        "source_counts":progress.iter().map(|(i,p)|(*i,p.committed)).collect::<BTreeMap<_,_>>(),
+        "checked_source_counts":counts,"models":sql["states"],
         "scope":"source_only_library","observed_clean_session":false,"full_session_qualified":false,"native_systemd_qualified":false,"real_orders":false}),
     )
 }
