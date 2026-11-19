@@ -2,9 +2,59 @@
 //! Snapshot clocks are original; availability is not a physical fsync claim.
 use super::INSTRUMENTS;
 use super::*;
+use crate::primary::calendar::RawCalendar;
 use broker_core::canonical_m1::aggregate_m1_window;
 use broker_finam::sparse_m10::{AdmittedClosedM1Snapshot, ClosedM1RequestPlan};
 use finam_shadow_models::local::contract::*;
+use std::collections::BTreeSet;
+
+// Raw evidence is public only after an exact nested-schema check. The shared
+// broker DTO intentionally tolerates extensions; this export boundary does not.
+fn public_body(raw: &str) -> Result<()> {
+    let body = crate::primary::json::parse(raw)?;
+    let object = body.as_object().context("public M1 body")?;
+    ensure!(
+        object.len() == 2 && object.contains_key("symbol") && object.contains_key("bars"),
+        "public M1 schema"
+    );
+    for row in body["bars"].as_array().context("public M1 rows")? {
+        let fields = row.as_object().context("public M1 row")?;
+        ensure!(
+            fields.len() == 6 && row["timestamp"].is_string(),
+            "public M1 row schema"
+        );
+        for k in ["open", "high", "low", "close", "volume"] {
+            let number = row[k].as_object().context("public M1 decimal")?;
+            ensure!(
+                number.len() == 1 && number.get("value").is_some_and(Value::is_string),
+                "public M1 decimal schema"
+            );
+        }
+    }
+    Ok(())
+}
+fn covers(
+    ranges: &[(chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)],
+    start: i64,
+    end: i64,
+) -> bool {
+    let mut cursor = start;
+    for (a, b) in ranges {
+        let a = a.timestamp_millis();
+        let b = b.timestamp_millis();
+        if b <= cursor {
+            continue;
+        }
+        if a > cursor {
+            return false;
+        }
+        cursor = b;
+        if cursor >= end {
+            return true;
+        }
+    }
+    false
+}
 fn at(ms: i64) -> Result<chrono::DateTime<chrono::Utc>> {
     chrono::DateTime::from_timestamp_millis(ms).context("history clock")
 }
@@ -12,6 +62,7 @@ pub(super) fn build(
     generation: &str,
     day: NaiveDate,
     inputs: &[&HistoryInput],
+    calendars: &[(ShadowInstrument, &RawCalendar)],
     now: i64,
 ) -> Result<Manifest> {
     let freeze = (day.and_hms_opt(7, 0, 0).context("session cutoff")? - chrono::Duration::hours(3))
@@ -23,6 +74,13 @@ pub(super) fn build(
                 .iter()
                 .all(|i| inputs.iter().filter(|s| s.instrument == *i).count() == 1),
         "two history bindings"
+    );
+    ensure!(
+        calendars.len() == 2
+            && INSTRUMENTS
+                .iter()
+                .all(|i| calendars.iter().filter(|(j, _)| j == i).count() == 1),
+        "two history calendars"
     );
     let catalog_raw =
         include_bytes!("../../../../../../docs/stage-8/shadow-models-finam-mapping-20261113.json");
@@ -60,6 +118,9 @@ pub(super) fn build(
             let mut ranges = Vec::new();
             for item in &input.snapshots {
                 let e = &item.evidence;
+                for part in &e.parts {
+                    public_body(&part.raw_body)?;
+                }
                 ensure!(
                     item.admitted_at_ms <= now
                         && item.admitted_at_ms <= freeze
@@ -88,6 +149,50 @@ pub(super) fn build(
             ensure!(
                 ranges.windows(2).all(|r| r[0].1 <= r[1].0),
                 "overlapping seed snapshots"
+            );
+            let first = ranges.first().context("history range")?.0;
+            let day_start = (first + chrono::Duration::hours(3))
+                .date_naive()
+                .and_hms_opt(0, 0, 0)
+                .context("history date")?
+                .and_utc()
+                .timestamp_millis()
+                - 10800000;
+            let calendar = calendars
+                .iter()
+                .find(|(i, _)| *i == input.instrument)
+                .context("history calendar")?
+                .1;
+            let windows = crate::primary::calendar::history_windows(
+                input.instrument,
+                calendar,
+                day_start,
+                freeze,
+                now,
+            )
+            .map_err(|e| anyhow::anyhow!("history calendar: {e:?}"))?;
+            ensure!(
+                windows.iter().all(|(a, b)| covers(&ranges, *a, *b)),
+                "unqueried calendar trading interval"
+            );
+            let mut actual = BTreeSet::new();
+            for (source, _) in &sources {
+                for bar in source.bars() {
+                    let t = bar.open_ts.timestamp_millis();
+                    ensure!(
+                        windows.iter().any(|(a, b)| *a <= t && t + 60000 <= *b),
+                        "M1 contradicts historical schedule"
+                    );
+                    actual.insert(t.div_euclid(600000) * 600000);
+                }
+            }
+            ensure!(
+                input
+                    .required_labels_ms
+                    .iter()
+                    .copied()
+                    .eq(actual.iter().copied()),
+                "exact all observed nonempty M10 inventory"
             );
             let mut previous = None;
             for (n, &label) in input.required_labels_ms.iter().enumerate() {

@@ -9,6 +9,17 @@ adapter can be added without rewriting the strategies.
 
 ## Current status
 
+Current review checkpoint (2026-11-19): USD/RI managed library baseline
+`545b832f` is SOURCE ACCEPT. Executable/input R0 `1a843321` received
+CHANGES REQUESTED; this branch is its R1 correction candidate, pending review.
+Start with [the correction map](docs/stage-8/usdrubf-ri-executable-input-glue-r1-20261119.md)
+and [input/CLI guide](docs/stage-8/usdrubf-ri-executable-input-glue-20261119.md).
+No USD/RI Linux release, installation, operational launch or full-session
+qualification is claimed. Current VPS state has not been queried by this slice.
+Public main is not this review snapshot; use exact review-package commit/tree.
+
+## Historical lineage (retained, not current readiness)
+
 Stages 0–7 are accepted and closed. They provide broker-neutral contracts,
 FINAM market data and broker truth, migrated Hybrid strategy semantics, durable
 request identity/restart recovery, and the isolated paper command-consumer

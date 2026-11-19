@@ -11,6 +11,23 @@ const REQUIRED: [&str; 5] = [
     "model-manifest.json",
     "models.sqlite",
 ];
+pub(super) fn finalized(done: &Value) -> bool {
+    done["schema"] == "finam.shadow.usd-ri.managed-finish.v1"
+        && done["reports"].as_array().is_some_and(|reports| {
+            let mut seen = std::collections::BTreeSet::new();
+            reports.len() == 2
+                && reports.iter().all(|r| {
+                    let i =
+                        serde_json::from_value::<ShadowInstrument>(r["instrument"].clone()).ok();
+                    i.is_some_and(|i| INSTRUMENTS.contains(&i) && seen.insert(i))
+                        && r["result"]
+                            .as_object()
+                            .is_some_and(|o| o.len() == 1 && o.contains_key("Ok"))
+                        && r["result"]["Ok"]["all_workers_drained"] == true
+                        && r["result"]["Ok"]["session_finalized"] == true
+                })
+        })
+}
 pub(super) fn read(path: &Path, bound: u64) -> Result<Vec<u8>> {
     let m = std::fs::symlink_metadata(path)?;
     ensure!(
@@ -54,12 +71,22 @@ fn content(output: &Path) -> Result<Value> {
         .next()
         .context("entry source preparation")?;
     let first: Value = serde_json::from_slice(first)?;
+    let last = control
+        .split(|b| *b == b'\n')
+        .rfind(|b| !b.is_empty())
+        .context("managed completion")?;
+    let last: Value = serde_json::from_slice(last)?;
+    ensure!(
+        last["payload"]["kind"] == "managed_finish" && finalized(&last["payload"]["data"]),
+        "INCOMPLETE managed completion"
+    );
     let source = &first["payload"]["data"]["component"];
     ensure!(
         admission["schema"] == "finam.shadow.usd-ri.executable-admission.v1"
             && admission["source_only"] == true
             && admission["operational_authority"] == false
             && admission["orders"] == false
+            && admission["entry_window_open_now"] == true
             && admission["source_admission"] == *source
             && admission["manifest_sha256"] == manifest.sha256()?
             && admission["account_sha256"] == source["plan"]["account_sha256"]
@@ -81,11 +108,28 @@ fn content(output: &Path) -> Result<Value> {
         "entry admission clock"
     );
     let refs = sources.iter().collect::<Vec<_>>();
+    let calendars = source["calendars"]
+        .as_array()
+        .context("source calendars")?
+        .iter()
+        .map(|row| -> Result<_> {
+            let i: ShadowInstrument = serde_json::from_value(row["instrument"].clone())?;
+            let raw: crate::primary::calendar::RawCalendar =
+                serde_json::from_value(crate::primary::json::parse(
+                    row["evidence"]["raw_calendar_raw_json"]
+                        .as_str()
+                        .context("original calendar")?,
+                )?)?;
+            Ok((i, raw))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let calendar_refs = calendars.iter().map(|(i, c)| (*i, c)).collect::<Vec<_>>();
     ensure!(
         seed::build(
             &manifest.generation,
             manifest.session_date,
             &refs,
+            &calendar_refs,
             original_time
         )? == manifest,
         "exact original seed evidence"
@@ -96,6 +140,12 @@ pub(super) fn finish(
     output: &Path,
     result: Result<super::super::managed::Finished>,
 ) -> Result<Value> {
+    // A repeated failing export may not poison a valid previous final marker.
+    ensure!(
+        !output.join("entry-result.json").exists()
+            && !output.join("entry-incomplete.json").exists(),
+        "already finalized executable output"
+    );
     let incomplete = || -> Result<Value> {
         let r = json!({"status":"INCOMPLETE","scope":"source_executable_only","operational_authority":false,"orders":false});
         write_new(
@@ -108,15 +158,7 @@ pub(super) fn finish(
     let Ok(done) = result else {
         return incomplete();
     };
-    if done.output != output
-        || !done.evidence["reports"].as_array().is_some_and(|reports| {
-            reports.len() == 2
-                && reports.iter().all(|r| {
-                    r["result"]["Ok"]["all_workers_drained"] == true
-                        && r["result"]["Ok"]["session_finalized"] == true
-                })
-        })
-    {
+    if done.output != output || !finalized(&done.evidence) {
         return incomplete();
     }
     let source = match content(output) {

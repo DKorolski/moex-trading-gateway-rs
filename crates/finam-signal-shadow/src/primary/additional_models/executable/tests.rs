@@ -3,6 +3,12 @@ use super::*;
 use crate::{primary::calendar::tests::Dir, timing::with_fixture_clock};
 use broker_finam::sparse_m10::*;
 use chrono::{DateTime, Utc};
+mod corrections;
+
+// Test-only independent receipt stands in for the caller's trusted pin.
+fn admitted(bytes: &[u8]) -> Result<Admitted> {
+    admit(bytes, &crate::seed::digest(bytes))
+}
 
 fn at(ms: i64) -> DateTime<Utc> {
     DateTime::from_timestamp_millis(ms).unwrap()
@@ -10,10 +16,26 @@ fn at(ms: i64) -> DateTime<Utc> {
 fn draft() -> Value {
     let m = f::manifest();
     let sources=INSTRUMENTS.map(|instrument|{
-        let e=f::evidence(instrument);
+        let mut e=f::evidence(instrument);
         let rows=&m.seeds.iter().find(|s|s.binding.instrument==instrument.symbol()).unwrap().history;
         let labels=rows.iter().map(|c|c.start_ms).collect::<Vec<_>>();
         let start=at(labels[0]);let end=at(labels.last().unwrap()+600000);
+        let interval=|kind:&str,a:i64,b:i64|json!({"type":kind,"interval":{"start_time":at(a).to_rfc3339(),"end_time":at(b).to_rfc3339()}});
+        let mut cursor=labels[0]-7*3600000;
+        let mut sessions=Vec::new();
+        for day in labels.chunks(101){
+            let a=day[0];let b=day.last().unwrap()+600000;
+            if cursor<a{sessions.push(interval("CLOSED",cursor,a));}
+            sessions.push(interval("CORE_TRADING",a,b));cursor=b;
+        }
+        sessions.push(interval("CLOSED",cursor,f::T));
+        sessions.push(interval("CORE_TRADING",f::T,f::T+101*600000));
+        let calendar=json!({"symbol":instrument.venue_symbol(),"sessions":sessions}).to_string();
+        e.calendar.previous_session_date=(end+chrono::Duration::hours(3)-chrono::Duration::milliseconds(1)).date_naive().to_string();
+        e.calendar.snapshots[0].raw_body=calendar.clone();
+        e.calendar.snapshots[0].declared_body_bytes=calendar.len() as u64;
+        e.calendar.snapshots[0].response_sha256=crate::seed::digest(calendar.as_bytes());
+        e.bootstrap_reference_start_ms=labels[0];
         let bars=rows.iter().flat_map(|c|(0..10).map(move|minute|{
             json!({"timestamp":at(c.start_ms+minute*60000).to_rfc3339(),
                 "open":{"value":c.data.open},"high":{"value":c.data.high},"low":{"value":c.data.low},
@@ -43,7 +65,7 @@ fn exact_raw_seed_rebuild_then_fresh_admission_has_four_ready_arms_and_no_accoun
     with_fixture_clock(f::T, || {
         let raw = draft();
         let bytes = frozen(&raw);
-        let a = admit(&bytes).unwrap();
+        let a = admitted(&bytes).unwrap();
         let states =
             finam_shadow_models::local::Journal::initial_states(&a.source.manifest).unwrap();
         assert_eq!(states.iter().filter(|s| s["ready"] == true).count(), 4);
@@ -82,7 +104,7 @@ fn sparse_seed_keeps_nominal_m10_but_empty_m10_and_overlapping_snapshots_refuse(
         let good = draft();
         let mut sparse = good.clone();
         mutate(&mut sparse, false);
-        let accepted = admit(&frozen(&sparse)).unwrap();
+        let accepted = admitted(&frozen(&sparse)).unwrap();
         assert_eq!(accepted.source.manifest.seeds[1].history.len(), 202);
         assert_eq!(
             accepted.source.manifest.seeds[1].history[0].start_ms,
@@ -160,13 +182,16 @@ fn draft_and_frozen_mutations_fail_closed_without_network_or_clock_relabeling() 
                 _ => bad["clock_override"] = json!(f::T),
             };
             assert!(
-                admit(bad.to_string().as_bytes()).is_err(),
+                admitted(bad.to_string().as_bytes()).is_err(),
                 "frozen mutation {n}"
             );
         }
         assert!(freeze(br#"{"schema":1,"schema":2}"#).is_err());
         f::go(f::T + 540000);
-        assert!(admit(&bytes).is_err(), "no replay of expired fresh entry");
+        assert!(
+            admitted(&bytes).is_err(),
+            "no replay of expired fresh entry"
+        );
     });
 }
 #[test]
@@ -201,7 +226,7 @@ fn file_creation_is_private_create_new_and_refuses_symlink_and_oversize() {
 fn opened_executable_drives_both_real_v8_fixtures_reconnects_and_closes_matching_export() {
     with_fixture_clock(f::T, || {
         let bytes = frozen(&draft());
-        let admitted = admit(&bytes).unwrap();
+        let admitted = admitted(&bytes).unwrap();
         let d = Dir::new();
         let output = d.0.join("managed");
         let opened = admitted.open(&output, StopHandle::default()).unwrap();
@@ -211,7 +236,10 @@ fn opened_executable_drives_both_real_v8_fixtures_reconnects_and_closes_matching
         assert_eq!(inspect(&output).unwrap(), report);
         assert_eq!(report["source_result"]["inputs"], 4);
         assert_eq!(report["operational_authority"], false);
+        corrections::matching_reader_completion_cases(&output);
         let before = std::fs::read(output.join("entry-result.json")).unwrap();
+        assert!(artifacts::finish(&output, Err(anyhow::anyhow!("repeated failure"))).is_err());
+        assert!(!output.join("entry-incomplete.json").exists());
         assert!(artifacts::finish(
             &output,
             Ok(super::super::managed::Finished {
@@ -247,9 +275,7 @@ fn opened_executable_drives_both_real_v8_fixtures_reconnects_and_closes_matching
                 "entry-result.json",
             ] {
                 let contents = std::fs::read(output.join(name)).unwrap();
-                if name != "entry-history.json" {
-                    assert!(!String::from_utf8_lossy(&contents).contains(f::ACCOUNT));
-                }
+                assert!(!String::from_utf8_lossy(&contents).contains(f::ACCOUNT));
                 std::fs::copy(output.join(name), p.join(name)).unwrap();
             }
         }
@@ -272,7 +298,7 @@ fn cancelled_export_is_incomplete_and_wrong_auth_never_opens_or_calls_network() 
             "OTHER_ACCOUNT".into(),
         )
         .unwrap();
-        let a = admit(&frozen(&draft())).unwrap();
+        let a = admitted(&frozen(&draft())).unwrap();
         let path = d.0.join("wrong-account");
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()

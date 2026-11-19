@@ -83,6 +83,36 @@ mod tests {
         assert!(entered.lost && entered.failure.is_none());
         assert_eq!(clean.data_gap_state(1).unwrap().revision, entered.revision);
     }
+    #[cfg(feature = "models-bridge")]
+    #[test]
+    fn live_advance_is_linearized_before_or_after_the_generation_fault() {
+        let lost = ContinuityGate::new(1);
+        lost.fault(failure(1));
+        assert!(lost
+            .with_healthy(1, || panic!("must not advance"))
+            .is_none());
+        let gate = ContinuityGate::new(1);
+        assert!(gate
+            .with_healthy(2, || panic!("foreign generation"))
+            .is_none());
+        let (send, receive) = std::sync::mpsc::channel();
+        let peer = gate.clone();
+        let fault = std::thread::spawn(move || {
+            receive.recv().unwrap();
+            peer.fault(failure(1));
+        });
+        assert_eq!(
+            gate.with_healthy(1, || {
+                send.send(()).unwrap();
+                42
+            }),
+            Some(42)
+        );
+        fault.join().unwrap();
+        assert!(gate
+            .with_healthy(1, || panic!("fault was recorded"))
+            .is_none());
+    }
 }
 #[derive(Clone)]
 pub(crate) struct Snapshot {
@@ -169,5 +199,21 @@ impl ContinuityGate {
     }
     pub fn healthy(&self) -> bool {
         !self.snapshot().lost
+    }
+    /// Linearize the short native live advance with a physical generation fault.
+    /// No SQL, log IO, network or model callback belongs inside this fence.
+    #[cfg(feature = "models-bridge")]
+    pub(crate) fn with_healthy<T>(
+        &self,
+        generation: u64,
+        advance: impl FnOnce() -> T,
+    ) -> Option<T> {
+        let state = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if state.generation != generation || state.lost || state.failure.is_some() {
+            return None;
+        }
+        let result = advance();
+        drop(state);
+        Some(result)
     }
 }

@@ -82,6 +82,8 @@ pub(super) struct Store {
     after_sql_delay_ms: u64,
     #[cfg(test)]
     fault_after_sql: bool,
+    #[cfg(test)]
+    fault_before_advance: bool,
 }
 impl Store {
     fn guard(&self) -> Result<()> {
@@ -200,10 +202,37 @@ impl Store {
             self.guard()?;
             continuity()?;
             input.validate(p)?;
-            let now = crate::timing::now_ms();
+            #[cfg(test)]
+            if self.fault_before_advance {
+                let gate = gate.unwrap().clone();
+                let generation = p.generation();
+                std::thread::spawn(move || {
+                    gate.fault(crate::socket::primary::Failure {
+                        generation,
+                        kind: crate::socket::primary::Kind::Close,
+                        liveness: None,
+                    })
+                })
+                .join()
+                .unwrap();
+            }
+            let now = if matches!(input, Input::Canonical(_)) {
+                gate.context("live gate")?
+                    .with_healthy(p.generation(), || -> Result<i64> {
+                        self.guard()?;
+                        input.validate(p)?;
+                        let now = crate::timing::now_ms();
+                        input.advance(p, now)?;
+                        Ok(now)
+                    })
+                    .context("physical fault before native advance")??
+            } else {
+                let now = crate::timing::now_ms();
+                input.advance(p, now)?;
+                now
+            };
             // Still holding the shared mutex. No SQL/log/model consumer after
             // this native advance; another instrument cannot interleave here.
-            input.advance(p, now)?;
             Ok(CanonicalPublication {
                 label_ms: label,
                 source_sha256,
@@ -346,9 +375,11 @@ impl Prepared {
         file.sync_all()?;
         let journal = Journal::create(&output.join("models.sqlite"), self.manifest.clone())?;
         File::open(output)?.sync_all()?;
-        if let Some(parent) = output.parent() {
-            File::open(parent)?.sync_all()?;
-        }
+        let parent = output
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        File::open(parent)?.sync_all()?;
         let first = self.manifest.freeze_at_ms;
         let deadline = self.plan.stop_at_ms;
         let configs = self.configs.clone();
@@ -366,6 +397,8 @@ impl Prepared {
             after_sql_delay_ms: 0,
             #[cfg(test)]
             fault_after_sql: false,
+            #[cfg(test)]
+            fault_before_advance: false,
         }));
         let mut sources = Vec::new();
         for (i, calendar) in calendars {

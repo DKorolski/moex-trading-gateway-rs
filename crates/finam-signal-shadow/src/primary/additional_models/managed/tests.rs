@@ -104,6 +104,39 @@ fn two_typed_coordinators_share_only_sql_not_source_frontier_or_imoexf_book() {
     });
 }
 #[test]
+fn a1_fault_on_other_task_after_final_readback_cannot_win_and_still_advance() {
+    with_fixture_clock(f::T, || {
+        let d = Dir::new();
+        let mut m = f::prepared()
+            .into_managed(&d.0.join("managed"), StopHandle::default())
+            .unwrap();
+        let subs = direct(&mut m);
+        feed(&mut m, &subs, 0);
+        m.store.lock().unwrap().fault_before_advance = true;
+        assert!(m.sources[0].1.tick().is_err());
+        assert_eq!(m.sources[0].1.processor().next_label_ms(), Some(f::T));
+        assert!(m.stop.is_stopped());
+        assert_eq!(
+            m.store.lock().unwrap().journal.export().unwrap()["inputs"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        let rows = control(&m.output.join("managed-control.jsonl"));
+        assert_eq!(
+            rows.iter()
+                .filter(|r| r["payload"]["kind"] == "checked_readback")
+                .count(),
+            1
+        );
+        assert!(!rows
+            .iter()
+            .any(|r| r["payload"]["data"]["event"]["event"] == "primary_models_source_advanced"));
+        assert!(m.sources[1].1.tick().is_err());
+    });
+}
+#[test]
 fn stop_between_durable_sql_and_source_advance_latches_both_lanes_and_keeps_ahead_prefix() {
     with_fixture_clock(f::T, || {
         let d = Dir::new();
@@ -488,6 +521,7 @@ fn observed_pair_inner(
 ) -> (Dir, Finished) {
     let external_run = external.is_some();
     let work = || {
+        let _shared_clock = crate::timing::share_fixture_clock();
         tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async{
             let (mut managed,d)=external.unwrap_or_else(||{let d=Dir::new();let m=f::prepared().into_managed(&d.0.join("managed"),StopHandle::default()).unwrap();(m,d)});
             managed.store.lock().unwrap().stop_after_sql=stop_after_sql;
@@ -516,6 +550,10 @@ fn observed_pair_inner(
                     accepted(ack,t).await;
                 }
             }
+            // During drain advance BOTH fixture UTC and monotonic clocks with
+            // real elapsed time. Frozen fake UTC can otherwise fail the actual
+            // 100ms join-consistency check under CPU contention.
+            let _automatic_stop_clock=stop_after_sql.then(crate::timing::run_fixture_clock);
             f::go(f::T+601100);
             if !stop_after_sql {
             for (i,peers,_ack,_) in &mut feeds{
@@ -558,6 +596,7 @@ fn observed_pair_inner(
                 until(||control(&path).iter().filter(|r|r["payload"]["data"]["event"]["event"]=="primary_models_source_advanced").count()==4).await;
             }
             } else { until(||tasks.iter().all(|(_,task)|task.is_finished())).await; }
+            let _requested_stop_clock=(!stop_after_sql).then(crate::timing::run_fixture_clock);
             managed.stop.stop();
             let mut reports=Vec::new();
             for (i,task) in tasks{

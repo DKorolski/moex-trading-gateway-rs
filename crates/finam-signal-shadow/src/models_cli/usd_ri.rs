@@ -29,10 +29,11 @@ pub(super) async fn run(args: &[OsString]) -> Result<u8, &'static str> {
         }
         "validate-usd-ri-managed" | "observe-usd-ri-managed" => {
             let validate = command == "validate-usd-ri-managed";
-            if args.len() != if validate { 2 } else { 4 } {
-                return Err("usage: {validate|observe}-usd-ri-managed FROZEN_INPUT [READ_ONLY_SECRET_FILE NEW_OUTPUT_DIRECTORY]");
+            if args.len() != if validate { 3 } else { 5 } {
+                return Err("usage: {validate|observe}-usd-ri-managed FROZEN_INPUT EXPECTED_SHA256 [READ_ONLY_SECRET_FILE NEW_OUTPUT_DIRECTORY]");
             }
-            let admitted = executable::admit_file(Path::new(&args[1]))
+            let pin = args[2].to_str().ok_or("usd_ri_expected_hash")?;
+            let admitted = executable::admit_file(Path::new(&args[1]), pin)
                 .map_err(|_| "usd_ri_input_admission_refused")?;
             let receipt = admitted.receipt().map_err(|_| "usd_ri_admission_receipt")?;
             if validate {
@@ -42,7 +43,7 @@ pub(super) async fn run(args: &[OsString]) -> Result<u8, &'static str> {
             if receipt["entry_window_open_now"] != true {
                 return Err("usd_ri_entry_window");
             }
-            let path = Path::new(&args[2]);
+            let path = Path::new(&args[3]);
             super::super::credential_permissions::validate_usd_ri(path)?;
             let secret = super::super::read_bounded(path, &mut 16384)?;
             let secret = std::str::from_utf8(&secret)
@@ -70,14 +71,18 @@ pub(super) async fn run(args: &[OsString]) -> Result<u8, &'static str> {
                 #[cfg(not(unix))]
                 let _ = tokio::signal::ctrl_c().await;
             };
-            let work = executable::run(admitted, auth, Path::new(&args[3]), stop.clone());
+            let work = executable::run(admitted, auth, Path::new(&args[4]), stop.clone());
             tokio::pin!(work);
             let report =
                 tokio::select! { biased; _=signal=>{stop.stop();work.await}, r=&mut work=>r }
                     .map_err(|_| "usd_ri_entry_or_export_refused")?;
-            let success = report["status"] == "MANAGED_PREFIX_VERIFIED";
+            let code = match report["status"].as_str() {
+                Some("MANAGED_PREFIX_VERIFIED") => 0,
+                Some("HELD") => 2,
+                _ => 1,
+            };
             println!("{report}");
-            Ok(if success { 0 } else { 2 })
+            Ok(code)
         }
         _ => Err("usd_ri_command"),
     }

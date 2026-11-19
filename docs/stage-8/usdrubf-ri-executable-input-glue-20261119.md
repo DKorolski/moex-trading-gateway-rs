@@ -1,15 +1,18 @@
-# USD/RI executable/input glue — source-only candidate
+# USD/RI executable/input glue — source-only R1 candidate
 
 Accepted parent: `545b832f8e938d00913b93ef4830c039673a832e` (managed
 V8 R1, MGR-1 closed). This slice exposes the existing managed source through
 explicit commands. It is not a Linux release, installation or launch approval.
 
+R1 corrects reviewed R0 `1a843321`; see
+`usdrubf-ri-executable-input-glue-r1-20261119.md`.
+
 ## Scope and fixed bindings
 
 Two independent existing V8 coordinators/calendars/physical subscriptions and
-one serialized numerical SQLite writer. The accepted producer, SQL readback,
-source-advance-last, transport, auth lifecycle and managed reader are unchanged
-(only a cfg(test) module visibility/helper is extended).
+one serialized numerical SQLite writer. SQL readback/source-advance-last order,
+transport, auth lifecycle and managed reader are retained. R1 adds an atomic
+continuity/native-advance fence; no SQL, log IO or model callback is inside it.
 
 USDRUBF@RTSX: asset 3447194, tick 0.01, trade lot 1; the reference/contract
 size 1000 is not the order lot. RIZ6@RTSX: asset 5436517, tick 10, lot 1,
@@ -28,10 +31,11 @@ Without that feature all four commands return `models_feature_required`.
 - `prepare-usd-ri-managed DRAFT NEW_FROZEN_INPUT`: file-only preparation;
   create-new mode 0600, fsync file and parent. Output status is
   INPUTS_FROZEN_ONLY, **not** fresh admission.
-- `validate-usd-ri-managed FROZEN_INPUT`: derive history and plan again,
+- `validate-usd-ri-managed FROZEN_INPUT EXPECTED_SHA256`: verify exact file
+  bytes against the independent prepare receipt, then derive history and plan again,
   compare exact pins, then run existing real-clock metadata/calendar/model
   admission; no secret, output directory or network.
-- `observe-usd-ri-managed FROZEN_INPUT READ_ONLY_SECRET_FILE NEW_OUTPUT_DIRECTORY`:
+- `observe-usd-ri-managed FROZEN_INPUT EXPECTED_SHA256 READ_ONLY_SECRET_FILE NEW_OUTPUT_DIRECTORY`:
   fresh entry admission, exact-account shared AuthLifecycle, two fixed GET-only
   clients, existing managed V8 run. This is implemented source, not permission
   to call FINAM or launch on the stand.
@@ -57,6 +61,19 @@ model bootstrap validate required complete context separately; sparse M1 is
 not itself a missing M10. Original receive/admission times are preserved.
 Historical seed is DECLARED_CLOCK_REPLAY; it is not a physical historical
 fsync or observed live availability claim.
+
+R1 requires RawCalendar coverage from the first query's local date through the
+cutoff. Every historical trading/auction interval must be covered by a complete
+REST request, including intervening weekends. The inventory must equal ALL
+nonempty M10 buckets in the admitted M1; no subset selection. Actually empty
+buckets remain absent and model anchor thresholds are unchanged. Unknown
+nested M1/decimal fields are refused before public raw export.
+
+EXPECTED_SHA256 comes from the independently retained prepare/capture workflow,
+not from hashing the current input immediately before admission. Replacing input
+and its expected value together is not an independent pin. This protects
+integrity after preparation, not upstream authenticity; original capture clocks
+and full receipts still need a trusted collection procedure.
 
 Frozen schema `finam.shadow.usd-ri.executable-input.v1` contains the unchanged
 draft plus derived plan/manifest. There is no supplied-manifest bypass, URL
@@ -84,10 +101,12 @@ entry-result.json. Existing model-manifest.json, models.sqlite and
 managed-control.jsonl remain authoritative. Final result is created only after
 both worker reports show finalized/drained and the matching reader validates
 SQL/control/source-last and original seed reconstruction. Final file and
-directory are fsynced. A repeated export cannot delete an existing final marker.
+directory are fsynced. Export and reader use the same finalized/joined predicate.
+A repeated failed export cannot poison an existing final with another marker.
 Missing/unjoined/invalid completion yields entry-incomplete.json / INCOMPLETE,
 not a clean result. HELD stays HELD (CLI exit 2); malformed/incomplete or
-tampered readback refuses (exit 1). Verified synthetic source prefix is exit 0,
+tampered readback refuses (exit 1). Observe INCOMPLETE is exit 1 too.
+Verified synthetic source prefix is exit 0,
 but observed_clean_session/native_systemd_qualified/operational_authority/orders
 are always false in this source-only slice.
 

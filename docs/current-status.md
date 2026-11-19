@@ -1,5 +1,22 @@
 # Current status — FINAM migration / ALOR parity
 
+## Source checkpoint — 2026-11-19
+
+Accepted USD/RI managed library baseline: `545b832f`. Executable/input
+R0 `1a843321` is CHANGES REQUESTED. This branch contains the pending R1
+correction for B1–B4 plus the A1 continuity/native-advance race.
+See [correction map](stage-8/usdrubf-ri-executable-input-glue-r1-20261119.md)
+and [current CLI/input contract](stage-8/usdrubf-ri-executable-input-glue-20261119.md).
+Exact candidate identity is the outer SOURCE_MANIFEST + commit object.
+
+This is not a source acceptance, Linux release, deployment, current VPS
+snapshot or clean-session/ALOR-live-parity claim. New USD/RI operational
+surfaces, FINAM execution and real orders remain closed. Full-day EOD/seal
+is a later slice before counting complete sessions; no new session-count
+requirement is adopted. General system audit coverage remains partial.
+
+The following dated entries are historical, not current candidate readiness.
+
 ## WS-primary review candidate — 2026-11-04
 
 This isolated R2 snapshot implements the WS-primary R0 source contract, with the

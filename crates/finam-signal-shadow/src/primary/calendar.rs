@@ -9,7 +9,11 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "models-bridge")]
 mod additional;
 #[cfg(feature = "models-bridge")]
+mod history;
+#[cfg(feature = "models-bridge")]
 pub(crate) use additional::admit_additional;
+#[cfg(feature = "models-bridge")]
+pub(crate) use history::history_windows;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

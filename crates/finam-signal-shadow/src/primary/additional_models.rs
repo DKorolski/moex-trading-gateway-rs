@@ -23,6 +23,8 @@ pub fn implementation() -> String {
             include_bytes!("additional_models/executable.rs").as_slice(),
             include_bytes!("additional_models/executable/seed.rs").as_slice(),
             include_bytes!("additional_models/executable/artifacts.rs").as_slice(),
+            include_bytes!("calendar/history.rs").as_slice(),
+            include_bytes!("continuity.rs").as_slice(),
             include_bytes!("../../src/runner/primary/live.rs").as_slice(),
             include_bytes!("../../src/runner/primary/live/continuous.rs").as_slice(),
             include_bytes!("../../src/runner/primary/reconnect.rs").as_slice(),

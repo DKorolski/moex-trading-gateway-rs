@@ -718,6 +718,8 @@ struct Command {
     reply: oneshot::Sender<Result<Update, Cause>>,
     #[cfg(test)]
     clock: Option<(i64, std::time::Instant)>,
+    #[cfg(test)]
+    shared_clock: Option<crate::timing::SharedFixtureClock>,
 }
 pub(super) struct Writer {
     tx: Option<mpsc::Sender<Command>>,
@@ -804,6 +806,12 @@ impl Writer {
                 };
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     #[cfg(test)]
+                    if let Some(clock) = command.shared_clock {
+                        return crate::timing::with_shared_fixture_sample(clock, || {
+                            core.step(command.op)
+                        });
+                    }
+                    #[cfg(test)]
                     if let Some(clock) = command.clock {
                         return crate::timing::with_fixture_sample(clock, || core.step(command.op));
                     }
@@ -864,6 +872,8 @@ impl Writer {
             reply,
             #[cfg(test)]
             clock: crate::timing::fixture_sample(),
+            #[cfg(test)]
+            shared_clock: crate::timing::shared_fixture_sample(),
         };
         self.tx
             .as_ref()

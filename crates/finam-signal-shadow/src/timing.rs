@@ -8,6 +8,10 @@ use std::time::Instant;
 /// compiled only into crate unit tests, never into the executable/library build.
 pub(crate) fn sample_clock() -> (i64, Instant) {
     #[cfg(test)]
+    if let Some(shared) = shared_fixture_sample() {
+        return shared.sample();
+    }
+    #[cfg(test)]
     if let Some(value) = FIXTURE_CLOCK.with(|v| *v.borrow()) {
         if let Some(anchor) = RUNNING_FIXTURE_CLOCK.with(|v| *v.borrow()) {
             let elapsed = anchor.elapsed();
@@ -29,24 +33,107 @@ pub(crate) fn now_ms() -> i64 {
 thread_local! {
     static FIXTURE_CLOCK: std::cell::RefCell<Option<(i64, Instant)>> = const { std::cell::RefCell::new(None) };
     static RUNNING_FIXTURE_CLOCK: std::cell::RefCell<Option<Instant>> = const { std::cell::RefCell::new(None) };
+    static SHARED_FIXTURE_CLOCK: std::cell::RefCell<Option<SharedFixtureClock>> = const { std::cell::RefCell::new(None) };
+}
+
+// Opt-in fixture clock shared with the actual blocking writer tasks. A queued
+// command must not freeze an old UTC value while its peer records a later one.
+// All of this is cfg(test), not a production clock or deadline relaxation.
+#[cfg(test)]
+#[derive(Clone)]
+pub(crate) struct SharedFixtureClock(std::sync::Arc<std::sync::Mutex<SharedState>>);
+#[cfg(test)]
+struct SharedState {
+    sample: (i64, Instant),
+    running: Option<Instant>,
+}
+#[cfg(test)]
+impl SharedFixtureClock {
+    fn sample(&self) -> (i64, Instant) {
+        let s = self.0.lock().unwrap();
+        let elapsed = s.running.map_or(std::time::Duration::ZERO, |a| a.elapsed());
+        (
+            s.sample.0 + i64::try_from(elapsed.as_millis()).unwrap(),
+            s.sample.1 + elapsed,
+        )
+    }
+}
+#[cfg(test)]
+pub(crate) fn shared_fixture_sample() -> Option<SharedFixtureClock> {
+    SHARED_FIXTURE_CLOCK.with(|c| c.borrow().clone())
+}
+#[cfg(test)]
+pub(crate) struct SharedFixtureScope {
+    previous: Option<SharedFixtureClock>,
+    sync_fixed: bool,
+}
+#[cfg(test)]
+impl Drop for SharedFixtureScope {
+    fn drop(&mut self) {
+        if self.sync_fixed {
+            let sample = sample_clock();
+            FIXTURE_CLOCK.with(|c| c.replace(Some(sample)));
+        }
+        SHARED_FIXTURE_CLOCK.with(|c| c.replace(self.previous.take()));
+    }
+}
+#[cfg(all(test, feature = "models-bridge"))]
+pub(crate) fn share_fixture_clock() -> SharedFixtureScope {
+    assert!(shared_fixture_sample().is_none());
+    let clock = SharedFixtureClock(std::sync::Arc::new(std::sync::Mutex::new(SharedState {
+        sample: sample_clock(),
+        running: None,
+    })));
+    SharedFixtureScope {
+        previous: SHARED_FIXTURE_CLOCK.with(|c| c.replace(Some(clock))),
+        sync_fixed: true,
+    }
+}
+#[cfg(test)]
+pub(crate) fn with_shared_fixture_sample<T>(
+    clock: SharedFixtureClock,
+    work: impl FnOnce() -> T,
+) -> T {
+    let _scope = SharedFixtureScope {
+        previous: SHARED_FIXTURE_CLOCK.with(|c| c.replace(Some(clock))),
+        sync_fixed: false,
+    };
+    work()
 }
 
 /// Final fixture join/drain uses real elapsed time after manual wall jumps.
 /// Advance BOTH fake UTC and fake monotonic samples from one real anchor.
 /// No production clock, STOP tolerance or budget is changed.
 #[cfg(test)]
-pub(crate) struct RunningFixtureClock;
+pub(crate) struct RunningFixtureClock(Option<SharedFixtureClock>);
 #[cfg(test)]
 pub(crate) fn run_fixture_clock() -> RunningFixtureClock {
+    if let Some(shared) = shared_fixture_sample() {
+        assert!(shared
+            .0
+            .lock()
+            .unwrap()
+            .running
+            .replace(Instant::now())
+            .is_none());
+        return RunningFixtureClock(Some(shared));
+    }
     assert!(FIXTURE_CLOCK.with(|c| c.borrow().is_some()));
     assert!(RUNNING_FIXTURE_CLOCK
         .with(|c| c.replace(Some(Instant::now())))
         .is_none());
-    RunningFixtureClock
+    RunningFixtureClock(None)
 }
 #[cfg(test)]
 impl Drop for RunningFixtureClock {
     fn drop(&mut self) {
+        if let Some(shared) = &self.0 {
+            let mut s = shared.0.lock().unwrap();
+            let elapsed = s.running.take().unwrap().elapsed();
+            s.sample.0 += i64::try_from(elapsed.as_millis()).unwrap();
+            s.sample.1 += elapsed;
+            return;
+        }
         let sample = sample_clock();
         RUNNING_FIXTURE_CLOCK.with(|c| c.replace(None));
         FIXTURE_CLOCK.with(|c| c.replace(Some(sample)));
@@ -80,6 +167,12 @@ pub(crate) fn with_fixture_sample<T>(sample: (i64, Instant), work: impl FnOnce()
 
 #[cfg(test)]
 pub(crate) fn advance_fixture_clock(ms: u64) {
+    if let Some(shared) = shared_fixture_sample() {
+        let mut s = shared.0.lock().unwrap();
+        s.sample.0 += i64::try_from(ms).unwrap();
+        s.sample.1 += std::time::Duration::from_millis(ms);
+        return;
+    }
     FIXTURE_CLOCK.with(|c| {
         let mut slot = c.borrow_mut();
         let value = slot.as_mut().expect("fixture clock installed");

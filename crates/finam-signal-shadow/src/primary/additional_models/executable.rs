@@ -101,7 +101,18 @@ impl Draft {
     fn pin(&self, now: i64) -> Result<(Plan, Manifest)> {
         self.validate()?;
         let history = self.sources.iter().map(|s| &s.history).collect::<Vec<_>>();
-        let manifest = seed::build(&self.generation, self.session_date, &history, now)?;
+        let calendars = self
+            .sources
+            .iter()
+            .map(|s| (s.instrument, &s.calendar))
+            .collect::<Vec<_>>();
+        let manifest = seed::build(
+            &self.generation,
+            self.session_date,
+            &history,
+            &calendars,
+            now,
+        )?;
         let plan = Plan {
             schema: "finam.shadow.usd-ri.source-component.v1".into(),
             manifest_sha256: manifest.sha256()?,
@@ -148,7 +159,13 @@ pub struct Admitted {
     input_sha256: String,
     history: Value,
 }
-pub fn admit(bytes: &[u8]) -> Result<Admitted> {
+/// The pin comes from an independently retained prepare receipt, not from
+/// recomputing a hash of the current, possibly replaced input file.
+pub fn admit(bytes: &[u8], expected_sha256: &str) -> Result<Admitted> {
+    ensure!(
+        super::plan::sha(expected_sha256) && crate::seed::digest(bytes) == expected_sha256,
+        "independent exact frozen input pin"
+    );
     let frozen: Frozen = parse(bytes)?;
     ensure!(
         frozen.schema == "finam.shadow.usd-ri.executable-input.v1",
@@ -181,8 +198,11 @@ pub fn admit(bytes: &[u8]) -> Result<Admitted> {
         history,
     })
 }
-pub fn admit_file(path: &Path) -> Result<Admitted> {
-    admit(&artifacts::read(path, MAX_INPUT_BYTES as u64)?)
+pub fn admit_file(path: &Path, expected_sha256: &str) -> Result<Admitted> {
+    admit(
+        &artifacts::read(path, MAX_INPUT_BYTES as u64)?,
+        expected_sha256,
+    )
 }
 impl Admitted {
     pub fn account_id(&self) -> &str {
@@ -205,6 +225,10 @@ impl Admitted {
     fn open(self, output: &Path, stop: StopHandle) -> Result<Opened> {
         self.source.identities_fresh(crate::timing::now_ms())?;
         let receipt = self.receipt()?;
+        ensure!(
+            receipt["entry_window_open_now"] == true,
+            "actual executable entry window"
+        );
         let managed = self.source.into_managed(output, stop)?;
         artifacts::write_new(&output.join("entry.json"), &serde_json::to_vec(&receipt)?)?;
         artifacts::write_new(
