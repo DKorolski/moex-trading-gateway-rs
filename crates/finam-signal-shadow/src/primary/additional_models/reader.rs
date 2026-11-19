@@ -61,6 +61,7 @@ pub fn inspect(output: &Path) -> Result<Value> {
     );
     let calendars = prep["calendars"].as_array().context("calendars")?;
     ensure!(calendars.len() == 2, "two calendars");
+    let mut admitted_calendars = BTreeMap::new();
     for i in INSTRUMENTS {
         let identity = identities.get(&i).context("identity")?;
         ensure!(
@@ -71,6 +72,10 @@ pub fn inspect(output: &Path) -> Result<Value> {
                 && identity.public_asset["id"] == i.asset_id()
                 && identity.public_asset["ticker"] == i.symbol()
                 && identity.public_asset["tick"] == i.tick().to_string()
+                && super::plan::decimal(&identity.public_asset["reference_lot_size"])?
+                    == super::plan::frozen_size(i)?
+                && super::plan::decimal(&identity.public_asset["contract_size"])?
+                    == super::plan::frozen_size(i)?
                 && identity.public_params
                     == json!({"symbol":i.venue_symbol(),"trade_lot_size":"1","is_tradable":true}),
             "public identity projection"
@@ -138,6 +143,7 @@ pub fn inspect(output: &Path) -> Result<Value> {
                 && binding.config_sha256 == configs[&i],
             "exact source configuration"
         );
+        admitted_calendars.insert(i, calendar);
     }
     let db = output.join("models.sqlite");
     let metadata = std::fs::symlink_metadata(&db)?;
@@ -153,6 +159,7 @@ pub fn inspect(output: &Path) -> Result<Value> {
     let mut matched = 0usize;
     let mut counts: BTreeMap<ShadowInstrument, u64> = INSTRUMENTS.map(|i| (i, 0)).into();
     let mut bound = std::collections::BTreeSet::new();
+    let mut event_clock = plan.start_not_before_ms;
     let mut finish = None;
     for (n, p) in records.iter().enumerate().skip(1) {
         ensure!(finish.is_none(), "records after terminal snapshot");
@@ -169,13 +176,33 @@ pub fn inspect(output: &Path) -> Result<Value> {
                             && t < plan.start_before_ms),
                     "source subscription"
                 );
+                let at = data["bound_at_ms"].as_i64().context("subscription clock")?;
+                ensure!(at >= event_clock, "source event chronology");
+                event_clock = at;
             }
             "reference" => {
                 let i: ShadowInstrument = serde_json::from_value(data["instrument"].clone())?;
+                ensure!(bound.contains(&i) && intent.is_none(), "reference source");
+                let evidence: broker_finam::sparse_m10::ClosedM1SnapshotEvidenceV1 =
+                    serde_json::from_value(data["evidence"].clone())
+                        .context("reference evidence decode")?;
+                let recorded = data["recorded_at_ms"]
+                    .as_i64()
+                    .context("reference recorded_at_ms missing")?;
                 ensure!(
-                    bound.contains(&i) && sha(data["sha256"].as_str().context("reference hash")?),
-                    "reference source"
+                    recorded >= event_clock && recorded < plan.stop_at_ms,
+                    "reference event chronology"
                 );
+                check_reference(
+                    i,
+                    &evidence,
+                    data["sha256"].as_str().context("reference hash")?,
+                    admitted_calendars
+                        .get(&i)
+                        .context("reference instrument calendar")?,
+                    recorded,
+                )?;
+                event_clock = recorded;
             }
             "publication_intent" => {
                 ensure!(
@@ -193,6 +220,11 @@ pub fn inspect(output: &Path) -> Result<Value> {
                     "per-source prefix"
                 );
                 check_projection(&c, i, &configs[&i])?;
+                ensure!(
+                    c.source_processed_ms >= event_clock,
+                    "publication chronology"
+                );
+                event_clock = c.source_processed_ms;
                 intent = Some(c);
             }
             "checked_readback" => {
@@ -297,6 +329,44 @@ pub fn inspect(output: &Path) -> Result<Value> {
         "metadata_evidence":"validated public projections and original hashes; private full bodies not exported",
         "native_authority_reconstructed":false,"operational_activation":false,"observed_clean_session":false,"real_orders":false}),
     )
+}
+
+/// File-only revalidation of full retained HTTP evidence. It does NOT create
+/// a canonical publication capability, physical subscription, or WS authority.
+pub(super) fn check_reference(
+    instrument: ShadowInstrument,
+    evidence: &broker_finam::sparse_m10::ClosedM1SnapshotEvidenceV1,
+    expected_sha: &str,
+    calendar: &crate::primary::calendar::AdmittedCalendar,
+    recorded_at_ms: i64,
+) -> Result<()> {
+    use broker_finam::sparse_m10::{AdmittedClosedM1Snapshot, ClosedM1RequestPlan};
+    ensure!(
+        INSTRUMENTS.contains(&instrument) && sha(expected_sha),
+        "reference identity/hash shape"
+    );
+    ensure!(
+        evidence.start.timestamp_millis() >= calendar.reference_start_ms()
+            && evidence.end.timestamp_millis() <= calendar.required()[0],
+        "reference calendar range"
+    );
+    let now = chrono::DateTime::from_timestamp_millis(recorded_at_ms).context("reference clock")?;
+    let request = ClosedM1RequestPlan::new(
+        evidence.start,
+        evidence.end,
+        evidence.parts.iter().map(|p| p.end).collect(),
+    )
+    .map_err(|e| anyhow::anyhow!("reference request plan: {e:?}"))?;
+    request
+        .preflight(now)
+        .map_err(|e| anyhow::anyhow!("reference request chronology: {e:?}"))?;
+    let source = AdmittedClosedM1Snapshot::admit_for(instrument, evidence.clone(), &request, now)
+        .map_err(|e| anyhow::anyhow!("reference snapshot admission: {e:?}"))?;
+    ensure!(
+        source.instrument() == instrument && source.sha256() == expected_sha,
+        "reference snapshot hash mismatch"
+    );
+    Ok(())
 }
 fn check_projection(c: &Candle, i: ShadowInstrument, config: &str) -> Result<()> {
     let Construction::DeclaredCanonicalProjectionV1 {

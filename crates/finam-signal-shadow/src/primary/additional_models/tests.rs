@@ -13,6 +13,7 @@ use broker_finam::ShadowInstrument;
 use chrono::{DateTime, Datelike, Utc};
 use finam_shadow_models::local::contract::*;
 use serde_json::{json, Value};
+mod references;
 
 const T: i64 = 1_793_592_000_000; // synthetic 02-Nov first session, never current DATA
 const ACCOUNT: &str = "SYNTHETIC_ACCOUNT_ONLY";
@@ -553,5 +554,87 @@ fn sparse_native_rest_exception_keeps_its_origin_and_checked_source_last() {
         );
         c.finish().unwrap();
         assert_eq!(reader::inspect(&output).unwrap()["inputs"], 1);
+    });
+}
+
+// Reviewer-only tests: expected to FAIL on 3c18bc8d R0.
+// Apply to a COPY of the candidate, never to the frozen source tree.
+#[test]
+fn reviewer_rejects_positive_but_wrong_catalog_reference_lot_and_contract_size() {
+    with_fixture_clock(T, || {
+        let account = crate::seed::digest(ACCOUNT.as_bytes());
+        for i in INSTRUMENTS {
+            let mut e = evidence(i);
+            let mut asset: Value = serde_json::from_str(&e.asset.raw_body).unwrap();
+            asset["lot_size"]["value"] = json!("777.0");
+            e.asset = snapshot(i, "", asset);
+            assert!(
+                identity(&e, &account, T).is_err(),
+                "wrong reference lot: {:?}",
+                i
+            );
+
+            let mut e = evidence(i);
+            let mut asset: Value = serde_json::from_str(&e.asset.raw_body).unwrap();
+            asset["future_details"]["contract_size"]["value"] = json!("777.0");
+            e.asset = snapshot(i, "", asset);
+            assert!(
+                identity(&e, &account, T).is_err(),
+                "wrong contract size: {:?}",
+                i
+            );
+        }
+    });
+}
+
+#[test]
+fn reviewer_rejects_rehashed_reference_event_without_admitted_rest_source() {
+    with_fixture_clock(T, || {
+        let d = Dir::new();
+        let output = d.0.join("forged-reference");
+        let mut c = prepared().create(&output, StopHandle::default()).unwrap();
+        let subs = attach(&mut c);
+        feed_slot(&mut c, &subs, 0);
+        assert!(matches!(
+            c.next(INSTRUMENTS[0]).unwrap(),
+            Progress::Committed(_)
+        ));
+        c.finish().unwrap();
+        assert_eq!(
+            reader::inspect(&output).unwrap()["status"],
+            "COMPONENT_PREFIX_VERIFIED"
+        );
+
+        let path = output.join("source-control.jsonl");
+        let original = std::fs::read_to_string(&path).unwrap();
+        let mut rows: Vec<Value> = original
+            .lines()
+            .map(|s| serde_json::from_str(s).unwrap())
+            .collect();
+        assert_eq!(rows[0]["payload"]["kind"], "preparation");
+        assert_eq!(rows[1]["payload"]["kind"], "subscription");
+        assert_eq!(rows[2]["payload"]["kind"], "subscription");
+        // Fabricated reference has no admitted REST evidence. Hash syntax
+        // and the entire control hash chain are otherwise perfectly valid.
+        rows.insert(
+            3,
+            json!({"payload":{"index":0,"previous_sha256":"","kind":"reference",
+            "data":{"instrument":"usdrubf","sha256":"f".repeat(64),"evidence":{}}},"sha256":""}),
+        );
+        let mut head = "0".repeat(64);
+        let mut text = String::new();
+        for (n, row) in rows.iter_mut().enumerate() {
+            row["payload"]["index"] = json!(n);
+            row["payload"]["previous_sha256"] = json!(head);
+            head = hash(&row["payload"]).unwrap();
+            row["sha256"] = json!(head);
+            text.push_str(&row.to_string());
+            text.push('\n');
+        }
+        std::fs::write(&path, text).unwrap();
+        assert!(
+            reader::inspect(&output).is_err(),
+            "forged reference passed semantic readback"
+        );
     });
 }

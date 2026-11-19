@@ -112,8 +112,16 @@ fn body(
     );
     crate::primary::json::parse(&s.raw_body).map_err(|e| anyhow::anyhow!("metadata JSON: {e:?}"))
 }
-fn decimal(v: &Value) -> Result<Decimal> {
+pub(super) fn decimal(v: &Value) -> Result<Decimal> {
     Ok(Decimal::from_str(v.as_str().context("decimal string")?)?)
+}
+/// Frozen catalog reference/contract sizes, NOT order quantities.
+pub(super) fn frozen_size(i: ShadowInstrument) -> Result<Decimal> {
+    match i {
+        ShadowInstrument::Usdrubf => Ok(Decimal::from(1000)),
+        ShadowInstrument::Riz6 => Ok(Decimal::ONE),
+        ShadowInstrument::Imoexf => anyhow::bail!("additional instrument only"),
+    }
 }
 pub(super) fn identity(e: &InstrumentEvidence, account: &str, now: i64) -> Result<IdentityReceipt> {
     let i = e.instrument;
@@ -146,8 +154,8 @@ pub(super) fn identity(e: &InstrumentEvidence, account: &str, now: i64) -> Resul
                 } else {
                     "10"
                 }
-            && decimal(&asset["lot_size"]["value"])? > Decimal::ZERO
-            && decimal(&asset["future_details"]["contract_size"]["value"])? > Decimal::ZERO,
+            && decimal(&asset["lot_size"]["value"])? == frozen_size(i)?
+            && decimal(&asset["future_details"]["contract_size"]["value"])? == frozen_size(i)?,
         "asset identity/tick/reference lot/currency"
     );
     ensure!(
@@ -193,7 +201,7 @@ pub(super) fn identity(e: &InstrumentEvidence, account: &str, now: i64) -> Resul
         params_response_sha256: e.params.response_sha256.clone(),
         requested_at_ms: [e.asset.requested_at_ms, e.params.requested_at_ms],
         received_at_ms: [e.asset.received_at_ms, e.params.received_at_ms],
-        public_asset: json!({"id":i.asset_id(),"ticker":i.symbol(),"mic":"RTSX","board":"FUT","tick":i.tick().to_string(),"quote_currency":currency,"expiration_date":expiry,"reference_lot_size":asset["lot_size"]["value"]}),
+        public_asset: json!({"id":i.asset_id(),"ticker":i.symbol(),"mic":"RTSX","board":"FUT","tick":i.tick().to_string(),"quote_currency":currency,"expiration_date":expiry,"reference_lot_size":asset["lot_size"]["value"],"contract_size":asset["future_details"]["contract_size"]["value"]}),
         public_params: json!({"symbol":i.venue_symbol(),"trade_lot_size":"1","is_tradable":true}),
     })
 }

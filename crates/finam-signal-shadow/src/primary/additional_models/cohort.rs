@@ -204,17 +204,20 @@ impl Cohort {
                 source.instrument() == instrument && self.bound.contains(&instrument),
                 "reference instrument/subscription"
             );
-            ensure!(
-                source.evidence().start.timestamp_millis()
-                    >= self.processors[&instrument]
-                        .calendar()
-                        .context("calendar")?
-                        .reference_start_ms()
-                    && source.evidence().end.timestamp_millis()
-                        <= self.prepared.manifest.freeze_at_ms,
-                "planned pre-session bootstrap reference range"
-            );
-            self.log.append("reference",json!({"instrument":instrument,"sha256":source.sha256(),"evidence":source.evidence()}))?;
+            let recorded_at_ms = crate::timing::now_ms();
+            // Revalidate at actual attachment time; holding a native snapshot
+            // must not freeze freshness. The same check is used offline with
+            // this retained clock, never today's inspection wallclock.
+            super::reader::check_reference(
+                instrument,
+                source.evidence(),
+                source.sha256(),
+                self.processors[&instrument]
+                    .calendar()
+                    .context("calendar")?,
+                recorded_at_ms,
+            )?;
+            self.log.append("reference",json!({"instrument":instrument,"sha256":source.sha256(),"evidence":source.evidence(),"recorded_at_ms":recorded_at_ms}))?;
             self.processors
                 .get_mut(&instrument)
                 .context("source")?
