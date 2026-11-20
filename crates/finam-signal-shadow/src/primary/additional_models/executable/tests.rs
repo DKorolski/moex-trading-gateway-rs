@@ -4,6 +4,7 @@ use crate::{primary::calendar::tests::Dir, timing::with_fixture_clock};
 use broker_finam::sparse_m10::*;
 use chrono::{DateTime, Utc};
 mod corrections;
+mod real_inputs;
 
 // Test-only independent receipt stands in for the caller's trusted pin.
 fn admitted(bytes: &[u8]) -> Result<Admitted> {

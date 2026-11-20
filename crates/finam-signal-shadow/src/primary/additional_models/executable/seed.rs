@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 
 // Raw evidence is public only after an exact nested-schema check. The shared
 // broker DTO intentionally tolerates extensions; this export boundary does not.
-fn public_body(raw: &str) -> Result<()> {
+pub(super) fn public_body(raw: &str) -> Result<()> {
     let body = crate::primary::json::parse(raw)?;
     let object = body.as_object().context("public M1 body")?;
     ensure!(
@@ -19,8 +19,15 @@ fn public_body(raw: &str) -> Result<()> {
     );
     for row in body["bars"].as_array().context("public M1 rows")? {
         let fields = row.as_object().context("public M1 row")?;
+        let snapshot = fields
+            .get("is_data_snapshot")
+            .or_else(|| fields.get("isDataSnapshot"));
         ensure!(
-            fields.len() == 6 && row["timestamp"].is_string(),
+            fields.len() == 6 + usize::from(snapshot.is_some())
+                && snapshot.map_or(true, Value::is_boolean)
+                && !(fields.contains_key("is_data_snapshot")
+                    && fields.contains_key("isDataSnapshot"))
+                && row["timestamp"].is_string(),
             "public M1 row schema"
         );
         for k in ["open", "high", "low", "close", "volume"] {
@@ -68,6 +75,10 @@ pub(super) fn build(
     let freeze = (day.and_hms_opt(7, 0, 0).context("session cutoff")? - chrono::Duration::hours(3))
         .and_utc()
         .timestamp_millis();
+    // Only complete prior Moscow civil days belong to this initial seed.
+    // The current day's pre-open auction has not happened at 06:45 collection;
+    // it is neither required historical coverage nor a prior model anchor.
+    let history_end = freeze - 7 * 3600000;
     ensure!(
         inputs.len() == 2
             && INSTRUMENTS
@@ -124,8 +135,8 @@ pub(super) fn build(
                 ensure!(
                     item.admitted_at_ms <= now
                         && item.admitted_at_ms <= freeze
-                        && e.end.timestamp_millis() < freeze,
-                    "future seed receipt/admission/range"
+                        && e.end.timestamp_millis() <= history_end,
+                    "seed requires closed prior local days"
                 );
                 let p = ClosedM1RequestPlan::new(
                     e.start,
@@ -167,7 +178,7 @@ pub(super) fn build(
                 input.instrument,
                 calendar,
                 day_start,
-                freeze,
+                history_end,
                 now,
             )
             .map_err(|e| anyhow::anyhow!("history calendar: {e:?}"))?;
@@ -180,7 +191,10 @@ pub(super) fn build(
                 for bar in source.bars() {
                     let t = bar.open_ts.timestamp_millis();
                     ensure!(
-                        windows.iter().any(|(a, b)| *a <= t && t + 60000 <= *b),
+                        // M1 cannot resolve which seconds supplied its OHLCV.
+                        // Positive half-open overlap admits mixed auction/Closed
+                        // minutes, never a wholly Closed or merely touching one.
+                        windows.iter().any(|(a, b)| *a < t + 60000 && t < *b),
                         "M1 contradicts historical schedule"
                     );
                     actual.insert(t.div_euclid(600000) * 600000);
@@ -199,7 +213,9 @@ pub(super) fn build(
                 ensure!(
                     label > 0
                         && label % 600000 == 0
-                        && label.checked_add(600000).is_some_and(|end| end < freeze)
+                        && label
+                            .checked_add(600000)
+                            .is_some_and(|end| end <= history_end)
                         && previous.map_or(true, |old| label > old),
                     "history inventory order/grid"
                 );

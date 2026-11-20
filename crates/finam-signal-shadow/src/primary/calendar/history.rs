@@ -59,8 +59,6 @@ pub(crate) fn history_windows(
                 || a >= b
                 || a.timestamp_subsec_nanos() != 0
                 || b.timestamp_subsec_nanos() != 0
-                || a.timestamp() % 60 != 0
-                || b.timestamp() % 60 != 0
                 || (b - a).num_days() > 15
             {
                 return Err(CalendarError::Clock);
