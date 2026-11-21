@@ -27,6 +27,17 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
+2026-11-21 current: accepted shadow source `10e74757` and its Linux release;
+USD/RI R1 execution accepted and installed/armed for one bounded 23-Nov window.
+Separate IMOEXF 23-Nov candidate is not armed. Next: actual bounded result,
+then necessary full-session/EOD and same-session ALOR comparisons before a
+separate live-micro gate. Paper expansion is not the current critical path.
+No new mandatory session count, order authority or macro-stage is introduced.
+See the [engineering checkpoint](stage-8/shadow-accepted-sync-20261121.md).
+The Git synchronization does not install, activate or change VPS packages.
+
+The dated entries below retain their historical status at the stated date.
+
 2026-10-09 current: O3 release/installation `0e89208` accepted and installed;
 fresh O3 preparation stopped before activation on a config Redis-manifest pin
 mismatch. Next: [one-field config-binding correction](stage-8/stage8b-p1f-o3-config-binding-correction.md)

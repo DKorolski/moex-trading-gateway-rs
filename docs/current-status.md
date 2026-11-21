@@ -1,6 +1,35 @@
 # Current status — FINAM migration / ALOR parity
 
-## Source checkpoint — 2026-11-19
+## Accepted source and bounded execution checkpoint — 2026-11-21
+
+Accepted source: `10e74757a8786ad6aa0e771ffb199cf2a0fcbb77`, tree
+`495a91041d1eabd2506336c744d9093742d03f81`; SOURCE ACCEPT and Linux RELEASE
+ACCEPT are retained. This includes the accepted IMOEXF REST receipt precision
+correction `f19eb207`. See the
+[engineering checkpoint and exact package identities](stage-8/shadow-accepted-sync-20261121.md).
+
+USD/RI execution R1 (`usd-ri-v8-models-20261123-0700-r1`) received EXECUTION
+ACCEPT, separate operator authorization, and was installed/armed on 20 November.
+Read-only readback on 21 November at 07:42 MSK: all 78 package files and six
+host unit files match; three timers active/waiting, no attempt/runner started,
+no controller journal entries. Protected services/activation marker unchanged;
+host clock synchronized. This is a dated observation, not future readiness.
+23-Nov MSK: prepare06:45, start07:00:05–07:02, source stop10:22,
+host STOP10:22:05, emergency10:24:30, hard deadline10:25. One attempt, no retries.
+Real Monday seed/admission/WS/model results are still pending that procedure.
+Separate IMOEXF 23-Nov candidate remains prepared but NOT installed/armed.
+
+This Git synchronization preserves the accepted source bytes/history. Only
+status/navigation and CI inventory binding are updated; canonical workflow,
+guard policy and closed surfaces are unchanged. No reports, binaries, execution
+ZIPs, credentials, databases or runtime captures are added. Required CI/PR gates
+still apply before main integration. The old dirty development folder is not
+the synchronization input and its uncommitted changes remain local.
+
+Next: bounded results, then only the necessary longer session/EOD and aligned
+ALOR comparison. No new mandatory session count or live authorization is implied.
+
+## Historical source checkpoint — 2026-11-19
 
 Accepted USD/RI managed library baseline: `545b832f`. Executable/input
 R0 `1a843321` is CHANGES REQUESTED. This branch contains the pending R1
