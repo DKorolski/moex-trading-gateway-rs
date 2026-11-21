@@ -1,0 +1,31 @@
+{
+  "accepted_ref": "6a508df3bedf984de16439a4332971f287af054b",
+  "unchanged_git_blobs": {
+    "crates/finam-shadow-models/profiles/imoexf.json": "5ae797c457189c998bdc8ba463123a917d9640d6",
+    "crates/finam-shadow-models/profiles/ri.json": "17a03a076d889d4876e4bb4f9a8f1ab52c128e62",
+    "crates/finam-shadow-models/profiles/usdrubf.json": "49004db531fb464aae972681676b0c56179d361a",
+    "crates/finam-shadow-models/src/context.rs": "159c8758b9e06e8eaeaab28d5aaa398f7ded5997",
+    "crates/finam-shadow-models/src/imoexf.rs": "73981eedc4fccf58697eafb6e3f08ec88b85c906",
+    "crates/finam-shadow-models/src/lib.rs": "67d8bedce6e1b715b9f57e8eb9bc513ca1cd4d37",
+    "crates/finam-shadow-models/src/ri.rs": "3173b2b90364e1ffbd81182cb94e74ccfd796756",
+    "crates/finam-shadow-models/src/ri_context.rs": "81c929a22b6dc8357ee43a6f9f9d5d48b54e6958",
+    "crates/finam-shadow-models/src/ri_engine.rs": "8cbda002ce39436945112d0c0d975509e5460a46",
+    "crates/finam-shadow-models/src/session.rs": "009f5bb9c5f67bde637cba996e411a0ba94c35fd",
+    "crates/finam-shadow-models/src/usdrubf.rs": "9f13e2dffae12005ca411bde2005718e14f76b1b",
+    "crates/finam-signal-shadow/src/main.rs": "b25c0538fdfc7fd67743068026a14810433027fb",
+    "crates/finam-signal-shadow/src/model.rs": "a61cdfa3d237bbb010aa7a06147c35b8cf887355",
+    "crates/finam-signal-shadow/src/primary/entry.rs": "1f545a0cafc9ed5d3c2d9f2e7810b22cf0a778e1",
+    "crates/finam-signal-shadow/src/primary/policy.rs": "957b62c49b1613f2b4eea5c6a4fdb3ae8bb68d19",
+    "crates/finam-signal-shadow/src/primary/wire.rs": "a967b05e6cddfb20089952842ce2ed8993a75063",
+    "crates/finam-signal-shadow/src/runner.rs": "10470b0e500de2f357edfe9b269aeb2621e3f795",
+    "crates/finam-signal-shadow/src/session.rs": "86b88f294c10c755fcaf60244ba7307321220a16",
+    "crates/finam-signal-shadow/src/socket/candle.rs": "93512b8cda2d1ffe125b6131c4154600b873c70f",
+    "crates/finam-signal-shadow/src/socket/candle/tests.rs": "4473453cf513098ac06ad5e947046f727f1a5f44",
+    "crates/finam-signal-shadow/src/socket/liveness.rs": "0e77d4de508d4622d37c923fcc3c070c4a362f33",
+    "crates/finam-signal-shadow/src/socket/liveness/tests.rs": "7d60c1ef574f48e9684c1473995ff19e52b0ea69",
+    "crates/finam-signal-shadow/src/socket/primary.rs": "a4d7ce8c993fd37319eb3ca94a8e0a99aa0f2299",
+    "crates/finam-signal-shadow/src/socket/primary/tests.rs": "9dc4a301ed801f0532c759017a0924b2ff1ca64f",
+    "crates/finam-signal-shadow/src/socket/timestamp.rs": "a8070977512baec86048242b683e7bf912afa1e4",
+    "docs/stage-8/shadow-models-finam-mapping-20261113.json": "d17d61852c24504635376ffbff20057f57df36fa"
+  }
+}

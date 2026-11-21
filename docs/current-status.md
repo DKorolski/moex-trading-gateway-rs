@@ -1,6 +1,293 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-10-07.
+## Accepted source and bounded execution checkpoint — 2026-11-21
+
+Accepted source: `10e74757a8786ad6aa0e771ffb199cf2a0fcbb77`, tree
+`495a91041d1eabd2506336c744d9093742d03f81`; SOURCE ACCEPT and Linux RELEASE
+ACCEPT are retained. This includes the accepted IMOEXF REST receipt precision
+correction `f19eb207`. See the
+[engineering checkpoint and exact package identities](stage-8/shadow-accepted-sync-20261121.md).
+
+USD/RI execution R1 (`usd-ri-v8-models-20261123-0700-r1`) received EXECUTION
+ACCEPT, separate operator authorization, and was installed/armed on 20 November.
+Read-only readback on 21 November at 07:42 MSK: all 78 package files and six
+host unit files match; three timers active/waiting, no attempt/runner started,
+no controller journal entries. Protected services/activation marker unchanged;
+host clock synchronized. This is a dated observation, not future readiness.
+23-Nov MSK: prepare06:45, start07:00:05–07:02, source stop10:22,
+host STOP10:22:05, emergency10:24:30, hard deadline10:25. One attempt, no retries.
+Real Monday seed/admission/WS/model results are still pending that procedure.
+Separate IMOEXF 23-Nov candidate remains prepared but NOT installed/armed.
+
+This Git synchronization preserves the accepted source bytes/history. Only
+status/navigation and CI inventory binding are updated; canonical workflow,
+guard policy and closed surfaces are unchanged. No reports, binaries, execution
+ZIPs, credentials, databases or runtime captures are added. Required CI/PR gates
+still apply before main integration. The old dirty development folder is not
+the synchronization input and its uncommitted changes remain local.
+
+Next: bounded results, then only the necessary longer session/EOD and aligned
+ALOR comparison. No new mandatory session count or live authorization is implied.
+
+## Historical source checkpoint — 2026-11-19
+
+Accepted USD/RI managed library baseline: `545b832f`. Executable/input
+R0 `1a843321` is CHANGES REQUESTED. This branch contains the pending R1
+correction for B1–B4 plus the A1 continuity/native-advance race.
+See [correction map](stage-8/usdrubf-ri-executable-input-glue-r1-20261119.md)
+and [current CLI/input contract](stage-8/usdrubf-ri-executable-input-glue-20261119.md).
+Exact candidate identity is the outer SOURCE_MANIFEST + commit object.
+
+This is not a source acceptance, Linux release, deployment, current VPS
+snapshot or clean-session/ALOR-live-parity claim. New USD/RI operational
+surfaces, FINAM execution and real orders remain closed. Full-day EOD/seal
+is a later slice before counting complete sessions; no new session-count
+requirement is adopted. General system audit coverage remains partial.
+
+The following dated entries are historical, not current candidate readiness.
+
+## WS-primary review candidate — 2026-11-04
+
+This isolated R2 snapshot implements the WS-primary R0 source contract, with the
+remaining R3/P2 correction to the 2026-11-04 SOURCE HOLD on R1 tree
+`f3466825d72257829368d593b0d0e55849d71c7b`, against
+accepted predecessor tree `73ac00b63b792d3e812b70846c64c7788e55190a`.
+It is NOT an accepted replacement, published main commit, Linux release or
+operational activation. Exact candidate identity and final extracted-source
+reproduction receipts are in the outer review package, not the inherited
+`handoff-commit.txt` / historical handoff evidence below.
+
+Start with [implementation progress and remaining qualifications](stage-8/finam-ws-primary-implementation-progress-20261103.md),
+[the R0 contract](stage-8/finam-ws-primary-review-and-tz-20261102-r0.md),
+and [entry/export semantics](stage-8/finam-ws-primary-entry-and-export-20261103.md).
+The T01–T40 mapping is local evidence inventory, not independent acceptance.
+Strategy baseline07 BO-only/no-riskgate and close-fill policy are unchanged.
+Historical fixture parity is not current ALOR operational parity.
+Reviewer closed R1/P1, R2/P1 and R4/P2 in the R1 delta; the R1 snapshot itself
+remains SOURCE HOLD because of R3/P2. R2 keeps elapsed-but-unassessed timer actions
+and adds intra-command IO-clock regression coverage. See the
+[R2 correction map](stage-8/finam-ws-primary-r2-due-cursor-20261104.md).
+This is a developer correction pending independent re-review, not SOURCE ACCEPT.
+
+No VPS state was queried/changed by this source work. New source installation,
+FINAM execution/POST/DELETE, real orders, Redis/DB0 and runtime-live remain closed.
+The CLI is single-runtime; bounded same-config cohort library tests do not open
+aggregate multi-journal EOD/restart qualification. New native/cgroup/FINAM
+qualification remains a separate post-source-review step.
+
+## Retained predecessor status (historical, not current candidate status)
+
+Status date: 2026-10-12.
+
+Latest release review (`45a3f1b`): **HOLD**, one installer P1; source/native
+acceptance retained. Local installer-only correction is ready for focused
+re-review: parent fsync on exact-bytes retry (apply and rollback), incomplete TX
+mkdir durability, and reader identity checks excluding atime. All 23 Linux
+filesystem tests PASS; the same four new tests reproduce the old defects.
+Before/after source-bound logs are retained, not a new power-crash claim.
+Packaging distinguishes the original qualified spec from the corrected candidate;
+the original native result and its spec hash are NOT rewritten. Five production
+ELFs, units, helpers, baseline and executed native support bytes are unchanged.
+Offline checks PASS: native/helper+continuity28, runner15, builder9, templates10.
+This correction performs no VPS contact, signing, installation, native rerun,
+rebuild, activation or GitHub push/merge. Release/stopped-install acceptance is
+still pending independent review. O2 accepted; operational O3 NOT_RUN.
+Next: focused installer/package review -> separately permitted stopped install
+with fresh preflight -> installation evidence -> separately permitted bounded O3.
+See the [release correction record](stage-8/stage8b-p1f-o3-readmission-release.md).
+
+The following native qualification is retained unchanged, not rerun or expanded.
+
+Latest native readmission qualification: **PASS / NOT OPERATIONAL O3**.
+After the retained 10:06 MSK failed attempt, only the disposable input helper
+was corrected/rebuilt at `d26c02a` (fixture marker `SYNTHETIC-O3`), with a real
+production-constructor regression passing locally and on native release.
+The five production ELFs remain those built from accepted `5df1c88`; bootstrap
+and unit templates are unchanged. One newly owner-permitted repeat at 10:36 MSK
+passed signer/bootstrap/start/stop: stable UID987 child, `GRACEFUL_STOP` in
+0.461s, child exit0, signer terminal exit70, no restarts or surviving identities.
+The schedule credential was explicitly removed from tmpfs; both disposable
+containers and public staging were removed. No automatic retry or timer.
+
+Protected postflight at 07:37:31Z matches installed bytes/config, P0 and previous
+transactions/history; O2 remains COMPLETED/1/26, P1 stopped and host DB15 empty.
+The unified release/authority/seven-slot stopped-installation candidate is for
+independent review. Installation, operational O3, DB0, FINAM execution and real
+orders remain closed. Next: review -> separately permitted stopped install ->
+installation evidence -> separately permitted bounded O3. New evidence has 72
+command records; focused tests pass (native/helper 20, runner 15, builder 9,
+templates 10, authority negatives 45). Retained 19 installer tests are filesystem
+tests, not a new SIGKILL claim. No full CI/full Rust rerun is claimed. Details
+and handoff procedure are in the
+[readmission release record](stage-8/stage8b-p1f-o3-readmission-release.md).
+
+The following preparation summary retains the 2026-10-11 checkpoint; its
+future tense and no-key-transfer statements are historical, not current.
+
+Current source baseline: **SOURCE ACCEPT**
+`5df1c88299bbb7f1a70b709d3c01e2cf0a09d08c`, per the
+[independent focused review](stage-8/reviews/REVIEW_5df1c88_O3_SOURCE_ACCEPT_RU.txt).
+P1-O3-R01 and P2 weekend coverage are CLOSED. This is not release,
+installation or operational O3 acceptance. The
+[unified readmission release preparation](stage-8/stage8b-p1f-o3-readmission-release.md)
+is in progress. Five native Linux/amd64 production ELFs from accepted source
+are built and hashed; the temporary build resources were removed. Read-only
+postflight matches the accepted VPS state. The seven-slot stopped installer is
+prepared locally: 19 Linux filesystem tests pass; this does not execute ELFs
+or systemd. Two separate qualification helpers are also built from accepted
+source; fixture support is not included in the production installation slots.
+Their temporary build resources are removed; postflight at 06:48:36Z matches
+the accepted VPS state. Dynamic systemd qualification in a weekday window and
+the sealed review package remain pending. The manual qualification runner and
+public nine-file input set are prepared offline; 11 runner tests pass, including
+weekend refusal before SSH/key access. No automatic launch is scheduled; no key transfer,
+signing or installation occurred. No new Rust/Cargo/template/CI semantics
+are requested.
+The accepted source branch through `5df1c88` is now published to `origin`;
+local `main` matches `origin/main` at `ab0235a7`, without an O3 merge.
+Sunday 2026-10-11 remains outside the existing fixture admission window.
+Next manual calendar candidate is 2026-10-12 around 10:06 MSK, subject to fresh
+preflight; no unattended launch is arranged. The historical release packager
+is still bound to `fb1ceb3`; readmission packaging/verification must be completed
+against the new native result, not relabelled from earlier success.
+Next: exact release/authority/install evidence, separately permitted stopped
+installation, then separately permitted bounded O3. O2 remains accepted
+COMPLETED/1/26; operational O3 remains NOT_RUN. O4 WS/reconnect/freshness/EOD
+and multi-session ALOR parity follow O3; FINAM execution remains closed.
+
+The entries below retain earlier work and verdicts chronologically; they do
+not supersede this source acceptance.
+
+Historical correction: review of `7cf760c` was **SOURCE HOLD** for P1-O3-R01
+(existing pre-append proof missing retry fsync). The local correction adds a
+common file-sync/parent-sync/exact-reread boundary, targeted interruption/fault
+tests and P2 weekend-coverage wording. This remains a source re-review candidate;
+it does not independently close the finding or authorize release/installation.
+
+Latest local work: [O3 fresh paper admission and observation catch-up](stage-8/stage8b-p1f-o3-readmission-source-correction.md)
+implements the narrow source-only assignment following the accepted diagnostic.
+The historical O2 admission stays expired and unchanged; each new O3 decision
+gets separately bound Stage4 → Stage5C synthetic permission. Its exact retained
+proof is committed with RequestAccepted/S1 and carried through S_ack/S_truth.
+New work and journal-ahead replay have distinct freshness rules and counters.
+This is a source review candidate, **not independent acceptance or permission
+to install/run**. Retained local test results and limitations accompany the ZIP.
+O2 remains accepted COMPLETED/1/26; operational O3 NOT_RUN. No VPS changes,
+operational signing, push/merge, CI, DB0 or FINAM access were performed.
+Authority pins are deliberately unchanged pending source acceptance.
+The dated entries below retain their original historical status.
+
+2026-10-09 current: `0e89208` release and actual stopped installation evidence
+are independently ACCEPTED. Owner-authorized O3 preparation stopped before
+activation: the inherited supervisor Redis-manifest pin does not match the
+current no-riskgate/V4 identity. The [config-only correction candidate](stage-8/stage8b-p1f-o3-config-binding-correction.md)
+changes one field and records old→new outside immutable O2 authority history.
+No production Rust/Cargo/ELF/template change or new bootstrap is needed.
+Fresh diagnostic snapshots retained COMPLETED/1/26, exact root/receipt/history/P0
+and empty DB15. Correction is NOT INSTALLED; O3 remains NOT_RUN. Next review:
+config-only transition/local regressions → separately permitted stopped apply
+→ fresh bounded O3. No remote effect, push/merge or GitHub CI in this correction.
+Earlier dated entries are historical, not a claim that O3 is still uninstalled.
+
+2026-10-09 latest: O3 source `fb1ceb3dac40b365d0d23983af788ca1c9c72907`
+is independently **SOURCE ACCEPT / P1-O301 CLOSED**. The next deliverable is
+the [unified release/authority/stopped-installation candidate](stage-8/stage8b-p1f-o3-release-installation.md).
+Native Linux amd64/systemd 255 **isolated start/stop qualification now PASS**:
+one child UID/GID987, no effective/permitted/ambient/inheritable capabilities,
+NNP1; GRACEFUL_STOP in 0.493s, child exit0, no restarts or surviving processes.
+Narrow supervisor template correction: `User=root` -> `User=` (system-manager
+default root); capability bounds, NNP and sandbox retained. Signer terminal
+exit70 is recorded honestly, not masked. Rust/Cargo, all five release ELF bytes,
+installer and CI/authority policy are unchanged from package `e7f8599`.
+The owner-authorized test used the selected generation-2 schedule credential
+in disposable container tmpfs; deletion and container removal are recorded.
+Full accepted-host snapshots before/after are exactly equal: COMPLETED/1/26,
+P0 unchanged, P1 stopped, 15 installed slots unchanged, seven O3 slots absent.
+This does not install O3 on the accepted host or qualify its operational matrix.
+New template/package needs independent review; installation and bounded O3 each
+still need separate acceptance/permission. All 13 operational rows stay NOT_RUN.
+No push/merge/CI, FINAM request, host Redis/DB0 change or operational O3.
+The earlier source-candidate entries below are retained historical records.
+
+2026-10-09 correction: O3 source `6f0a6bf` received **SOURCE HOLD, P1-O301 only**.
+The [early-shutdown correction](stage-8/stage8b-p1f-o3-shutdown-correction.md)
+passes one existing coordinator/latch across composition → lazy runtime and
+rejects retained stop before admission. Fresh retained evidence: 28 exact tests
+plus fmt/build/clippy/diff; real SIGTERM/SIGINT barrier cases plus two mutation
+controls; ordinary production Market → successor → restart → graceful stop.
+This is a focused SOURCE RE-REVIEW CANDIDATE, not independent acceptance.
+All O3 operational rows remain NOT_RUN; O2/VPS/P0 unchanged. No installation,
+push/merge, CI, DB0 or FINAM access. After source acceptance: one exact artifact/
+installation package, permitted stopped update and separately permitted O3.
+Earlier entries below retain history.
+
+2026-10-09: [O3 source review candidate](stage-8/stage8b-p1f-o3-source-handoff.md)
+contains a fixed composition, production constrained signer and separate DB15
+initializer. Local Linux production-process run7 passed one paper Market,
+post-truth successor M10, SIGKILL/restart without duplicated effects and bounded
+graceful stop. Components: 23 exact tests plus fmt/build/clippy/diff PASS.
+Minimal disabled service templates and retained source/ELF identities accompany
+the immutable source package. The witness used a disposable synthetic root;
+it is NOT VPS/O3 operational acceptance or a qualified release installation.
+Accepted O2 remains COMPLETED/1/26; root/history/P0 unchanged.
+All 13 operational O3 matrix rows remain NOT_RUN. Next: source review, narrow
+artifact/authority closure, stopped installation and separately authorized O3;
+then O4 WS/reconnect/freshness/EOD and multi-session ALOR comparison.
+No VPS, DB0, FINAM request, push/merge or CI run was performed for this package.
+Earlier dated entries are historical.
+
+2026-10-08, after 20:14 MSK: **O2 OPERATIONAL ACCEPT / CLOSED** in the
+[independent review](stage-8/reviews/REVIEW_2d67937_O2_BOUNDED_20261008_2004_RU.txt).
+Accepted installation `2d67937`, compiled source `09dfecb`; one bounded attempt
+completed at **COMPLETED/1/26**. Existing root is adopted (marker generation 5,
+seal generation 1), Replay callback count 1, requests 0, Stage6 journal frames 0.
+Post-deadline evidence records P1 stopped, P0 unchanged and DB15 empty; it is a
+dated observation, not a fresh operational permit. No O2 repeat/rebootstrap.
+The [O3 preparation package](stage-8/stage8b-p1f-o3-preparation.md) maps existing
+production APIs and local witnesses to the next bounded synthetic/restart slice.
+It explicitly records the missing executable composition for the current
+observed-M10 profile; it is NOT a runnable or accepted operational O3 artifact.
+No remote mutation, signing, service start, push/merge or GitHub CI is included.
+Stage 8B-P1-f remains open: O3 → O4/WS/EOD/ALOR parity → aggregate acceptance.
+Earlier dated entries below are retained history, not the current O2 verdict.
+
+2026-10-08: first-boot Replay correction `09dfecb` is independently
+**SOURCE ACCEPT + ARTIFACT ACCEPT**. The
+[non-activating installation successor](stage-8/stage8b-p1f-o2-replay-installation.md)
+reuses the accepted three ELF bytes without a rebuild. Fresh read-only VPS
+preflight confirms **FAILED/1/23**, P1 stopped, P0 unchanged and matching old
+installation. Five replacement slots are prepared locally; terminal history,
+receipts, retained inputs, units and calendar are preserved. Installation
+review/permission and a separately authorized fresh bounded O2 are still ahead.
+**NOT INSTALLED; O2 HOLD.** No phase signing, timer, service action, remote
+write, push/merge or GitHub CI is included. Earlier entries below are historical.
+
+2026-10-08, after the 15:15 MSK attempt: the accepted credential installation
+reached `ReadyForBootstrap`, then stopped at bootstrap exit 66. Current terminal
+frontier is **FAILED/1/23**, P1 stopped, P0 unchanged; no durable root or DB15
+entries were created. Offline replay of the exact retained source/config found
+a BO Sell intent from the ordinary paper Replay callback, incompatible with
+the first-boot zero-intent contract. The
+[narrow first-boot observation correction](stage-8/stage8b-o2-first-boot-replay-correction.md)
+is a source review candidate. No new run, timer, installation or remote change
+is included. O2 HOLD; source acceptance/build/installation must precede a
+separately authorized fresh phase. Prior entries below are historical.
+
+2026-10-08: lifecycle-credential correction `817985c` is independently
+**SOURCE ACCEPT + BUILD ACCEPT** in the
+[retained review](stage-8/reviews/REVIEW_817985c_O2_CREDENTIAL_SOURCE_BUILD_20261008_RU.txt).
+The [credential installation successor](stage-8/stage8b-p1f-o2-credential-installation.md)
+reuses those three exact Linux ELF files; no rebuild, production Rust/Cargo,
+unit, strategy or permission changes. Fresh read-only snapshot confirms
+**FAILED/1/19**, the unchanged installed manifest, P1 stopped and P0 running.
+This is an installation **review candidate**, not an installation or O2 run.
+Five replacement slots: three ELFs and two installation manifests. History,
+archives, generated FAILED19 inputs and current calendar stay unchanged.
+Next: package review → separately authorized non-activating update/postflight
+→ separately authorized fresh-phase preparation and one bounded O2.
+The old failed phase/source/key must not be reused. O2 remains HOLD; continuous
+paper, WS/freshness/EOD/O3/O4 parity and live micro remain later steps.
+Earlier entries below describe history, not the current terminal frontier.
 
 2026-10-07 terminal recovery is independently **OPERATIONAL EVIDENCE ACCEPTED**
 in the [retained review](stage-8/reviews/REVIEW_21cc7eb_TERMINAL_RECOVERY_EVIDENCE_20261007_RU.txt).

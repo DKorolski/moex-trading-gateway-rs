@@ -2764,6 +2764,7 @@ async fn run_stage8b_p1e_startup_owner_loop_with_telemetry_v1(
     commitment_key: &Stage5gLifecycleCommitmentKey,
     telemetry: Option<&Stage8bP1eTelemetryReporterV1>,
 ) -> Result<Stage8bP1eOwnerLoopOutcomeV1, Stage8bP1eStartupErrorV1> {
+    let startup_clock = Stage8bP1eOwnerLoopClockV1::new(context.trusted_now);
     let entry = match latch_stage8b_p1e_startup_owner_v1(startup, latch) {
         Stage8bP1eStartupLatchDecisionV1::RetainedSource(retained) => {
             return Ok(Stage8bP1eOwnerLoopOutcomeV1::RetainedSource(retained));
@@ -3177,6 +3178,7 @@ async fn run_stage8b_p1e_startup_owner_loop_with_telemetry_v1(
             }
         }
     };
+    context.trusted_now = startup_clock.trusted_now()?;
     run_stage8b_p1e_owner_loop_from_entry_v1(
         entry,
         reader,
@@ -4516,12 +4518,34 @@ pub async fn execute_stage8b_p1e_process_command_v1(
 pub async fn execute_stage8b_p1e_observed_run_v1(
     window: crate::Stage8bP1ObservedPublishedWindow,
 ) -> Result<Stage8bP1eProcessSuccessV1, Stage8bP1eProcessErrorV1> {
+    execute_stage8b_p1e_observed_run_with_shutdown_v1(window, Stage8bP1eCoordinatorV1::new()).await
+}
+
+/// In-process O3 handoff of the EXISTING first-wins shutdown coordinator.
+/// The composition retains its latch before constructing/polling this future.
+/// This transfers no source/owner authority and introduces no clock or CLI input.
+pub async fn execute_stage8b_p1e_observed_run_with_shutdown_v1(
+    window: crate::Stage8bP1ObservedPublishedWindow,
+    coordinator: Stage8bP1eCoordinatorV1,
+) -> Result<Stage8bP1eProcessSuccessV1, Stage8bP1eProcessErrorV1> {
+    reject_pre_admission_shutdown(&coordinator)?;
     let supervisor = load_validated_supervisor(
         Path::new(STAGE8B_P1E_SUPERVISOR_CONFIG_PATH),
         Path::new(STAGE8B_P1E_BOOT_ID_PATH),
         0,
     )?;
-    execute_run_with_observed_window(supervisor, Utc::now(), Some(window)).await
+    execute_run_with_shutdown(supervisor, Utc::now(), Some(window), coordinator).await
+}
+
+fn reject_pre_admission_shutdown(
+    coordinator: &Stage8bP1eCoordinatorV1,
+) -> Result<(), Stage8bP1eProcessErrorV1> {
+    if coordinator.shutdown_intent().is_some() {
+        // No authenticated owner exists: preserve the existing conservative
+        // pre-admission exit class, not an invented authenticated exit-0 stop.
+        return Err(Stage8bP1eProcessErrorV1::DurableRestart);
+    }
+    Ok(())
 }
 
 async fn execute_with_boundaries(
@@ -5113,6 +5137,7 @@ async fn run_stage8b_p1e_process_owner_with_telemetry_v1(
     commitment_key: Stage5gLifecycleCommitmentKey,
     telemetry: Option<&Stage8bP1eTelemetryReporterV1>,
 ) -> Result<Stage8bP1eOwnerTaskBoundaryV1, Stage8bP1eStartupErrorV1> {
+    let invocation_clock = Stage8bP1eOwnerLoopClockV1::new(context.trusted_now);
     let mut outcome = run_stage8b_p1e_startup_owner_loop_with_telemetry_v1(
         startup,
         &mut reader,
@@ -5125,6 +5150,7 @@ async fn run_stage8b_p1e_process_owner_with_telemetry_v1(
     loop {
         outcome = match outcome {
             Stage8bP1eOwnerLoopOutcomeV1::CommittedCancelResolved(resolved) => {
+                context.trusted_now = invocation_clock.trusted_now()?;
                 run_stage8b_p1e_owner_loop_with_telemetry_v1(
                     resolved.into_ready_polling(),
                     &mut reader,
@@ -5220,6 +5246,24 @@ async fn execute_run_with_observed_window(
     trusted_now: DateTime<Utc>,
     window: Option<crate::Stage8bP1ObservedPublishedWindow>,
 ) -> Result<Stage8bP1eProcessSuccessV1, Stage8bP1eProcessErrorV1> {
+    execute_run_with_shutdown(
+        supervisor,
+        trusted_now,
+        window,
+        Stage8bP1eCoordinatorV1::new(),
+    )
+    .await
+}
+
+async fn execute_run_with_shutdown(
+    supervisor: Stage8bP1eValidatedSupervisorConfigV1,
+    trusted_now: DateTime<Utc>,
+    window: Option<crate::Stage8bP1ObservedPublishedWindow>,
+    coordinator: Stage8bP1eCoordinatorV1,
+) -> Result<Stage8bP1eProcessSuccessV1, Stage8bP1eProcessErrorV1> {
+    // Also cover a stop accepted during synchronous config loading. This is
+    // the same latch the composition and the ordinary owner/supervisor see.
+    reject_pre_admission_shutdown(&coordinator)?;
     if window.is_some() && !supervisor.bootstrap().observed_source_policy() {
         return Err(Stage8bP1eProcessErrorV1::Config);
     }
@@ -5232,7 +5276,6 @@ async fn execute_run_with_observed_window(
     let interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
         .map_err(|_| Stage8bP1eProcessErrorV1::SignalTaskFailed)?;
     let shutdown_grace_ms = supervisor.shutdown_grace_ms();
-    let coordinator = Stage8bP1eCoordinatorV1::new();
     let latch = coordinator.shutdown_latch();
     // Process supervision owns the audit sink. It therefore survives every
     // early owner return and a grace-deadline abort, and can always emit the
@@ -5270,7 +5313,7 @@ async fn run_stage8b_p1e_production_owner_v1(
         // be reported as the exit-0 authenticated shutdown boundary.
         return Err(Stage8bP1eProcessErrorV1::DurableRestart);
     }
-    let context = strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1 {
+    let mut context = strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1 {
         expected_instrument_map_fingerprint_sha256:
             crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
         expected_operational_identity_sha256: supervisor
@@ -5465,6 +5508,10 @@ async fn run_stage8b_p1e_production_owner_v1(
     ));
     let mut telemetry_task = Stage8bP1eTelemetryTaskGuardV1::new(telemetry_task);
     let (owner_result, telemetry_finished_early) = {
+        // Fresh production wall-clock anchor AFTER potentially slow durable
+        // admission/Redis attachment. Startup's old validation timestamp must
+        // not make a concurrently published schedule appear to be future data.
+        context.trusted_now = Utc::now();
         let owner = run_stage8b_p1e_process_owner_with_telemetry_v1(
             startup,
             reader,
@@ -5815,6 +5862,23 @@ fn map_redis_attach_error(error: Stage8bP1eRedisControlError) -> Stage8bP1eProce
 }
 
 fn map_startup_error(error: Stage8bP1eStartupErrorV1) -> Stage8bP1eProcessErrorV1 {
+    // Log only fixed error classifications, never Redis error text (which
+    // may contain a reply), credentials or callback/input payloads.
+    let classification = match &error {
+        Stage8bP1eStartupErrorV1::Source(Stage8bP1RedisSemanticError::Redis(_)) => {
+            "Redis operation failed".to_string()
+        }
+        Stage8bP1eStartupErrorV1::Source(Stage8bP1RedisSemanticError::Durable(
+            crate::Stage7bRecoveryError::Runtime(inner),
+        )) => inner.to_string(),
+        Stage8bP1eStartupErrorV1::Source(inner) => inner.to_string(),
+        Stage8bP1eStartupErrorV1::Schedule(crate::Stage8bP1eScheduleReadError::Redis(_)) => {
+            "Redis schedule operation failed".to_string()
+        }
+        Stage8bP1eStartupErrorV1::Schedule(inner) => inner.to_string(),
+        _ => error.to_string(),
+    };
+    eprintln!("stage8b-p1e-owner-error-class: {classification}");
     match error {
         Stage8bP1eStartupErrorV1::RedisControl(error) => map_redis_attach_error(error),
         Stage8bP1eStartupErrorV1::Source(_)
@@ -6387,10 +6451,32 @@ async fn stage8b_p1f_ie_run_linked_composition(
         ));
     }
 
-    let outcome = Stage8bP1RedisSemanticCompositionOwner::new(*owner, transport)
-        .process_next(&commitment_key)
-        .await
-        .map_err(|error| format!("consume fixed decision M10: {error:?}"))?;
+    let owner = Stage8bP1RedisSemanticCompositionOwner::new(*owner, transport);
+    let outcome = if sources.is_some() {
+        // Exercise the ordinary acquired-source/permit boundary as well as
+        // the lower-level composition. This remains a fixture-only helper.
+        let acquired = poll_stage8b_p1e_ready_fresh_with_redis(owner)
+            .await
+            .map_err(|error| format!("acquire fixed observed decision: {error:?}"))?;
+        let Stage8bP1eReadyFreshAcquisitionOutcomeV1::Acquired(acquired) = acquired else {
+            return Err("fixed observed decision not acquired".into());
+        };
+        let latch = Stage8bP1eShutdownLatchV1::new();
+        let Stage8bP1eRoutedPostAcquisitionDecisionV1::Continue(
+            Stage8bP1eRoutedContinuationV1::ReadySemantic(permit),
+        ) = route_stage8b_p1e_post_acquisition_v1(acquired, &latch)
+        else {
+            return Err("fixed observed decision not routed to ordinary semantic permit".into());
+        };
+        resume_stage8b_p1e_ready_source_with_redis(permit, &commitment_key)
+            .await
+            .map_err(|error| format!("consume fixed observed permit: {error:?}"))?
+    } else {
+        owner
+            .process_next(&commitment_key)
+            .await
+            .map_err(|error| format!("consume fixed decision M10: {error:?}"))?
+    };
     let Stage8bP1RedisSemanticOutcome::Prepublication(pending) = outcome else {
         return Err("fixed decision M10 did not produce one Market intent".into());
     };
@@ -6648,6 +6734,21 @@ async fn stage8b_p1f_ie_run_linked_composition(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn o3_retained_stop_rejects_before_admission_and_preserves_intent() {
+        let coordinator = Stage8bP1eCoordinatorV1::new();
+        assert!(reject_pre_admission_shutdown(&coordinator).is_ok());
+        let latch = coordinator.shutdown_latch();
+        let intent =
+            Stage8bP1eShutdownIntentV1::new(Stage8bP1eShutdownCauseV1::ExternalSignal, 123_456, 1);
+        assert!(latch.request(intent.clone()));
+        assert!(matches!(
+            reject_pre_admission_shutdown(&coordinator),
+            Err(Stage8bP1eProcessErrorV1::DurableRestart)
+        ));
+        assert_eq!(coordinator.shutdown_intent(), Some(&intent));
+    }
     use std::{
         collections::BTreeMap,
         ffi::CString,
@@ -11182,13 +11283,26 @@ mod tests {
     #[cfg(feature = "stage8a4-i3-test-fixtures")]
     #[tokio::test]
     async fn bounded_signed_market_cycle_rejoins_ready_and_xacks_source_last() {
+        bounded_signed_market_cycle(false).await;
+    }
+
+    /// Regression for the production O3 failure after the first Market.
+    /// The prior single-cycle test stopped before delivering its successor.
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[tokio::test]
+    async fn o3_post_market_successor_preserves_position_and_commits_before_xack() {
+        bounded_signed_market_cycle(true).await;
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    async fn bounded_signed_market_cycle(probe_successor: bool) {
         let redis = RedisServer::start().await;
         let parent = temp_directory("signed-schedule-bounded-success");
         let (published, key, fresh, identity, candidate_close_ms) =
             crate::stage8b_p1_semantic::p1e_test_plain_market_published(&redis.url, &parent).await;
         let trusted_now = DateTime::<Utc>::from_timestamp_millis(candidate_close_ms).unwrap();
         let fixture = crate::stage8b_p1e_schedule_source::tests::p1e_test_open_schedule_envelope(
-            identity,
+            identity.clone(),
             fresh.stage5c_config_fingerprint(),
             crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
             trusted_now,
@@ -11261,7 +11375,230 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(pending.count(), 0, "S_truth must precede source XACK-last");
-        drop(ready);
+        if probe_successor {
+            let durable_before = durable_file_snapshot(&parent);
+            let streams = [
+                &namespace.canonical_command_stream,
+                &namespace.canonical_ack_stream,
+            ];
+            let mut rows_before = Vec::new();
+            for stream in streams {
+                rows_before.push(
+                    redis::cmd("XRANGE")
+                        .arg(stream)
+                        .arg("-")
+                        .arg("+")
+                        .query_async::<redis::Value>(&mut connection)
+                        .await
+                        .unwrap(),
+                );
+            }
+            crate::stage8b_p1_semantic::p1e_i1_begin_direct_effect_audit();
+            let acquired = poll_stage8b_p1e_ready_fresh_with_redis(*ready.owner)
+                .await
+                .unwrap();
+            let crate::Stage8bP1eReadyFreshAcquisitionOutcomeV1::Acquired(acquired) = acquired
+            else {
+                panic!("the real execution-successor M10 must still be a fresh semantic source")
+            };
+            let crate::Stage8bP1ePostAcquisitionDecisionV1::Continue(permit) =
+                crate::decide_stage8b_p1e_post_acquisition_latch(
+                    acquired,
+                    &Stage8bP1eShutdownLatchV1::new(),
+                )
+            else {
+                panic!("clear latch must permit the exact acquired source")
+            };
+            let outcome = resume_stage8b_p1e_ready_source_with_redis(permit, &key)
+                .await
+                .unwrap();
+            let crate::Stage8bP1RedisSemanticOutcome::Ready { owner, receipt, .. } = outcome else {
+                panic!("the post-Market successor must commit a zero-intent continuation")
+            };
+            assert_eq!(
+                receipt.evidence.m10_redis_id,
+                format!("{candidate_close_ms}-0")
+            );
+            let effects = crate::stage8b_p1_semantic::p1e_i1_take_direct_effect_audit();
+            assert_eq!(effects.callback_total, 1);
+            assert_eq!(effects.provider_total, 0);
+            assert_eq!(effects.publication_attempt_total, 0);
+            assert_eq!(effects.xack_attempt_total, 1);
+            let durable_after = durable_file_snapshot(&parent);
+            assert_ne!(
+                durable_after, durable_before,
+                "semantic continuation must replace the seal"
+            );
+            for (path, before) in &durable_before {
+                if path
+                    .file_name()
+                    .is_some_and(|name| name == "stage6.journal")
+                {
+                    assert_eq!(
+                        durable_after.get(path),
+                        Some(before),
+                        "zero-intent continuation cannot append a request"
+                    );
+                }
+            }
+            for (stream, before) in streams.into_iter().zip(rows_before) {
+                let after: redis::Value = redis::cmd("XRANGE")
+                    .arg(stream)
+                    .arg("-")
+                    .arg("+")
+                    .query_async(&mut connection)
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    after, before,
+                    "the semantic successor cannot duplicate the prior Market effects"
+                );
+            }
+            let pending: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
+                .arg(&namespace.canonical_m10_stream)
+                .arg(&namespace.m10_consumer_group)
+                .query_async(&mut connection)
+                .await
+                .unwrap();
+            assert_eq!(
+                pending.count(),
+                0,
+                "the committed successor must be XACKed last"
+            );
+            drop(owner);
+
+            fn embedded_state(
+                files: &BTreeMap<PathBuf, Vec<u8>>,
+            ) -> (serde_json::Value, serde_json::Value) {
+                let bytes = files
+                    .iter()
+                    .find(|(path, _)| {
+                        path.file_name()
+                            .is_some_and(|name| name == "stage7b-recovery.seal")
+                    })
+                    .unwrap()
+                    .1;
+                let seal: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+                let decode = |value: &serde_json::Value| -> serde_json::Value {
+                    let bytes: Vec<u8> = serde_json::from_value(value.clone()).unwrap();
+                    serde_json::from_slice(&bytes).unwrap()
+                };
+                let authenticated = decode(&seal["stage6d_authenticated_restart_package"]);
+                let package = decode(&authenticated["stage5g_restart_package"]);
+                let extension: serde_json::Value =
+                    serde_json::from_str(package["stage5g_extension_json"].as_str().unwrap())
+                        .unwrap();
+                let envelope: serde_json::Value =
+                    serde_json::from_str(package["envelope_json"].as_str().unwrap()).unwrap();
+                let runtime = envelope["strategy_state"]["strategy_state_json"].clone();
+                (extension, runtime)
+            }
+            let (before_extension, _) = embedded_state(&durable_before);
+            let (after_extension, runtime) = embedded_state(&durable_after);
+            assert_eq!(
+                after_extension["order_position_state"], before_extension["order_position_state"],
+                "the filled order, trade, position and sequence pair must survive continuation"
+            );
+            assert_eq!(
+                runtime["HybridIntradayRuntime"]["last_position_qty"],
+                serde_json::json!(1.0)
+            );
+            let restart_config = crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.clone(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap();
+            crate::stage8b_p1_semantic::p1e_i1_begin_direct_effect_audit();
+            let restart = crate::restart_stage8b_p1(restart_config, &key, fresh).unwrap();
+            assert!(
+                matches!(
+                    restart,
+                    Stage7bRestartOutcome::P1SemanticZeroIntentAckPending(_)
+                ),
+                "restart must resolve the committed successor, not repeat its callback"
+            );
+            let Stage8bP1ePreRedisRestartV1::Attachable(restart) =
+                stage8b_p1e_route_pre_redis_restart_v1(restart)
+            else {
+                panic!("post-Market semantic replacement must remain attachable");
+            };
+            let session = crate::stage8b_p1_supervisor::stage8b_p1e_test_verified_redis_session_v1(
+                &redis.url,
+            )
+            .await;
+            let startup = acquire_stage8b_p1e_startup_owner_v1(restart, session)
+                .await
+                .unwrap();
+            let Stage8bP1eStartupLatchDecisionV1::ContinueSource(startup) =
+                latch_stage8b_p1e_startup_owner_v1(startup, &Stage8bP1eShutdownLatchV1::new())
+            else {
+                panic!("exact committed successor replay must cross the clear latch");
+            };
+            let recovered = drain_stage8b_p1e_schedule_free_recovery_v1(
+                startup,
+                &Stage8bP1eShutdownLatchV1::new(),
+                &key,
+            )
+            .await
+            .unwrap();
+            let Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(mut recovered) = recovered else {
+                panic!("post-Market committed replay must return Ready");
+            };
+            let effects = crate::stage8b_p1_semantic::p1e_i1_take_direct_effect_audit();
+            assert_eq!(effects.callback_total, 0);
+            assert_eq!(effects.provider_total, 0);
+            assert_eq!(effects.publication_attempt_total, 0);
+            assert_eq!(
+                durable_file_snapshot(&parent),
+                durable_after,
+                "already-XACKed restart must not replace runtime state or append durable effects"
+            );
+            recovered
+                .owner
+                .transport_mut()
+                .publish_canonical_m10(
+                    &canonical_m10_at(identity.clone(), candidate_close_ms + 600_000, "2650"),
+                    &identity,
+                )
+                .await
+                .unwrap();
+            crate::stage8b_p1_semantic::p1e_i1_begin_direct_effect_audit();
+            let Stage8bP1eReadyPollOutcomeV1::ContinueSource(continuing) =
+                poll_stage8b_p1e_ready_once_v1(recovered, &Stage8bP1eShutdownLatchV1::new())
+                    .await
+                    .unwrap()
+            else {
+                panic!("the committed semantic watermark must permit the next exact M10");
+            };
+            let next = drain_stage8b_p1e_schedule_free_recovery_v1(
+                continuing,
+                &Stage8bP1eShutdownLatchV1::new(),
+                &key,
+            )
+            .await
+            .unwrap();
+            assert!(matches!(
+                next,
+                Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(_)
+            ));
+            let effects = crate::stage8b_p1_semantic::p1e_i1_take_direct_effect_audit();
+            assert_eq!(effects.callback_total, 1);
+            assert_eq!(effects.provider_total, 0);
+            assert_eq!(effects.publication_attempt_total, 0);
+            assert_eq!(effects.xack_attempt_total, 1);
+            let (next_extension, next_runtime) = embedded_state(&durable_file_snapshot(&parent));
+            assert_eq!(
+                next_extension["order_position_state"],
+                after_extension["order_position_state"]
+            );
+            assert_eq!(
+                next_runtime["HybridIntradayRuntime"]["last_position_qty"],
+                serde_json::json!(1.0)
+            );
+            drop(next);
+        } else {
+            drop(ready);
+        }
         fs::remove_dir_all(parent).unwrap();
     }
 

@@ -15,7 +15,9 @@ pub mod instrument_registry;
 pub mod mapper;
 pub mod o2_readonly;
 pub mod order_request;
+pub mod shadow_instrument;
 pub mod sparse_m10;
+pub use shadow_instrument::ShadowInstrument;
 pub mod ws;
 pub use dto::*;
 pub use instrument_registry::*;
@@ -152,6 +154,19 @@ pub struct FinamRestClient {
 }
 
 impl FinamRestClient {
+    /// Fixed-origin authentication for the isolated shadow owner. No proxy or
+    /// redirect may forward a credential; existing callers keep their policy.
+    pub fn shadow_auth_client() -> Result<Self, FinamError> {
+        Ok(Self {
+            http: reqwest::Client::builder()
+                .https_only(true)
+                .no_proxy()
+                .redirect(reqwest::redirect::Policy::none())
+                .timeout(DEFAULT_REQUEST_TIMEOUT)
+                .build()?,
+            config: FinamConfig::default(),
+        })
+    }
     pub fn new(config: FinamConfig) -> Self {
         Self::try_new(config).expect("reqwest client configuration must be valid")
     }

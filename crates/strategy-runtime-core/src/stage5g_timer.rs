@@ -1550,10 +1550,16 @@ pub fn continue_stage5g_timer_with_bar(
             )));
         }
     };
+    let decision_ts = accepted
+        .o3_readmission
+        .as_ref()
+        .map_or(bar_checkpoint_ts_utc_ms, |p| {
+            p.decision_at().timestamp_millis()
+        });
     match advance_stage5c_timer_settlement_next_bar_transactional_at_checkpoint(
         settlement,
         accepted,
-        bar_checkpoint_ts_utc_ms,
+        decision_ts,
         checkpoint_ts_utc_ms,
     ) {
         Ok(settled) => {

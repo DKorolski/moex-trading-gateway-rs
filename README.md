@@ -9,6 +9,19 @@ adapter can be added without rewriting the strategies.
 
 ## Current status
 
+Source baseline (2026-11-21): `10e74757` is independently SOURCE ACCEPT and
+Linux RELEASE ACCEPT, including accepted IMOEXF readback correction `f19eb207`.
+USD/RI execution R1 is independently EXECUTION ACCEPT and was installed/armed
+on 20 November for one bounded observation on 23 November; it has not run yet.
+The separate IMOEXF 23-Nov candidate is prepared, not installed/armed.
+Start with [the current engineering checkpoint](docs/stage-8/shadow-accepted-sync-20261121.md)
+and [current status](docs/current-status.md). Older dated entries are historical.
+This synchronization changes documentation and exact CI inventory bindings,
+not the accepted Rust/Cargo code, operational packages or VPS configuration.
+It does not attest full-session EOD, current ALOR parity or live-micro readiness.
+
+## Historical lineage (retained, not current readiness)
+
 Stages 0–7 are accepted and closed. They provide broker-neutral contracts,
 FINAM market data and broker truth, migrated Hybrid strategy semantics, durable
 request identity/restart recovery, and the isolated paper command-consumer
@@ -55,10 +68,10 @@ The active R2B artifact is design-only and `NOT_ISSUED`; it freezes the proposed
 one-shot read-only endpoint, executable, credential, sandbox, validation and
 evidence contract without reading a credential or opening network access.
 
-FINAM production POST/DELETE, Redis live consumption, broker dispatch,
-runtime-live, real strategy orders and Stage 8B execution authority remain
-closed. R2B requires independent proposal acceptance and a later separate exact
-issuance package before any read-only FINAM evidence run.
+The preceding R2B design description is historical. Current bounded read-only
+shadow authority is described in the checkpoint above. FINAM order POST/DELETE,
+Redis DB0/live consumption, broker order dispatch, runtime-live and real strategy
+orders remain closed; auth session POST is not an order route.
 
 This repository is not enabled for continuous live trading.
 

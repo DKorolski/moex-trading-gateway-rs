@@ -48,10 +48,22 @@ pub(crate) struct Stage5gP1SemanticCommitProjectionV1 {
     pub(crate) durable_command_snapshot: Option<Stage6DurableCommandSnapshotV1>,
     pub(crate) expected_attribution: Option<HybridRuntimeAttribution>,
     pub(crate) source_intent: Option<crate::stage5c_paper_host::Stage5gSourceIntentProjection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) o3_readmission: Option<Box<crate::stage8b_o3_readmission::Proof>>,
 }
 
 impl Stage5gP1SemanticCommitProjectionV1 {
     pub(crate) fn validate(&self) -> bool {
+        if self.o3_readmission.as_ref().is_some_and(|p| {
+            !p.validates_commit(
+                &self.operational_identity_sha256,
+                &self.m10_redis_id,
+                &self.m10_semantic_id_sha256,
+                &self.m10_payload_sha256,
+            )
+        }) {
+            return false;
+        }
         if self.schema_version != STAGE5G_P1_SEMANTIC_COMMIT_SCHEMA_VERSION
             || self.identity_domain != P1_SEMANTIC_BATCH_DOMAIN
             || !is_sha256(&self.operational_identity_sha256)
@@ -270,7 +282,7 @@ impl Stage5gP1MultiIntentBlocked {
 }
 
 pub fn continue_stage5g_p1_semantic(
-    restored: Stage5gCleanRestartedCapability,
+    mut restored: Stage5gCleanRestartedCapability,
     accepted_bar: Stage5cAcceptedSemanticBar,
     binding: Stage5gP1SemanticBindingInput,
 ) -> Result<Stage5gP1SemanticTransition, Stage5gP1SemanticFailure> {
@@ -297,11 +309,23 @@ pub fn continue_stage5g_p1_semantic(
             parse_exact_redis_id(&binding.m10_redis_id).unwrap(),
         )
         .map_err(|_| Stage5gP1SemanticFailure::PersistenceIdentityOverflow)?;
+    restored
+        .stage8b_p1_catch_up_initial_source(&accepted_bar)
+        .map_err(|_| Stage5gP1SemanticFailure::SemanticCallbackFailed)?;
     let ready = restored
         .into_stage8b_p1_timer_ready()
         .map_err(|_| Stage5gP1SemanticFailure::PriorAuthorityNotContinuationCapable)?;
-    let continued = continue_stage5g_timer_with_bar(ready, accepted_bar)
-        .map_err(|_| Stage5gP1SemanticFailure::SemanticCallbackFailed)?;
+    let o3_readmission = accepted_bar
+        .o3_readmission
+        .as_ref()
+        .map(|p| Box::new(p.proof().clone()));
+    let continued = continue_stage5g_timer_with_bar(ready, accepted_bar).map_err(|error| {
+        eprintln!(
+            "stage8b-p1-bar-continuation-error-class: {:?}",
+            error.reason()
+        );
+        Stage5gP1SemanticFailure::SemanticCallbackFailed
+    })?;
     match settle_stage5g_bar_continuation(continued) {
         Stage5gBarContinuationTransition::Ready(ready) => {
             let projection = Stage5gP1SemanticCommitProjectionV1 {
@@ -321,6 +345,7 @@ pub fn continue_stage5g_p1_semantic(
                 durable_command_snapshot: None,
                 expected_attribution: None,
                 source_intent: None,
+                o3_readmission,
             };
             if !projection.validate() {
                 return Err(Stage5gP1SemanticFailure::InvalidBinding);
@@ -377,6 +402,7 @@ pub fn continue_stage5g_p1_semantic(
                 durable_command_snapshot: Some(durable_command_snapshot),
                 expected_attribution: Some(material.expected_attribution),
                 source_intent: Some(material.source),
+                o3_readmission,
             };
             if !projection.validate() {
                 return Err(Stage5gP1SemanticFailure::UnsupportedSingleIntent);
@@ -439,6 +465,10 @@ pub(crate) fn continue_stage8b_p1d3_semantic(
         .map_err(|_| Stage5gP1SemanticFailure::PriorAuthorityNotContinuationCapable)?;
     let (strategy_id, account_id, instrument) =
         crate::Stage5gOrderPositionSession::stage5g_restart_state_binding(&state);
+    let o3_readmission = accepted_bar
+        .o3_readmission
+        .as_ref()
+        .map(|p| Box::new(p.proof().clone()));
     let callback = crate::stage5c_paper_host::resolve_stage8b_p1d3_semantic_bar_bridge(
         runtime,
         accepted_bar,
@@ -462,6 +492,7 @@ pub(crate) fn continue_stage8b_p1d3_semantic(
             prior_checkpoint_sha256,
             semantic_batch_id_sha256,
             None,
+            o3_readmission,
         )?;
         let source =
             crate::stage8b_p1d3_working_limit::Stage8bP1d3RestartSource::with_semantic_commit(
@@ -490,6 +521,7 @@ pub(crate) fn continue_stage8b_p1d3_semantic(
         prior_checkpoint_sha256,
         semantic_batch_id_sha256,
         Some(material),
+        o3_readmission,
     )?;
     let source = crate::stage8b_p1d3_working_limit::Stage8bP1d3RestartSource::with_semantic_commit(
         runtime,
@@ -512,6 +544,7 @@ fn p1_projection(
     prior_stage5g_checkpoint_sha256: String,
     semantic_batch_id_sha256: String,
     material: Option<crate::stage5c_paper_host::Stage8bP1CommandMaterial>,
+    o3_readmission: Option<Box<crate::stage8b_o3_readmission::Proof>>,
 ) -> Result<Stage5gP1SemanticCommitProjectionV1, Stage5gP1SemanticFailure> {
     let projection = if let Some(material) = material {
         let request_id = command_request_id(&material.command);
@@ -545,6 +578,7 @@ fn p1_projection(
             durable_command_snapshot: Some(durable_command_snapshot),
             expected_attribution: Some(material.expected_attribution),
             source_intent: Some(material.source),
+            o3_readmission,
         }
     } else {
         Stage5gP1SemanticCommitProjectionV1 {
@@ -564,6 +598,7 @@ fn p1_projection(
             durable_command_snapshot: None,
             expected_attribution: None,
             source_intent: None,
+            o3_readmission,
         }
     };
     projection
@@ -597,6 +632,7 @@ pub(crate) fn stage8b_p1d3_test_one_intent_projection(
             expected_attribution,
             source,
         }),
+        None,
     )
 }
 
@@ -701,7 +737,10 @@ pub fn export_stage5g_p1_one_intent(
         export_input,
         key,
     )
-    .map_err(|_| Stage5gP1SemanticFailure::RestartExportFailed)
+    .map_err(|error| {
+        eprintln!("stage8b-p1-restart-export-error-class: {error:?}");
+        Stage5gP1SemanticFailure::RestartExportFailed
+    })
 }
 
 pub(crate) fn p1_zero_source_runtime(

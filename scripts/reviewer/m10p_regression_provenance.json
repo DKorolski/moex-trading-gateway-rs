@@ -1,0 +1,21 @@
+{
+  "schema": "finam.adopted-reviewer-regression.m10p.v1",
+  "review_source_ref": "a7b2c63650cb22fdb3f175bcc3a6f5168ab889ee",
+  "review_zip": "FINAM_SHADOW_M10_PERSISTENT_REVIEW_a7b2c636_20261113_R0.zip",
+  "review_zip_sha256": "e8422a3afa246dda9b8f0d4638d0da27ff30be2f5e9e5572e1a690a2a5f7726f",
+  "review_letter_sha256": "5dffafe519e6966d5290fdc3820e5ba8ec8bc591d8c5c85f8a3315cf72daaf4c",
+  "scripts": {
+    "repro/repro_outcome_index.py": {
+      "adopted_name": "m10p1_outcome_index_r0.py",
+      "sha256": "4b5a788296c85c6a0dd449feda23b3d7fc429d13ad0e7856ec60dab72c7b276b",
+      "bytes_unchanged": true
+    },
+    "repro/reproduce_exact_decimal.py": {
+      "adopted_name": "m10p2_exact_decimal_r0.py",
+      "sha256": "a8c1acafd6190582032c350c3e7c23dc5ec415e2d3a693ea04b9a4d92fbd353f",
+      "bytes_unchanged": true
+    }
+  },
+  "controls": "Run M10P-1 --expect-fixed and M10P-2 --expect reject; both require --refresh-implementation explicitly for R1",
+  "scope": "Owned synthetic local fixtures only; no VPS, FINAM, orders or observed-session claims"
+}

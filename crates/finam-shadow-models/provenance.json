@@ -1,0 +1,42 @@
+{
+  "upstream": "ALOR finam-shadow-models-2026-11-13.zip",
+  "upstream_zip_sha256": "2d272312dec9cda3693962e93692a5e6c194d890367cb1dbee0ac527b7905f55",
+  "upstream_source_ref": "4503b6a20d980408bf915807c08264aa160ed8c0",
+  "source_files": {
+    "reference_rust/strategy-runtime/src/bin/imoexf_shadow_replay/model.rs": "8f4b4ced7b5340c47be2ed0bd96434b637a50378c10b155596593b13447a8e0a",
+    "reference_rust/strategy-runtime/src/shadow_session_context.rs": "4b5c3c3c4fed7d210d69c4db796f55f1a3162a58e12110da2f8ca706dc673d87",
+    "reference_rust/strategy-runtime/src/shadow_reaction.rs": "f83906e7423028ee524f6cfe0d5f6f7606b839d924d11cd06e32806d687f108f",
+    "models/imoexf/profile.json": "df266b75c97f1784891f38f8bdcd5f5133daf335f79acf73db00179b61166026",
+    "fixtures/imoexf/inputs.json": "3f2cd3fe24da04f3813d5ffef483d7173d1bf93884dafb91ea4b80c07d473a5f",
+    "reference_rust/strategy-runtime/src/bin/usdrubf_shadow_replay/model.rs": "062a5256fa97d46f985299f12f5a8bc5e06888afee2ab7ca47ee21e8c774ce38",
+    "models/usdrubf/profile.json": "8b8517e2c2b75d21d6a94686fe9a7abc7d52aa26b4456b17d1d9fccdfb3db496",
+    "fixtures/usdrubf/inputs.json": "bcc1f7bd9155a9fc9345f8bdd1f14304b919eb7ecc20fbab841b399167a50641",
+    "reference_rust/strategy-runtime/src/ri_context.rs": "0b0120b4ace4f28f85bde6fb0a76679b85ddfa9d6ed57188b32298fbe06eea28",
+    "reference_rust/strategy-runtime/src/strategies/ri_author41_42_live.rs": "5ae3ff1c96b6d16d9bdfa716357f0034ebc2ac2579f4d148d2f860056d19cd29",
+    "reference_rust/strategy-runtime/src/strategies/moex_author41_42.rs": "552a55785a428c93b938c257fc7946f65bcb8d5f6390d0edb6ed877149f414ad",
+    "reference_rust/strategy-runtime/src/strategies/ri_author41_42_live/frozen_shadow.rs": "ac7a91361ca66ab04909d453c6bc8c8aa260988d8ecfd928576a6c634b0e2761",
+    "models/ri/profile.json": "30e74209c058e288ab171afb7d18cba4d9bb93a0e4927cf9a6062325e96fe989",
+    "fixtures/ri/inputs.json": "4e6b26c8077d208f1e7552da52f40f5b808324124950a88446c2c364d09e3e3a"
+  },
+  "scope": "Accepted IMOEXF/USDRUBF reaction cores + separate RI prospective numerical candidate; six arms, local synthetic evidence only",
+  "adaptations": [
+    "Local strict BarEvent/DataOrigin DTOs; no ALOR protocol or gateway dependency",
+    "Selected IMOEXF/USDRUBF reaction profiles unchanged; RI lives in a separate prospective engine/context/session",
+    "Removed context collector and filesystem persistence helpers; checkpoint bytes remain offline artifacts",
+    "Public in-memory freeze for the local input-only fixture adapter",
+    "Equivalent Rust 1.80-compatible Option/grid syntax",
+    "Frozen IMOEXF combo/costs and USDRUBF Previous-day07 H4/W4 enforced at session construction",
+    "Independent local fixture exporter; expected outputs never supplied to Rust"
+  ],
+  "ri_port": {
+    "method": "Broker-neutral extraction/reimplementation of canonical prospective methods, not a byte-for-byte copy of ALOR live adapter or the Python oracle",
+    "engine_source_symbols": ["RiAuthor4142LiveStrategy::live_mr_intents_for_bar", "live_bo_intents_for_bar", "observe_bo_bar", "ensure_bo_session", "update_bo_pending_entry", "mr_entry_signal", "mr_exit_signal", "finalize_prospective_adapter_transition", "Author41Config::ri_plateau_short_source", "Author41Config::ri_plateau_long_source", "Author42Config::ri_grid_k042_both"],
+    "context_adaptations": ["Local strict BarEvent/DataOrigin DTOs", "Removed ingress/runner and filesystem publish helpers", "Equivalent Rust 1.80 grid/Option syntax", "In-memory freeze and read-only verified processing-clock getters"],
+    "session": "One frozen session; input order/receipt binding, staged state, generation/profile/calendar/code identity and complete-prefix replay witness; not operational disk persistence",
+    "calendar": "Exact selected profiles/ri.json including 2026-11-04 exclusion",
+    "synthetic_clock": "Fixture adapter declares received=durable=processed=label+600; never presented as observed provider receipt",
+    "validation": "Independent upstream Python oracle + official candidate comparator; extra mark-price/ownership/model-point arithmetic checks"
+  },
+  "deployment": false,
+  "order_emission_allowed": false
+}

@@ -8,13 +8,13 @@
 use std::collections::BTreeMap;
 
 use broker_core::observed_m1::{ObservedM1Error, ObservedM1Receipt};
-use broker_core::{event::Bar, Exchange, InstrumentId, Market, MarketDataSourceKind};
+use broker_core::{event::Bar, Market, MarketDataSourceKind};
 use chrono::{DateTime, Duration, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::{dto, map_bar, STAGE8B_P1F_O2_VENUE_SYMBOL};
+use crate::{dto, map_bar, ShadowInstrument};
 
 pub use broker_core::observed_m1::OBSERVED_M1_POLICY_V1;
 pub const SNAPSHOT_MAX_BODY_BYTES: usize = 32 * 1024 * 1024;
@@ -131,6 +131,7 @@ pub struct ClosedM1RangeAccountingV1 {
 /// exact mapping of the raw snapshot after admission.
 #[derive(Debug)]
 pub struct AdmittedClosedM1Snapshot {
+    instrument: ShadowInstrument,
     evidence: ClosedM1SnapshotEvidenceV1,
     sha256: String,
     receipt: ObservedM1Receipt,
@@ -201,7 +202,7 @@ fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-fn mapped_m1(raw: &dto::Bar) -> Result<Bar, ClosedM1SnapshotError> {
+fn mapped_m1(raw: &dto::Bar, instrument: ShadowInstrument) -> Result<Bar, ClosedM1SnapshotError> {
     let open: DateTime<Utc> = raw
         .timestamp
         .parse()
@@ -209,10 +210,10 @@ fn mapped_m1(raw: &dto::Bar) -> Result<Bar, ClosedM1SnapshotError> {
     open.checked_add_signed(Duration::seconds(60))
         .ok_or(ClosedM1SnapshotError::Bar)?;
     let mut b =
-        map_bar(STAGE8B_P1F_O2_VENUE_SYMBOL, raw, 60).map_err(|_| ClosedM1SnapshotError::Bar)?;
+        map_bar(instrument.venue_symbol(), raw, 60).map_err(|_| ClosedM1SnapshotError::Bar)?;
     b.instrument.market = Market::Futures;
     b.source_kind = MarketDataSourceKind::HistoricalPoll;
-    let step = Decimal::new(5, 1);
+    let step = instrument.tick();
     if !minute_aligned(b.open_ts)
         || b.low <= Decimal::ZERO
         || b.low > b.high
@@ -230,6 +231,17 @@ fn mapped_m1(raw: &dto::Bar) -> Result<Bar, ClosedM1SnapshotError> {
 
 impl AdmittedClosedM1Snapshot {
     pub fn admit(
+        evidence: ClosedM1SnapshotEvidenceV1,
+        plan: &ClosedM1RequestPlan,
+        trusted_now: DateTime<Utc>,
+    ) -> Result<Self, ClosedM1SnapshotError> {
+        Self::admit_for(ShadowInstrument::Imoexf, evidence, plan, trusted_now)
+    }
+
+    /// Explicit fixed-instrument admission. The legacy entry stays IMOEXF-only.
+    /// Full retained raw body/identity/range/transport checks are not bypassed.
+    pub fn admit_for(
+        instrument: ShadowInstrument,
         evidence: ClosedM1SnapshotEvidenceV1,
         plan: &ClosedM1RequestPlan,
         trusted_now: DateTime<Utc>,
@@ -256,8 +268,12 @@ impl AdmittedClosedM1Snapshot {
         let mut retained_bytes = 0usize;
         for part in &evidence.parts {
             if part.method != "GET"
-                || part.endpoint != "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars"
-                || part.symbol != STAGE8B_P1F_O2_VENUE_SYMBOL
+                || part.endpoint
+                    != format!(
+                        "https://api.finam.ru/v1/instruments/{}/bars",
+                        instrument.venue_symbol()
+                    )
+                || part.symbol != instrument.venue_symbol()
                 || part.timeframe != "TIME_FRAME_M1"
             {
                 return Err(ClosedM1SnapshotError::Identity);
@@ -297,7 +313,7 @@ impl AdmittedClosedM1Snapshot {
             }
             let response: RequiredBarsResponse =
                 serde_json::from_str(&part.raw_body).map_err(|_| ClosedM1SnapshotError::Body)?;
-            if response.symbol != STAGE8B_P1F_O2_VENUE_SYMBOL {
+            if response.symbol != instrument.venue_symbol() {
                 return Err(ClosedM1SnapshotError::Identity);
             }
             let mut unique = BTreeMap::new();
@@ -308,7 +324,7 @@ impl AdmittedClosedM1Snapshot {
                 equal_duplicate_rows: 0,
             };
             for raw in response.bars {
-                let b = mapped_m1(&raw)?;
+                let b = mapped_m1(&raw, instrument)?;
                 if b.open_ts < part.start || b.open_ts > part.end {
                     return Err(ClosedM1SnapshotError::Range);
                 }
@@ -357,16 +373,12 @@ impl AdmittedClosedM1Snapshot {
                 .last()
                 .ok_or(ClosedM1SnapshotError::Range)?
                 .received_at,
-            InstrumentId {
-                symbol: "IMOEXF".into(),
-                venue_symbol: Some(STAGE8B_P1F_O2_VENUE_SYMBOL.into()),
-                exchange: Exchange::Moex,
-                market: Market::Futures,
-            },
+            instrument.instrument(),
             mapped.into_values().collect(),
         )
         .map_err(map_receipt_error)?;
         Ok(Self {
+            instrument,
             evidence,
             sha256,
             receipt,
@@ -376,6 +388,9 @@ impl AdmittedClosedM1Snapshot {
 
     pub fn evidence(&self) -> &ClosedM1SnapshotEvidenceV1 {
         &self.evidence
+    }
+    pub fn instrument(&self) -> ShadowInstrument {
+        self.instrument
     }
 
     pub fn sha256(&self) -> &str {

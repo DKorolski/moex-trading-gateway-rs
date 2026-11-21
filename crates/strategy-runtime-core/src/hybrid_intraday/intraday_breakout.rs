@@ -2,6 +2,31 @@ use chrono::{NaiveDate, NaiveDateTime, Timelike};
 
 use super::types::{EntrySignal, EntryStyle, ExitSignal, Owner, ReasonCode, Side};
 
+/// Facts captured at the actual terminal entry branch, not a replayed model.
+/// These are predicate values at that branch, not a claim that every operand
+/// of the short-circuit entry expressions was evaluated on the way there.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct BreakoutVeto {
+    pub long_allowed: bool,
+    pub short_allowed: bool,
+    pub long_unused: bool,
+    pub short_unused: bool,
+    pub above_long: bool,
+    pub below_short: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct EntryNoSignal {
+    pub reason: &'static str,
+    pub veto: Option<BreakoutVeto>,
+}
+
+impl EntryNoSignal {
+    pub fn gate(reason: &'static str) -> Self {
+        Self { reason, veto: None }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MinRangeMode {
     Disabled,
@@ -136,13 +161,27 @@ impl IntradayBreakoutEngine {
     }
 
     pub fn evaluate_entry(&self, dt: NaiveDateTime, close: f64) -> Option<EntrySignal> {
-        if !self.can_check_entry(dt) {
-            return None;
+        self.evaluate_entry_traced(dt, close).0
+    }
+
+    /// Same evaluator and branch order as evaluate_entry; only the otherwise
+    /// discarded None branch is returned alongside the unchanged signal.
+    pub fn evaluate_entry_traced(
+        &self,
+        dt: NaiveDateTime,
+        close: f64,
+    ) -> (Option<EntrySignal>, Option<EntryNoSignal>) {
+        if let Some(reason) = self.entry_time_gate(dt) {
+            return (None, Some(EntryNoSignal::gate(reason)));
         }
-        let yesterday_close = self.yesterday_close?;
-        let yesterday_range = self.yesterday_range?;
+        let Some(yesterday_close) = self.yesterday_close else {
+            return (None, Some(EntryNoSignal::gate("missing_previous_close")));
+        };
+        let Some(yesterday_range) = self.yesterday_range else {
+            return (None, Some(EntryNoSignal::gate("missing_previous_range")));
+        };
         if !self.passes_min_range_filter() {
-            return None;
+            return (None, Some(EntryNoSignal::gate("minimum_range")));
         }
 
         let mut can_long = true;
@@ -160,26 +199,45 @@ impl IntradayBreakoutEngine {
         let short_level = yesterday_close - self.config.k * yesterday_range;
 
         if can_long && !self.was_long_today && close > long_level {
-            return Some(EntrySignal {
-                owner: Owner::IntradayBreakout,
-                side: Side::Long,
-                entry_style: EntryStyle::Market,
-                reason: ReasonCode::BreakoutLong,
-                stop_price: None,
-                take_price: None,
-            });
+            return (
+                Some(EntrySignal {
+                    owner: Owner::IntradayBreakout,
+                    side: Side::Long,
+                    entry_style: EntryStyle::Market,
+                    reason: ReasonCode::BreakoutLong,
+                    stop_price: None,
+                    take_price: None,
+                }),
+                None,
+            );
         }
         if can_short && !self.was_short_today && close < short_level {
-            return Some(EntrySignal {
-                owner: Owner::IntradayBreakout,
-                side: Side::Short,
-                entry_style: EntryStyle::Market,
-                reason: ReasonCode::BreakoutShort,
-                stop_price: None,
-                take_price: None,
-            });
+            return (
+                Some(EntrySignal {
+                    owner: Owner::IntradayBreakout,
+                    side: Side::Short,
+                    entry_style: EntryStyle::Market,
+                    reason: ReasonCode::BreakoutShort,
+                    stop_price: None,
+                    take_price: None,
+                }),
+                None,
+            );
         }
-        None
+        (
+            None,
+            Some(EntryNoSignal {
+                reason: "breakout_veto",
+                veto: Some(BreakoutVeto {
+                    long_allowed: can_long,
+                    short_allowed: can_short,
+                    long_unused: !self.was_long_today,
+                    short_unused: !self.was_short_today,
+                    above_long: close > long_level,
+                    below_short: close < short_level,
+                }),
+            }),
+        )
     }
 
     pub fn evaluate_exit(&self, dt: NaiveDateTime, close: f64, side: Side) -> Option<ExitSignal> {
@@ -280,15 +338,19 @@ impl IntradayBreakoutEngine {
         self.day_before_close = close;
     }
 
-    fn can_check_entry(&self, dt: NaiveDateTime) -> bool {
+    fn entry_time_gate(&self, dt: NaiveDateTime) -> Option<&'static str> {
         if self.config.exclude_weekends && is_weekend(dt) {
-            return false;
+            return Some("weekend");
         }
         let Some(today_start) = self.today_start else {
-            return false;
+            return Some("missing_session_start");
         };
         let delta_h = (dt - today_start).num_seconds() as f64 / 3600.0;
-        delta_h >= self.config.wait_hours
+        if delta_h >= self.config.wait_hours {
+            None
+        } else {
+            Some("before_wait")
+        }
     }
 
     fn passes_min_range_filter(&self) -> bool {

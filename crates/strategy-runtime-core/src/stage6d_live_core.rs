@@ -89,7 +89,9 @@ const STAGE8B_P1_REQUEST_ACCEPTED_BINDING_DOMAIN: &str =
 
 static STAGE6E_PROCESS_GENERATION_COUNTER: AtomicU64 = AtomicU64::new(1);
 
+mod o3_readmission;
 mod p1_journal_source;
+pub use o3_readmission::apply_stage8b_o3_semantic_transition;
 pub use p1_journal_source::Stage8bP1JournalAheadSourceCheck;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -2797,6 +2799,13 @@ impl Stage6dDurableRuntimeRecovered {
         if replacement.phase() == crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Ack {
             return Some(Stage6Stage8bP1d3RestartPhase::AckCommitted);
         }
+        if replacement.phase() == crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Migrated
+            && restart
+                .stage8b_p1_semantic_commit()
+                .is_some_and(|semantic| semantic.validate())
+        {
+            return Some(Stage6Stage8bP1d3RestartPhase::SemanticCallbackCommitted);
+        }
         if replacement
             .completed_command_matches_semantic_commit(restart.stage8b_p1_semantic_commit())
             .ok()?
@@ -3854,6 +3863,8 @@ struct Stage8bP1RequestAcceptedBindingV1<'a> {
     strategy_request_id: StrategyRequestId,
     canonical_command_sha256: &'a str,
     expected_request_accepted_record_id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    o3_readmission_sha256: Option<&'a str>,
 }
 
 /// Consumes the sole recovered runtime owner and applies exactly one P1 M10
@@ -3892,6 +3903,9 @@ pub fn apply_stage8b_p1_semantic_transition(
             }
             _ => return Err(Stage6dLiveCoreError::RestartRuntimeRequired),
         };
+        if current.stage8b_o3_prior_proof().is_some() && accepted_bar.o3_readmission.is_none() {
+            return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+        }
         (
             current.stage5g_fresh_reconstruction_candidate(),
             current.stage5g_fresh_reconstruction_candidate(),
@@ -3908,8 +3922,11 @@ pub fn apply_stage8b_p1_semantic_transition(
         unreachable!("P1 source lifecycle was checked above")
     };
 
-    let transition = continue_stage5g_p1_semantic(*current, accepted_bar, binding)
-        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let transition =
+        continue_stage5g_p1_semantic(*current, accepted_bar, binding).map_err(|error| {
+            eprintln!("stage8b-p1-semantic-transition-error-class: {error}");
+            Stage6dLiveCoreError::DurableOrderingViolation
+        })?;
     match transition {
         Stage5gP1SemanticTransition::ZeroIntent(value) => {
             let projection = p1_projection_from_zero(&value).clone();
@@ -3920,7 +3937,10 @@ pub fn apply_stage8b_p1_semantic_transition(
                 0,
             )?;
             let stage5g_restart_package = export_stage5g_p1_zero_intent(value, commitment_key)
-                .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+                .map_err(|error| {
+                    eprintln!("stage8b-p1-zero-export-error-class: {error}");
+                    Stage6dLiveCoreError::DurableOrderingViolation
+                })?;
             let restored = restore_stage5g_clean_restart(
                 &stage5g_restart_package,
                 commitment_key,
@@ -3982,7 +4002,10 @@ pub fn apply_stage8b_p1_semantic_transition(
 
             // Package validation is completed before the first durable write.
             let stage5g_restart_package = export_stage5g_p1_one_intent(value, commitment_key)
-                .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+                .map_err(|error| {
+                    eprintln!("stage8b-p1-one-export-error-class: {error}");
+                    Stage6dLiveCoreError::DurableOrderingViolation
+                })?;
             let restored = restore_stage5g_clean_restart(
                 &stage5g_restart_package,
                 commitment_key,
@@ -4053,37 +4076,60 @@ pub fn apply_stage8b_p1d3_semantic_transition(
         return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
     }
 
+    let post_market = recovered.stage8b_p1d2_truth_frontier_is_authenticated()
+        && matches!(&recovered.stage5_runtime,
+            Stage6dStage5RuntimeAuthority::Restart(current)
+                if current.stage8b_p1d3_replacement().is_none());
     let (placeholder_runtime, reconstruction_runtime, prior_stage5_checkpoint_sha256) = {
         let current = match &recovered.stage5_runtime {
             Stage6dStage5RuntimeAuthority::Restart(current)
-                if current.stage8b_p1d3_replacement().is_some() =>
+                if post_market || current.stage8b_p1d3_replacement().is_some() =>
             {
                 current
             }
             _ => return Err(Stage6dLiveCoreError::RestartRuntimeRequired),
         };
-        let replacement = current
-            .stage8b_p1d3_replacement()
-            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
-        let expected_semantic_source = replacement
-            .pending_semantic_source_binding()
-            .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
-        let exact_pending = expected_semantic_source.as_ref().is_some_and(|expected| {
-            expected.redis_id() == binding.m10_redis_id
-                && expected.semantic_id_sha256() == binding.m10_semantic_id_sha256
-                && expected.payload_sha256() == binding.m10_payload_sha256
-                && !current
-                    .stage8b_p1_semantic_commit()
-                    .is_some_and(|semantic| expected.matches_semantic_commit(semantic))
-        });
-        let terminal_successor = replacement
-            .terminal_semantic_continuation_allows(
-                current.stage8b_p1_semantic_commit(),
-                &binding.m10_redis_id,
-            )
-            .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
-        if !exact_pending && !terminal_successor {
-            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        if current.stage8b_o3_prior_proof().is_some() && accepted_bar.o3_readmission.is_none() {
+            return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+        }
+        if post_market {
+            current
+                .stage8b_p1d2_truth_callback_input()
+                .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+            let millis = |id: &str| id.strip_suffix("-0").and_then(|v| v.parse::<i64>().ok());
+            let prior = current
+                .stage8b_p1d2_source_m10_binding()
+                .and_then(|(id, _, _)| millis(id));
+            if !prior
+                .zip(millis(&binding.m10_redis_id))
+                .is_some_and(|(old, next)| next > old)
+            {
+                return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+            }
+        } else {
+            let replacement = current
+                .stage8b_p1d3_replacement()
+                .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+            let expected_semantic_source = replacement
+                .pending_semantic_source_binding()
+                .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+            let exact_pending = expected_semantic_source.as_ref().is_some_and(|expected| {
+                expected.redis_id() == binding.m10_redis_id
+                    && expected.semantic_id_sha256() == binding.m10_semantic_id_sha256
+                    && expected.payload_sha256() == binding.m10_payload_sha256
+                    && !current
+                        .stage8b_p1_semantic_commit()
+                        .is_some_and(|semantic| expected.matches_semantic_commit(semantic))
+            });
+            let terminal_successor = replacement
+                .terminal_semantic_continuation_allows(
+                    current.stage8b_p1_semantic_commit(),
+                    &binding.m10_redis_id,
+                )
+                .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+            if !exact_pending && !terminal_successor {
+                return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+            }
         }
         (
             current.stage5g_fresh_reconstruction_candidate(),
@@ -4101,7 +4147,21 @@ pub fn apply_stage8b_p1d3_semantic_transition(
         unreachable!("P1-d3 source lifecycle was checked above")
     };
 
-    let transition = continue_stage8b_p1d3_semantic(*current, accepted_bar, binding, tick_size)
+    // Stage 7 reaches this branch only from the resolved S_truth/source
+    // owner. No intermediate migrated package is persisted or made Ready.
+    // A failed callback is terminal; restart replays from the prior seal.
+    let current = if post_market {
+        crate::stage8b_p1d3_working_limit::stage8b_p1d2_prepare_semantic_continuation(
+            *current,
+            source.operational_identity_sha256.clone(),
+            source.stage6_checkpoint_sha256.clone(),
+            commitment_key,
+        )?
+        .restored
+    } else {
+        *current
+    };
+    let transition = continue_stage8b_p1d3_semantic(current, accepted_bar, binding, tick_size)
         .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
     match transition {
         Stage8bP1d3SemanticTransition::ZeroIntent(value) => {
@@ -7357,6 +7417,12 @@ fn validate_stage8b_p1_projection_source(
         || projection.intent_count != expected_intent_count
         || projection.operational_identity_sha256 != source.operational_identity_sha256
         || projection.prior_stage5g_checkpoint_sha256 != prior_stage5_checkpoint_sha256
+        || projection.o3_readmission.as_ref().is_some_and(|p| {
+            p.binding.source_seal_generation != source.seal_generation
+                || p.binding.source_seal_commitment_sha256 != source.seal_commitment_sha256
+                || p.binding.source_checkpoint_sha256 != source.stage6_checkpoint_sha256
+                || p.binding.source_frontier_sha256 != source.stage6_frontier_sha256
+        })
     {
         return Err(Stage6dLiveCoreError::DurableOrderingViolation);
     }
@@ -7387,6 +7453,11 @@ fn stage8b_p1_request_accepted_source_evidence(
         request_id,
         command_sha256,
         expected_record_id,
+        projection
+            .o3_readmission
+            .as_ref()
+            .map(|p| p.sha256())
+            .as_deref(),
     )
 }
 
@@ -7397,6 +7468,7 @@ fn stage8b_p1_request_accepted_source_evidence_parts(
     request_id: StrategyRequestId,
     command_sha256: &str,
     expected_record_id: &Stage6JournalRecordId,
+    o3_readmission_sha256: Option<&str>,
 ) -> Result<Stage6Sha256Digest, Stage6dLiveCoreError> {
     let bytes = serde_json::to_vec(&Stage8bP1RequestAcceptedBindingV1 {
         schema_version: STAGE8B_P1_REQUEST_ACCEPTED_BINDING_SCHEMA_VERSION,
@@ -7413,6 +7485,7 @@ fn stage8b_p1_request_accepted_source_evidence_parts(
         strategy_request_id: request_id,
         canonical_command_sha256: command_sha256,
         expected_request_accepted_record_id: expected_record_id.as_str(),
+        o3_readmission_sha256,
     })
     .map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?;
     Stage6Sha256Digest::parse(sha256_hex(&bytes))

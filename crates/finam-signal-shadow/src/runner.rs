@@ -1,0 +1,1130 @@
+//! Explicit, single-segment read-only source runner. No auth discovery,
+//! order route or trade switch. Candle-only BARS has bounded transport recovery;
+//! canonical gap replay remains a separate, unopened slice.
+//!
+//! Historical-prefix startup requires a source-admitted reconstruction capability.
+//! BARS are provisional and never advance the model; independently scheduled
+//! REST snapshots supply finality. This slice stops at an explicit EOD check;
+//! it does not claim multi-session EOD acceptance. Planned S5 reconnect remains
+//! distinct from bounded candle-only transport fault recovery.
+//! Coverage includes the 23:40-labelled M10, closed at 23:50, before the
+//! explicit EOD allowance expires (strictly before midnight). Local coverage
+//! checks are not actual two-session observed qualification or full S8/S9.
+//! Raw quote frames are retained before feedback. This is not proof of a complete
+//! restart inventory or collected operational qualification across downtime.
+use crate::auth::AuthLifecycle;
+use crate::{
+    segment::SeededSegment, session::ObservedSession, transport::ConfiguredTransports,
+    ws::Observation, ValidatedConfig,
+};
+use broker_finam::{
+    sparse_m10::{AdmittedClosedM1Snapshot, ClosedM1RequestPlan},
+    Stage8bP1fO2GetOnlyClientV1,
+};
+use chrono::{DateTime, Datelike, Timelike, Utc};
+use serde::{Deserialize, Serialize};
+use std::{path::Path, sync::Arc, time::Duration};
+use tokio::{sync::mpsc, task::JoinSet};
+mod failure;
+pub mod primary;
+mod recovery;
+
+/// All fields mandatory; input file contains no credential. The read-only-role
+/// assertion is operator supplied, not proof of the provider's token permissions.
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RunPlan {
+    pub config_sha256: String,
+    pub account_id: String,
+    pub read_only_credentials: bool,
+    pub auth_policy: String,
+    pub eod_check_at: DateTime<Utc>,
+    pub reconnect_after_data_frames: Option<u64>,
+    pub requests: Vec<Request>,
+}
+
+/// Separately trusted operator plan, NOT generated from the supplied prefix.
+/// Digest pinning prevents a replaced prefix/binding from silently authorizing
+/// itself. This is an operator assertion, not provider-authenticated continuity.
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PrefixRunPlan {
+    pub plan: RunPlan,
+    pub prefix_binding_sha256: String,
+    pub source_coverage: PrefixSourceCoverage,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum PrefixSourceCoverage {
+    Unproven,
+    OperatorApprovedPinnedPriorOutputInventory { inventory_sha256: String },
+}
+
+impl PrefixRunPlan {
+    pub fn validate(
+        &self,
+        prefix: &crate::prefix::ReconstructedPrefix,
+    ) -> Result<(), &'static str> {
+        if self.prefix_binding_sha256 != prefix.binding_sha256() {
+            return Err("runner_prefix_receipt_binding");
+        }
+        match &self.source_coverage {
+            PrefixSourceCoverage::OperatorApprovedPinnedPriorOutputInventory {
+                inventory_sha256,
+            } if inventory_sha256 == &prefix.binding().prior_output_inventory_sha256 => {}
+            _ => return Err("runner_prefix_coverage_unproven"),
+        }
+        self.plan.validate_prefix(prefix)
+    }
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Request {
+    pub request_at: DateTime<Utc>,
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+    pub part_ends: Vec<DateTime<Utc>>,
+    pub required: Vec<DateTime<Utc>>,
+}
+
+fn next_label(label: DateTime<Utc>) -> Option<DateTime<Utc>> {
+    let local = label.checked_add_signed(chrono::Duration::hours(3))?;
+    if local.hour() == 23 && local.minute() == 40 {
+        let mut date = local.date_naive().succ_opt()?;
+        while date.weekday().number_from_monday() > 5 {
+            date = date.succ_opt()?;
+        }
+        date.and_hms_opt(7, 0, 0)?
+            .and_utc()
+            .checked_sub_signed(chrono::Duration::hours(3))
+    } else {
+        label.checked_add_signed(chrono::Duration::minutes(10))
+    }
+}
+
+impl RunPlan {
+    pub fn validate(&self, config: &ValidatedConfig) -> Result<(), &'static str> {
+        self.validate_from(config, config.config().observation_start_utc_ms)
+    }
+
+    pub fn validate_prefix(
+        &self,
+        prefix: &crate::prefix::ReconstructedPrefix,
+    ) -> Result<(), &'static str> {
+        self.validate_from(prefix.config(), prefix.next_label_utc_ms())
+    }
+
+    pub(crate) fn validate_from(
+        &self,
+        config: &ValidatedConfig,
+        next_label_ms: i64,
+    ) -> Result<(), &'static str> {
+        if config.primary_policy().is_some() {
+            return Err("runner_legacy_mode_required");
+        }
+        let c = config.config();
+        let cutoff = self.eod_check_at.timestamp_millis();
+        if self.config_sha256 != config.fingerprint()
+            || !self.read_only_credentials
+            || self.account_id.is_empty()
+            || self.requests.is_empty()
+            || self.requests.len() as u64 > c.max_cache_bars
+            || cutoff > c.run_deadline_utc_ms
+            || cutoff <= c.observation_start_utc_ms
+            || self.auth_policy != "provider_expiry_readonly_rtsx_v1"
+        {
+            return Err("runner_plan_binding");
+        }
+        if self.reconnect_after_data_frames == Some(0) {
+            return Err("runner_reconnect_plan");
+        }
+        // The last model label is 23:40, not its 23:50 nominal close. Leave
+        // explicit time for final admission/feedback, but never cross midnight.
+        let local = self.eod_check_at + chrono::Duration::hours(3);
+        let eod = local
+            .date_naive()
+            .and_hms_opt(23, 50, 0)
+            .ok_or("runner_eod")?
+            .and_utc()
+            - chrono::Duration::hours(3);
+        let lag = (self.eod_check_at - eod).num_milliseconds();
+        if lag <= 0 || lag >= 600_000 || lag as u64 > c.lmax_ms {
+            return Err("runner_eod");
+        }
+        let mut expected =
+            DateTime::from_timestamp_millis(next_label_ms).ok_or("runner_plan_time")?;
+        let mut previous_request = None;
+        for request in &self.requests {
+            let plan =
+                ClosedM1RequestPlan::new(request.start, request.end, request.part_ends.clone())
+                    .map_err(|_| "runner_closed_range")?;
+            // One nominal bucket per request: no historical batch presented as live.
+            let close = expected
+                .checked_add_signed(chrono::Duration::minutes(10))
+                .ok_or("runner_plan_time")?;
+            if request.required != [expected]
+                || plan.start() != expected
+                || plan.end() != close
+                || request.request_at < close
+                || request.request_at >= self.eod_check_at
+                || ((request.request_at - close).num_milliseconds() as u64)
+                    .checked_add(c.clock_uncertainty_ms)
+                    .map_or(true, |lag| lag >= c.lmax_ms)
+                || previous_request.is_some_and(|p| request.request_at <= p)
+            {
+                return Err("runner_required_schedule");
+            }
+            previous_request = Some(request.request_at);
+            expected = next_label(expected).ok_or("runner_plan_time")?;
+        }
+        if expected.timestamp_millis() + 600_000 <= cutoff {
+            return Err("runner_missing_prefix");
+        }
+        Ok(())
+    }
+}
+
+enum Event {
+    AuthValidated(u64, DateTime<Utc>),
+    BarsSubscription(u64, u64, &'static str),
+    Snapshot(Box<AdmittedClosedM1Snapshot>, Vec<DateTime<Utc>>),
+    Witness(crate::s5::Receipt),
+    Liveness(serde_json::Value),
+    Socket(Observation),
+    Reconnected(i64, u64),
+}
+
+fn terminal_status(result: &Result<(), &'static str>) -> &'static str {
+    result.as_ref().err().copied().unwrap_or("eod_check_end")
+}
+fn terminal_segment_reason(result: &Result<(), &'static str>) -> &'static str {
+    if result.is_ok() {
+        "EOD_CHECK_END_NOT_PARITY_ACCEPTANCE"
+    } else {
+        "INCOMPLETE_runner_failure"
+    }
+}
+
+/// The EOD owner must finalize recovery completeness AFTER draining aborted
+/// workers; a cancelled task is not evidence that its subscription recovered.
+async fn finalize_workers(
+    jobs: &mut JoinSet<Result<(), &'static str>>,
+    stop: &crate::transport::StopHandle,
+    audit: &recovery::Audit,
+    failure: &failure::Slot,
+    result: &mut Result<(), &'static str>,
+    budget: Duration,
+) -> bool {
+    stop.stop();
+    jobs.abort_all();
+    let drained = tokio::time::timeout(budget, async {
+        while let Some(ended) = jobs.join_next().await {
+            match ended {
+                Ok(Err(code)) => *result = Err(code),
+                Err(error) if !error.is_cancelled() => *result = Err("runner_worker_panicked"),
+                _ => (),
+            }
+        }
+    })
+    .await
+    .is_ok();
+    if !drained {
+        *result = Err("runner_stop_timeout");
+    }
+    if let Some(fault) = audit.unresolved_fault() {
+        failure.record_with_liveness(
+            fault.error,
+            fault.auth_generation,
+            fault.connection_generation,
+            fault.liveness,
+        );
+        if result.is_ok() {
+            *result = Err("runner_bars_recovery_incomplete");
+        }
+    }
+    drained
+}
+
+// One production forwarding seam: receipts first, raw observation exactly once.
+async fn forward_quote_observation(
+    sender: &tokio::sync::mpsc::Sender<Event>,
+    witness: &mut crate::s5::Witness,
+    observation: Observation,
+    at_ms: i64,
+) -> Result<(), &'static str> {
+    for receipt in witness.receipts(&observation, at_ms) {
+        sender
+            .send(Event::Witness(receipt))
+            .await
+            .map_err(|_| "runner_queue")?;
+    }
+    sender
+        .send(Event::Socket(observation))
+        .await
+        .map_err(|_| "runner_queue")
+}
+
+fn count_reconnect_frame(
+    planned: Option<u64>,
+    frames: &mut u64,
+    consumed: &mut bool,
+    nonempty: bool,
+) -> bool {
+    if *consumed || !nonempty {
+        return false;
+    }
+    *frames = frames.saturating_add(1);
+    if planned.is_some_and(|count| count > 0 && *frames >= count) {
+        *consumed = true;
+        return true;
+    }
+    false
+}
+
+async fn wait_until(at: DateTime<Utc>) {
+    if let Ok(delay) = (at - Utc::now()).to_std() {
+        tokio::time::sleep(delay).await;
+    }
+}
+
+/// Workers keep pending observe futures alive across ALL coordinator selections.
+/// Cancellation occurs only on terminal shutdown. Bounded queue applies pressure;
+/// no quote or canonical input is silently dropped.
+pub async fn run(
+    segment: SeededSegment,
+    config: &ValidatedConfig,
+    plan: RunPlan,
+    auth: Arc<AuthLifecycle>,
+    output: &Path,
+) -> Result<(), &'static str> {
+    run_start(
+        Start::Seed(Box::new(segment)),
+        config,
+        plan,
+        auth,
+        Some(output),
+        None,
+    )
+    .await
+}
+
+/// Explicit prefix path; no conversion from arbitrary OfflineReplay is possible.
+/// Reuses the prefix output so the binding/receipt precede every live row.
+pub async fn run_prefix(
+    prefix: crate::prefix::ReconstructedPrefix,
+    config: &ValidatedConfig,
+    plan: PrefixRunPlan,
+    auth: Arc<AuthLifecycle>,
+) -> Result<(), &'static str> {
+    plan.validate(&prefix)?;
+    run_start(
+        Start::Prefix(Box::new(prefix)),
+        config,
+        plan.plan.clone(),
+        auth,
+        None,
+        Some(plan),
+    )
+    .await
+}
+
+/// Separate candle history capability; quote-prefix acceptance cannot grant it.
+pub async fn run_intraday(
+    day: crate::intraday::ReconstructedCandleDay,
+    config: &ValidatedConfig,
+    plan: crate::intraday::IntradayRunPlan,
+    auth: Arc<AuthLifecycle>,
+) -> Result<(), &'static str> {
+    plan.validate_reconstructed(&day)
+        .map_err(|_| "runner_intraday_binding")?;
+    let tail = plan.plan.clone();
+    run_start(
+        Start::Intraday(Box::new((day, plan))),
+        config,
+        tail,
+        auth,
+        None,
+        None,
+    )
+    .await
+}
+
+enum Start {
+    Seed(Box<SeededSegment>),
+    Prefix(Box<crate::prefix::ReconstructedPrefix>),
+    Intraday(
+        Box<(
+            crate::intraday::ReconstructedCandleDay,
+            crate::intraday::IntradayRunPlan,
+        )>,
+    ),
+}
+
+async fn run_start(
+    start: Start,
+    config: &ValidatedConfig,
+    plan: RunPlan,
+    auth: Arc<AuthLifecycle>,
+    output: Option<&Path>,
+    prefix_plan: Option<PrefixRunPlan>,
+) -> Result<(), &'static str> {
+    if config.primary_policy().is_some() {
+        return Err("runner_legacy_mode_required");
+    }
+    let prefix_session = matches!(&start, Start::Prefix(_) | Start::Intraday(_));
+    let fingerprint = match &start {
+        Start::Seed(segment) => {
+            plan.validate(config)?;
+            segment.seed_observation().config_sha256
+        }
+        Start::Prefix(prefix) => {
+            plan.validate_prefix(prefix)?;
+            prefix.config().fingerprint().to_owned()
+        }
+        Start::Intraday(entry) => {
+            entry
+                .1
+                .validate_reconstructed(&entry.0)
+                .map_err(|_| "runner_intraday_binding")?;
+            entry.0.config.fingerprint().to_owned()
+        }
+    };
+    if fingerprint != config.fingerprint() {
+        return Err("runner_segment_binding");
+    }
+    if !auth.binds(&plan.account_id) {
+        return Err("runner_auth_account_binding");
+    }
+    let mut transports =
+        ConfiguredTransports::new(config).map_err(|_| "runner_transport_config")?;
+    let stop = transports.stop_handle();
+    let mut session = match start {
+        Start::Seed(segment) => {
+            ObservedSession::create(*segment, output.ok_or("runner_output")?, stop.clone())
+        }
+        Start::Prefix(prefix) => ObservedSession::resume(
+            *prefix,
+            stop.clone(),
+            prefix_plan.as_ref().ok_or("runner_prefix_plan")?,
+        ),
+        Start::Intraday(entry) => {
+            let (day, approval) = *entry;
+            ObservedSession::resume_intraday(day, stop.clone(), &approval)
+        }
+    }
+    .map_err(|_| "runner_session_create")?;
+    session
+        .record_run_plan(&plan)
+        .map_err(|_| "runner_plan_receipt")?;
+    session
+        .record_transport(&serde_json::json!({
+            "event":"feedback_transport_contract",
+            "feedback_policy_sha256":config.config().feedback_policy_sha256,
+            "candle_only":config.candle_only(),
+            "quotes_required":!config.candle_only(),
+            "bars_ws_required":true, "rest_closed_m1_required":true,
+            "broker_execution":false,
+            "bars_liveness_policy":config.candle_only().then(crate::socket::candle_liveness_policy),
+        }))
+        .map_err(|_| "runner_policy_receipt")?;
+    let mut jobs = JoinSet::new();
+    let (tx, mut rx) = mpsc::channel(1);
+    let end = plan.eod_check_at;
+    let reconnect_after = plan.reconnect_after_data_frames;
+    let reconnect_budget = config.config().reconnect_budget_ms;
+    let candle_only = config.candle_only();
+    let mut last_auth_generation = 1;
+    let mut bars_reconnected = false;
+    let bars_failure = failure::Slot::default();
+    let recovery_audit = recovery::Audit::default();
+    let mut last_canonical_m10_label_ms = None;
+    let mut last_canonical_m10_received_at_ms = None;
+    let work = async {
+        let client =
+            Stage8bP1fO2GetOnlyClientV1::new(plan.account_id).map_err(|_| "runner_client")?;
+        let mut bars_grant = auth.grant().await?;
+        session
+            .record_transport(&serde_json::json!({
+                "event":"auth_validated", "generation":bars_grant.generation,
+                "expires_at":bars_grant.expires_at, "readonly":true,
+                "selected_account_matches":true, "rtsx_zero_delay":true
+            }))
+            .map_err(|_| "runner_auth_receipt")?;
+        let mut bars = transports
+            .connect_bars(bars_grant.lease.clone())
+            .await
+            .map_err(|_| "runner_bars_connect")?;
+        if candle_only {
+            bars = bars.independent_subscription();
+        }
+        let sender = tx.clone();
+        let bars_auth = auth.clone();
+        let failure_slot = bars_failure.clone();
+        let bars_stop = stop.clone();
+        let bars_recovery_audit = recovery_audit.clone();
+        jobs.spawn(async move {
+            let (mut frames, mut consumed) = (0, false);
+            let mut connection = 1;
+            let mut witness = crate::s5::Witness::new(crate::s5::Channel::Bars, 1);
+            let mut connection_reason = "initial_connect";
+            let mut recovery_budget = recovery::RunBudget::with_audit(bars_recovery_audit.clone());
+            loop {
+                // Candle-only BARS receives independently of JWT renewal. REST
+                // and actual reconnects acquire fresh grants at their own boundary.
+                let current = if candle_only {
+                    None
+                } else {
+                    Some(bars_auth.grant().await?)
+                };
+                if let Some(current) = current.filter(|g| g.generation != bars_grant.generation) {
+                    let started = std::time::Instant::now();
+                    bars = bars
+                        .rotate_auth(current.lease.clone())
+                        .await
+                        .map_err(|_| "runner_bars_auth_rotate")?;
+                    if started.elapsed() > Duration::from_millis(reconnect_budget) {
+                        return Err("runner_auth_reconnect_budget");
+                    }
+                    connection += 1;
+                    connection_reason = "legacy_auth_rotation";
+                    witness = crate::s5::Witness::new_auth(
+                        crate::s5::Channel::Bars,
+                        connection,
+                        current.generation,
+                    );
+                    bars_grant = current;
+                    sender
+                        .send(Event::AuthValidated(
+                            bars_grant.generation,
+                            bars_grant.expires_at,
+                        ))
+                        .await
+                        .map_err(|_| "runner_queue")?;
+                }
+                let observed = if candle_only {
+                    bars.observe().await.map(Some)
+                } else {
+                    bars.observe_until(bars_grant.renew_at).await
+                };
+                let observation = match observed {
+                    Ok(Some(observation)) => observation,
+                    Ok(None) => continue,
+                    Err(error) => {
+                        let diagnostic = bars.liveness();
+                        if let Some(reason) = candle_only
+                            .then(|| recovery::Reason::classify(&error))
+                            .flatten()
+                        {
+                            let _fault_guard = bars_recovery_audit.latch_fault(
+                                &error,
+                                bars_grant.generation,
+                                connection,
+                                diagnostic.clone(),
+                            );
+                            let factory = bars
+                                .recovery_factory()
+                                .ok_or("runner_bars_recovery_factory")?;
+                            drop(bars);
+                            let auth = bars_auth.clone();
+                            match recovery::restore(
+                                factory,
+                                move || {
+                                    let auth = auth.clone();
+                                    async move { auth.grant().await }
+                                },
+                                bars_stop.clone(),
+                                &sender,
+                                &mut recovery_budget,
+                                connection,
+                                reason,
+                                Duration::from_millis(reconnect_budget.min(5000)),
+                            )
+                            .await
+                            {
+                                Ok(restored) => {
+                                    bars = restored.socket;
+                                    bars_grant = restored.grant;
+                                    connection = restored.generation;
+                                    witness = restored.witness;
+                                    connection_reason = "bounded_recovery";
+                                    continue;
+                                }
+                                Err(code) => {
+                                    failure_slot.record_with_liveness(
+                                        error,
+                                        bars_grant.generation,
+                                        connection,
+                                        diagnostic,
+                                    );
+                                    return Err(code);
+                                }
+                            }
+                        }
+                        failure_slot.record_with_liveness(
+                            error,
+                            bars_grant.generation,
+                            connection,
+                            diagnostic,
+                        );
+                        return Err("runner_bars_observe");
+                    }
+                };
+                if let Some(mut receipt) = bars.take_liveness_event() {
+                    receipt["connection_generation"] = serde_json::json!(connection);
+                    receipt["subscription_auth_generation"] =
+                        serde_json::json!(bars_grant.generation);
+                    sender
+                        .send(Event::Liveness(receipt))
+                        .await
+                        .map_err(|_| "runner_queue")?;
+                }
+                if !candle_only && !bars_grant.valid(Utc::now(), std::time::Instant::now()) {
+                    return Err("runner_bars_auth_expired");
+                }
+                if matches!(observation, Observation::Handshake) {
+                    sender
+                        .send(Event::BarsSubscription(
+                            connection,
+                            bars_grant.generation,
+                            connection_reason,
+                        ))
+                        .await
+                        .map_err(|_| "runner_queue")?;
+                }
+                for receipt in witness.receipts(&observation, Utc::now().timestamp_millis()) {
+                    sender
+                        .send(Event::Witness(receipt))
+                        .await
+                        .map_err(|_| "runner_queue")?;
+                }
+                let reconnect = count_reconnect_frame(
+                    reconnect_after,
+                    &mut frames,
+                    &mut consumed,
+                    !observation.live_bars().is_empty(),
+                );
+                sender
+                    .send(Event::Socket(observation))
+                    .await
+                    .map_err(|_| "runner_queue")?;
+                if reconnect {
+                    let started = std::time::Instant::now();
+                    if candle_only {
+                        bars_grant = bars_auth.grant().await?;
+                        sender
+                            .send(Event::AuthValidated(
+                                bars_grant.generation,
+                                bars_grant.expires_at,
+                            ))
+                            .await
+                            .map_err(|_| "runner_queue")?;
+                    }
+                    // Do not turn a due auth rotation into a successful S5 reconnect.
+                    if !bars_grant.current(Utc::now(), std::time::Instant::now()) {
+                        return Err("runner_s5_auth_overlap");
+                    }
+                    bars = bars
+                        .reconnect(bars_grant.lease.clone())
+                        .await
+                        .map_err(|_| "runner_bars_reconnect")?;
+                    // Budget includes connection establishment, not just its start.
+                    if started.elapsed() > Duration::from_millis(reconnect_budget) {
+                        return Err("runner_reconnect_budget");
+                    }
+                    connection += 1;
+                    connection_reason = "controlled_s5";
+                    witness = crate::s5::Witness::new(crate::s5::Channel::Bars, connection);
+                    sender
+                        .send(Event::Reconnected(Utc::now().timestamp_millis(), frames))
+                        .await
+                        .map_err(|_| "runner_queue")?;
+                }
+            }
+            #[allow(unreachable_code)]
+            Ok::<(), &'static str>(())
+        });
+        if !config.candle_only() {
+            let mut quotes_grant = auth.grant().await?;
+            let mut quotes = transports
+                .connect_quotes(quotes_grant.lease.clone())
+                .await
+                .map_err(|_| "runner_quotes_connect")?;
+            let sender = tx.clone();
+            let quotes_auth = auth.clone();
+            jobs.spawn(async move {
+                let mut connection = 1;
+                let mut witness = crate::s5::Witness::new(crate::s5::Channel::Quotes, 1);
+                loop {
+                    let current = quotes_auth.grant().await?;
+                    if current.generation != quotes_grant.generation {
+                        let started = std::time::Instant::now();
+                        quotes = quotes
+                            .rotate_auth(current.lease.clone())
+                            .await
+                            .map_err(|_| "runner_quotes_auth_rotate")?;
+                        if started.elapsed() > Duration::from_millis(reconnect_budget) {
+                            return Err("runner_auth_reconnect_budget");
+                        }
+                        connection += 1;
+                        witness = crate::s5::Witness::new_auth(
+                            crate::s5::Channel::Quotes,
+                            connection,
+                            current.generation,
+                        );
+                        quotes_grant = current;
+                    }
+                    let Some(observation) = quotes
+                        .observe_until(quotes_grant.renew_at)
+                        .await
+                        .map_err(|_| "runner_quotes_observe")?
+                    else {
+                        continue;
+                    };
+                    if !quotes_grant.valid(Utc::now(), std::time::Instant::now()) {
+                        return Err("runner_quotes_auth_expired");
+                    }
+                    forward_quote_observation(
+                        &sender,
+                        &mut witness,
+                        observation,
+                        Utc::now().timestamp_millis(),
+                    )
+                    .await?;
+                }
+                #[allow(unreachable_code)]
+                Ok::<(), &'static str>(())
+            });
+        }
+        jobs.spawn(async move {
+            for request in plan.requests {
+                wait_until(request.request_at).await;
+                let grant = auth.grant().await?;
+                if candle_only {
+                    tx.send(Event::AuthValidated(grant.generation, grant.expires_at))
+                        .await
+                        .map_err(|_| "runner_queue")?;
+                }
+                let plan = ClosedM1RequestPlan::new(request.start, request.end, request.part_ends)
+                    .map_err(|_| "runner_closed_range")?;
+                plan.preflight(Utc::now()).map_err(|_| "runner_preflight")?;
+                let snapshot = transports
+                    .collect(&client, grant.lease.token(), &plan)
+                    .await
+                    .map_err(|_| "runner_rest")?;
+                if !grant.valid(Utc::now(), std::time::Instant::now()) {
+                    return Err("runner_rest_auth_expired");
+                }
+                tx.send(Event::Snapshot(Box::new(snapshot), request.required))
+                    .await
+                    .map_err(|_| "runner_queue")?;
+            }
+            // ConfiguredTransports owns shared stop: retain it until shutdown.
+            std::future::pending::<()>().await;
+            drop(transports);
+            Ok(())
+        });
+        session
+            .record_transport(&serde_json::json!({
+                "event":"runner_workers_started", "at_ms":Utc::now().timestamp_millis(),
+                "worker_tasks":jobs.len(), "bars_socket_connected":true,
+                "rest_worker_spawned":true, "data_delivery_proven":false,
+            }))
+            .map_err(|_| "runner_worker_receipt")?;
+        loop {
+            tokio::select! {
+                biased;
+                result = jobs.join_next() => return Err(match result {
+                    Some(Ok(Err(code))) => code, _ => "runner_worker_ended",
+                }),
+                event = rx.recv() => {
+                    if stop.is_stopped() { return Err("runner_stopped"); }
+                    match event.ok_or("runner_queue_closed")? {
+                        Event::AuthValidated(generation, expires_at) => {
+                            if generation > last_auth_generation {
+                                session.record_transport(&serde_json::json!({
+                                    "event":"token_refresh", "auth_generation":generation,
+                                    "expires_at":expires_at,
+                                    "at_ms":Utc::now().timestamp_millis(),
+                                    "bars_reconnect_required":!candle_only,
+                                })).map_err(|_| "runner_auth_receipt")?;
+                                last_auth_generation = generation;
+                            }
+                            session.record_transport(&serde_json::json!({
+                                "event":"auth_validated", "generation":generation,
+                                "expires_at":expires_at, "readonly":true,
+                                "selected_account_matches":true, "rtsx_zero_delay":true
+                            })).map_err(|_| "runner_auth_receipt")?;
+                        }
+                        Event::BarsSubscription(connection, auth_generation, reason) => {
+                            session.record_transport(&serde_json::json!({
+                                "event":"subscription_open", "channel":"BARS",
+                                "connection_generation":connection,
+                                "subscription_auth_generation":auth_generation,
+                                "reconnect_reason":reason,
+                                "at_ms":Utc::now().timestamp_millis(),
+                                "subscription_sent":true, "provider_subscription_ack":false,
+                                "live_readiness":false,
+                            })).map_err(|_| "runner_transport_receipt")?;
+                        }
+                        Event::Witness(receipt) => {
+                            session.record_transport(&receipt).map_err(|_| "runner_transport_receipt")?;
+                        }
+                        Event::Liveness(receipt) => {
+                            session.record_transport(&receipt).map_err(|_| "runner_transport_receipt")?;
+                        }
+                        Event::Reconnected(at, frames) => {
+                            session.record_transport(&serde_json::json!({
+                                "channel":"BARS", "event":"controlled_reconnect_socket_open",
+                                "at_ms":at, "after_data_frames":frames,
+                                "plan_consumed":true, "subscription_proven":false
+                            })).map_err(|_| "runner_transport_receipt")?;
+                            bars_reconnected = true;
+                        }
+                        Event::Snapshot(snapshot, required) => {
+                            let received = snapshot.evidence().parts.iter()
+                                .map(|p| p.received_at.timestamp_millis()).max().ok_or("runner_receive_time")?;
+                            session.snapshot(&snapshot, &required, received).map_err(|_| "runner_snapshot")?;
+                            last_canonical_m10_label_ms = required.last().map(|at| at.timestamp_millis());
+                            last_canonical_m10_received_at_ms = Some(received);
+                        }
+                        Event::Socket(Observation::Quotes(frame)) => {
+                            session.quote_frame(frame).map_err(|_| "runner_quote")?;
+                        },
+                        // Provisional WS candles, handshake and heartbeat are not finality/readiness.
+                        Event::Socket(_) => {},
+                    }
+                }
+            }
+        }
+    };
+    let mut result = tokio::select! {
+        biased;
+        _ = wait_until(end) => Ok(()),
+        signal = tokio::signal::ctrl_c() => Err(if signal.is_ok() { "runner_interrupted" } else { "runner_signal" }),
+        result = work => result,
+    };
+    if result.is_ok() && reconnect_after.is_some() && !bars_reconnected {
+        result = Err("runner_reconnect_incomplete");
+    }
+    let drained = finalize_workers(
+        &mut jobs,
+        &stop,
+        &recovery_audit,
+        &bars_failure,
+        &mut result,
+        Duration::from_millis(config.config().stop_timeout_ms),
+    )
+    .await;
+    if session
+        .record_transport(&serde_json::json!({
+            "event":"runner_end", "at_ms":Utc::now().timestamp_millis(),
+            "bars_reconnect_planned":reconnect_after.is_some(),
+            "bars_reconnect_completion_observed":bars_reconnected,
+            "status":terminal_status(&result),
+            "terminal_reason":terminal_status(&result),
+            "bars_subscription_lifecycle":if candle_only {"independent_of_jwt_expiry"} else {"legacy_auth_rotation"},
+            "workers_drained":drained, "remaining_worker_tasks":jobs.len(),
+            "coverage":"nominal_tail_checked_not_parity_acceptance",
+            "prefix_session_partial_live_coverage":prefix_session,
+            "bars_observe_failure":bars_failure.take(),
+            "bars_recovery":recovery_audit.snapshot(),
+            "last_canonical_m10_label_ms":last_canonical_m10_label_ms,
+            "last_canonical_m10_received_at_ms":last_canonical_m10_received_at_ms
+        }))
+        .is_err()
+        && result.is_ok()
+    {
+        result = Err("runner_transport_receipt");
+    }
+    let finished = session.finish(terminal_segment_reason(&result));
+    if !drained {
+        return Err("runner_stop_timeout");
+    }
+    result?;
+    finished.map_err(|_| "runner_session_incomplete")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn forwarded_auxiliary_reaches_transport_observer_and_raw_evidence_once() {
+        let (mut session, _, path) = crate::session::tests::composition_fixture();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+        let mut w = crate::s5::Witness::new(crate::s5::Channel::Quotes, 1);
+        let mut inputs = crate::ws::snapshot_tests::last_projection_observations();
+        let aux = inputs.remove(2);
+        let raw = match &aux {
+            Observation::Quotes(q) => q.raw_frame.clone(),
+            _ => panic!(),
+        };
+        for o in [Observation::Handshake, aux] {
+            forward_quote_observation(&tx, &mut w, o, 3).await.unwrap();
+            while let Ok(e) = rx.try_recv() {
+                match e {
+                    Event::Witness(r) => session.record_transport(&r).unwrap(),
+                    Event::Socket(Observation::Quotes(q)) => session.quote_frame(q).unwrap(),
+                    Event::Socket(Observation::Handshake) => (),
+                    _ => panic!("unexpected event"),
+                }
+            }
+        }
+        let output = std::fs::read_to_string(&path).unwrap();
+        let rows: Vec<serde_json::Value> = output
+            .lines()
+            .map(|s| serde_json::from_str(s).unwrap())
+            .collect();
+        assert_eq!(output.matches("auxiliary_updates_observed").count(), 1);
+        assert!(!output.contains("first_validated_data"));
+        assert_eq!(
+            rows.iter()
+                .filter(|r| r["event"]["raw_frame"] == raw)
+                .count(),
+            1
+        );
+        assert_eq!(rows.iter().filter(|r| r["kind"] == "model_step").count(), 0);
+        drop(session);
+        std::fs::remove_file(path).unwrap();
+    }
+    #[tokio::test]
+    async fn production_quote_forwarding_preserves_raw_once_and_bounds_witness() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+        let mut witness = crate::s5::Witness::new(crate::s5::Channel::Quotes, 1);
+        let mut auxiliary = 0;
+        let mut data = 0;
+        for (i, o) in crate::ws::snapshot_tests::last_projection_observations()
+            .into_iter()
+            .enumerate()
+        {
+            if i == 3 {
+                witness = crate::s5::Witness::new_auth(crate::s5::Channel::Quotes, 2, 2);
+            }
+            let expected = match &o {
+                Observation::Quotes(q) => Some((q.raw_frame.clone(), q.len())),
+                _ => None,
+            };
+            forward_quote_observation(&tx, &mut witness, o, i as i64 + 1)
+                .await
+                .unwrap();
+            let mut sockets = 0;
+            while let Ok(e) = rx.try_recv() {
+                match e {
+                    Event::Witness(r) => {
+                        let v = serde_json::to_value(r).unwrap();
+                        if v["event"] == "auxiliary_updates_observed" {
+                            auxiliary += 1;
+                            assert_eq!(v["data_items"], 0);
+                        }
+                        if v["event"] == "first_validated_data" {
+                            data += 1;
+                        }
+                    }
+                    Event::Socket(o) => {
+                        sockets += 1;
+                        if let Observation::Quotes(q) = o {
+                            assert_eq!(Some((q.raw_frame, q.quotes.len())), expected);
+                        }
+                    }
+                    _ => panic!("unexpected event"),
+                }
+            }
+            assert_eq!(sockets, 1);
+            if i == 4 {
+                assert_eq!(data, 1);
+            }
+        }
+        assert_eq!((auxiliary, data), (2, 2));
+        drop(rx);
+        assert_eq!(
+            forward_quote_observation(&tx, &mut witness, Observation::Ignore, 9).await,
+            Err("runner_queue")
+        );
+    }
+    fn fixture() -> (ValidatedConfig, RunPlan) {
+        let start = DateTime::parse_from_rfc3339("2026-10-23T07:00:00+03:00")
+            .unwrap()
+            .with_timezone(&Utc);
+        let eod = start + chrono::Duration::hours(16) + chrono::Duration::minutes(50);
+        let config = ValidatedConfig::parse(&serde_json::to_vec(&serde_json::json!({
+            "schema_version":1, "reference":"alor_freeze_2026_09_27", "restart_mode":"new_segment",
+            "model_profile":"imoexf-baseline07-bo-only-no-riskgate",
+            "model_sha256":"a".repeat(64), "reference_sha256":"b".repeat(64),
+            "feedback_policy_sha256":"c".repeat(64), "instrument_mapping_sha256":"d".repeat(64),
+            "calendar_sha256":"e".repeat(64), "seed_sha256":"f".repeat(64),
+            "instrument":"IMOEXF@RTSX", "run_id":"test", "segment_id":"s1", "previous_segment_id":null,
+            "warmup_session_dates":["2026-10-19","2026-10-20","2026-10-21","2026-10-22"],
+            "warmup_range_start_utc_ms":1, "warmup_range_end_utc_ms":2,
+            "observation_start_utc_ms":start.timestamp_millis(),
+            "run_deadline_utc_ms":(eod + chrono::Duration::seconds(20)).timestamp_millis(),
+            "lmax_ms":10000, "clock_uncertainty_ms":10, "max_quote_age_ms":1000,
+            "ws_silence_budget_ms":15000, "reconnect_budget_ms":5000, "stop_timeout_ms":1000,
+            "max_input_bytes":1048576, "max_cache_bars":4096, "max_output_bytes":1048576
+        })).unwrap()).unwrap();
+        let mut requests = Vec::new();
+        let mut label = start;
+        while label < eod {
+            let close = label + chrono::Duration::minutes(10);
+            requests.push(Request {
+                request_at: close + chrono::Duration::milliseconds(100),
+                start: label,
+                end: close,
+                part_ends: vec![close],
+                required: vec![label],
+            });
+            label = close;
+        }
+        let plan = RunPlan {
+            config_sha256: config.fingerprint().into(),
+            account_id: "synthetic".into(),
+            read_only_credentials: true,
+            auth_policy: "provider_expiry_readonly_rtsx_v1".into(),
+            eod_check_at: eod + chrono::Duration::seconds(5),
+            reconnect_after_data_frames: Some(2),
+            requests,
+        };
+        (config, plan)
+    }
+
+    #[test]
+    fn plan_binds_config_and_roundtrips_without_credential() {
+        let (config, mut plan) = fixture();
+        assert_eq!(plan.validate(&config), Ok(()));
+        let encoded = serde_json::to_vec(&plan).unwrap();
+        let decoded: RunPlan = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(decoded.validate(&config), Ok(()));
+        plan.config_sha256 = "0".repeat(64);
+        assert_eq!(plan.validate(&config), Err("runner_plan_binding"));
+    }
+
+    #[test]
+    fn candle_plan_requires_new_binding_and_full_unchanged_bar_schedule() {
+        let (old, mut plan) = fixture();
+        let mut c = old.config().clone();
+        c.feedback_policy_sha256 = crate::feedback::candle_policy_fingerprint();
+        let config = ValidatedConfig::validate(c).unwrap();
+        assert_eq!(plan.validate(&config), Err("runner_plan_binding"));
+        plan.config_sha256 = config.fingerprint().into();
+        assert_eq!(plan.validate(&config), Ok(()));
+        assert_eq!(plan.requests.len(), 101);
+        plan.requests.pop();
+        assert_eq!(plan.validate(&config), Err("runner_missing_prefix"));
+    }
+
+    #[test]
+    fn missing_prefix_or_due_tail_and_bad_latency_are_refused() {
+        let (config, mut plan) = fixture();
+        plan.requests.remove(0);
+        assert_eq!(plan.validate(&config), Err("runner_required_schedule"));
+        let (config, mut plan) = fixture();
+        plan.requests.pop();
+        assert_eq!(plan.validate(&config), Err("runner_missing_prefix"));
+        let (config, mut plan) = fixture();
+        plan.requests[0].request_at = plan.requests[0].end + chrono::Duration::milliseconds(9990);
+        assert_eq!(plan.validate(&config), Err("runner_required_schedule"));
+    }
+
+    #[test]
+    fn full_eod_plan_requires_last_2340_label_closed_at_2350() {
+        let (config, mut plan) = fixture();
+        assert_eq!(plan.requests.len(), 101);
+        let last = plan.requests.last().unwrap();
+        assert_eq!(last.start.to_rfc3339(), "2026-10-23T20:40:00+00:00");
+        assert_eq!(last.end.to_rfc3339(), "2026-10-23T20:50:00+00:00");
+        assert!(last.request_at < plan.eod_check_at);
+        assert_eq!(plan.validate(&config), Ok(()));
+        plan.requests.pop();
+        assert_eq!(plan.validate(&config), Err("runner_missing_prefix"));
+        // The former cutoff cannot silently accept a missing final label.
+        plan.eod_check_at -= chrono::Duration::minutes(10);
+        assert_eq!(plan.validate(&config), Err("runner_eod"));
+    }
+
+    #[test]
+    fn eod_allowance_is_positive_lmax_bounded_and_before_midnight() {
+        for millis in [0, 10_001, 600_000] {
+            let (config, mut plan) = fixture();
+            let close = plan.requests.last().unwrap().end;
+            plan.eod_check_at = close + chrono::Duration::milliseconds(millis);
+            let mut c = config.config().clone();
+            // Isolate EOD validation from the independent run-deadline bound.
+            c.run_deadline_utc_ms = (close + chrono::Duration::hours(1)).timestamp_millis();
+            let config = ValidatedConfig::validate(c).unwrap();
+            plan.config_sha256 = config.fingerprint().into();
+            assert_eq!(plan.validate(&config), Err("runner_eod"));
+        }
+        let (config, mut plan) = fixture();
+        plan.eod_check_at =
+            plan.requests.last().unwrap().end + chrono::Duration::milliseconds(10_000);
+        assert_eq!(plan.validate(&config), Ok(()));
+    }
+
+    #[test]
+    fn controlled_reconnect_counts_only_data_and_consumes_once() {
+        let (mut frames, mut consumed) = (0, false);
+        assert!(!count_reconnect_frame(
+            Some(2),
+            &mut frames,
+            &mut consumed,
+            false
+        ));
+        assert_eq!(frames, 0);
+        assert!(!count_reconnect_frame(
+            Some(2),
+            &mut frames,
+            &mut consumed,
+            true
+        ));
+        assert!(count_reconnect_frame(
+            Some(2),
+            &mut frames,
+            &mut consumed,
+            true
+        ));
+        assert!(consumed);
+        assert!(!count_reconnect_frame(
+            Some(2),
+            &mut frames,
+            &mut consumed,
+            true
+        ));
+        let (mut frames, mut consumed) = (0, false);
+        assert!(!count_reconnect_frame(
+            None,
+            &mut frames,
+            &mut consumed,
+            true
+        ));
+        assert!(!consumed);
+        let (config, mut plan) = fixture();
+        plan.reconnect_after_data_frames = Some(0);
+        assert_eq!(plan.validate(&config), Err("runner_reconnect_plan"));
+    }
+    #[test]
+    fn schedule_matches_session_weekend_boundary() {
+        let last = DateTime::parse_from_rfc3339("2026-10-23T23:40:00+03:00")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(
+            next_label(last).unwrap().to_rfc3339(),
+            "2026-10-26T04:00:00+00:00"
+        );
+    }
+    #[tokio::test]
+    async fn worker_pending_read_survives_coordinator_timer() {
+        let (tx, mut rx) = mpsc::channel(1);
+        let (release, ready) = tokio::sync::oneshot::channel();
+        let worker = tokio::spawn(async move {
+            ready.await.unwrap();
+            tx.send(7).await.unwrap();
+        });
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_millis(1)) => {},
+            _ = rx.recv() => panic!("premature event"),
+        }
+        release.send(()).unwrap();
+        assert_eq!(rx.recv().await, Some(7));
+        worker.await.unwrap();
+    }
+}

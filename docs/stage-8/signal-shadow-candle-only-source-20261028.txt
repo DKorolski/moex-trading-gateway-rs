@@ -1,0 +1,71 @@
+CANDLE-ONLY SHADOW — SOURCE REVIEW CANDIDATE, 2026-10-28
+
+Owner direction: compare the canonical07 BO-only ALOR model in FINAM shadow,
+then qualify FINAM live micro separately. This change is not deployment or GO.
+Model/config reference: imoexf-bo-shadow-to-live-micro-reference-20261028.txt.
+
+Selection and compatibility
+  Existing required feedback_policy_sha256 selects the policy explicitly.
+  Old digest retains post-intent QUOTES, freshness and existing config hashes.
+  New digest = SHA256 of:
+    moex.shadow.closed-m10-close.full-fill.one-lot.zero-cost.v1
+  No new default, no automatic fallback on QUOTES failure. Unknown policy fails
+  seed admission. No strategy/profile/Cargo/auth implementation changes.
+  Existing config field max_quote_age_ms stays bound for schema compatibility
+  but is not used for candle settlement. It is not a freshness control for M10.
+
+Execution assumption
+  Closed admitted M1 -> existing canonical sparse M10 -> unchanged Hybrid BO
+  callback -> durable decision row -> hypothetical full fill at that M10 close
+  -> existing position callback -> separate candle feedback/state-after row.
+  Exactly one virtual contract; no commissions/slippage simulation.
+  Close is a conditional model price, not an executable post-decision quote.
+  No synthetic Quote or artificial +1ms timestamps. Observed applied time is
+  measured after decision/publication; offline times are explicitly BACKFILL.
+  Exact pending request and last bar are bound; wrong tick/time/request/hash
+  terminates the segment. Duplicate accepted bars do not emit/fill twice.
+  Feedback failure or evidence write failure prevents subsequent advancement.
+
+Observed runner
+  Existing observe CONFIG REFERENCE MAPPING CALENDAR SEED PLAN SECRET OUTPUT
+  selects channels through the pinned config. Candle-only has no QUOTES
+  transport capability and no QUOTES worker. Raw quote events are rejected by
+  the candle session/replay; quote diagnostics themselves are unchanged.
+  REST finality and BARS subscription remain required. Existing auth rotation,
+  account/readonly checks, controlled BARS reconnect, Lmax, silence, output
+  budgets, shared stop and full nominal EOD schedule remain in force.
+  Initial transport evidence names required channels and the feedback digest.
+  There is no claim of fresh QUOTES or success of the old two-channel diagnostic.
+
+Evidence and restart
+  New kind: hypothetical_candle_feedback. Fill contains price_ticks, exact
+  request, label, nominal close, received/applied timestamps, canonical/source
+  hashes, resulting position/average price and explicit simulation policy.
+  The prior model_step remains the pre-feedback decision, not rewritten state.
+  Seed/full/semantic identity bind the new policy. Cross-policy comparisons
+  fail identity compatibility. Reports must compare identical assumptions.
+  Fresh observation remains restricted to the existing 07:00 session boundary.
+  Old quote-prefix continuation is explicitly refused before output creation.
+  Mid-session auto-resume is NOT implemented. A restart is a new seeded segment
+  with no claimed continuity; old nonflat results remain INCOMPLETE, not closed.
+  Nonflat/missing final bar at EOF is not successful EOD.
+
+Verification scope
+  Actual executable file-only replay; both directions; Stop2 priority over Stop1
+  on minute 50; Stop1 minute gating; EOD and no re-entry; bad tick, unclosed/future
+  input and bad provenance; duplicate; exact pending/time and repeat-fill rejects;
+  cross-policy seed/report/prefix separation; observed sparse input; no QUOTES
+  capability; unchanged RunPlan full bar schedule and negative regressions.
+  Five frozen historical sessions: 505 M10 and 10 intents / 5 completed rounds
+  match independently produced Python decisions and state after feedback.
+  This is historical conditional parity, not current ALOR live/transport parity.
+  Tests that exercise legacy branches may emit explicit SKIP_ diagnostics; the
+  verification report preserves these instead of presenting them as new proof.
+
+Next boundary
+  Review this source/policy slice, not the deferred full paper/O4 backlog.
+  After acceptance: separate Linux release qualification, bounded/full-session
+  input preparation and explicitly authorized deployment/observation.
+  Live micro still requires broker feedback, ambiguous-send/partial-fill checks,
+  agreed quantity/limits, single writer and EOD/operator procedure.
+  No FINAM order submission, Redis live consumer, VPS changes or real orders.

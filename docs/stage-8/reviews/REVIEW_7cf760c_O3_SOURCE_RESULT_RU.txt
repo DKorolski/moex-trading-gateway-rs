@@ -1,0 +1,239 @@
+SOURCE REVIEW: O3 FRESH PAPER RE-ADMISSION / OBSERVATION CATCH-UP / EXACT REPLAY
+Дата: 10 октября 2026 года
+Ревизия: 7cf760c84f9005cd9dec7e6e93c23100d5a0b978
+База: 2be020c234a01f8627d9f7621623dc603c912e23
+Scope: пункты 5–6 REVIEW_O3_FRESH_PAPER_READMISSION_CATCHUP_20261009_RU.txt
+
+1. РЕШЕНИЕ
+
+SOURCE HOLD — одно узкое замечание P1 к долговременному сохранению уже существующего pre-append proof.
+
+Основные механизмы fresh paper admission, observation-only catch-up, same-phase continuation и exact replay по существу соответствуют принятому ТЗ. Повторного проектирования этих механизмов не требуется. После локальной коррекции P1 и её целевого доказательства есть основание переходить к завершению source acceptance и существующему release/O3/O4 пути.
+
+Замечание не требует нового service, worker, journal, durable root, ключа, модели восстановления или отдельной большой матрицы. Это исправление одной границы записи в существующем коде.
+
+Дополнительно есть одно неблокирующее P2 уточнение текста coverage-контракта для выходных. Оно не меняет торговую модель и не должно становиться отдельным этапом разработки.
+
+Принятый O2 остаётся ACCEPTED / COMPLETED / generation 1 / sequence 26. Старый TTL не становится действующим разрешением новых решений. Операционный O3 остаётся NOT_RUN. Это заключение по исходникам; оно не подтверждает установку, операционный O3 или готовность FINAM live.
+
+Исходники, VPS, Redis, systemd и broker transport в ходе review не изменялись.
+
+2. ПРОВЕРЕННАЯ ЦЕЛОСТНОСТЬ И ОБЛАСТЬ ПРОВЕРКИ
+
+Архив: moex-trading-project-7cf760c-o3-readmission-source(2).zip
+SHA-256:
+a5ff364a92f41bff44d0cf28da4e62dfbcc2d6999074cf16fb632b51d9cd4771
+Git tree: 9d0536b0fb0986edb004546b94321702cd166d4d
+
+Независимо проверены SHA-256, CRC, уникальность inventory, отсутствие unsafe paths, symlink и special members. Штатный --verify завершился PASS: 2797 members, 2743 source files; raw commit и вычисленный source tree соответствуют указанной ревизии.
+
+Все 2743 хеша checked-source.json совпали с файлами commit-bound snapshot; inventory также совпал. Сверены хеши всех 42 записей checks, включая 28 точных component-тестов. Логи и их итоговые test-result строки согласуются с result.json; нулевого выбора вместо заявленного точного теста в этих component selections не обнаружено.
+
+Дельта содержит 32 файла. Cargo manifests/lockfile, конфигурации config/, deploy/ и workflows этой дельтой не изменены. Проверка сосредоточена на изменённых seams и их production callers. Она не переоткрывает весь ранее принятый проект и не переносит замечания старого ALOR-аудита автоматически на нынешний контур.
+
+Rust/Cargo/Redis/Docker в reviewer environment отсутствуют. Поэтому здесь выполнены независимый source review и проверка retained evidence, но Rust/Redis suites повторно не запускались. Успех приложенных тестов рассматривается как проверенное сохранённое свидетельство разработчика, а не как собственный повторный прогон reviewer.
+
+Все ссылки ниже относятся к исходному snapshot 7cf760c. Номер после двоеточия — начальная строка существенного участка, а не ссылка на иной commit.
+
+3. P1-O3-R01: EXISTING PROOF НЕ ЗАВЕРШАЕТ FSYNC BOUNDARY
+
+Файл:
+crates/runtime-durable-service/src/stage8b_p1_semantic/observed/o3.rs
+
+Существенные места:
+- строка 56: existing-file ветвь;
+- строка 58: retained::read и restore_pending;
+- строка 70: write_all только в create ветви;
+- строка 71: sync_all файла только в create ветви;
+- строка 73: sync_all родительского каталога только в create ветви;
+- строка 83: сравнение exact binding;
+- строка 86: возврат permit без общего завершающего sync для existing branch.
+
+Нормальный первый вызов соблюдает требование: proof записывается, файл и каталог синхронизируются, bytes перечитываются. Но восстановление уже существующего файла ограничивается чтением, проверкой canonical proof/freshness и binding.
+
+Последовательность, нарушающая обещанный контракт:
+1) первый процесс успел выполнить полный write_all proof;
+2) процесс остановился до sync_all файла или до sync_all каталога;
+3) новый процесс видит полные bytes и принимает existing-file ветвь;
+4) permit возвращается без завершения синхронизации proof;
+5) обычный путь сохраняет RequestAccepted в durable journal;
+6) последующий OS/power crash может оставить journal с обязательным proof, который не был надёжно сохранён.
+
+Обычный SIGKILL сам по себе не доказывает потерю файла: после него bytes обычно доступны через файловую систему/page cache. Дефект состоит в том, что повторный процесс принимает эти bytes и переходит через journal frontier, не восстановив требуемую durability boundary. Воспроизведение реальной потери после power failure в этом review не заявляется.
+
+Production chain после возврата permit:
+- stage8b_p1_semantic/redis.rs:1461, process_claimed_ready;
+- recovery.rs:3935, commit_stage8b_p1_semantic_o3;
+- crates/strategy-runtime-core/src/stage6d_live_core.rs:4018, append RequestAccepted.
+
+На этом пути дополнительного fsync proof перед append нет. Proof расположен в configured durable_parent, journal/seal — внутри runtime root. Синхронизация других файлов не является контрактом сохранности этого proof. Последующий S1 содержит full proof, но не закрывает промежуточное состояние RequestAccepted-before-S1 — именно для него и требуется sidecar.
+
+Это P1 относительно явного обязательства ТЗ «exact evidence durable до RequestAccepted». Ошибка ведёт к невозможности exact recovery и fail-closed остановке; автоматическая неверная заявка или двойной provider effect этим замечанием не доказаны.
+
+Минимальная коррекция:
+- после успешной canonical/freshness/exact-binding проверки существующего proof синхронизировать сам проверенный regular file, открытый с no-follow;
+- синхронизировать его parent directory;
+- перечитать/сверить exact bytes и лишь затем вернуть permit;
+- при ошибке любого sync/reread вернуть отказ до callback/RequestAccepted;
+- bytes, issued/checked/expires, phase и logical identity не переписывать, expired proof не обновлять.
+
+Можно использовать небольшой общий завершающий участок для create и existing ветвей либо существующий локальный паттерн. Пример уже есть в stage8b_p1_semantic/observed/retained.rs:105: idempotent retry также выполняет file sync, parent sync и exact reread. Не нужно менять весь custody/storage layer.
+
+Текущий тест redis/tests/observed/o3_readmission.rs:201 завершает первый fresh() успешно и только затем моделирует pre-append crash. Поэтому он не достигает внутренней границы write_all-before-sync.
+
+Достаточное целевое доказательство исправления:
+- остановить запись после полного proof write, но до завершения file/parent sync;
+- повторно открыть ту же ещё свежую попытку;
+- подтвердить порядок: file sync → parent sync → exact reread → callback/RequestAccepted;
+- по отдельности инжектировать ошибку file sync и parent sync в existing-file ветви;
+- при каждой ошибке journal/seal неизменны, callbacks/publication/provider/XACK отсутствуют, pending source не удалён;
+- отсутствует mutation/reissue старого proof.
+
+Инструментированного barrier/fault теста этой границы достаточно; новый стенд power-failure или полный recovery framework не требуется. Прежние source/replay witnesses остаются полезными и не обнуляются.
+
+4. ПОДТВЕРЖДЁННЫЕ СВОЙСТВА РЕАЛИЗАЦИИ
+
+4.1. Новый paper-допуск создаётся правильной цепочкой.
+
+crates/strategy-runtime-core/src/stage8b_o3_readmission.rs:255:
+отдельная явно synthetic observation из exact fixture → validate_stage4_broker_truth_bootstrap → build_stage4_accepted_paper_host_evidence → production admit_stage5c_paper_host с allow_live_orders=false.
+
+Это opaque accepted evidence, а не скопированный PASS/report и не подпись schedule вместо broker-truth admission. O3 synthetic truth не объявляется наблюдением реального FINAM account. Старая O2 truth/receipt не retimestamped.
+
+4.2. Phase/config/plan/fixture и runtime binding проверены.
+
+crates/finam-gateway/src/stage8b_p1f_o3_composition/inputs.rs:110:
+strict подпись phase, exact bytes/hash, config/materialization policy, profile V2, operational identity, fingerprint и хронология decision/successor.
+
+inputs.rs:213:
+scope соединяет phase/config/plan/fixture, strategy/profile и обязательную catchup_coverage. Старый plan без coverage отвергается. Следующий operational plan должен быть собран с новым exact полем; молчаливый fallback отсутствует.
+
+crates/strategy-runtime-core/src/stage6d_live_core/o3_readmission.rs:6 и :64:
+permit соединяется с authenticated seal generation/commitment, checkpoint/frontier, model cursor, observed source и canonical M10 identity.
+
+stage5g_clean_restart.rs:631:
+дополнительно сверяются strategy/account/instrument/tick/profile. Synthetic flat observation не заменяет virtual book.
+
+4.3. Историческое состояние и новая authority разделены.
+
+stage5c_paper_host.rs:4506 сохраняет восстановленные checked/issued/expires исторического receipt; новая execution admission применяется отдельно, stage5c_paper_host.rs:2852.
+
+Первый допуск требует P1SemanticReady без previous semantic commit и действительно flat/no-effect BO-only/no-riskgate state. Committed continuation допускается по сохранённому prior proof и тому же scope/phase, а не переобозначается новым flat bootstrap.
+
+4.4. Freshness проверяется по реальному времени.
+
+stage8b_o3_readmission.rs:207 и :384:
+production UTC, Stage4 budget 60 секунд, phase deadline ограничивает срок. Expiry inclusive сохранён; expiry+1 отвергается. Bar opening label, canonical close и recorded decision time имеют разные назначения.
+
+Следующий новый M10 получает новый permit той же phase, связанный с текущим seal/frontier. Virtual position не очищается. Пропуск времени более десяти минут не обслуживается продлением старого TTL.
+
+4.5. Catch-up действительно observation-only.
+
+hybrid_intraday_runtime/session_catchup.rs:11:
+initial flat guard исключает позицию, live orders, pending/deferred state, acquired owner и предшествующий цикл.
+
+stage5c_paper_host.rs:2881:
+canonical candidate сверяется с bucket полного retained source. stage8b_p1_semantic/observed.rs:97 проверяет полный M1 overlap, а не только последний close.
+
+session_catchup.rs:94:
+полный missing prefix сначала собирается и проверяется; observation callbacks начинаются только после этого. Sparse M1 сохраняется, требуемый пустой M10 не синтезируется.
+
+hybrid_intraday_runtime.rs:7675:
+existing warm_bar kernel возвращается до генерации actions. Это не generate-and-discard. Model label остаётся началом интервала, canonical close — отдельной identity.
+
+4.6. Exact replay не становится новым разрешением.
+
+stage6d_live_core/p1_journal_source.rs:74:
+reconstruction получает recorded-replay режим только после совпадения защищённого RequestAccepted source evidence, включая digest proof. Поздняя новая Stage4 observation не подменяет записанное решение. Phase deadline и обычные effect checks сохраняются.
+
+recovery.rs:3298:
+сверяются прежние request/command identity, journal record, source evidence и checkpoint. Новый RequestAccepted при replay не добавляется.
+
+4.7. Proof переносится через дальнейшие seals.
+
+stage5g_p1_semantic.rs:51 и stage8b_p1d2_market_feedback.rs:80:
+full proof входит в semantic и feedback projections; feedback hashing включает новое поле при его наличии. Default/skip-None сохраняет прежнее представление historical packages без нового поля.
+
+Из S_ack продолжается truth settlement, из S_truth — source resolution/XACK. AlreadyAcknowledged не запускает новый callback, publication или provider action.
+
+5. НЕБЛОКИРУЮЩЕЕ P2 УТОЧНЕНИЕ COVERAGE
+
+Текущий документ говорит «omitted day unknown and fails closed». Код проверяет coverage только после model-session classification:
+hybrid_intraday_runtime/session_catchup.rs:95 и :101.
+
+При frozen weekends_off=true weekend bars получают WeekendSuppressed и проходят continue до coverage.contains. Поэтому Friday 2026-10-09T16:50Z → Monday 2026-10-12T07:10Z при coverage только 9 и 12 октября может пройти без explicit empty sessions 10 и 11 октября. Distance меньше four-day resource bound; endpoint checks не обнаруживают отсутствующие даты.
+
+Это не новый торговый риск и не P1: отсутствие weekend callbacks следует из уже фиксированного правила модели; исторические заявки не создаются. Но текст контракта шире фактической проверки.
+
+Минимально нужно выбрать и зафиксировать одну трактовку: либо требовать explicit empty weekend sessions и проверять date presence до model suppression, либо прямо описать допустимость пропуска модельно запрещённых выходных при frozen weekends_off. Предпочтительно уточнить существующее правило без изменения frozen model. Holiday/clearing и неизвестные интервалы регулярной модельной сессии по-прежнему не должны выводиться из отсутствующих bars. Новый календарный механизм не нужен.
+
+6. RETAINED TEST EVIDENCE: ЧТО МОЖНО И ЧЕГО НЕЛЬЗЯ ЗАЯВЛЯТЬ
+
+Подтверждены хешами и итоговыми строками логов:
+- final strategy-runtime-core: 1308 passed;
+- final focused O3 durable: 11 passed, 2 ignored, 66.52 секунды;
+- отдельно запущенные два real-ten-minute теста: 2 passed, 607.79 секунды;
+- finam-gateway --no-default-features: 514 passed, 4 ignored;
+- 28 exact component regressions: каждый действительно выбрал и выполнил один тест;
+- doctests трёх crates: 155 passed;
+- fmt, production-feature build трёх O3 binaries и strict all-feature/all-target Clippy затронутых crates: retained PASS.
+
+Journal-ahead test действительно ждёт 61 секунду, проверяет expiry обычного restore_pending и затем exact replay прежнего решения: новый request не добавляется; replay attempt отделён от fresh decision; provider/publication/XACK не дублируются.
+
+Оба ten-minute теста действительно ждут 601 секунду и проверяют elapsed time. Покрыты Market successor и отдельный no-effect successor, новый proof после expiry старого, исторические marker/receipt bytes и отсутствие дополнительных effects. Это не сжатые часы.
+
+Полный durable serial: 440 passed, 19 ignored, 2018.56 секунды. Он скомпилирован до последней map_or/MSRV замены и усиления journal-ahead instrumentation, поэтому это precursor regression. Его нельзя обозначать как полный suite freshly compiled из final HEAD. Пакет честно фиксирует это ограничение; counts selections пересекаются, суммировать их как уникальные тесты нельзя.
+
+Сохранённые ограничения не считаю новыми correctness defects этой дельты:
+- initial stack overflow без требуемого RUST_MIN_STACK;
+- parallel guardian fault-injection collisions; serial precursor PASS;
+- all-features gateway 522 passed / 1 failed / 4 ignored из-за существующего feature/test conflict;
+- production-feature strict Clippy: три прежних dead_code, воспроизведённые на baseline;
+- current-tree authority drift, который намеренно не перепривязан до source acceptance;
+- отсутствует новый native Linux credential-backed / ELF / systemd witness этого source slice.
+
+Они не превращаются в PASS и не исчезают. Но нет основания из-за них добавлять новую архитектурную фазу или чинить весь workspace до узкой source correction. Финальный release должен быть привязан к реальным final source/ELF и явно записанным применимым qualification checks/исключениям.
+
+Для P1-R01 достаточно targeted positive/failure тестов новой fsync границы, существующего focused O3 regression, fmt и strict Clippy затронутого crate с нужным feature set. Повторять два десятиминутных ожидания только из-за локального fsync исправления не требуется, если admission/timing/replay logic не меняется. Полный precursor нельзя при этом переименовывать в final PASS.
+
+7. МИНИМАЛЬНЫЙ ОСТАТОК ДО PAPER → LIVE MICRO
+
+Поддерживаю исходную цель: несколько paper-сессий с сопоставлением ALOR, затем live micro. В этом review не предлагаю расширять её общей платформой, многомесячным soak или возвратом обязательного High180/LB120.
+
+Нынешний целевой профиль — IMOEXF baseline07 BO-only/no-riskgate согласно принятому ADR от 30 сентября. Candidate09 остаётся отдельной моделью. MR и riskgate не возвращаются в критический путь этого профиля. Будущие USDRUBF/RI проверяются позже по своим контрактам.
+
+Рекомендуемая последовательность без новых macro-stages:
+
+А. Закрыть одну fsync correction и узкий source re-review; уточнить P2 в том же комплекте документации.
+Б. Собрать один final release/authority/install artifact с новым exact plan, включая catchup_coverage, и сохранением O2 root/history. Qualification final binary выполнить в рамках этого artifact, без нового design-only цикла.
+В. Выполнить существующий bounded O3 на установленном контуре: fresh admission/catch-up → один обычный paper lifecycle → restart/replay → bounded stop, с сохранённым P0 и объяснимым итоговым PEL/journal/seals. Операционные строки нельзя закрывать только локальными fixture тестами; применимые ранее принятые проверки можно ссылочно переиспользовать.
+Г. O4 и несколько paper-сессий на реальных FINAM данных с параллельным frozen ALOR comparison. Проверки данных, reconnect/REST overlap, freshness и EOD включить в эти же сессии.
+Д. При выполнении измеримых критериев — отдельный допуск выбранного профиля к live micro с минимальным объёмом, одним владельцем и понятной процедурой остановки/reconciliation.
+
+Практический ориентир — 3–5 paper-сессий; это ориентир объёма наблюдения, а не новое обязательное календарное правило. Важнее наличие полезных сигналов, хотя бы одного полного lifecycle и проверенного перехода сессии/рестарта. Если спокойные дни не дают этих событий, время наблюдения само по себе их не доказывает: редкие границы закрываются существующими целевыми тестами, а не бесконечным ожиданием.
+
+Минимальный критерий выхода из paper:
+- один и тот же frozen model/profile, timezone/session labels и необходимый warmup;
+- совпадающие либо объяснимо различающиеся M10 inputs; нет необъяснённых пропусков, сдвигов на бар и повторов;
+- все различия ALOR/FINAM decisions разобраны по конкретным барам; сравнение цены fill/PnL не подменяет сравнение сигналов;
+- virtual orders/fills/position/fees и EOD объясняются journal, нет неучтённого pending или unknown outcome;
+- restart/reconnect сохраняют состояние и не дают повторного эффекта; readiness/freshness действительно снимают новые входы при отказе;
+- native final binary, единственный execution owner, допустимый объём/лимиты и broker capabilities соответствуют профилю первого micro;
+- нет открытого P1, влияющего на первый live route.
+
+Для первого micro достаточно narrow supported route этого профиля. Stops/brackets или функции других стратегий не должны задерживать его, если первый профиль ими не пользуется и это явно закреплено его разрешёнными возможностями. Если профиль зависит от конкретной защиты, её корректность, напротив, входит в обязательный допуск.
+
+Простой rollback контейнера при реальных ордерах недостаточен: остановка новых входов, установление единственного владельца и reconciliation реальной позиции/активных заявок должны быть понятны оператору. Это эксплуатационный критерий первого micro, а не требование разрабатывать новую универсальную систему.
+
+8. ЧТО ПЕРЕДАТЬ ПРОГРАММИСТУ СЕЙЧАС
+
+Исправить только повторную durability boundary existing pre-append proof в observed/o3.rs: file sync + parent sync + exact reread до возврата permit, с отказом до callback/RequestAccepted при sync error. Proof и старые timestamps/TTL не переписывать. Добавить один целевой fault/barrier witness с позитивной ветвью и ошибками обоих sync. Уточнить weekend coverage policy в действующем контракте. Сохранить прежние successful и failed logs с честной привязкой к версиям.
+
+После этого — точечный re-review дельты и переход к уже предусмотренным release/O3/O4 шагам. Других новых source blockers в проверенном scope не обнаружено.
+
+ИТОГ:
+fresh paper admission — по существу соответствует ТЗ;
+observation-only catch-up — по существу соответствует ТЗ;
+exact replay и дальнейший lifecycle — по существу соответствуют ТЗ;
+pre-append proof durable retry — одна обязательная локальная correction;
+операционный O3 / real-data parity / live micro — ещё не доказаны данным source-пакетом.

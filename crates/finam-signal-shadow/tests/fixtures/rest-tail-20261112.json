@@ -1,0 +1,650 @@
+{
+  "provenance": {
+    "archive_sha256": "5216c09a6ed45eedd309897187803c2b5188c4a8f10e24bc60afd748efd81680",
+    "journal_sha256": "2c22ea223a93e372b99472715951f937acccf96ae5a91ca526c1703ccdc3e1e6",
+    "wire_ws_frames_retained": false,
+    "ws_source": "journal sequence 194 provisional cache assessment"
+  },
+  "config": {
+    "schema_version": 2,
+    "market_data_mode": "ws_primary_v1",
+    "source_policy": "moex.signal-shadow.ws-primary-m10.v1",
+    "base": {
+      "schema_version": 1,
+      "reference": "alor_freeze_2026_09_27",
+      "restart_mode": "new_segment",
+      "model_profile": "imoexf-baseline07-bo-only-no-riskgate",
+      "model_sha256": "665f18112142f6c9aee1b613e341870f0d559d783fe41df725e26415507e6290",
+      "reference_sha256": "0faf8466d95b3ebde4810ace210900923e967a54209c4a59ce28b996542702fb",
+      "feedback_policy_sha256": "391eaa566a45e64fb673ce711289f5b161369999cd978c30316710ef53e6e9bb",
+      "instrument_mapping_sha256": "db700fe95a8a7391fca4558a9b8d831e5e845b1023a0e7fec9b863c1de986c4c",
+      "calendar_sha256": "cbb3cb1ceb98e1816304279166ec959dec2693110a98aee453e5dd0f8c4f0794",
+      "seed_sha256": "f6914609e13b84b5e445bfb8067045d7bf59770d6eaa8b96db5795b2b3a9ebba",
+      "instrument": "IMOEXF@RTSX",
+      "run_id": "ws-primary-consistent-v5-20261112-0700-r0",
+      "segment_id": "new",
+      "previous_segment_id": null,
+      "warmup_session_dates": [
+        "2026-11-06",
+        "2026-11-09",
+        "2026-11-10",
+        "2026-11-11"
+      ],
+      "warmup_range_start_utc_ms": 1793937600000,
+      "warmup_range_end_utc_ms": 1794430200000,
+      "observation_start_utc_ms": 1794456000000,
+      "run_deadline_utc_ms": 1794517200000,
+      "lmax_ms": 10000,
+      "max_quote_age_ms": 1000,
+      "clock_uncertainty_ms": 100,
+      "ws_silence_budget_ms": 1000,
+      "reconnect_budget_ms": 1000,
+      "stop_timeout_ms": 1000,
+      "max_input_bytes": 16777216,
+      "max_cache_bars": 4096,
+      "max_output_bytes": 33554432
+    },
+    "primary": {
+      "delivery": "ObservedBoConsistentSourcesV5",
+      "close_grace_ms": 1000,
+      "exception_wait_ms": 3000,
+      "proof_timeout_ms": 5000,
+      "ingress_capacity": 128,
+      "max_ingress_age_ms": 2000,
+      "max_cache_m1": 4096,
+      "bootstrap_max_rows": 512,
+      "bootstrap_max_bytes": 262144,
+      "audit_every_commits": 6,
+      "recovery_overlap_m10": 2,
+      "recovery_max_gap_ms": 21600000
+    }
+  },
+  "proof": {
+    "end": "2026-11-12T07:10:00Z",
+    "parts": [
+      {
+        "declared_body_bytes": 2033,
+        "end": "2026-11-12T07:10:00Z",
+        "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+        "method": "GET",
+        "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-12T07:00:00Z\",\n   \"open\": {\n    \"value\": \"2495.0\"\n   },\n   \"high\": {\n    \"value\": \"2495.0\"\n   },\n   \"low\": {\n    \"value\": \"2493.5\"\n   },\n   \"close\": {\n    \"value\": \"2493.5\"\n   },\n   \"volume\": {\n    \"value\": \"975.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T07:01:00Z\",\n   \"open\": {\n    \"value\": \"2493.5\"\n   },\n   \"high\": {\n    \"value\": \"2493.5\"\n   },\n   \"low\": {\n    \"value\": \"2492.5\"\n   },\n   \"close\": {\n    \"value\": \"2492.5\"\n   },\n   \"volume\": {\n    \"value\": \"874.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T07:02:00Z\",\n   \"open\": {\n    \"value\": \"2492.0\"\n   },\n   \"high\": {\n    \"value\": \"2492.0\"\n   },\n   \"low\": {\n    \"value\": \"2490.5\"\n   },\n   \"close\": {\n    \"value\": \"2490.5\"\n   },\n   \"volume\": {\n    \"value\": \"2611.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T07:03:00Z\",\n   \"open\": {\n    \"value\": \"2491.0\"\n   },\n   \"high\": {\n    \"value\": \"2492.5\"\n   },\n   \"low\": {\n    \"value\": \"2489.5\"\n   },\n   \"close\": {\n    \"value\": \"2492.0\"\n   },\n   \"volume\": {\n    \"value\": \"3402.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T07:04:00Z\",\n   \"open\": {\n    \"value\": \"2492.5\"\n   },\n   \"high\": {\n    \"value\": \"2493.5\"\n   },\n   \"low\": {\n    \"value\": \"2491.0\"\n   },\n   \"close\": {\n    \"value\": \"2493.5\"\n   },\n   \"volume\": {\n    \"value\": \"934.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T07:05:00Z\",\n   \"open\": {\n    \"value\": \"2492.5\"\n   },\n   \"high\": {\n    \"value\": \"2493.5\"\n   },\n   \"low\": {\n    \"value\": \"2491.0\"\n   },\n   \"close\": {\n    \"value\": \"2492.0\"\n   },\n   \"volume\": {\n    \"value\": \"198.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T07:06:00Z\",\n   \"open\": {\n    \"value\": \"2492.0\"\n   },\n   \"high\": {\n    \"value\": \"2492.5\"\n   },\n   \"low\": {\n    \"value\": \"2491.0\"\n   },\n   \"close\": {\n    \"value\": \"2492.5\"\n   },\n   \"volume\": {\n    \"value\": \"861.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+        "received_at": "2026-11-12T07:10:01.046134046Z",
+        "requested_at": "2026-11-12T07:10:01.003549038Z",
+        "response_sha256": "2e4fa2a2d936acd89bee7b82632121856d590341f9be7dea30074c0bc04741c1",
+        "start": "2026-11-12T07:00:00Z",
+        "status": 200,
+        "symbol": "IMOEXF@RTSX",
+        "timeframe": "TIME_FRAME_M1",
+        "transport_complete": true
+      }
+    ],
+    "policy": "closed-rest-observed-m1-to-m10-v1",
+    "start": "2026-11-12T07:00:00Z"
+  },
+  "recovery": {
+    "end": "2026-11-12T07:10:00Z",
+    "parts": [
+      {
+        "declared_body_bytes": 7711,
+        "end": "2026-11-12T07:10:00Z",
+        "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+        "method": "GET",
+        "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-12T06:40:00Z\",\n   \"open\": {\n    \"value\": \"2497.0\"\n   },\n   \"high\": {\n    \"value\": \"2497.0\"\n   },\n   \"low\": {\n    \"value\": \"2496.0\"\n   },\n   \"close\": {\n    \"value\": \"2496.5\"\n   },\n   \"volume\": {\n    \"value\": \"487.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T06:41:00Z\",\n   \"open\": {\n    \"value\": \"2496.5\"\n   },\n   \"high\": {\n    \"value\": \"2497.5\"\n   },\n   \"low\": {\n    \"value\": \"2496.0\"\n   },\n   \"close\": {\n    \"value\": \"2497.5\"\n   },\n   \"volume\": {\n    \"value\": \"101.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T06:42:00Z\",\n   \"open\": {\n    \"value\": \"2497.0\"\n   },\n   \"high\": {\n    \"value\": \"2497.5\"\n   },\n   \"low\": {\n    \"value\": \"2496.5\"\n   },\n   \"close\": {\n    \"value\": \"2497.0\"\n   },\n   \"volume\": {\n    \"value\": \"125.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T06:43:00Z\",\n   \"open\": {\n    \"value\": \"2496.5\"\n   },\n   \"high\": {\n    \"value\": \"2496.5\"\n   },\n   \"low\": {\n    \"value\": \"2496.0\"\n   },\n   \"close\": {\n    \"value\": \"2496.5\"\n   },\n   \"volume\": {\n    \"value\": \"46.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T06:44:00Z\",\n   \"open\": {\n    \"value\": \"2497.0\"\n   },\n   \"high\": {\n    \"value\": \"2497.0\"\n   },\n   \"low\": {\n    \"value\": \"2496.0\"\n   },\n   \"close\": {\n    \"value\": \"2496.5\"\n   },\n   \"volume\": {\n    \"value\": \"158.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T06:45:00Z\",\n   \"open\": {\n    \"value\": \"2496.0\"\n   },\n   \"high\": {\n    \"value\": \"2496.5\"\n   },\n   \"low\": {\n    \"value\": \"2496.0\"\n   },\n   \"close\": {\n    \"value\": \"2496.0\"\n   },\n   \"volume\": {\n    \"value\": \"111.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T06:46:00Z\",\n   \"open\": {\n    \"value\": \"2496.0\"\n   },\n   \"high\": {\n    \"value\": \"2496.5\"\n   },\n   \"low\": {\n    \"value\": \"2496.0\"\n   },\n   \"close\": {\n    \"value\": \"2496.0\"\n   },\n   \"volume\": {\n    \"value\": \"139.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T06:47:00Z\",\n   \"open\": {\n    \"value\": \"2496.5\"\n   },\n   \"high\": {\n    \"value\": \"2496.5\"\n   },\n   \"low\": {\n    \"value\": \"2496.0\"\n   },\n   \"close\": {\n    \"value\": \"2496.0\"\n   },\n   \"volume\": {\n    \"value\": \"72.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T06:48:00Z\",\n   \"open\": {\n    \"value\": \"2496.5\"\n   },\n   \"high\": {\n    \"value\": \"2496.5\"\n   },\n   \"low\": {\n    \"value\": \"2495.5\"\n   },\n   \"close\": {\n    \"value\": \"2496.0\"\n   },\n   \"volume\": {\n    \"value\": \"166.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T06:49:00Z\",\n   \"open\": {\n    \"value\": \"2496.5\"\n   },\n   \"high\": {\n    \"value\": \"2496.5\"\n   },\n   \"low\": {\n    \"value\": \"2495.5\"\n   },\n   \"close\": {\n    \"value\": \"2496.0\"\n   },\n   \"volume\": {\n    \"value\": \"973.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T06:50:00Z\",\n   \"open\": {\n    \"value\": \"2495.5\"\n   },\n   \"high\": {\n    \"value\": \"2495.5\"\n   },\n   \"low\": {\n    \"value\": \"2494.5\"\n   },\n   \"close\": {\n    \"value\": \"2495.0\"\n   },\n   \"volume\": {\n    \"value\": \"1807.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T06:51:00Z\",\n   \"open\": {\n    \"value\": \"2495.5\"\n   },\n   \"high\": {\n    \"value\": \"2496.0\"\n   },\n   \"low\": {\n    \"value\": \"2495.0\"\n   },\n   \"close\": {\n    \"value\": \"2496.0\"\n   },\n   \"volume\": {\n    \"value\": \"63.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T06:52:00Z\",\n   \"open\": {\n    \"value\": \"2495.5\"\n   },\n   \"high\": {\n    \"value\": \"2496.0\"\n   },\n   \"low\": {\n    \"value\": \"2495.0\"\n   },\n   \"close\": {\n    \"value\": \"2496.0\"\n   },\n   \"volume\": {\n    \"value\": \"1147.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T06:53:00Z\",\n   \"open\": {\n    \"value\": \"2496.0\"\n   },\n   \"high\": {\n    \"value\": \"2496.0\"\n   },\n   \"low\": {\n    \"value\": \"2494.5\"\n   },\n   \"close\": {\n    \"value\": \"2494.5\"\n   },\n   \"volume\": {\n    \"value\": \"728.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T06:54:00Z\",\n   \"open\": {\n    \"value\": \"2495.0\"\n   },\n   \"high\": {\n    \"value\": \"2495.0\"\n   },\n   \"low\": {\n    \"value\": \"2494.5\"\n   },\n   \"close\": {\n    \"value\": \"2495.0\"\n   },\n   \"volume\": {\n    \"value\": \"64.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T06:55:00Z\",\n   \"open\": {\n    \"value\": \"2494.5\"\n   },\n   \"high\": {\n    \"value\": \"2494.5\"\n   },\n   \"low\": {\n    \"value\": \"2494.0\"\n   },\n   \"close\": {\n    \"value\": \"2494.5\"\n   },\n   \"volume\": {\n    \"value\": \"976.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T06:56:00Z\",\n   \"open\": {\n    \"value\": \"2494.5\"\n   },\n   \"high\": {\n    \"value\": \"2495.5\"\n   },\n   \"low\": {\n    \"value\": \"2494.5\"\n   },\n   \"close\": {\n    \"value\": \"2495.5\"\n   },\n   \"volume\": {\n    \"value\": \"647.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T06:57:00Z\",\n   \"open\": {\n    \"value\": \"2494.5\"\n   },\n   \"high\": {\n    \"value\": \"2495.5\"\n   },\n   \"low\": {\n    \"value\": \"2494.5\"\n   },\n   \"close\": {\n    \"value\": \"2495.5\"\n   },\n   \"volume\": {\n    \"value\": \"72.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T06:58:00Z\",\n   \"open\": {\n    \"value\": \"2495.5\"\n   },\n   \"high\": {\n    \"value\": \"2496.5\"\n   },\n   \"low\": {\n    \"value\": \"2495.0\"\n   },\n   \"close\": {\n    \"value\": \"2495.5\"\n   },\n   \"volume\": {\n    \"value\": \"1104.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T06:59:00Z\",\n   \"open\": {\n    \"value\": \"2495.5\"\n   },\n   \"high\": {\n    \"value\": \"2496.0\"\n   },\n   \"low\": {\n    \"value\": \"2495.0\"\n   },\n   \"close\": {\n    \"value\": \"2495.0\"\n   },\n   \"volume\": {\n    \"value\": \"170.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T07:00:00Z\",\n   \"open\": {\n    \"value\": \"2495.0\"\n   },\n   \"high\": {\n    \"value\": \"2495.0\"\n   },\n   \"low\": {\n    \"value\": \"2493.5\"\n   },\n   \"close\": {\n    \"value\": \"2493.5\"\n   },\n   \"volume\": {\n    \"value\": \"975.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T07:01:00Z\",\n   \"open\": {\n    \"value\": \"2493.5\"\n   },\n   \"high\": {\n    \"value\": \"2493.5\"\n   },\n   \"low\": {\n    \"value\": \"2492.5\"\n   },\n   \"close\": {\n    \"value\": \"2492.5\"\n   },\n   \"volume\": {\n    \"value\": \"874.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T07:02:00Z\",\n   \"open\": {\n    \"value\": \"2492.0\"\n   },\n   \"high\": {\n    \"value\": \"2492.0\"\n   },\n   \"low\": {\n    \"value\": \"2490.5\"\n   },\n   \"close\": {\n    \"value\": \"2490.5\"\n   },\n   \"volume\": {\n    \"value\": \"2611.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T07:03:00Z\",\n   \"open\": {\n    \"value\": \"2491.0\"\n   },\n   \"high\": {\n    \"value\": \"2492.5\"\n   },\n   \"low\": {\n    \"value\": \"2489.5\"\n   },\n   \"close\": {\n    \"value\": \"2492.0\"\n   },\n   \"volume\": {\n    \"value\": \"3402.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T07:04:00Z\",\n   \"open\": {\n    \"value\": \"2492.5\"\n   },\n   \"high\": {\n    \"value\": \"2493.5\"\n   },\n   \"low\": {\n    \"value\": \"2491.0\"\n   },\n   \"close\": {\n    \"value\": \"2493.5\"\n   },\n   \"volume\": {\n    \"value\": \"934.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T07:05:00Z\",\n   \"open\": {\n    \"value\": \"2492.5\"\n   },\n   \"high\": {\n    \"value\": \"2493.5\"\n   },\n   \"low\": {\n    \"value\": \"2491.0\"\n   },\n   \"close\": {\n    \"value\": \"2492.0\"\n   },\n   \"volume\": {\n    \"value\": \"198.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-12T07:06:00Z\",\n   \"open\": {\n    \"value\": \"2492.0\"\n   },\n   \"high\": {\n    \"value\": \"2492.5\"\n   },\n   \"low\": {\n    \"value\": \"2491.0\"\n   },\n   \"close\": {\n    \"value\": \"2492.5\"\n   },\n   \"volume\": {\n    \"value\": \"861.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+        "received_at": "2026-11-12T07:10:03.090437747Z",
+        "requested_at": "2026-11-12T07:10:03.047390500Z",
+        "response_sha256": "b3a3234c4710510ef87c9daf703aed3771021d6bb854e5339740711e7fd3be75",
+        "start": "2026-11-12T06:40:00Z",
+        "status": 200,
+        "symbol": "IMOEXF@RTSX",
+        "timeframe": "TIME_FRAME_M1",
+        "transport_complete": true
+      }
+    ],
+    "policy": "closed-rest-observed-m1-to-m10-v1",
+    "start": "2026-11-12T06:40:00Z"
+  },
+  "known_ws": [
+    {
+      "close": "2493.5",
+      "close_ts": "2026-11-12T07:01:00Z",
+      "high": "2495.0",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": false,
+      "low": "2493.5",
+      "open": "2495.0",
+      "open_ts": "2026-11-12T07:00:00Z",
+      "source_kind": "LiveStream",
+      "timeframe_sec": 60,
+      "volume": "975.0"
+    },
+    {
+      "close": "2492.5",
+      "close_ts": "2026-11-12T07:02:00Z",
+      "high": "2493.5",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": false,
+      "low": "2492.5",
+      "open": "2493.5",
+      "open_ts": "2026-11-12T07:01:00Z",
+      "source_kind": "LiveStream",
+      "timeframe_sec": 60,
+      "volume": "874.0"
+    },
+    {
+      "close": "2490.5",
+      "close_ts": "2026-11-12T07:03:00Z",
+      "high": "2492.0",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": false,
+      "low": "2490.5",
+      "open": "2492.0",
+      "open_ts": "2026-11-12T07:02:00Z",
+      "source_kind": "LiveStream",
+      "timeframe_sec": 60,
+      "volume": "2611.0"
+    },
+    {
+      "close": "2492.0",
+      "close_ts": "2026-11-12T07:04:00Z",
+      "high": "2492.5",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": false,
+      "low": "2489.5",
+      "open": "2491.0",
+      "open_ts": "2026-11-12T07:03:00Z",
+      "source_kind": "LiveStream",
+      "timeframe_sec": 60,
+      "volume": "3402.0"
+    },
+    {
+      "close": "2493.5",
+      "close_ts": "2026-11-12T07:05:00Z",
+      "high": "2493.5",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": false,
+      "low": "2491.0",
+      "open": "2492.5",
+      "open_ts": "2026-11-12T07:04:00Z",
+      "source_kind": "LiveStream",
+      "timeframe_sec": 60,
+      "volume": "934.0"
+    },
+    {
+      "close": "2492.0",
+      "close_ts": "2026-11-12T07:06:00Z",
+      "high": "2493.5",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": false,
+      "low": "2491.0",
+      "open": "2492.5",
+      "open_ts": "2026-11-12T07:05:00Z",
+      "source_kind": "LiveStream",
+      "timeframe_sec": 60,
+      "volume": "198.0"
+    },
+    {
+      "close": "2493.0",
+      "close_ts": "2026-11-12T07:07:00Z",
+      "high": "2493.0",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": false,
+      "low": "2491.0",
+      "open": "2492.0",
+      "open_ts": "2026-11-12T07:06:00Z",
+      "source_kind": "LiveStream",
+      "timeframe_sec": 60,
+      "volume": "862.0"
+    },
+    {
+      "close": "2491.0",
+      "close_ts": "2026-11-12T07:08:00Z",
+      "high": "2493.5",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": false,
+      "low": "2491.0",
+      "open": "2492.5",
+      "open_ts": "2026-11-12T07:07:00Z",
+      "source_kind": "LiveStream",
+      "timeframe_sec": 60,
+      "volume": "2506.0"
+    },
+    {
+      "close": "2489.5",
+      "close_ts": "2026-11-12T07:09:00Z",
+      "high": "2491.0",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": false,
+      "low": "2489.0",
+      "open": "2490.5",
+      "open_ts": "2026-11-12T07:08:00Z",
+      "source_kind": "LiveStream",
+      "timeframe_sec": 60,
+      "volume": "1513.0"
+    },
+    {
+      "close": "2486.0",
+      "close_ts": "2026-11-12T07:10:00Z",
+      "high": "2489.5",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": false,
+      "low": "2485.5",
+      "open": "2489.0",
+      "open_ts": "2026-11-12T07:09:00Z",
+      "source_kind": "LiveStream",
+      "timeframe_sec": 60,
+      "volume": "11616.0"
+    }
+  ],
+  "committed_overlap": [
+    {
+      "close": "2496.5",
+      "close_ts": "2026-11-12T06:41:00Z",
+      "high": "2497",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": true,
+      "low": "2496",
+      "open": "2497",
+      "open_ts": "2026-11-12T06:40:00Z",
+      "source_kind": "HistoricalPoll",
+      "timeframe_sec": 60,
+      "volume": "487"
+    },
+    {
+      "close": "2497.5",
+      "close_ts": "2026-11-12T06:42:00Z",
+      "high": "2497.5",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": true,
+      "low": "2496",
+      "open": "2496.5",
+      "open_ts": "2026-11-12T06:41:00Z",
+      "source_kind": "HistoricalPoll",
+      "timeframe_sec": 60,
+      "volume": "101"
+    },
+    {
+      "close": "2497",
+      "close_ts": "2026-11-12T06:43:00Z",
+      "high": "2497.5",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": true,
+      "low": "2496.5",
+      "open": "2497",
+      "open_ts": "2026-11-12T06:42:00Z",
+      "source_kind": "HistoricalPoll",
+      "timeframe_sec": 60,
+      "volume": "125"
+    },
+    {
+      "close": "2496.5",
+      "close_ts": "2026-11-12T06:44:00Z",
+      "high": "2496.5",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": true,
+      "low": "2496",
+      "open": "2496.5",
+      "open_ts": "2026-11-12T06:43:00Z",
+      "source_kind": "HistoricalPoll",
+      "timeframe_sec": 60,
+      "volume": "46"
+    },
+    {
+      "close": "2496.5",
+      "close_ts": "2026-11-12T06:45:00Z",
+      "high": "2497",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": true,
+      "low": "2496",
+      "open": "2497",
+      "open_ts": "2026-11-12T06:44:00Z",
+      "source_kind": "HistoricalPoll",
+      "timeframe_sec": 60,
+      "volume": "158"
+    },
+    {
+      "close": "2496",
+      "close_ts": "2026-11-12T06:46:00Z",
+      "high": "2496.5",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": true,
+      "low": "2496",
+      "open": "2496",
+      "open_ts": "2026-11-12T06:45:00Z",
+      "source_kind": "HistoricalPoll",
+      "timeframe_sec": 60,
+      "volume": "111"
+    },
+    {
+      "close": "2496",
+      "close_ts": "2026-11-12T06:47:00Z",
+      "high": "2496.5",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": true,
+      "low": "2496",
+      "open": "2496",
+      "open_ts": "2026-11-12T06:46:00Z",
+      "source_kind": "HistoricalPoll",
+      "timeframe_sec": 60,
+      "volume": "139"
+    },
+    {
+      "close": "2496",
+      "close_ts": "2026-11-12T06:48:00Z",
+      "high": "2496.5",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": true,
+      "low": "2496",
+      "open": "2496.5",
+      "open_ts": "2026-11-12T06:47:00Z",
+      "source_kind": "HistoricalPoll",
+      "timeframe_sec": 60,
+      "volume": "72"
+    },
+    {
+      "close": "2496",
+      "close_ts": "2026-11-12T06:49:00Z",
+      "high": "2496.5",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": true,
+      "low": "2495.5",
+      "open": "2496.5",
+      "open_ts": "2026-11-12T06:48:00Z",
+      "source_kind": "HistoricalPoll",
+      "timeframe_sec": 60,
+      "volume": "166"
+    },
+    {
+      "close": "2496.5",
+      "close_ts": "2026-11-12T06:50:00Z",
+      "high": "2496.5",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": true,
+      "low": "2495.5",
+      "open": "2496.5",
+      "open_ts": "2026-11-12T06:49:00Z",
+      "source_kind": "HistoricalPoll",
+      "timeframe_sec": 60,
+      "volume": "808"
+    },
+    {
+      "close": "2495",
+      "close_ts": "2026-11-12T06:51:00Z",
+      "high": "2495.5",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": true,
+      "low": "2494.5",
+      "open": "2495.5",
+      "open_ts": "2026-11-12T06:50:00Z",
+      "source_kind": "HistoricalPoll",
+      "timeframe_sec": 60,
+      "volume": "1807"
+    },
+    {
+      "close": "2496",
+      "close_ts": "2026-11-12T06:52:00Z",
+      "high": "2496",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": true,
+      "low": "2495",
+      "open": "2495.5",
+      "open_ts": "2026-11-12T06:51:00Z",
+      "source_kind": "HistoricalPoll",
+      "timeframe_sec": 60,
+      "volume": "63"
+    },
+    {
+      "close": "2496",
+      "close_ts": "2026-11-12T06:53:00Z",
+      "high": "2496",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": true,
+      "low": "2495",
+      "open": "2495.5",
+      "open_ts": "2026-11-12T06:52:00Z",
+      "source_kind": "HistoricalPoll",
+      "timeframe_sec": 60,
+      "volume": "1147"
+    },
+    {
+      "close": "2494.5",
+      "close_ts": "2026-11-12T06:54:00Z",
+      "high": "2496",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": true,
+      "low": "2494.5",
+      "open": "2496",
+      "open_ts": "2026-11-12T06:53:00Z",
+      "source_kind": "HistoricalPoll",
+      "timeframe_sec": 60,
+      "volume": "728"
+    },
+    {
+      "close": "2495",
+      "close_ts": "2026-11-12T06:55:00Z",
+      "high": "2495",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": true,
+      "low": "2494.5",
+      "open": "2495",
+      "open_ts": "2026-11-12T06:54:00Z",
+      "source_kind": "HistoricalPoll",
+      "timeframe_sec": 60,
+      "volume": "64"
+    },
+    {
+      "close": "2494.5",
+      "close_ts": "2026-11-12T06:56:00Z",
+      "high": "2494.5",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": true,
+      "low": "2494",
+      "open": "2494.5",
+      "open_ts": "2026-11-12T06:55:00Z",
+      "source_kind": "HistoricalPoll",
+      "timeframe_sec": 60,
+      "volume": "976"
+    },
+    {
+      "close": "2495.5",
+      "close_ts": "2026-11-12T06:57:00Z",
+      "high": "2495.5",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": true,
+      "low": "2494.5",
+      "open": "2494.5",
+      "open_ts": "2026-11-12T06:56:00Z",
+      "source_kind": "HistoricalPoll",
+      "timeframe_sec": 60,
+      "volume": "647"
+    },
+    {
+      "close": "2495.5",
+      "close_ts": "2026-11-12T06:58:00Z",
+      "high": "2495.5",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": true,
+      "low": "2494.5",
+      "open": "2494.5",
+      "open_ts": "2026-11-12T06:57:00Z",
+      "source_kind": "HistoricalPoll",
+      "timeframe_sec": 60,
+      "volume": "72"
+    },
+    {
+      "close": "2495.5",
+      "close_ts": "2026-11-12T06:59:00Z",
+      "high": "2496.5",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": true,
+      "low": "2495",
+      "open": "2495.5",
+      "open_ts": "2026-11-12T06:58:00Z",
+      "source_kind": "HistoricalPoll",
+      "timeframe_sec": 60,
+      "volume": "1104"
+    },
+    {
+      "close": "2495",
+      "close_ts": "2026-11-12T07:00:00Z",
+      "high": "2496",
+      "instrument": {
+        "exchange": "Moex",
+        "market": "Futures",
+        "symbol": "IMOEXF",
+        "venue_symbol": "IMOEXF@RTSX"
+      },
+      "is_final": true,
+      "low": "2495",
+      "open": "2495.5",
+      "open_ts": "2026-11-12T06:59:00Z",
+      "source_kind": "HistoricalPoll",
+      "timeframe_sec": 60,
+      "volume": "170"
+    }
+  ]
+}

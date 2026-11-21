@@ -372,7 +372,7 @@ impl Stage8bP1ValidatedCanonicalM10 {
             is_final: true,
             timeframe_sec: 600,
         };
-        accept_stage5c_semantic_bar(Stage5cSemanticBarInput {
+        let accepted = accept_stage5c_semantic_bar(Stage5cSemanticBarInput {
             bar,
             provenance,
             tick_size: STAGE8B_P1_TICK_SIZE
@@ -382,7 +382,13 @@ impl Stage8bP1ValidatedCanonicalM10 {
         .and_then(|accepted| {
             accepted.with_strategy_model_bar_label_utc(model_bar_label_utc_ms.div_euclid(1_000))
         })
-        .map_err(|_| Stage8bP1CanonicalM10Error::Stage5cRejected)
+        .map_err(|_| Stage8bP1CanonicalM10Error::Stage5cRejected)?;
+        match self.observed_binding {
+            Some(binding) => accepted
+                .with_stage8b_p1_observed_source(binding.source(), binding.source().sha256())
+                .map_err(|_| Stage8bP1CanonicalM10Error::Stage5cRejected),
+            None => Ok(accepted),
+        }
     }
 }
 

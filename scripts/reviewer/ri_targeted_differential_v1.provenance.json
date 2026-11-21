@@ -1,0 +1,17 @@
+{
+  "source_review": "FINAM_SHADOW_RI_REVIEW_01769820_20261113_R0.zip",
+  "source_review_sha256": "b97cec104f383904b06e727a126774c01fd0720de587a80c9dcedc0b5644e5f1",
+  "accepted_numerical_source": "017698205c482087334ac6c4d13fd9b65a19422d",
+  "acceptance_letter_sha256": "ed1ca96181883c72f5d7231929e184ffd5d8733221e7c864140d602dafa0dbc7",
+  "original_runner_member": "reviewer-extra/targeted_differential.py",
+  "runner_sha256": "8bd386acb408afa7c6efee59f8247e5eb0ad4233e27b0f20e9044514d4ad12cc",
+  "runner_adaptation": "NONE: byte-for-byte copy, including final newline",
+  "generated_input_sha256": "548a2e6484e1354e193b5bba97c2e1476945a8cb11b1258d4b90f22c513a4e21",
+  "input_cases": 12,
+  "case_policy_replays": 24,
+  "state_rows": 2304,
+  "evidence_kind": "synthetic_model_clock",
+  "operational_session_acceptance": false,
+  "calls_RiSession_complete": false,
+  "note": "The runner's source_candidate is the original reviewer reference, not a claim about an arbitrary future binary passed to the regression wrapper. The tested binary SHA is recorded separately."
+}

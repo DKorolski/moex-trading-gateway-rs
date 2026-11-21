@@ -5,6 +5,7 @@ use crate::{build_stage8b_p1_observed_canonical_m10, Stage8bP1ObservedM10Binding
 use broker_core::{event::Bar, observed_m1::ObservedM1Receipt, MarketDataSourceKind};
 
 mod journal_ahead;
+mod o3_readmission;
 
 fn observed_first_boot(
     parent: &Path,
@@ -74,6 +75,40 @@ fn extend(old: &Stage8bP1ObservedM10Binding, price: i64) -> Stage8bP1ObservedM10
         old.source().end() + chrono::Duration::minutes(10),
         old.source().received_at() + chrono::Duration::minutes(10),
         crate::stage8b_p1_semantic::p1_instrument(),
+        bars,
+    )
+    .unwrap();
+    let hash = source.sha256().to_string();
+    Stage8bP1ObservedM10Binding::new(old.operational_identity_sha256(), source, &hash).unwrap()
+}
+
+fn extend_catchup(old: &Stage8bP1ObservedM10Binding) -> Stage8bP1ObservedM10Binding {
+    let mut bars = old.source().bars().to_vec();
+    let candidate = old.source().end() + chrono::Duration::hours(3);
+    let end = candidate + chrono::Duration::minutes(10);
+    for label in (old.source().end().timestamp()..end.timestamp()).step_by(600) {
+        for minute in [1, 4, 7] {
+            let mut bar = bars[0].clone();
+            let price = if label == candidate.timestamp() {
+                2220
+            } else {
+                2200
+            };
+            bar.open_ts = chrono::DateTime::from_timestamp(label + minute * 60, 0).unwrap();
+            bar.close_ts = bar.open_ts + chrono::Duration::minutes(1);
+            bar.open = price.into();
+            bar.close = price.into();
+            bar.high = (price + 1).into();
+            bar.low = (price - 1).into();
+            bars.push(bar);
+        }
+    }
+    let source = ObservedM1Receipt::from_admitted_source(
+        "ef".repeat(32),
+        old.source().start(),
+        end,
+        end + chrono::Duration::seconds(30),
+        old.source().instrument().clone(),
         bars,
     )
     .unwrap();
@@ -156,26 +191,122 @@ async fn observed_redis_policy_cannot_cross_legacy_or_observed_durable_identity(
 /// Real broker-history/price parity remains the separate gateway/replay proof.
 #[tokio::test]
 async fn observed_redis_rolling_receipts_market_ack_truth_xack_and_restart_once() {
-    rolling_receipts_market_restart(false).await;
+    rolling_receipts_market_restart(false, false).await;
 }
 
 #[tokio::test]
 async fn observed_redis_sealed_recovery_loads_old_receipt_without_repeated_effects() {
-    rolling_receipts_market_restart(true).await;
+    rolling_receipts_market_restart(true, false).await;
 }
 
-async fn rolling_receipts_market_restart(sealed_recovery: bool) {
+#[tokio::test]
+async fn observed_session_catchup_preserves_expired_admission_refusal_and_seed() {
+    // Regression / blocker witness, NOT positive O3 proof. Catch-up must never
+    // silently renew broker truth or rewrite the previously accepted seal.
+    let redis = RedisServer::start().await;
+    let parent = temp_directory("observed-catchup-expired-truth");
+    let (owner, key, fresh, op, initial) = observed_first_boot(&parent);
+    let config = observed_bootstrap(&parent, fresh.stage5c_config_fingerprint());
+    let root = config.durable_parent().join(config.expected_root_name());
+    let journal_path = root.join(crate::STAGE7B_JOURNAL_FILE);
+    let seal_path = root.join(crate::STAGE7B_RECOVERY_SEAL_FILE);
+    let journal_before = std::fs::read(&journal_path).unwrap();
+    let seal_before = std::fs::read(&seal_path).unwrap();
+    let decision = extend_catchup(&initial);
+    let bytes = build_stage8b_p1_observed_canonical_m10(
+        &op,
+        decision.source().end().timestamp_millis() - 600_000,
+        decision.source(),
+    )
+    .unwrap();
+    initialize_stage8b_p1_redis_namespace(&redis.url, reclaim_config())
+        .await
+        .unwrap();
+    let mut transport = attach_stage8b_p1_observed_redis(&redis.url, reclaim_config(), decision)
+        .await
+        .unwrap();
+    transport.publish_canonical_m10(&bytes, &op).await.unwrap();
+    p1e_i1_begin_direct_effect_audit();
+    let result = Stage8bP1RedisSemanticCompositionOwner::new(owner, transport)
+        .process_next(&key)
+        .await;
+    assert!(matches!(
+        result,
+        Err(Stage8bP1RedisSemanticError::Durable(
+            crate::Stage7bRecoveryError::Runtime(
+                strategy_runtime_core::Stage6dLiveCoreError::DurableOrderingViolation
+            )
+        ))
+    ));
+    let effects = p1e_i1_take_direct_effect_audit();
+    assert_eq!(effects.provider_total, 0);
+    assert_eq!(effects.publication_total, 0);
+    assert_eq!(effects.xack_total, 0);
+    assert_eq!(std::fs::read(&journal_path).unwrap(), journal_before);
+    assert_eq!(std::fs::read(&seal_path).unwrap(), seal_before);
+    let mut probe = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+        .await
+        .unwrap();
+    assert_eq!(
+        probe
+            .backend
+            .pending_entries("-", "+", 10)
+            .await
+            .unwrap()
+            .ids
+            .len(),
+        1
+    );
+    let namespace = stage8b_p1_redis_namespace();
+    let mut connection = redis.connection().await;
+    let commands: usize = redis::cmd("XLEN")
+        .arg(&namespace.canonical_command_stream)
+        .query_async(&mut connection)
+        .await
+        .unwrap();
+    assert_eq!(commands, 0);
+    assert!(matches!(
+        restart_stage8b_p1(config, &key, fresh).unwrap(),
+        Stage7bRestartOutcome::Ready(_)
+    ));
+    std::fs::remove_dir_all(parent).unwrap();
+}
+
+async fn rolling_receipts_market_restart(sealed_recovery: bool, o3: bool) {
+    rolling_market_with_delay(sealed_recovery, o3, Duration::ZERO).await;
+}
+
+async fn rolling_market_with_delay(sealed_recovery: bool, o3: bool, delay: Duration) {
     let redis = RedisServer::start().await;
     let parent = temp_directory("observed-rolling-market");
     let (owner, key, fresh, op, initial) = observed_first_boot(&parent);
+    let historical = o3_readmission::historical_bytes(&parent);
+    let owner = if o3 {
+        drop(owner);
+        let Stage7bRestartOutcome::Ready(owner) = restart_stage8b_p1(
+            observed_bootstrap(&parent, fresh.stage5c_config_fingerprint()),
+            &key,
+            fresh.clone(),
+        )
+        .unwrap() else {
+            panic!("authenticated initial V5 Ready restart");
+        };
+        *owner
+    } else {
+        owner
+    };
     let receipt_dir = parent.clone();
-    let decision = extend(&initial, 2220);
+    let decision = if o3 {
+        o3_readmission::next_session(&initial)
+    } else {
+        extend(&initial, 2220)
+    };
     let successor = extend(&decision, 2221);
     decision.persist_retained_receipt(&receipt_dir).unwrap();
     successor.persist_retained_receipt(&receipt_dir).unwrap();
     let decision_bytes = build_stage8b_p1_observed_canonical_m10(
         &op,
-        initial.source().end().timestamp_millis(),
+        decision.source().end().timestamp_millis() - 600_000,
         decision.source(),
     )
     .unwrap();
@@ -227,6 +358,40 @@ async fn rolling_receipts_market_restart(sealed_recovery: bool) {
         .publish_canonical_m10(&successor_bytes, &op)
         .await
         .unwrap();
+    let paper_source =
+        o3.then(|| o3_readmission::paper_source(&op, &fresh.stage5c_config_fingerprint()));
+    if let Some(source) = paper_source.clone() {
+        let old = Stage8bP1ObservedM10Binding::restore_for_exact_m10(
+            &parent,
+            &decision_bytes,
+            &op,
+            canonical.redis_id(),
+            canonical.semantic_id_sha256(),
+            canonical.payload_sha256(),
+        )
+        .unwrap();
+        let next =
+            Stage8bP1ObservedM10Binding::restore_retained_receipt(&parent, &op, &successor_hash)
+                .unwrap();
+        let window = crate::Stage8bP1ObservedPublishedWindow::new(
+            old,
+            decision_bytes.clone(),
+            next,
+            successor_bytes.clone(),
+        )
+        .unwrap()
+        .with_o3_paper_source(source)
+        .unwrap();
+        let mut context = Stage8bP1ObservedRecoveryContext::new(
+            initial.clone(),
+            &observed_bootstrap(&parent, fresh.stage5c_config_fingerprint()),
+        )
+        .unwrap();
+        context.admit_fresh_window(window).unwrap();
+        transport.backend.observed_binding = Some(
+            super::super::super::observed::ObservedM10Context::Recovery(context),
+        );
+    }
     p1e_i1_begin_direct_effect_audit();
     let outcome = Stage8bP1RedisSemanticCompositionOwner::new(owner, transport)
         .process_next(&key)
@@ -263,11 +428,26 @@ async fn rolling_receipts_market_restart(sealed_recovery: bool) {
         panic!("S_ack must restore truth-only route");
     };
     let recovery_context = || {
-        Stage8bP1ObservedRecoveryContext::new(
-            initial.clone(),
-            &observed_bootstrap(&parent, fresh.stage5c_config_fingerprint()),
-        )
-        .unwrap()
+        let config = observed_bootstrap(&parent, fresh.stage5c_config_fingerprint());
+        if let Some(source) = paper_source.clone() {
+            let old = Stage8bP1ObservedM10Binding::restore_for_exact_m10(
+                &parent,
+                &decision_bytes,
+                &op,
+                canonical.redis_id(),
+                canonical.semantic_id_sha256(),
+                canonical.payload_sha256(),
+            )
+            .unwrap();
+            let next = Stage8bP1ObservedM10Binding::restore_retained_receipt(
+                &parent,
+                &op,
+                &successor_hash,
+            )
+            .unwrap();
+            return o3_readmission::context(&initial, &old, &next, &config, source);
+        }
+        Stage8bP1ObservedRecoveryContext::new(initial.clone(), &config).unwrap()
     };
     let transport = if sealed_recovery {
         attach_stage8b_p1_observed_recovery_redis(&redis.url, reclaim_config(), recovery_context())
@@ -310,6 +490,7 @@ async fn rolling_receipts_market_restart(sealed_recovery: bool) {
     let audit = truth.audit_evidence().unwrap();
     assert_eq!(audit.core.seq_truth, audit.core.seq_ack + 1);
     drop(truth);
+    let mut successor_owner = None;
     for expected in [
         Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending,
         Stage8bP1RedisZeroIntentAckDisposition::AlreadyAcknowledged,
@@ -333,7 +514,11 @@ async fn rolling_receipts_market_restart(sealed_recovery: bool) {
         let resolved = p1e_test_resume_p1d2_truth(*truth, transport).await.unwrap();
         assert_eq!(resolved.disposition(), expected);
         assert_eq!(resolved.audit_evidence(), &audit);
-        drop(resolved);
+        if o3 && expected == Stage8bP1RedisZeroIntentAckDisposition::AlreadyAcknowledged {
+            successor_owner = Some(resolved.into_ready_owner());
+        } else {
+            drop(resolved);
+        }
     }
     let after_restart = p1e_i1_take_direct_effect_audit();
     assert_eq!(after_restart.callback_total, 0);
@@ -351,6 +536,48 @@ async fn rolling_receipts_market_restart(sealed_recovery: bool) {
         0
     );
     assert_eq!(probe.retained_m10_count().await.unwrap(), 2);
+    if let Some(owner) = successor_owner {
+        let proof_file = std::fs::read_dir(&parent)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .find(|p| {
+                p.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("stage8b-o3-decision-")
+            })
+            .unwrap();
+        let proof_bytes = std::fs::read(&proof_file).unwrap();
+        let started = std::time::Instant::now();
+        tokio::time::sleep(delay).await;
+        assert!(started.elapsed() >= delay);
+        if delay >= Duration::from_secs(60) {
+            assert!(strategy_runtime_core::stage8b_o3_readmission::Stage8bO3PaperPermit::restore_pending(
+                &proof_bytes, paper_source.as_ref().unwrap().scope()).is_err());
+        }
+        p1e_i1_begin_direct_effect_audit();
+        let Stage8bP1RedisSemanticOutcome::Ready { owner, receipt, .. } =
+            owner.process_next(&key).await.unwrap()
+        else {
+            panic!(
+                "O3 post-Market successor must preserve the virtual position without a new command"
+            );
+        };
+        assert_eq!(receipt.evidence.intent_count, 0);
+        let effects = p1e_i1_take_direct_effect_audit();
+        assert_eq!(
+            (
+                effects.callback_total,
+                effects.provider_total,
+                effects.publication_total,
+                effects.xack_total
+            ),
+            (1, 0, 0, 1)
+        );
+        drop(owner);
+        assert_eq!(std::fs::read(proof_file).unwrap(), proof_bytes);
+    }
+    assert_eq!(o3_readmission::historical_bytes(&parent), historical);
     assert_eq!(
         std::fs::read_dir(&receipt_dir)
             .unwrap()

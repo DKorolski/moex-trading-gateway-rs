@@ -1,0 +1,60 @@
+Независимый SOURCE review — 09dfecb — 8 октября 2026
+
+VERDICT: SOURCE ACCEPT.
+Блокирующих замечаний по этому source-срезу не найдено. O2 остаётся HOLD: это принятие исходного исправления, не приёмка нового installation artifact и не разрешение запуска на VPS.
+
+Review target:
+commit: 09dfecbe931267c5276b8b805d62d5a5a141ad95
+parent: d1a4004959add2bc660b0cbfff1e8b9502dee18a
+tree: 1a35e27035a15cd52883b2433ae852e26b70b09f
+ZIP SHA-256: ae1897fbd00bc6b38ef4f43cc3431739542e35078b71afa5e317dc919a74760b
+
+Причина отказа и достаточность коррекции
+
+Обычный Paper/LiveOnly callback вправе создавать гипотетические intents на Replay. Контракт authenticated first boot строже: один Replay callback, ноль intents/requests и отсутствие исполнительных эффектов. На сохранённом входе эти два контракта расходились: BO Sell вызывал отказ composition до создания durable root. Это не свидетельство отправки заявки брокеру.
+
+Exact source и config зафиксированы отдельными byte hashes:
+source: 22fbcbe9b883ffd9a801b188f32763c8596d3e6134cd70b642f7268006c440ce
+config: 100965eb86c259ab33c94679c55d36bbed1f387def40054c73301c90cb6e8d4b
+Candidate: canonical M10 close 12:10 UTC, model label 12:00 UTC; OHLCV 2317.5/2318/2316/2316/2741.
+
+В evidence тот же вход допускается источником, а возврат старого callback route снова приводит к Composition, exit 101. После восстановления исправленного route тест проходит. Красный контроль возвращает только маршрут first boot; он не является сборкой всего исторического ELF. Это достаточный причинный контроль обнаруженного callback-policy дефекта.
+
+Новый путь выбирается существующим crate-private first-boot facade. Он проверяет Replay/final/M10, instrument, Paper/LiveOnly, запрет live authorization, flat position и отсутствие pending/owner/deferred state до изменения состояния. Общая обработка бара сохраняет обновление day aggregates, last timestamp/close и настроенного shadow state. Затем вызывается warm_bar и происходит выход до entry/exit evaluation, repair/deferred intents и allocation request IDs. Патч не генерирует intents с последующим удалением и не оставляет скрытое владение направлением сделки.
+
+Обычный Strategy::on_bar выбирает прежний путь. Сравнение тела callback с accepted baseline подтвердило: после исключения вставленной observation-ветви остальная логика перенесена без изменения. В новых тестах обычный Replay по-прежнему создаёт гипотетический Buy/Sell intent; observation обновляет индикаторы без pending/owner, а следующий обычный Live-bar сохраняет возможность BO-входа. Восемь недопустимых входов проверены до мутации состояния.
+
+Chronology, freshness, sparse M10 admission, canonical/model timestamps, риск-политика и persisted wire formats не менялись. Внешний first-boot контроль по-прежнему требует zero intents, Replay и non-executable callback. Export/restore и restart используют существующий lifecycle predicate: один callback, ноль requests и ноль journal frames. Ослабления полноты баров или допуска источника в этой дельте нет.
+
+Scope и независимая проверка пакета
+
+Проверены CRC, checksum, inventory, generated evidence и восстановление Git identity. Архив: 2712 уникальных members, 2674 tracked, 38 generated. Unsafe paths, duplicates, symlinks и special files не обнаружены. Все source blobs соответствуют reconstructed tree/commit; официальный package verifier также PASS.
+
+Относительно принятого d1a4004 изменены восемь tracked paths: два production-модуля runtime-core; добавлен core test; durable source-файл дополнен только тестом; добавлен узкий offline gate; обновлены current-status и authority inventory; добавлено описание коррекции. 51 Cargo/Cargo.lock/deploy/workflow path побайтно совпадает с baseline. Production durable/recovery/Redis/process-supervision код этой дельтой не меняется.
+
+Current-tree authority independently PASS; authority negative harness independently 45/45 PASS. Production fingerprint: c51b9e7f2b22b31f308fc33d2132b84db604e59f2669b090863cfb8df2aa647a.
+
+Граница проверки Rust evidence
+
+В среде reviewer нет Rust/Cargo и Docker. Поэтому Rust-тесты и Linux build не запускались reviewer повторно. Проверены их исходники, реальные полные логи, exit codes, SHA привязки и selected/pass summaries. Независимо выполнены проверки архива, Git identity, source diff, authority и authority negatives.
+
+Сохранённые результаты:
+- Полный core library/all-features: 1302 passed, exit 0. Включены first-boot observation controls и унаследованная ALOR/no-riskgate parity.
+- Durable first-boot/source filter: 46 passed, 1 ignored; retained-input probe отдельно выбран и пройден: selected=1, passed=1.
+- Strict Clippy для двух crate, all-targets/all-features, и fmt: exit 0.
+- Final retained-input replay после красного контроля: selected=1, passed=1, exit 0.
+- Linux/amd64 release/default-feature libraries и standalone production probe: build/link/run exit 0; first boot и ordinary restart удовлетворяют реальному adoption-ready predicate.
+
+Linux proof — вызов нормального release library path с публичным synthetic key и необходимой file custody в изолированном контейнере. Он не заменяет квалификацию трёх новых installation ELF, native systemd/credential path или фактическую новую O2-попытку.
+
+Ранние compile errors в test construction честно сохранены как FAIL. Полный durable all-features набор был прерван, exit -15, без итогового test summary; его успешное прохождение не заявляется. Частичный log проходит до унаследованных P1-d4 SIGKILL-тестов. Это не доказательство нового зависания. Для данной source-дельты полный core, целевые first-boot/restart проверки, точный red/green retained-input контроль и статическая неизменность остальных production-путей достаточны для SOURCE ACCEPT. Новый расширенный recovery/framework slice или повтор всей crash matrix как отдельный блокер этой коррекции не требуется.
+
+Остаток работы в облегчённом варианте
+
+1. Собрать согласованный полный Linux successor artifact от принятого source: три ELF, identity/fingerprints и существующие templates. Включить воспроизведение retained input на выбранной release-сборке как локальный контроль до установки.
+2. Подготовить и проверить точную old→new installation inventory. Сохранить текущую terminal history и receipts; в этом пакете последняя попытка заявлена как FAILED/1/23. Actual target state перед apply подтверждается свежим preflight. Старые phase/input/timer не используются повторно.
+3. После приёмки artifact/installation и отдельно разрешённой установки — одна новая bounded O2 с новой phase, свежими материализованными входами и актуальным окном. Исторический trusted clock применяется только к offline fixture.
+
+Следующий operational witness должен показать ReadyForBootstrap → bootstrap → authenticated durable root с одним Replay callback, нулём requests/journal → terminal receipt и stopped proof. После этого продолжается существующий план: несколько ограниченных paper-сессий с ALOR operational comparison, затем отдельная приёмка FINAM live micro. Эта коррекция не доказывает непрерывный WS поток, reconnect/freshness/EOD или исполнительную parity.
+
+Действия reviewer ограничены локальным read-only source/evidence аудитом и созданием этого заключения; операционный VPS, Redis и FINAM не затрагивались.

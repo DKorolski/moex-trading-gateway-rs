@@ -1,0 +1,19 @@
+{
+  "verdict": "SOURCE_REVIEW_ACCEPT",
+  "source_ref": "017698205c482087334ac6c4d13fd9b65a19422d",
+  "source_tree": "44d30b534f24097c3413ddc1ba93c95fe1e017fe",
+  "accepted_scope": "RI prospective numerical engine/context/session/fixture CLI; reaction regression; all three numerical models and six arms closed",
+  "candidate_zip_sha256": "f7f4d3e8a56ea51dae4848b7a6232e188f959e9c98be148eb06a3080f1589a63",
+  "review_zip_sha256": "b97cec104f383904b06e727a126774c01fd0720de587a80c9dcedc0b5644e5f1",
+  "acceptance_letter_sha256": "ed1ca96181883c72f5d7231929e184ffd5d8733221e7c864140d602dafa0dbc7",
+  "local_delivery_checks": {"zip_crc": "PASS", "unique_members": 63, "checksums_verified": 62, "standalone_letter_equals_zip": true},
+  "reviewer_reported_reproduction": {"platform": "Linux x86_64", "rustc": "1.95.0", "debug_tests": 49, "release_tests": 49, "golden_input_cases": 52, "golden_case_policy_replays": 68, "golden_state_rows": 4148, "extra_input_cases": 12, "extra_case_policy_replays": 24, "extra_state_rows": 2304, "blocking_findings": 0},
+  "extra_input_sha256": "548a2e6484e1354e193b5bba97c2e1476945a8cb11b1258d4b90f22c513a4e21",
+  "corrective_required": false,
+  "next_scope": "One common FINAM M10/persistent integration slice with six independent states",
+  "release_acceptance": false,
+  "execution_acceptance": false,
+  "operational_readiness": false,
+  "observed_clean_sessions_added": 0,
+  "calls_RiSession_complete_in_extra_runner": false
+}

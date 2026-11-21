@@ -77,6 +77,10 @@ pub(crate) struct Stage8bP1d2MarketFeedbackProjectionV1 {
     pub(crate) p1d1_outcome_sha256: String,
     pub(crate) stage6_report_sha256: String,
     pub(crate) feedback_projection_sha256: String,
+    // Historical packages omit this field byte-for-byte. O3 keeps the exact
+    // source decision proof across both replacement packages, not a new permit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) o3_readmission: Option<Box<crate::stage8b_o3_readmission::Proof>>,
 }
 
 /// Redacted content bound by the authenticated final S_truth package.  This
@@ -384,6 +388,7 @@ fn mint_finalized_market_feedback(
         p1d1_outcome_sha256,
         stage6_report_sha256,
         feedback_projection_sha256: String::new(),
+        o3_readmission: p1.o3_readmission,
     };
     if !projection.validate_content() {
         return Err(Stage8bP1d2MarketFeedbackError::FinalizedAuthorityMismatch);
@@ -570,6 +575,14 @@ impl Stage8bP1d2MarketFeedbackProjectionV1 {
             return false;
         };
         self.schema_version == STAGE8B_P1D2_MARKET_FEEDBACK_SCHEMA_VERSION
+            && self.o3_readmission.as_ref().map_or(true, |proof| {
+                proof.validates_commit(
+                    &proof.scope.operational_identity_sha256,
+                    &self.source_m10_redis_id,
+                    &self.source_m10_semantic_id_sha256,
+                    &self.source_m10_payload_sha256,
+                ) && proof.account_id() == &self.truth.account_id
+            })
             && self.identity_domain == STAGE8B_P1D2_MARKET_FEEDBACK_DOMAIN
             && self.truth.orders.len() == 1
             && self.truth.trades.len() == 1
@@ -951,6 +964,8 @@ pub(crate) fn feedback_projection_sha256(value: &Stage8bP1d2MarketFeedbackProjec
         position_projection_sha256: &'a str,
         p1d1_outcome_sha256: &'a str,
         stage6_report_sha256: &'a str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        o3_readmission: &'a Option<Box<crate::stage8b_o3_readmission::Proof>>,
     }
     sha256(&Projection {
         domain: STAGE8B_P1D2_MARKET_FEEDBACK_DOMAIN,
@@ -977,6 +992,7 @@ pub(crate) fn feedback_projection_sha256(value: &Stage8bP1d2MarketFeedbackProjec
         position_projection_sha256: &value.position_projection_sha256,
         p1d1_outcome_sha256: &value.p1d1_outcome_sha256,
         stage6_report_sha256: &value.stage6_report_sha256,
+        o3_readmission: &value.o3_readmission,
     })
 }
 

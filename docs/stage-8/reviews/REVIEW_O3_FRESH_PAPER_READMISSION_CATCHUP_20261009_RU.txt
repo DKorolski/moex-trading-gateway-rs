@@ -1,0 +1,223 @@
+Независимый review O3 catch-up diagnostic и узкое ТЗ на fresh paper re-admission
+Дата: 9 октября 2026
+Проект: moex-trading-project / Stage 8B-P1-f / bounded O3 synthetic paper
+
+РЕШЕНИЕ
+
+DIAGNOSTIC CONFIRMED.
+Текущий незакоммиченный source snapshot: SOURCE HOLD.
+Операционный O3: HOLD.
+
+Узкий source-only scope ниже согласован для завершения коррекции. Это не SOURCE ACCEPT текущего черновика и не разрешение установки, запуска, подписания новой операционной phase или обращения к VPS/FINAM.
+
+Принятый O2 сохраняет COMPLETED / generation 1 / sequence 26. Истечение его первоначального допуска не отменяет acceptance созданного durable root. Оно запрещает новый callback, которому нужен действующий paper-допуск. Исправление должно дать новую, доказанную authority для нового paper-окна, сохранив исторические доказательства O2.
+
+1. REVIEW TARGET И ПРОВЕРЕННАЯ ЦЕЛОСТНОСТЬ
+
+Файл:
+moex-trading-project-2be020c-o3-catchup-diagnostic-20261009.zip
+
+ZIP SHA-256:
+aa64f3b436871f7a0bfc4d700c4a91011d919e3e0108de14499a4931ebbd30dd
+
+Base commit:
+2be020c234a01f8627d9f7621623dc603c912e23
+
+Candidate commit: отсутствует; это снимок незавершённого dirty worktree.
+
+Source-manifest SHA-256:
+f3ef460219a929e7be1f56106a55c0aa720395997460c7cac8e3ab8a4d3c80ec
+
+Независимо проверены SHA-256 архива, CRC, inventory, хеши содержимого и source modes. В архиве 2750 members; дубликатов, symlinks, special files и unsafe paths нет. 2749 entries files-sha256.json сверены; source-manifest охватывает 2735 исходных файлов.
+
+Сравнение с принятой базой 2be020c: 7 изменённых файлов и 2 добавленных, удалений нет. Cargo/workflows/deploy, FINAM producers и параметры стратегии этой дельтой не изменены.
+
+Изменены:
+- crates/runtime-durable-service/src/stage8b_p1_semantic.rs
+- crates/runtime-durable-service/src/stage8b_p1_semantic/redis/tests/observed.rs
+- crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs
+- crates/strategy-runtime-core/src/stage5c_paper_host.rs
+- crates/strategy-runtime-core/src/stage5g_clean_restart.rs
+- crates/strategy-runtime-core/src/stage5g_p1_semantic.rs
+- docs/current-status.md
+
+Добавлены:
+- crates/strategy-runtime-core/src/hybrid_intraday_runtime/session_catchup.rs
+- docs/stage-8/stage8b-p1f-o3-session-catchup-diagnostic.md
+
+Принятая installation/config boundary остаётся прежней:
+config SHA-256 3a031f24ac91990bb4b00308fad93d48b36af09d135ab5d4ecc62e4702e5c3e8;
+O2 COMPLETED/1/26;
+runtime fingerprint 665f18112142f6c9aee1b613e341870f0d559d783fe41df725e26415507e6290.
+
+2. ПРИЧИНА ОТКАЗА ПОДТВЕРЖДЕНА
+
+В historical-public-restart-package.json сохранены:
+checked/issued: 1791479043681 ms UTC = 08.10.2026 20:04:03.681 МСК;
+expires:        1791479343681 ms UTC = 08.10.2026 20:09:03.681 МСК.
+
+Интервал равен 300 секундам. Это историческое публичное содержимое сохранённого пакета. В этом review ключ HMAC не читался, независимая HMAC-проверка операционного root не заявляется. Упомянутый в README отдельный seed-preflight ZIP здесь не предоставлен; его оригинал повторно не проверен.
+
+Цепочка кода:
+- stage8b_p1_restore_recovery_receipt восстанавливает историческую Stage5C authority из authenticated continuation context.
+- apply_stage5c_semantic_bar_at_with_replay_boundary проверяет expires_at до свежего strategy callback.
+- transactional timer/next-bar continuation также проверяет этот срок.
+- catch-up меняет наблюдаемое состояние стратегии в памяти, но не создаёт новый paper-допуск.
+
+O3 build_schedule_input уже строит свежие synthetic Stage4 evidence через validate_stage4_broker_truth_bootstrap и build_stage4_accepted_paper_host_evidence. Сейчас для schedule adapter используется report; типизированная accepted evidence не становится новым runtime admission.
+
+Поэтому обновлённые бары и свежий signed schedule сами по себе не снимают BrokerTruthExpired. Причина конкретного отказа подтверждена; свежая positive O3 continuation пока не доказана.
+
+3. ЧТО ДЕЙСТВИТЕЛЬНО ДОКАЗАНО ЧЕРНОВИКОМ
+
+Observation-only kernel применён для начального flat/no-effect seed. Проверяются отсутствие позиции, pending/deferred entry/exit, acquired owner и предыдущего торгового цикла. Пропущенный хвост прошлой сессии нужен для yesterday levels; затем наблюдается закрытая часть текущей сессии.
+
+Сохранены sparse-M1 aggregation, candle-start model label, canonical close-bound identity и существующие параметры BO-only/no-riskgate профиля. Все необходимые бары проверяются до mutation. Нет отдельного durable warmup commit; прогретое состояние предполагается сохранить обычной semantic transaction.
+
+Pure synthetic test использует публичные scalar values O2 и показывает observation без исторических intents, затем обычное breakout-решение. Он не является криптографическим restore фактического root и не доказывает полный production commit/restart.
+
+Новый Redis regression:
+observed_session_catchup_preserves_expired_admission_refusal_and_seed
+
+В retained log:
+Stage5c(TimerContinuation(NextBar(Semantic(BrokerTruthExpired))))
+и внешний DurableOrderingViolation.
+
+Тест проверяет отсутствие provider action, command publication и XACK; неизменность journal/seal; сохранение одного PEL entry и restart в Ready. Это полезный отрицательный контроль. Его PASS нельзя обозначать как successful warmup, successful O3 или положительный journal-ahead witness.
+
+Provisional four-day cap — защитный лимит черновика. Он не доказывает торговый календарь, clearing breaks или допустимость пустого M10. Пустые интервалы нельзя заполнять вымышленными барами или пропускать без имеющихся schedule/coverage evidence.
+
+4. ГРАНИЦА RETAINED TEST EVIDENCE
+
+Хеши execution logs сверены. Core log содержит 1304 test-result строки ok; observed-Redis selection — 11 passed. Retained fmt, core, observed-Redis, clippy, production-check и diff завершились exit 0.
+
+Strict Clippy выполнен для strategy-runtime-core и runtime-durable-service, all-features/all-targets, -D warnings. Production finam-gateway O3 binary проверен cargo check --no-default-features; это не полный strict FINAM/workspace gate.
+
+Authority observation завершилась exit 1 с production file-count drift, что явно обозначено как ожидаемое состояние незавершённого source snapshot. Authority не перепривязана. Это не authority PASS.
+
+В этом пакете нет успешной полной durable suite, positive long-gap RequestAccepted/S1 replay или операционного O3 witness. result.json честно сохраняет:
+positive_long_gap_semantic_commit_proven=false;
+catchup_journal_ahead_replay_proven=false;
+operational_o3_ready=false.
+
+Reviewer проверил source, сохранённые логи и целостность. Cargo/rustc/redis-server/Docker в reviewer environment отсутствуют; Rust/Linux suites здесь повторно не исполнялись. SSH/VPS/FINAM/systemd/GitHub actions не выполнялись.
+
+5. СОГЛАСОВАННОЕ УЗКОЕ ТЗ ДЛЯ ПРОГРАММИСТА
+
+Цель: довести existing O3 synthetic paper path от сохранённого O2 seed до свежего решения и обычного paper lifecycle, включая exact restart. Объединить fresh re-admission и catch-up в одной source correction. Новая стадия проектирования, отдельный renewal service или общий recovery framework не нужны.
+
+5.1. Существующий root и исторические receipts
+
+Ordinary run admission сначала аутентифицирует сохранённые marker/receipt/seal, lifecycle и journal frontier штатным путём. Fresh readmission начального seed разрешена только для действительно initial P1SemanticReady/no-effect flat состояния: без ранее принятого торгового request, pending/working/deferred state, позиции и acquired owner.
+
+Committed/pending continuation должна оставаться в существующей recovery classification. Её нельзя переобозначить как новый flat bootstrap, чтобы пройти допуск.
+
+Исторические checked/issued/expires, recovery/warmup watermarks, O2 receipt, marker и first-boot source сохраняются. Нельзя подменять их текущим временем, повторять Notify/first boot/O2 Replay, менять COMPLETED/1/26, очищать root/journal/PEL или продлевать старый TTL.
+
+Допустим штатный новый S1/semantic commit с новой authority для новой работы. Требование неизменности старой истории не означает запрета корректных будущих append.
+
+5.2. Конкретный constructor нового допуска
+
+Использовать production цепочку:
+validate_stage4_broker_truth_bootstrap
+→ build_stage4_accepted_paper_host_evidence
+→ admit_stage5c_paper_host(Stage5cPaperHostAdmissionInput, allow_live_orders=false).
+
+Нужна opaque Stage4AcceptedPaperHostEvidence; сохранённый PASS-флаг, скопированный report или подпись schedule её не заменяют.
+
+Для O3 источник явно synthetic, phase-bound и fixture-bound. Свежая synthetic observation создаётся отдельно из принятого fixed fixture с фактическим observation time. Старый реальный O2 broker snapshot не retimestamped. O3 не требует нового FINAM GET и не доказывает фактический брокерский счёт.
+
+Проверяются exact strategy/profile, account alias, instrument/venue/exchange/market, tick, runtime/operational identities, текущая O3 phase и config/plan bindings. Новый permit соединяется consuming seam с authenticated текущим seed. Он не обнуляет paper state.
+
+Отделить исторический bootstrap/recovery receipt от текущего execution permit. Замена timestamps внутри старого receipt некорректна: она ломает его хронологию и может сделать уже закрытый canonical M10 stale относительно фиктивно обновлённого recovered_ts.
+
+Свежесть нового допуска берётся из required Stage4 sources; его действие ограничено deadline текущей phase. Не увеличивать прежние freshness budgets только ради продолжительности O3. Сохранить existing boundary semantics на expires/expires+1.
+
+Свежесть проверяется по реальному времени проверки. Candle-start model time, canonical close и записанное replay/decision time сохраняют разные назначения. Использование старого bar close вместо реального времени для обхода freshness запрещено.
+
+5.3. Exact evidence и deterministic replay
+
+До первого durable commit сохранить exact evidence новой проверки и её canonical binding. Нужна связь с:
+- authenticated source seal generation/commitment и Stage6 checkpoint/journal frontier;
+- operational identity, profile, account/instrument/tick;
+- текущей O3 phase и exact config/plan identity;
+- canonical M10 tuple, Redis identity, payload/semantic hashes;
+- полным observed source bytes/hash и покрытым catch-up range;
+- checked/issued/expiry и записанным decision/validation time.
+
+Источник evidence должен быть воспроизводимым из exact retained bytes через те же production constructors. Одного digest без доступных bytes недостаточно.
+
+Использовать существующие custody/hash/journal/source-evidence механизмы. Защитить binding digest в RequestAccepted source_evidence и соответствующем S1. Если нужна малая additive typed evidence/schema correction, включить её в этот source slice и проверить совместимость старого O2. Новый root, новые ключи/роли, замена общего journal или миграция старого O2 не требуются.
+
+Разделить frontiers:
+
+A. До RequestAccepted.
+Новый callback допускается только с действительным новым permit. После сбоя можно восстановить exact retained attempt при тех же identities и ещё действующем допуске; иначе отказ/новая явно проверенная попытка. Ни одного исторического TTL rewrite.
+
+B. После RequestAccepted, до S1.
+Реконструкция использует exact proof, candidate и decision time уже принятой попытки. Требуются те же request/command identities и sequence. Нельзя получать другой результат из позднее собранной Stage4 observation.
+Истёкший после решения proof не превращается в разрешение нового callback: он используется только как replay authority этого записанного решения, при сохранении обычных phase/guardian/effect checks.
+Missing/corrupt/foreign evidence или digest mismatch — отказ без очистки принятого record.
+
+C. После S1/V4, ACK или truth.
+Обычный committed recovery, сохранённый provider outcome, S_ack → S_truth → XACK-last. Ни повторной команды, ни нового schedule admission вместо committed proof. Проверить уже принятый response-loss/AlreadyAcknowledged путь.
+
+Replay может заново вычислять прежний callback для реконструкции. Считать отдельно callback attempts и новые логические решения; не требовать фиктивно «один вызов» там, где обычный exact replay действительно повторяет вычисление. Exactly-once требуется для принятого request, публикации и provider effects.
+
+5.4. Observation catch-up
+
+Сохранить existing observation-only first-boot kernel. Все missing covered bars до текущего decision bar проходят без execution intents, request, command, provider action и XACK. Generate-and-discard не подходит.
+
+До mutation проверить весь prefix, overlap и candidate identity. Полный observed source должен быть связан с canonical входом, а не принят только по совпадению последнего close.
+
+Принятая sparse-M1 полнота сохраняется. Отсутствующие минуты не синтезировать; непроверенный пустой M10/holiday/clearing interval не пропускать. Использовать существующий approved schedule/coverage contract; неизвестный interval fail-closed.
+
+История ограничена нужным хвостом сохранённой сессии и закрытой частью текущей, без многомесячного прогрева. Four-day cap оставить только явным fail-closed resource bound, не календарным доказательством.
+
+Не менять модельные session labels и entry/EOD правила. Для первого M10 [07:00,07:10) model label остаётся 07:00, canonical close — 07:10 МСК. Catch-up не сдвигает начало сессии на 07:10 и не отменяет запрет новых входов после 23:30.
+
+5.5. Следующий M10 и bounded lifetime
+
+Одна успешная свежая проверка при старте не означает бессрочный paper-допуск. Existing Stage4 proof O3 имеет короткую свежесть; обычный M10 interval может быть длиннее.
+
+Linked witness обязан проверить следующий M10 с фактически прошедшим временем и явно показать допустимый свежий proof либо штатный refusal. Нельзя сжать/подменить часы, чтобы обе свечи искусственно оказались внутри одного freshness budget.
+
+Если bounded O3 ждёт новый M10 после expiry, новую проверку выполнить через ту же production Stage4→Stage5C цепочку непосредственно перед NEW decision той же phase. Новый proof связать с актуальным seal/frontier. Это продолжение уже admitted paper run с сохранением его виртуального state, а не новый bootstrap flat seed. Ошибка/expiry/current-phase mismatch ведут к остановке в прежней bounded supervision.
+
+Не добавлять универсальное продление, отдельный worker или cross-phase автоматическую readmission. Начальный stopped non-flat seed не открывается этим контрактом; committed recovery продолжает использовать принятые маршруты.
+
+6. МИНИМАЛЬНОЕ ДОКАЗАТЕЛЬСТВО ДЛЯ SOURCE ACCEPT
+
+Один связанный local witness на production constructors, с fault variants, вместо новой большой матрицы независимых формальных assertions:
+
+- Создать V5/O2 seed штатно с локальными test keys и затем пройти authenticated public restart. Старый TTL действительно истёк до O3. Scalar field injection не заменяет этот witness.
+- Свежая synthetic Stage4 evidence → typed paper admission → observation хвоста прошлой сессии/текущей → canonical M10 → ordinary Market → provider outcome → S_ack → S_truth → XACK-last.
+- Следующий M10, корректная freshness handling и bounded stop. Сохранённый profile и O2 marker/receipt неизменны; нет повторного first boot или исторических заявок.
+- Сравнить uninterrupted run с pre-append, RequestAccepted-before-S1 и post-S1/truth-before-XACK restarts. Для journal-ahead варианта показать exact replay после истечения decision proof, пока обычная phase/effect authority допускает recovery, без получения нового решения.
+- Отдельно показать no-effect решение и successor после истечения первого proof: успех одного Market не доказывает все Ready paths.
+- Прямые counters: observation callbacks, fresh/replay decision attempts, accepted request/sequence, provider/publication attempts и successes, claim/XACK, schedule reads. Final truth и PEL должны совпасть; AlreadyAcknowledged не создаёт дополнительный effect.
+
+Негативные вариации того же witness:
+expired/missing/future/foreign fresh admission; неверные account/profile/phase/root/source hash; schedule-only доказательство вместо Stage4 accepted evidence; non-flat initial seed; unknown gap/empty bucket/truncated source/bad tick/overlap drift; missing/corrupt replay proof.
+
+До начала commit: journal/seal неизменны, нет publication/provider/XACK, retained PEL не удаляется. После RequestAccepted: evidence mismatch не переписывает/очищает record. Ошибки должны сохранять существующий fail-closed owner/shutdown contract.
+
+Preset shutdown и SIGTERM/SIGINT handoff из принятого O3 остаются действующими; свежий permit не должен запускать callback после принятого stop.
+
+Проверки: focused new tests и связанные existing first-boot, semantic, journal-ahead, V4/lifecycle, response-loss, signal и parity regressions; fmt/Clippy затронутых crates и production feature set. Exact selection не может завершаться PASS при нуле выбранных тестов. Сохранить полные logs/exit codes и честный список выполненных/пропущенных suites. Перепривязать authority только к завершённой correction после source acceptance согласно существующему процессу.
+
+7. ПОРЯДОК ДАЛЬНЕЙШИХ ШАГОВ
+
+Завершить и закоммитить один узкий source slice → source review с linked positive/replay witness → один согласованный release/authority artifact → stopped installation с сохранением root/history → отдельно разрешённый bounded O3.
+
+Решение этого review разрешает подготовку source correction по ТЗ. Оно не открывает VPS execution, установку, новый phase claim/signing, DB0/P0 mutation, FINAM writes, broker dispatch или runtime-live.
+
+После принятого bounded O3 — ограниченные O4 FINAM/WS/ALOR parity окна. Цель остаётся прежней: несколько paper-сессий для отладки и сравнения, затем отдельно принятый FINAM live micro soak. Разработка универсальной paper-платформы не входит в этот остаток scope.
+
+СТАТУС ROADMAP
+
+O2 first boot — ACCEPTED, COMPLETED/1/26.
+O3 binaries и config installation — приняты ранее, установлены без активации.
+Текущая fresh-admission/catch-up source correction — INCOMPLETE / HOLD.
+Операционный O3 ещё не доказан.
+O4 и FINAM live execution этим review не открыты.

@@ -1,0 +1,22 @@
+{
+  "handoff_schema": "finam_shadow_profile_v1",
+  "model_id": "imoexf_author41_short_hybrid_bo053_reaction07_combo",
+  "config": {
+    "engine": "imoexf",
+    "sleeve": "combo",
+    "costs": {
+      "point_value_rub": 10.0,
+      "tick_value_rub": 5.0,
+      "rate_per_component_per_side": 0.00006575119054451348,
+      "components": 2
+    }
+  },
+  "policies": ["weekday_only", "weekend_context_no_trades"],
+  "timeframe": "10m",
+  "bar_timestamp": "bar_begin_utc",
+  "model_timezone_offset_hours": 3,
+  "excluded_dates": ["2026-11-04"],
+  "order_emission_allowed": false,
+  "riskgate_seed_required": false,
+  "virtual_qty": 1
+}

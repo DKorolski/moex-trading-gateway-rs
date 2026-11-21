@@ -1,0 +1,18 @@
+{
+  "verdict": "SOURCE_REVIEW_ACCEPT",
+  "source_ref": "7d573e292052df78a3969f82708190b564149104",
+  "source_tree": "98ae71615f3fa5e5bb82b4fb34c7573530135828",
+  "accepted_scope": "IMOEXF + USDRUBF numerical cores, offline context/session, input-only CLI; four policy arms",
+  "candidate_zip_sha256": "d9e0e214ceca2c9270b25bba195b33c1b8a0e855019347ad6ee2cfe4094ef0f6",
+  "review_zip_sha256": "c0df7177a9ce91baae1833cd0d866c666a54a25f637829da790a664b3f0d1b1f",
+  "acceptance_letter_sha256": "b12bb5985f1f7fe6c4bbe858520395c18cda6febcfe5cad7c23da8678a0de300",
+  "local_review_delivery_checks": {"zip_crc": "PASS", "unique_members": 43, "checksums_verified": 42, "standalone_letter_equals_zip": true},
+  "reviewer_reported_reproduction": {"platform": "Linux x86_64", "rustc": "1.95.0", "debug_tests": 25, "release_tests": 25, "scenarios": 36, "state_rows": 3772, "blocking_findings": 0},
+  "corrective_required": false,
+  "next_source_scope": "RI standalone prospective numerical port; not an expansion of the reaction engine",
+  "release_acceptance": false,
+  "execution_acceptance": false,
+  "operational_readiness": false,
+  "order_emission_allowed": false,
+  "ri_accepted_by_this_review": false
+}

@@ -1,0 +1,184 @@
+НЕЗАВИСИМЫЙ REVIEW — bc98134, подготовка Stage 8B-P1F-O3
+Дата: 8 октября 2026.
+
+ВЕРДИКТ: PREPARATION ACCEPT.
+Подготовительная граница принята. Можно реализовывать описанный ниже узкий
+source slice O3. Пакет не является SOURCE/ARTIFACT/OPERATIONAL ACCEPT готового
+O3 runner: три composition gaps остаются открытыми и честно обозначены.
+Повтор O2, новый first boot и создание другого durable root не нужны.
+
+1. Что проверено независимо
+
+Review commit: bc9813434b35238e9e6e861476cab2aaf3fc72a2.
+Архив: moex-trading-project-bc98134-o3-preparation.zip
+SHA-256: 600d8ebd2d9ca4725367ac4edd8871592dc51da2f296016eb73bf67baac6e466
+Размер: 9 920 671 байт. 2726 уникальных members; CRC, checksum, index PASS.
+Unsafe paths, symlinks, duplicates и special files отсутствуют.
+Source index содержит 2685 файлов, его содержимое и соответствие retained
+checked-source проверены self-contained verifier; reviewer запускал только
+локальный режим verify, exit 0.
+
+Включённые O2 evidence и независимое заключение совпали побайтно с ранее
+принятыми оригиналами:
+  O2 ZIP SHA: 15b0210cc7e5ecab29e1fc5460559fe46ce21a1e6d13def0d1b591a16fc57a0e
+  O2 review SHA: 8ee83a7b49ed6999ca3700d60b8ce0f3e8a8b6eec60d19ad3dbf86be973cd8b9
+Правильно закреплены COMPLETED/1/26, head fb4fa038…733d8, принятая установка
+2d67937 и compiled source 09dfecb. Status/roadmap отличают текущий O2 ACCEPT
+от исторических HOLD и не объявляют закрытым весь P1-f.
+
+Независимое сравнение с принятой installation выявило ноль изменений во всех
+236 проверенных crates/config/deploy/Cargo/workflow файлах. Изменены только
+документация, governance content binding и preparation script. В authority
+production manifest не изменён; content/size всех 177 production entries
+и 23 control-plane entries согласованы с текущими файлами.
+
+12 exact selectors имеют сохранённые полные логи, exit 0 и маркеры
+selected=1 / passed=1 / failed=0 / ignored=0. Проверены command/log hashes
+и фактические test-result summaries. Это targeted local regressions на
+одноразовых test roots/Redis, а не выполнение на принятом VPS root.
+Новый Rust/Redis прогон reviewer не заявляет: в этой среде нет Cargo/Redis.
+Полный CI, сборка ELF и operational O3 этим пакетом также не заявлены.
+
+2. Три gaps реальны и достаточны для следующего scope
+
+O3-G1 — fixed guardian claim / runner composition.
+Guardian APIs и local supervision уже есть. Но local-supervisor отсутствует
+в установленном inventory, а его fixed child вызывает обычный CLI run.
+O2 guardian-claim-fixed после claim вызывает O2-specific selector publication;
+использовать эту команду как готовый O3 claim нельзя. Нужна только отдельная
+fixed O3 composition вокруг существующего store/permit, без нового genesis.
+
+O3-G2 — observed V2 producer → runtime handoff.
+Функция execute_stage8b_p1e_observed_run_v1 существует, но executable caller
+отсутствует. Обычный run передаёт None в execute_run_with_observed_window.
+Window содержит ровно две независимо проверенные Published canonical M10
+entries и не является сериализуемым authority token. Runtime повторно читает
+точные Redis entries перед admission. Само наличие файлов/hash в Redis
+не заменяет этот путь. Child exec не переносит Rust capability из parent.
+
+O3-G3 — qualified signer / producer / DB15 / services.
+Fixed producer libraries и initializer уже реализованы. В installation ещё
+нет законченной O3 упаковки их запуска и constrained generation-2 signer.
+Trait Stage8bP1eScheduleSigner и fixture signer доказывают интерфейс и local
+tests; работоспособность production AF_UNIX signer/credentials надо показать
+конкретным adapter/service evidence. Это необходимая узкая интеграция,
+не основание для универсального signing/orchestration framework.
+
+3. Уточнённое ТЗ следующего source slice — облегчённый вариант
+
+Цель: один runnable fixed O3 путь на уже принятом O2 root, показывающий
+paper lifecycle и readmission без повторных эффектов. Имеющиеся lifecycle,
+signals, telemetry, resource polling, Redis role adapters и recovery переиспользовать.
+
+Предпочтительный минимальный путь: один фиксированный O3 composition child,
+который получает явно закреплённый synthetic input, восстанавливает/публикует
+accepted producer state, создаёт typed Published window и в том же процессе
+вызывает observed-run seam. Parent сохраняет существующую guardian supervision.
+Другой способ допустим, если он столь же явно проверяет handoff. Новый RPC
+для передачи capability, mutable source registry и general command runner
+не требуются. Сам capability не десериализовать.
+
+Работу выполнить в одной связанной вертикальной композиции:
+  • fixed O3 claim/run под существующей authority, с прежним root/key/profile;
+  • manifest-pinned synthetic Stage4/schedule и observed V2 M10 inputs;
+  • Prepared → exact Redis publication → reread → Published;
+  • explicit Published-window admission → обычные callback/paper outcome/
+    S_ack/S_truth/XACK-last;
+  • restart с independently pinned source/receipts и прежним high-water.
+
+Уже созданные O2 marker/receipt и initial Replay count 1 сохраняются.
+Последующие обычные callbacks считаются от этого baseline. Отдельно доказать
+хотя бы одну настоящую paper command/outcome: нулевые заявки bootstrap не
+доказывают работу order lifecycle. Synthetic provenance обозначать явно.
+Первый local linked witness должен запускать новый production executable
+с production verification paths и не опираться на ignored test child,
+fixture signing trust, intent injection или исторический подменённый clock.
+Изолированный test root допустим для разработки; это не VPS acceptance.
+Deterministic clock/fixture tests допустимы как отдельно обозначенные local
+regressions; их override не должен становиться operational входом.
+
+Для первого bounded O3 достаточно конечного окна decision/successor M10,
+поддерживаемого принятым typed seam. Не расширять его до общего бесконечного
+hot-feed/authority-rotation механизма только ради этой проверки. Условия
+обычной непрерывности и восстановления окна должны оставаться проверяемыми.
+
+Явно различать три version/generation поля:
+  observed M10 producer/canonical path — V2, source_generation="2";
+  schedule publisher/envelope — прежний source_generation="1";
+  schedule signing key — key_generation=2.
+Они не взаимозаменяемы. Не менять принятый schedule format вслед за sparse M10.
+
+DB15 действительно был пуст на O2 snapshot. Groups/streams создать только
+accepted fixed initializer, затем runtime attach остаётся verify-only.
+Для source/retained receipts соблюдать custody, exact hashes, loss/conflict
+fail-closed и replay тех же Prepared bytes. Не выводить authority из Redis hash.
+Использовать текущий no-riskgate профиль и сохранённый O2 history seed.
+Не менять host time, strategy timestamps или seed fingerprints ради fixture.
+
+Один linked local proof с negative controls wrong bytes/identity/overlap,
+restart/high-water и остановкой достаточен как центр следующего source review.
+Остальные принятые regressions запускать по изменённым границам. Пересмотр
+старых этапов, новая стратегия, key rotation, root migration и новая серия
+design-only gates для этой композиции не нужны. Если выявится конкретный
+непокрытый blocker, исправлять его отдельной воспроизводимой дельтой.
+
+4. Как читать O3 matrix и не расширять operational работу
+
+Все 13 строк правильно имеют NOT_RUN. 12 local selectors не означают 13
+готовых operational proofs. Local witness является ссылкой на регрессию,
+а не доказательством полного invariant каждой строки на VPS.
+
+Неблокирующее уточнение для следующего source package:
+  • O3-07 выбранный SIGKILL test проверяет idle Ready owner, а не точный
+    claimed pending-M10 frontier перед effect;
+  • O3-10 выбранный continuity test отклоняет конфликт в producer V1 до
+    публикации, но не доказывает observed V2 consumer PEL retention и terminal
+    Failed после доставки conflicting duplicate;
+  • O3-11 выбранный P1-d4 test — inherited LIMIT dispatch/recovery harness;
+    его нельзя переименовать в фактический uncertain-provider VPS witness.
+  • O3-12 выбранный V5 Market test получает AlreadyAcknowledged после обычного
+    успешного XACK; server-processed response loss он отдельно не создаёт.
+    Для response-loss coverage использовать уже существующий
+    owner_loop_routes_committed_target_first_cancel_to_xack_last, где loss
+    вводится после transport completion. Это inherited Cancel frontier,
+    а не новый operational Market witness.
+Их local coverage отметить как partial/inherited с точным frontier. Отдельный
+R1 preparation-пакет только ради этих пометок не требуется; уточнить при
+реализации. Required semantics сохраняются, ложный operational PASS не ставить.
+
+Главный будущий VPS результат: та же root identity, production paper chain,
+обычный readmission/restart и bounded остановка с сохранностью P0. Шесть
+редких сценариев и XACK-response-loss остаются в coverage matrix; использовать
+принятые local harnesses. На VPS выполнять только заранее выбранные faults,
+которые поддерживает reviewed production mechanism. Не создавать специальный
+fault-injection framework ради воспроизведения всех редких состояний на VPS.
+Inherited evidence и operational evidence оставить отдельными колонками;
+непроверенные operational frontiers обозначать как непроверенные.
+
+5. Граница после source implementation
+
+Следующий комплект должен содержать конкретные code delta, executable linked
+proof, source/ELF identities и минимальную fixed-path упаковку. Только после
+этой квалификации готовить фактическую bounded O3 с fresh read-only preflight.
+Необходимое окно/fixture range согласовать с реальным временем и snapshot root;
+дату phase не зашивать так, чтобы каждый перенос требовал новой сборки Rust.
+
+COMPLETED/1/26 — принятый исторический snapshot. Sequence 27 допустим только
+при свежем exact predecessor; authority generation не обнуляется.
+Использовать новую O3 phase, прежнюю consumed O2 phase не переиспользовать.
+Сохранить max 1800 секунд от claim, непродлеваемый deadline, принятый child
+restart budget и 30-секундную stop grace. Fresh claims после terminal не
+создавать автоматически. Конфликт/фатальный исход завершает свою phase.
+
+P0, DB0, O2 history/root/receipt/key остаются вне изменений. Очистка DB15,
+rewind consumer и XACK-before-truth не являются допустимыми средствами теста.
+Фактическая установка/start/fault order требуют отдельно согласованной
+operational границы; текущий preparation ACCEPT этого не выполняет.
+
+По roadmap: O2 закрыт; O3 ещё на этапе композиции запуска. Затем короткие
+O4 FINAM/WS окна: freshness, subscriptions/reconnect, REST overlap, session/EOD
+и frozen ALOR comparison; после нескольких paper-сессий — отдельное решение
+по live micro. FINAM order writes и реальные заявки данным review не открыты.
+
+ИТОГ: PREPARATION ACCEPT. План укладывается в облегчённый вариант при выполнении
+одного узкого executable composition slice; O3 operation пока NOT_READY.

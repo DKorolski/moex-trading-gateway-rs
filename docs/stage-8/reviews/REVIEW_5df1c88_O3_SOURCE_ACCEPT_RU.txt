@@ -1,0 +1,178 @@
+ТОЧЕЧНЫЙ SOURCE RE-REVIEW O3 — 5df1c88
+Дата: 2026-10-10
+Вердикт: SOURCE ACCEPT
+P1-O3-R01: CLOSED
+P2 — weekend coverage: CLOSED (уточнение документации)
+Новых блокирующих замечаний в проверенной дельте не найдено.
+
+1. Объект и границы заключения
+
+Repository: https://github.com/DKorolski/moex-trading-gateway-rs
+Branch: stage8b-o3-preparation-20261008
+Commit: 5df1c88299bbb7f1a70b709d3c01e2cf0a09d08c
+Baseline: 7cf760c84f9005cd9dec7e6e93c23100d5a0b978
+ZIP: moex-trading-project-5df1c88-o3-readmission-source.zip
+ZIP SHA-256: ffdf17c113a108bf9e0389b3c8c76bc7bad039ddfd39d79137f22471e771dc45
+ZIP size: 9 601 705 bytes
+Source Git tree: d0d57aab9079b4afe5941bf414e29ff75f19c860
+
+Это точечный повторный source review коррекции к предыдущему SOURCE HOLD,
+а не новый полный аудит всей архитектуры и не подтверждение operational O3.
+Закрывается конкретная граница durability существующего pre-append proof
+и замечание к описанию weekend coverage. Основания предыдущего review по
+fresh admission, observation-only catch-up и exact recorded replay сохраняются:
+их алгоритмы этой дельтой не изменены.
+
+Проверены исходники, дельта, сопровод, документация и вложенные evidence.
+Повторной компиляции и исполнения Rust/Redis-тестов в среде reviewer не было:
+Rust/Cargo и Redis здесь отсутствуют. Результаты cargo ниже — проверенные
+сохранённые результаты автора, а не новые прогоны reviewer.
+
+2. Идентичность пакета и ограниченность изменения
+
+Независимо сверены SHA-256 ZIP, безопасная структура и CRC архива,
+manifest, raw commit, exact source tree и SHA всех 10 изменённых/новых файлов.
+Read-only --verify скрипта stage8b_o3_readmission_handoff.py прошёл.
+Пакет содержит 2817 членов и 2745 source files.
+Сравнение с предыдущим snapshot: 8 изменённых, 2 новых файла, удалений нет.
+Cargo manifests, конфигурация deployment и workflows не менялись.
+
+Все 53 перенесённых evidence members из baseline-7cf760c сопоставлены
+byte-for-byte с исходным архивом 7cf760c. Исторические результаты явно
+отделены от текущих и не представлены как новый PASS на 5df1c88.
+SHA-256 всех десяти check logs/metadata из текущего result.json совпадают.
+
+3. P1-O3-R01 — закрыт
+
+Ранее при существующем proof retry мог восстановить permit и допустить
+RequestAccepted без повторной синхронизации файла и каталога. После
+завершённой записи и сбоя до первоначального fsync чтение cached bytes
+само по себе не давало требуемой durability перед durable journal append.
+
+В 5df1c88 create и existing-file retry сходятся в общий путь:
+exact binding → проверенный no-follow regular descriptor и exact bytes →
+sync_all того же дескриптора → sync_all каталога → exact reread →
+возврат permit → semantic commit / RequestAccepted.
+
+Основные места для проверки в snapshot:
+- crates/runtime-durable-service/src/stage8b_p1_semantic/observed/o3.rs:57 —
+  existing proof восстанавливается; source.issue остаётся только в create.
+- тот же o3.rs:77 — exact binding; :83 — открытие no-follow descriptor;
+  :88 — read_file и сравнение bytes; :93 — file.sync_all;
+  :96 — directory descriptor; :103 — parent.sync_all;
+  :108 — exact reread; :113 — возврат permit.
+- crates/runtime-durable-service/src/stage8b_p1_semantic/observed/retained.rs:39 —
+  private read_file сохраняет прежние custody checks.
+- crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs:1461 —
+  fresh завершается до semantic commit.
+- crates/strategy-runtime-core/src/stage6d_live_core/o3_readmission.rs:70 —
+  срок permit повторно проверяется перед применением перехода.
+
+retained::read_file сохраняет regular-file/nlink/size/permissions checks и
+проверку стабильности length/mtime/ctime до и после чтения. Синхронизируется
+тот же дескриптор, на котором выполнена проверка. Ошибки read/sync/reread
+возвращаются через ? до semantic callback и RequestAccepted.
+
+Существующий proof не переписывается и не перевыпускается. Его bytes,
+identity и исходные временные поля сохраняются; fsync не обновляет TTL.
+Повторная проверка свежести после этой границы остаётся действующей.
+
+Коррекция достаточна для закрытия исходного P1 в действующем контракте
+custody защищённого parent и единственного владельца runtime. Расширение
+архитектуры хранения для закрытия этого замечания не требуется.
+
+4. Достаточность fault-тестов
+
+Файл:
+crates/runtime-durable-service/src/stage8b_p1_semantic/redis/tests/observed/o3_readmission/sync_retry.rs
+
+Четыре варианта проверяют успешный retry и отказ на трёх границах:
+до file sync, до parent sync и до final reread.
+
+Первая попытка проходит штатный process_next и полностью выполняет
+write_all proof, затем тестовая barrier возвращает ошибку до fsync.
+Проверяются отсутствие callback/publication/provider/XACK и неизменность
+реальных journal/seal. Повторная попытка идёт через публичный Ready restart,
+с тем же durable root, proof и pending M10 в disposable Redis.
+
+Успешный вариант проверяет порядок FileSynced → ParentSynced →
+ExactReread → CommitEntered → CommitReturned, один логический callback
+и изменение journal/seal до обычного Prepublication. Это не полный тест
+цепочки publication/provider/XACK: положительная ветвь останавливается
+на Prepublication, а последующие участки покрывает сохранённая регрессия.
+
+При трёх отказах проверяются нулевые эффекты, byte-for-byte сохранность
+journal/seal/history/proof, единственный прежний proof path и тот же
+Redis PEL id. Повторное открытие root остаётся Ready.
+
+Ошибки инжектируются непосредственно перед операциями. Тесты не создают
+реальный kernel EIO и не моделируют физическое отключение питания.
+Успешная ветвь вызывает настоящие sync_all и reread. Production-вызовы
+пропускают реальные Err через ? до commit. Для согласованного минимального
+доказательства этой границы указанных тестов достаточно.
+Все новые fault/trace hooks и re-export защищены #[cfg(test)];
+в production library они отсутствуют. Новая fault-матрица не требуется.
+
+5. P2 — уточнение weekend coverage принято
+
+docs/stage-8/stage8b-p1f-o3-readmission-source-correction.md:47 теперь
+различает regular model-session labels и выходные, подавляемые frozen
+weekends_off=true до coverage lookup.
+
+Таким выходным explicit empty session не требуется. Отсутствующая regular
+session остаётся unknown/fail-closed; отсутствие bars не подтверждает
+праздник или clearing. Пустая regular session должна быть задана явно.
+Изменена документация, не модель календаря и не runtime алгоритм.
+Это устраняет прежнее расхождение формулировки с исходниками.
+Для O3 exact plan должен содержать catchup_coverage по этому контракту.
+
+6. Проверенные результаты и честные ограничения
+
+На correction source сохранены:
+- targeted sync retry: 4 PASS;
+- focused O3: 15 PASS, 2 ignored; сюда входят все четыре targeted случая;
+- retained/canonical regressions: 8 PASS;
+- cargo fmt --all --check: PASS;
+- strict Clippy --all-features --all-targets: PASS;
+- strict Clippy --no-default-features --lib: PASS;
+- diff check, Python packager syntax и source-binding: PASS.
+
+4 + 15 нельзя складывать как число уникальных тестов.
+Focused run включает новый прогон 61-секундного exact replay.
+
+Дополнительный --no-default-features --all-targets Clippy остаётся FAIL
+(exit 101): семь unused-import/dead-code diagnostics в test/fixture коде.
+Сопоставлены оба сохранённых лога: error headlines совпадают с чистым
+baseline 7cf760c. Это известное ограничение конфигурации, не новый PASS
+и не регрессия данной коррекции. Warnings не подавлены.
+
+Полный workspace/durable suite и два 601-секундных теста на 5df1c88
+не повторялись. Их старые результаты сохранены с исходной version binding.
+Исходный review допускает targeted fsync witness и focused regression
+при неизменных admission/timing/replay алгоритмах; это условие соблюдено.
+Новый full-suite gate не заявляется.
+
+Authority observation остаётся FAIL/drift (exit 1, production file-count);
+authority не rebound. Final Linux ELF/systemd/native-credential
+qualification текущего release artifact ещё не выполнена.
+SOURCE ACCEPT не заменяет эти существующие release проверки.
+
+7. Переход к O3 без расширения разработки
+
+Source blocker снят. Следующий шаг — существующий единый финальный
+release/authority/install artifact, привязанный к принятому source и
+exact плану с catchup_coverage, затем stopped installation с сохранением
+O2 root/history и bounded O3 в рамках действующего процесса.
+
+O2 остаётся ACCEPTED / COMPLETED/1/26. Operational O3 — NOT_RUN.
+В этом review исходники проекта, VPS, broker/Redis и release authority
+не изменялись; push, merge, установка и запуск не выполнялись.
+
+Для этой дельты не нужны новые архитектурные этапы, расширенная fault
+матрица или повтор разработки admission/replay. После bounded O3 путь
+сохраняется: несколько O4 paper-сессий с сопоставлением с ALOR, затем
+отдельный действующий допуск к live micro. Число paper-сессий само по себе
+не заменяет уже установленные критерии parity и допуска.
+
+Итог: 5df1c88 принят по исходникам в указанном scope;
+P1-O3-R01 и P2 закрыты. Новых блокирующих замечаний в дельте нет.

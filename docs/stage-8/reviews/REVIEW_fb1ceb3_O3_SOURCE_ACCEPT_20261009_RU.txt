@@ -1,0 +1,162 @@
+Независимый review — Stage 8B-P1-f O3 source correction
+Дата: 2026-10-09
+Вердикт: SOURCE ACCEPT.
+P1-O301 закрыт. SOURCE HOLD для 6f0a6bf снят в пределах ранее проверенного O3 scope.
+
+Review target: fb1ceb3dac40b365d0d23983af788ca1c9c72907
+Parent / correction baseline: 6f0a6bf8f49a57272ce6a20024f57743b6b11e1d
+Accepted preparation: bc9813434b35238e9e6e861476cab2aaf3fc72a2
+Source tree: bf7b2353a8a972ffd5af0ba1fc7e86e7eeb06b31
+ZIP: moex-trading-project-fb1ceb3-o3-source.zip
+ZIP SHA-256: e286b592f7f1274e0eaf2a4a31c0bc3ea8fff4c291d76f32f2ae3af5e4a85f1d
+
+Это SOURCE acceptance. Release artifact, фактическая установка и operational O3
+этим verdict не принимаются и не запускаются. Принятый O2 остаётся закрытым.
+
+1. Почему P1-O301 закрыт
+
+Проверена узкая дельта относительно предыдущего review: четыре изменённых Rust
+файла и один новый cfg(test) модуль; остальные изменения — runner/checker/docs.
+Всего tracked delta: 11 changed, 4 added, 0 deleted. Cargo/Cargo.lock, workflows,
+deploy templates и config-файлы не менялись; strategy-runtime-core не изменён.
+
+В run_fixed общий Stage8bP1eCoordinatorV1/latch создаётся до lazy runtime future.
+После принятия SIGTERM либо SIGINT composition сохраняет ExternalSignal в этом
+latch и ожидает тот же runtime future. Ранее обработанный stop больше не зависит
+от того, когда runtime создаст собственные Unix signal receivers.
+
+execute_stage8b_p1e_observed_run_with_shutdown_v1 получает тот же coordinator:
+проверяет retained stop до загрузки config и повторно до owner startup.
+Owner task и обычный supervisor используют его же Arc/latch. Preset stop
+отклоняется до admission; существующий durable future при позднем stop не
+отменяется и не подменяется новым owner.
+
+Grace берётся из уже validated config. OnceLock сохраняет первую cause, sequence
+и deadline; supervision при RetainedIntent использует сохранённый deadline.
+Повторный сигнал не продлевает grace. Неожиданный выход publisher сохраняет
+OwnerFailure и остаётся fatal Producer error; ненадёжный pre-subscription raise
+удалён. Унаследованный bounded drain и fatal owner-panic precedence сохранены.
+
+Ранний stop до аутентифицированного owner даёт DurableRestart / runtime exit
+class 66. Это консервативный отказ до admission, не authenticated exit 0.
+В положительных process-тестах OS exit оболочки равен 0, поскольку оболочка
+проверяет именно ожидаемый runtime error 66. Документация различает эти значения.
+
+2. Signal cases и отрицательные controls
+
+Изучены сам Rust harness, Python runner и raw logs. cfg(test)-only Unix datagram
+barrier стоит после реальной typed Published pair и до внутреннего startup.
+Nonroot child выполняет настоящий run_fixed, а parent отправляет реальный OS
+signal. Порядок задаётся событиями, а не sleep:
+PUBLISHED_WINDOW_READY → STOP_ACCEPTED → RELEASE → RUNTIME_RELEASED.
+
+Проверенные retained cases:
+
+  SIGTERM-retained: harness exit 0; child test exit 0; runtime error class 66.
+  SIGINT-retained:  harness exit 0; child test exit 0; runtime error class 66.
+
+В обоих случаях STOP_ACCEPTED предшествует RUNTIME_RELEASED; retained cause —
+ExternalSignal, first_sequence=1. До/после совпадают durable root/journal/seal,
+bootstrap transaction/receipt, M10/command rows и group states. Реальные Redis
+commandstats XREADGROUP/XAUTOCLAIM/XACK остаются 0; producer checkpoint не сброшен.
+Zero admission следует также из guard до config/root loading, а не только из
+сохранённого boolean PASS. Нет callback/provider/command effect или force-kill.
+
+Отрицательные controls для SIGTERM и SIGINT отключают только запись в latch.
+Оба child завершаются exit 101 с точной диагностикой:
+P1-O301: stop accepted without retained runtime intent.
+Parent harness exit 0 означает успешное обнаружение отрицательного сценария.
+
+Граница отрицательного доказательства прозрачна: assertion обнаруживает
+отсутствующий intent до release/runtime startup. Это не заявленное исполнение
+опасных paper effects старой версии. Для этой узкой коррекции такой control,
+положительные zero-effect cases и отдельно квалифицированный обычный runtime
+дают достаточное evidence. Test barrier/mutation switch не входят в production.
+
+3. Положительный production control сохранён
+
+Новый local Linux witness использует отдельно построенные production executables
+без fixture features и без barrier. Он продолжает тот же disposable bootstrapped
+root и уже опубликованные данные после ранних signal-тестов.
+
+Подтверждено по source runner, raw evidence и byte comparisons:
+
+  • Обычный no-signal startup; один completed paper Market; следующий canonical
+    M10 1791551400000-0. Шесть hash-chained Stage6 frames, один order/trade/position,
+    ACK/truth sequences 1/2, сохранённая Hybrid position +1.
+  • Реальный SIGKILL exact child PID 592, supervised restart PID 715.
+    Journal/seal, producer predecessor/high-water и captured Redis rows после
+    readmission не изменены; повторной команды/эффекта нет.
+  • Bootstrap marker/receipt сохранены. После graceful stop durable bytes также
+    совпадают; parent exit 0, GRACEFUL_STOP, two child starts, force_killed=false.
+    Время остановки около 0,558 секунды; local terminal receipt COMPLETED/1/3.
+  • Signer exit 70 после terminal authority revocation сохранён как 70 и не
+    выдаётся за exit 0. Active-phase signer failure по-прежнему fatal.
+
+Это LOCAL synthetic production-feature proof, не исполнение на VPS/accepted O2
+root. SIGKILL сделан после завершения truth и разрешения source rows; он не
+доказывает все редкие crash-frontiers. Все 13 operational O3 rows остаются NOT_RUN.
+External broker outcome streams не используются как фиктивное доказательство
+paper trade: результат проверяется по journal/replacement/order-position state.
+
+4. Что независимо выполнено reviewer
+
+  • Проверены ZIP SHA-256, CRC и 2913 unique members; duplicates/symlinks/unsafe
+    paths/special entries — 0. Проверены 2714 source files и Git modes.
+  • Git tree самостоятельно реконструирован; совпал bf7b2353a8a972ffd5af0ba1fc7e86e7eeb06b31.
+    Оригинальный commit object в ZIP отсутствует: независимая проверка относится
+    к tree/source binding, а не к реконструкции исходного commit hash.
+  • Offline archive verifier — PASS; 8/8 packaging regressions воспроизведены
+    в отдельном reviewer checkout. Проверены source/evidence hashes и обе
+    qualified source snapshots; разрешены только перечисленные docs/packaging
+    изменения после qualification.
+  • 28/28 exact Rust selectors сверены с retained logs: --exact, selected=1,
+    passed=1, exit=0 и точное имя. Всего components — 32 records с fmt/build/
+    clippy/diff. Четыре signal/control parent selectors также selected=1/passed=1.
+  • Сверены 108 production command records, expected exit codes и log hashes,
+    включая child diagnostics; отрицательные exits не замаскированы.
+  • Независимо проверены Ed25519 initial/Published schedule signatures по
+    accepted generation-2 public key, Stage6 frame chain и projections,
+    root file hashes, immutable bootstrap receipts, order/position state,
+    producer/Redis restart snapshots и parent terminal result.
+  • Compiler-artifact records подтверждают отсутствие fixture features в
+    production build. Test ELF и fixture input generator обозначены отдельно.
+
+Retained result hashes:
+components/result.json:
+e9819ec36f630008aa7d6a480b768c88bde4fe55adc3f6a8e3147a944065d04e
+production/result.json:
+9730d8fac191c65e49559bf1dff2f59398728522ea2dadbd03b44f0a29bc6b84
+
+Rust/Cargo/Docker/redis-server в среде reviewer отсутствуют. Rust/process witness
+не перезапускался; independently rerun — offline Python/Git packaging checks.
+Private HMAC credential отсутствует: самостоятельная HMAC authentication не
+заявляется. Production ELF квалификация пока Linux debug; release executables
+в source ZIP не включены. Ранее принятые границы evidence не расширены.
+
+5. Разрешённый следующий scope — облегчённый вариант
+
+P1-O301 закрыт, дополнительный correction/design review по нему не требуется.
+Source O3 принят вместе с ранее аудированной дельтой 6f0a6bf. Новых блокирующих
+замечаний в этой correction не выявлено.
+
+Следующий шаг: один согласованный release artifact / authority / installation
+комплект, привязанный к принятому tree. Включить нужные fixed executable slots,
+ELF hashes, service/input bytes, точную old→new inventory и квалификацию custody/
+systemd. Переиспользовать принятые installer/recovery механизмы; не добавлять
+новые роли, процессы, design-подэтапы или универсальный fault framework.
+
+Затем отдельно разрешённая stopped installation и одна bounded O3 phase с
+свежим preflight/window, сохранением accepted O2 root/profile/HMAC key/marker/
+receipt/history и P0. Не использовать local witness seed или истёкший phase
+как operational input; не делать новый bootstrap, reset или автоматические
+повторные phases. Фактическая установка и bounded O3 требуют отдельной
+операционной авторизации; этот source review их не выполняет.
+
+После operational O3 acceptance — ограниченные O4 FINAM/WS freshness/reconnect/
+REST overlap/EOD проверки, несколько paper-сессий сравнения с ALOR, затем
+отдельный live micro soak. FINAM writes, broker dispatch, DB0 changes,
+runtime-live и реальные заявки этим verdict не открываются.
+
+Итог: fb1ceb3 — SOURCE ACCEPT; P1-O301 CLOSED; O2 ACCEPT сохранён;
+operational O3 NOT_RUN. Облегчённый план и прежняя граница ответственности сохранены.

@@ -300,6 +300,7 @@ mod stage6_journal_backend;
 mod stage6_reconciliation_v2;
 mod stage6_replay;
 mod stage6d_live_core;
+pub mod stage8b_o3_readmission;
 mod stage8b_p1d1_paper_provider;
 mod stage8b_p1d2_market_feedback;
 mod stage8b_p1d3_working_limit;
@@ -374,10 +375,10 @@ pub use stage6d_live_core::stage8b_p1d3_test_working_book_attribution;
 pub use stage6d_live_core::{
     admit_stage7a_p1d1_market_dispatch, admit_stage7a_paper_command,
     advance_stage6d_restart_package, apply_stage6e_accepted_fresh_truth,
-    apply_stage8a4_validated_writer_entry, apply_stage8b_p1_semantic_transition,
-    apply_stage8b_p1d2_ack_transition, apply_stage8b_p1d2_recovered_ack_transition,
-    apply_stage8b_p1d2_truth_transition, apply_stage8b_p1d3_cancel_transition,
-    apply_stage8b_p1d3_initial_limit_ack_transition,
+    apply_stage8a4_validated_writer_entry, apply_stage8b_o3_semantic_transition,
+    apply_stage8b_p1_semantic_transition, apply_stage8b_p1d2_ack_transition,
+    apply_stage8b_p1d2_recovered_ack_transition, apply_stage8b_p1d2_truth_transition,
+    apply_stage8b_p1d3_cancel_transition, apply_stage8b_p1d3_initial_limit_ack_transition,
     apply_stage8b_p1d3_initial_limit_truth_transition, apply_stage8b_p1d3_later_limit_transition,
     apply_stage8b_p1d3_semantic_transition, apply_stage8b_p1d4_ack_transition,
     apply_stage8b_p1d4_publication_reservation, apply_stage8b_p1d4_recovered_ack_transition,

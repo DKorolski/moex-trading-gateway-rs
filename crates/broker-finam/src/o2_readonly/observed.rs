@@ -1,6 +1,8 @@
 //! Completion metadata for the additive observed-M1 input, collected by the
 //! same closed-route, GET-only client. No retries, redirects or new scheduler.
 use chrono::{SecondsFormat, Utc};
+mod primary;
+pub use primary::PrimaryGetFailure;
 
 use super::*;
 use crate::sparse_m10::{
@@ -59,11 +61,15 @@ impl Stage8bP1fO2GetOnlyClientV1 {
             parts.push(ClosedM1RestPartV1 {
                 method: "GET".into(),
                 endpoint: format!(
-                    "{STAGE8B_P1F_O2_FINAM_BASE_URL}/v1/instruments/{STAGE8B_P1F_O2_VENUE_SYMBOL}/bars"
+                    "{STAGE8B_P1F_O2_FINAM_BASE_URL}/v1/instruments/{}/bars",
+                    self.venue_symbol
                 ),
-                symbol: STAGE8B_P1F_O2_VENUE_SYMBOL.into(),
+                symbol: self.venue_symbol.clone(),
                 timeframe: STAGE8B_P1F_O2_BARS_TIMEFRAME.into(),
-                start, end, requested_at, received_at,
+                start,
+                end,
+                requested_at,
+                received_at,
                 status: 200,
                 transport_complete: true,
                 declared_body_bytes,

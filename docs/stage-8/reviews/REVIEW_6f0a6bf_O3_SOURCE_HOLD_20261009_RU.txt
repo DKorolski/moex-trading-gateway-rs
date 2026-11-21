@@ -1,0 +1,212 @@
+Независимый review — Stage 8B-P1-f O3 source
+Дата: 2026-10-09
+Вердикт: SOURCE HOLD — один блокер P1-O301.
+
+Review target: 6f0a6bf8f49a57272ce6a20024f57743b6b11e1d
+Source tree: 256d16a861fb29e99b3aa7143b526de089c710a7
+Сравнение: принятый O3 preparation bc9813434b35238e9e6e861476cab2aaf3fc72a2.
+ZIP: moex-trading-project-6f0a6bf-o3-source.zip
+SHA-256: 9151a23ab871dc7f70d259807e95a8b711f90844b59ec449344fba1f3038d3c4
+
+O2 остаётся принятым. Подтверждённый локальный paper lifecycle не обесценивается.
+Для принятия этой source-дельты требуется только исправление передачи раннего
+shutdown на новой границе composition → runtime. Новая платформа, дополнительные
+роли и расширенная универсальная crash matrix не требуются.
+
+1. P1-O301 — ранний SIGTERM/SIGINT может запустить runtime без shutdown intent
+
+Место:
+crates/finam-gateway/src/stage8b_p1f_o3_composition.rs, run_fixed,
+строки 113–124: создание lazy runtime future и две signal-ветви второго select.
+crates/runtime-durable-service/src/stage8b_p1e_process.rs:
+execute_stage8b_p1e_observed_run_v1, строки 4518–4526;
+execute_run_with_observed_window, строки 5234–5258.
+
+Суть: composition подписывается на SIGTERM/SIGINT до подготовки Published window.
+Внутренний runtime создаёт собственные signal receivers позднее, при выполнении
+своего async entrypoint. Получив сигнал во втором select, composition устанавливает
+stop только для schedule publisher и затем вызывает runtime.await. Это await может
+впервые запустить runtime, уже после получения и обработки внешнего stop.
+В существующий runtime latch/coordinator обработанный stop не передаётся.
+
+Допустимое расписание, непосредственно следующее из кода:
+
+  1) Published window готов; первая стадия select завершена.
+  2) Внешний SIGTERM либо SIGINT доставлен ранее подписанному composition receiver.
+  3) Второй biased select выбирает signal-ветвь прежде первого poll runtime future.
+  4) stop.send(true) останавливает producer; runtime.await запускает runtime.
+  5) Runtime загружает config, создаёт новые signal receivers и новый clear latch.
+     Ранее доставленный сигнал не превращается в retained shutdown intent.
+  6) Runtime может пройти admission и обработать уже подготовленные M10/свежий
+     signed schedule. Затем он может ждать без запроса штатного drain, пока
+     внешний guardian не применит свой force-kill backstop.
+
+Аналогичная щель есть во время синхронной загрузки config до регистрации внутренних
+receivers: первый poll сам по себе не доказывает, что runtime уже подписан на stop.
+Отзыв signer authority не отменяет ранее опубликованные подписанные данные.
+Поэтому сохранность guardian deadline и SIGKILL recovery не устраняет возможность
+новой обработки после уже принятой команды остановки.
+
+Это статически установленный дефект handoff/control flow. Rust/Tokio процессное
+воспроизведение в среде reviewer не выполнялось: Rust/Cargo/Docker отсутствуют.
+Run7 останавливает уже работающий, восстановленный runtime и этой щели не проверяет.
+
+Механика подписки сверена с первичными материалами Tokio: Signal создаёт отдельного
+listener; registry использует watch::Sender::subscribe; новая подписка считает
+предшествующие сообщения уже увиденными. Ссылки на публичный контракт и исходники:
+https://docs.rs/tokio/latest/src/tokio/signal/unix.rs.html
+https://docs.rs/tokio/latest/src/tokio/signal/registry.rs.html
+https://docs.rs/tokio/latest/tokio/sync/watch/struct.Sender.html#method.subscribe
+В submitted Cargo.lock закреплён Tokio 1.52.3. Исполнение этой зависимости здесь
+не заявляется; regression должен использовать закреплённую версию проекта.
+
+Минимальная коррекция:
+
+  • Обеспечить непрерывную передачу уже замеченного shutdown в существующий
+    runtime coordinator/latch до startup/admission либо сохранить достаточную
+    раннюю signal subscription при handoff. Выбор небольшого source seam — за
+    программистом; новые authority/roles/control-root механизмы не нужны.
+  • Stop до старта runtime не должен запускать fresh admission/callback/effects.
+    Для runtime, уже владеющего durable owner, сохранить обычный bounded drain;
+    отменять/drop pending durable future ради быстрой остановки нельзя.
+  • Сохранить first-wins cause, исходные deadline/grace и fatal exit precedence.
+    Разовый повторный raise до поздней подписки не обеспечивает передачу intent.
+
+Достаточное evidence для закрытия P1-O301:
+
+  • Детерминированная граница после получения Published window и до внутреннего
+    startup/signal admission. Реальные SIGTERM и SIGINT, каждый отдельным case;
+    подтвердить, что stop уже принят composition до release barrier.
+  • На stop-before-start: zero fresh runtime admission/callback/provider/command
+    publication/XACK; неизменные durable root/journal и bootstrap marker/receipt
+    O2. Уже опубликованные producer данные сохраняются для recovery, без reset.
+  • No-signal control запускает обычный runtime. Прежний положительный
+    Market → successor → restart → stop witness остаётся положительным.
+  • Контроль без correction должен отклоняться этим regression; не использовать
+    timing sleep, table lookup или проверку только итогового force-kill.
+  • Сохранить exact selectors, raw logs/exit codes и source binding. Достаточны
+    focused Linux/process regressions и обычные checks затронутых модулей.
+
+Не требуется повторно разрабатывать I1 supervision, весь guardian, новую систему
+сигналов или все исторические crash-frontiers.
+
+2. Что в source-дельте проверено без дополнительных блокеров
+
+  • O3-only guardian claim использует существующую authority/history, не создаёт
+    genesis, не меняет generation и не публикует O2 selector.
+  • Fixed child сохраняет nonroot execution, parent-death/process-group handling,
+    bounded phase/restart budget и существующую custody границу.
+  • В одной composition передаётся typed Published V2 decision/successor window.
+    Retained predecessor/high-water, receipt hashes и canonical M10 bytes
+    сверяются; missing/corrupt/foreign/unpublished состояния не дают authority.
+  • Constrained AF_UNIX signer принимает полный envelope с identity/semantic
+    bindings, peer UID и deadline; использует accepted generation-2 public trust.
+    Произвольный digest-signing и fixture trust в production entrypoint закрыты.
+  • Отдельный fresh DB15 provisioner явно требует root/confirmation/Active phase,
+    exact Prepared checkpoint и подписанный first schedule. Узкое административное
+    создание schedule stream описано; runtime attach остаётся verify-only,
+    publisher NOMKSTREAM сохранён. Reinit/FLUSH/rewind не добавлены.
+  • Post-Market successor потребляет exact authenticated S_truth, применяет
+    существующий order/position callback bridge и строго более новый M10.
+    Hybrid position сохраняется; промежуточная migration существует в памяти.
+    Final semantic replacement сохраняется/перечитывается до XACK.
+    Bare Migrated без committed semantic watermark не даёт fresh-bar permission.
+  • Bootstrap marker/receipt и принятый O2 lifecycle не заменяются новым O3 root.
+    В source нет broker write, FINAM network path, DB0 или runtime-live активации.
+
+Относительно bc98134: 19 изменённых и 25 добавленных файлов. Rust-дельта включает
+новую composition и узкую post-Market continuation; Cargo/Cargo.lock, workflows
+и существующие config-файлы не изменены. Disabled systemd templates являются
+source material; их динамическая эксплуатационная квалификация не заявлена.
+
+3. Независимо перепроверено reviewer
+
+  • SHA-256, ZIP CRC, 2874 уникальных members; duplicates, unsafe paths, symlinks
+    и special entries — 0. Проверены 2710 source files и executable modes.
+  • Source Git tree самостоятельно реконструирован и совпал. В архиве нет
+    оригинального Git commit object: его hash не выдаётся за независимо
+    реконструированный commit; source tree и declared target связаны пакетом.
+  • Offline archive verifier — PASS; все 7 packaging tests — PASS в отдельном
+    реконструированном checkout. Source/evidence drift и mode drift отклоняются.
+  • 23/23 exact Rust selectors сверены с retained logs: selected=1, passed=1,
+    exit=0 и точное имя каждого теста. Это проверка evidence, а не новый Cargo run.
+  • Сверены 91 command record, ожидаемые exit codes и log hashes. Отрицательные
+    controls и terminal signer exit 70 не переписаны как успешный exit 0.
+  • Независимо проверены Ed25519 initial/Published schedule signatures и payload
+    hashes. Generation-2 public key:
+    432a274889bc2b3a4492b3a1510f7356e1c2878337263e28472335f8600e4d99.
+  • Самостоятельно разобраны и проверены hash-chain шести Stage6 journal frames;
+    они совпали с сохранёнными record projections. Проверены nested package/seal
+    byte hashes, order/trade/position state и Redis/high-water snapshots.
+  • Production compiler-artifact feature lists отделены от fixture input generator.
+    У production libraries нет fixture features. Это Linux debug qualification;
+    ELF отсутствуют в source ZIP, release installation acceptance не заявляется.
+
+Ключевые retained result hashes:
+components/result.json:
+ecbb7627048778a604f7df07e81f5eef0103ea600e70c7c398dd625da8044cc1
+production/result.json:
+1dbba38a817bcfbe7b794f185056c4c3f2ba5bd422eb30b602960373be4cd3c8
+
+Private HMAC credential не включён в пакет. Reviewer сверил package structure/
+hashes и runtime readmission evidence, но не заявляет самостоятельную HMAC
+аутентификацию без этого ключа. Production witness/Rust suites/Docker здесь
+не перезапускались. Supplemental 1302 core / 433 durable summaries без полных
+retained logs не используются как независимо проверенное full-suite evidence.
+
+4. Что действительно доказывает локальный process witness
+
+Run7: ordinary production bootstrap в disposable LOCAL root, синтетические
+недавние sessions, real clock, accepted generation-2 signer. Принятый VPS O2
+root/identity/history не копировался и не заменялся.
+
+Подтверждены по связанным исходникам, raw records и byte snapshots:
+  • Один completed paper Market; journal из шести chained frames; один
+    order/trade/position, ACK/truth sequence 1/2, Hybrid position +1.
+  • Обработка следующего canonical M10; оба source entries разрешены, PEL=0.
+  • Реальный SIGKILL child PID 409, supervised restart PID 532. После readmission
+    journal/seal, producer high-water и captured Redis rows byte-identical;
+    нет повторной paper-команды/эффекта. Bootstrap marker/receipt неизменны.
+  • Остановка уже работающего runtime: parent exit 0, GRACEFUL_STOP, два starts,
+    без force-kill, около 0,529 секунды; local terminal COMPLETED/1/3.
+
+SIGKILL здесь выполнен ПОСЛЕ completed paper truth и разрешения обоих M10.
+Это доказательство конкретного completed-frontier restart, а не каждого PEL/
+before-effect/truth-before-XACK frontier. External ACK/trade streams содержат
+initializer rows; paper outcome подтверждён journal/replacement, не их длинами.
+Command group untouched: last-delivered=0-0, pending=0, lag=1 — нормальное
+отсутствие отдельного command consumer в этой typed paper composition.
+
+13 operational matrix rows честно остаются NOT_RUN. Inherited idle Ready,
+producer conflict и CANCEL response-loss tests не выдаются за соответствующие
+новые VPS frontiers. Это допустимая прозрачная граница узкого source review,
+а не основание требовать новую универсальную платформу испытаний.
+
+5. Статус roadmap и облегчённый остаток
+
+Stage 8B-P1-e I1 закрыт. P1-f O0/O1 и bounded O2 приняты. Текущая точка:
+O3 source implementation завершена программистом, SOURCE HOLD по P1-O301;
+операционная synthetic paper-сессия O3 ещё не принята и не разрешена этим review.
+O4 FINAM/WS/ALOR execution parity и live micro остаются впереди.
+
+Сейчас: один correction commit + focused source re-review. После SOURCE ACCEPT:
+
+  1) Один согласованный release artifact/installation комплект с exact source/
+     authority binding, ELF hashes, fixed service bytes и old→new inventory.
+     Проверить нужные пять executable slots, реальные signer/runtime credential
+     права и systemd qualification; не раскладывать это в новые design-подэтапы.
+  2) Отдельно разрешённая остановленная установка с сохранением истории,
+     accepted O2 root/profile/HMAC key/marker/receipt и P0. Свежий preflight
+     выбирает decision/successor window относительно реального O2 state/clock.
+     Local run7 seed и истёкший local phase operational входами не являются.
+  3) Одна отдельно разрешённая bounded O3 phase: normal paper outcome,
+     следующий M10, согласованный restart и остановка. Без нового bootstrap,
+     reset, автоматических повторных фаз и изменения immutable O2 input.
+  4) Затем ограниченные O4 data/WS/freshness/reconnect/EOD проверки и несколько
+     paper-сессий сравнения с ALOR; после приёмки — отдельный live micro soak.
+
+Реальные FINAM POST/DELETE, broker dispatch, DB0 changes, runtime-live и реальные
+заявки не разрешены. Этот review не выполнял VPS, signing, push/merge или CI.
+
+Итог: SOURCE HOLD только по P1-O301. Остальной реализованный узкий O3 scope
+и честно ограниченное local evidence соответствуют облегчённому плану.

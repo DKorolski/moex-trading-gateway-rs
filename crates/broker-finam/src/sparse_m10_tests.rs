@@ -2,6 +2,35 @@ use super::*;
 use chrono::TimeZone;
 use serde_json::{json, Value};
 
+#[test]
+fn explicit_additional_instruments_preserve_raw_admission_and_legacy_boundary() {
+    for i in [ShadowInstrument::Usdrubf, ShadowInstrument::Riz6] {
+        let mut e = evidence("long");
+        let mut body: Value = serde_json::from_str(&e.parts[0].raw_body).unwrap();
+        body["symbol"] = json!(i.venue_symbol());
+        for row in body["bars"].as_array_mut().unwrap() {
+            for field in ["open", "high", "low", "close"] {
+                row[field] = json!({"value":if i==ShadowInstrument::Riz6{"100000"}else{"100.01"}});
+            }
+        }
+        e.parts[0].endpoint = format!(
+            "https://api.finam.ru/v1/instruments/{}/bars",
+            i.venue_symbol()
+        );
+        e.parts[0].symbol = i.venue_symbol().into();
+        replace_body(&mut e, body.clone());
+        let plan = ClosedM1RequestPlan::new(e.start, e.end, vec![e.end]).unwrap();
+        let now = e.parts[0].received_at;
+        assert!(AdmittedClosedM1Snapshot::admit(e.clone(), &plan, now).is_err());
+        let admitted = AdmittedClosedM1Snapshot::admit_for(i, e.clone(), &plan, now).unwrap();
+        assert_eq!(admitted.instrument(), i);
+        assert!(admitted.bars().all(|b| b.instrument == i.instrument()));
+        body["bars"][0]["close"] = json!({"value":"100.001"});
+        replace_body(&mut e, body);
+        assert!(AdmittedClosedM1Snapshot::admit_for(i, e, &plan, now).is_err());
+    }
+}
+
 fn time(s: &str) -> DateTime<Utc> {
     s.parse().unwrap()
 }

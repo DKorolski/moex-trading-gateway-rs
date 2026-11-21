@@ -1,0 +1,257 @@
+REVIEW — Stage 8B-P1-f O3 unified release / authority / stopped installation
+Дата: 2026-10-09, Europe/Moscow
+Target: 0e89208c1e6235eab8b5ea0e115d7899cbafd223
+
+VERDICT: RELEASE / AUTHORITY / INSTALLATION PACKAGE ACCEPT.
+Открытый пункт dynamic systemd qualification закрыт в границе isolated native start/stop.
+SOURCE ACCEPT fb1ceb3 и закрытие P1-O301 сохранены.
+Новых P1/P2, требующих correction до stopped installation, не обнаружено.
+
+Это приёмка конкретного комплекта, а не разрешение выполнить установку или O3.
+Accepted O2 сохраняется; operational O3 — NOT_RUN. Все 13 operational O3 rows
+остаются NOT_RUN. FINAM write, broker dispatch, DB0 changes, runtime-live и
+real orders этим verdict не открываются.
+
+1. Идентичность пакета
+
+ZIP: moex-trading-project-0e89208-o3-release-installation.zip
+SHA-256: 1ae1f174b964484417f85fbc916e44e1123aafc52f3b23b8e7044103d1fce37d
+Размер: 20 518 618 bytes; expanded: 71 425 083 bytes.
+Members: 3003; source-index: 2725 файлов.
+Package tree: 463e04dc69009f234b18dc7a74ba94475c09d210
+Compiled source: fb1ceb3dac40b365d0d23983af788ca1c9c72907
+Compiled source tree: bf7b2353a8a972ffd5af0ba1fc7e86e7eeb06b31
+Branch: stage8b-o3-preparation-20261008
+
+Независимо проверены SHA-256, ZIP CRC, уникальность путей, regular-file типы,
+полный file inventory и Git executable modes. Duplicates/symlinks/special/unsafe
+paths — 0. В отдельном локальном checkout восстановлены exact package tree
+и original package commit object. Offline verifier также восстановил original
+accepted-source tree/commit из raw objects и preimages. Accepted-source index
+байт-в-байт совпал с ранее проверенным fb1ceb3 snapshot.
+
+Дельта к fb1ceb3: 6 изменённых и 11 добавленных файлов, удалений нет.
+Rust/Cargo/config/workflow не изменены. Deployment delta — один supervisor
+template. Остальные изменения — упаковка, установщик/observer/tests, authority
+inventory, review/status/roadmap. Полную историю Git-предков не заявляю:
+проверены представленные commit objects и их exact trees.
+
+2. Release и authority
+
+Все пять ELF — ELF64 little-endian Linux x86-64. Независимый readelf подтвердил
+архитектуру и динамические зависимости; максимальная требуемая GLIBC — 2.34,
+согласованная с preflight. Бинарники здесь не исполнялись.
+
+- stage8b-p1f-o2-operator
+  4 220 288 bytes
+  3d09ff06eb1d592fa3bd907d5d8fd9dcc80d42f4de02083efae6deb3cbf99764
+- stage8b-p1f-local-supervisor
+  2 538 592 bytes
+  c6f8e801863e0605d4cd461e5ff8932f89f0b9956ad1f0736051cdf8a6ba885f
+- stage8b-p1f-o3-composition
+  15 087 248 bytes
+  ba3b2a2553111bcfc1e4d18dc299268f1f6f7e3d2fd49fa3eb7230df13d450e1
+- stage8b-p1f-o3-signer
+  4 378 856 bytes
+  596c24771a06b58741c8f8df0ca330e6d7b2f07f20f36f9dcc32113dc51c98c8
+- stage8b-p1f-o3-provisioner
+  5 869 800 bytes
+  f90514956f2b6c25faff74cd2c576a09ec1c569dc00b94d61889b60755c22c47
+
+Release logs содержат locked/offline production build из read-only export
+принятого commit. Проверены 189 compiler-artifact records, пять выбранных
+release executables, opt_level=3, debug_assertions=false, profile.test=false.
+Fixture features отсутствуют во всём production graph. Features библиотек:
+strategy-runtime-core [default], runtime-durable-service [default],
+finam-gateway []; test-only support отделён от production slots.
+
+Build record, ELF hashes, installation payload и native executed hashes связаны.
+Заявленное повторное использование ELF из e7f8599 не заменяет эту проверку:
+старый ZIP e7f8599 здесь не был доступен для отдельного byte comparison.
+Принимаются exact ELF bytes текущего ZIP и их retained build/native bindings.
+
+Authority изменяет только production_code_manifest и
+governance_control_plane_manifest относительно fb1ceb3. Политика, workflow
+и closed surfaces не расширены. Независимый checker:
+production_files=193; control_files=23; workflows=2.
+Production fingerprint:
+3b580cc5997f71338dc4832926bb07d05b6685f0c96985d99202eb6c70b48017
+Authority negative harness — 45/45 PASS.
+
+3. Dynamic systemd qualification — ACCEPT в узкой границе
+
+Рассмотрены exact executed driver/support, 55 command records с stdout/stderr,
+loaded-unit properties, active process identities/capabilities, journals,
+stopped cgroups, credential/container cleanup и read-only host snapshots.
+Их hashes/inventory проверены offline; это retained developer observations,
+не независимая подписанная remote attestation.
+
+Среда positive proof: native x86_64, systemd 255.4-1ubuntu8.17; disposable
+container с private PID/cgroup/network, network=none, без host bind mounts.
+Nested-systemd test-container capabilities/seccomp настройки не перенесены
+в service templates. Существующий рабочий host/root не использован как
+synthetic strategy root; support создавал отдельную synthetic историю.
+
+Единственное изменение service directive:
+supervisor User=root -> User=, то есть system-manager default root.
+Group, CapabilityBoundingSet, NNP, network ограничения и stop/restart policy
+сохранены. Это принимается по exact qualified template и фактическим
+credentials; общая гарантия для любых systemd версий не заявляется.
+
+Qualified supervisor template SHA-256:
+d92f830702d524487dc8e3455c2d3620c669db009d0736ddc5af7d5bc4bc78aa
+Signer template SHA-256:
+763527fcce53aafff6c44a88d4f8fc376d42be1b174e614eece0493ba5faf543
+
+Raw active observations:
+- signer: root UID, GID987, NNP1, effective/permitted CAP_CHOWN только;
+- guardian: root UID, GID987, NNP1, effective/permitted 0xe0 —
+  CAP_SETGID/CAP_SETUID/CAP_KILL;
+- ровно один composition child: UID/GID987, supplementary groups empty,
+  NoNewPrivs=1, CapEff/CapPrm/CapInh/CapAmb=0;
+- ambient/inheritable capabilities у root процессов также 0;
+- active/stable PID/start ticks и argv совпадают; NRestarts=0.
+
+Signer использовал systemd credential и сформировал initial synthetic
+schedule. Независимо проверена Ed25519 signature по generation-2 public key
+432a274889bc2b3a4492b3a1510f7356e1c2878337263e28472335f8600e4d99.
+Private key для проверки не получен. Production provisioner создал 12 ключей
+в disposable DB15; release guardian запустил release composition, оба unit
+оставались active в двух observations с восемью секундами между ними.
+
+Stop proof:
+GRACEFUL_STOP; child_starts=1; last_exit_code=0; last_signal=null;
+force_killed=false; supervisor ExecMainStatus=0; elapsed driver=0.493s.
+Cgroups пусты; все записанные PID/start-tick identities исчезли;
+NRestarts=0. Synthetic terminal receipt — COMPLETED/1/3,
+reason external-stop-complete. Signer после terminal revocation завершился 70;
+этот статус сохранён и не маскируется SuccessExitStatus.
+
+Удаление selected schedule input, отсутствие systemd credential directory
+и удаление обоих контейнеров подтверждены отдельными successful records.
+Очистка lifecycle tmpfs копии обеспечена удалением disposable container;
+универсальную гарантию отсутствия любых иных копий ключа эти логи не дают.
+Private stdin и его hash не включены. Ключевые bytes reviewer не читались.
+
+Host before/after snapshots raw byte-exact:
+SHA-256 096fa4d49bd1bc88cf157387cbf60aa5ef9ee309bcc2016028f4bf8a9cbcbedc.
+В observations сохранены accepted P0 fingerprints/PID/start ticks, O2 root,
+history COMPLETED/1/26, 15 установленных slots и 7 отсутствующих O3 slots.
+Global binfmt/container inventories совпали до/после.
+
+Первый неуспешный local systemd attempt с exit255 сохранён как
+PARTIAL_DYNAMIC_UNQUALIFIED, а не переименован в PASS. Revised historical
+qualification runner не объявляется успешно выполненным. Positive native
+run — отдельное доказательство с конкретными bytes/driver/records.
+
+Граница доказательства: startup, credential/custody, producer/runtime attach
+и graceful stop. Здесь M10 group consumers=0, pending=0, lag=0; в этот короткий
+run Market-сделка и SIGKILL/restart не проверялись. Для них сохраняется ранее
+принятый source witness; operational O3 должен пройти свой bounded run.
+Synthetic history/receipt нельзя подставлять вместо настоящего O2 root.
+
+4. Installation contract — ACCEPT без активации
+
+Проверены derive/load/replacements/Update.transition и inherited primitives
+secure read, root-owned directory custody, dual flock, fsync, atomic reread.
+Запись ограничена девятью CHANGES:
+5 executable slots /usr/local/libexec/moex;
+2 disabled .service.in templates в /usr/local/share/moex/stage8b-p1e;
+installation-o3-v1.json и outer installation-o2-v1.json.
+
+Из них существующими заменяемыми slots являются operator и outer manifest;
+семь остальных должны отсутствовать до apply. Owner/group root:root;
+ELF 0755, templates/manifests 0644.
+
+Predecessor outer manifest SHA-256:
+4ab7c2592c5427a0ca7aa1fc455caae0649a9e7652d36ee1d0d5feeeda055fef
+Successor outer manifest SHA-256:
+c2585bb68d67aa8515db15762d61fdd5cf5cd2e36bf75cdec3023339ac937c15
+
+Bootstrap compatibility manifest не владеет operator slot и сохраняется
+byte-exact. Старые O2 materializer/paper-supervisor, профиль/config, HMAC
+metadata, adopted strategy journal/seal/marker/receipt, authority/consumed
+history и архивы сохраняются. Новый private producer root не создаётся
+установкой.
+
+На каждом write frontier проверяется invariant observation:
+COMPLETED/1/26 и exact history event, stopped P1, прежние P0 fingerprints,
+отсутствие operational O3 inputs/units/transient credentials, inventory
+durable/config/history/staging. Две существующие root locks не создаются
+заново. Foreign bytes, custody/link drift, missing old slot, changed history
+и активный P1 отклоняются.
+
+Rollback absent-before slots удаляет только exact установленный новый файл;
+foreign files не удаляет. PREPARED/APPLIED/ROLLING_BACK/ROLLED_BACK привязаны
+к exact spec и backups. Resume не делает fresh claim или bootstrap.
+Сбой начального создания backups до PREPARED остаётся fail-closed при
+нетронутых managed slots; автоматический repair этого случая не заявляется.
+
+14 Linux filesystem tests с 9 replacement и 7 absent-slot rollback interruption
+subcases проверены по исходникам и retained raw logs. Это Python exception
+injection после filesystem effect, а не OS SIGKILL evidence. Host observer
+в этих filesystem tests явно mocked. Здесь эти 14 тестов не перезапускались:
+accepted predecessor ELFs для их fixture не представлены в текущем ZIP.
+
+Установка пишет templates в shared package directory, а не operational units
+в /etc/systemd/system. Не выполняет daemon-reload, enable/start, bootstrap,
+Redis initialization, phase claim, signing или credential staging.
+
+5. Независимые выполненные проверки и ограничения reviewer
+
+Выполнено локально:
+- SHA/CRC/path/type/full inventory и exact raw commit/tree reconstruction;
+- scripts/stage8b_p1f_o3_release_handoff.py verify — PASS;
+- scripts/test_stage8b_p1f_o3_release_handoff.py — 12/12 PASS, exit0,
+  включая rehashed native semantic mutations и evidence stripping;
+- scripts/test_stage8b_p1f_o3_source_handoff.py — 10/10 PASS, exit0,
+  включая native User/group/NNP/capability/template controls;
+- scripts/current_tree_authority_check.py — PASS;
+- scripts/current_tree_authority_negative_harness.py — 45/45 PASS;
+- readelf пяти ELF; проверка release compiler graph и command/log hashes;
+- Ed25519 initial schedule verification;
+- exact equality before/after host snapshots;
+- diff current package против ранее принятого fb1ceb3 snapshot.
+
+В reviewer checkout были восстановлены все original tracked files и modes,
+включая три reports, игнорируемые при обычном git add. После этого exact tree
+и original HEAD совпали; итоговые tests завершились PASS. Это техническая
+коррекция локальной reviewer setup, не дефект пакета.
+
+Rust/release/Linux/systemd execution здесь не повторялись: cargo/rustc,
+Docker и Redis-server в reviewer environment отсутствуют. Их результаты
+оценены по code, retained raw outputs, exact identities и bindings.
+No remote command, VPS mutation, signing/key access, service start,
+FINAM/Redis contact, push/merge или CI reviewer не выполнял.
+
+6. Следующий узкий scope в облегчённом roadmap
+
+Можно готовить исполнение отдельно разрешённой stopped installation именно
+этого ZIP. Минимальный порядок:
+1) Проверить ZIP SHA и использовать installer/dependencies/payload этого pack.
+2) Выполнить fresh exact read-only preflight, повторяемый под двумя locks.
+   Дрейф history/root/P0/custody/inventory — остановка, без тихой перепривязки.
+3) Один согласованный apply, затем exact postflight/evidence:
+   APPLIED, девять new hashes/custody, retained O2 state/history/receipts,
+   P1 stopped, отсутствие reload/start/claim/Redis/bootstrap/signing.
+4) Передать компактное evidence фактической установки на приёмку.
+
+Installation PACKAGE ACCEPT сам по себе не является operational installation
+permission. После installation evidence ACCEPT отдельно выдаётся разрешение
+на одну bounded O3 с fresh phase/window/input bytes, настоящим preserved O2
+root и существующим HMAC. Нельзя повторно использовать synthetic/expired
+inputs, делать новый O2 bootstrap/root, FLUSH/repair DB15 или скрытые retries.
+
+Operational O3 затем проверяет paper outcome, successor M10, restart без
+повторных эффектов и controlled stop. После bounded O3 acceptance — короткий
+O4 с FINAM read-only bars/WS, freshness/reconnect/REST overlap/EOD и сравнением
+с ALOR freeze, затем отдельно принимаемый FINAM live micro soak.
+
+Узкий комплект достаточен для этого шага. Дополнительные роли, ключи,
+control roots, recovery framework, новые design-фазы или обязательный полный
+CI/merge на каждый packaging-only шаг не требуются. Точный startup/stop,
+custody, durable-before-XACK и replay/idempotency contracts сохраняются.
+
+ИТОГ: 0e89208 — единый RELEASE/AUTHORITY/INSTALLATION PACKAGE ACCEPT.
+Native qualification закрыта в честно заявленной start/stop границе.
+O2 ACCEPTED. Operational O3 NOT_RUN. Установка и bounded O3 — отдельные действия.

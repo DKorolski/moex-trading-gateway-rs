@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "source_failure_sha256": "fe7abe51a9ebd5d1d244e1a0b413a4df704c044b9c7767591845cad815a51d5b",
+  "rest_evidence": {
+    "end": "2026-11-09T04:10:00Z",
+    "parts": [
+      {
+        "declared_body_bytes": 2889,
+        "end": "2026-11-09T04:10:00Z",
+        "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+        "method": "GET",
+        "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-09T04:00:00Z\",\n   \"open\": {\n    \"value\": \"2487.5\"\n   },\n   \"high\": {\n    \"value\": \"2488.5\"\n   },\n   \"low\": {\n    \"value\": \"2487.0\"\n   },\n   \"close\": {\n    \"value\": \"2487.5\"\n   },\n   \"volume\": {\n    \"value\": \"1935.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-09T04:01:00Z\",\n   \"open\": {\n    \"value\": \"2487.0\"\n   },\n   \"high\": {\n    \"value\": \"2487.0\"\n   },\n   \"low\": {\n    \"value\": \"2486.5\"\n   },\n   \"close\": {\n    \"value\": \"2487.0\"\n   },\n   \"volume\": {\n    \"value\": \"648.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-09T04:02:00Z\",\n   \"open\": {\n    \"value\": \"2487.0\"\n   },\n   \"high\": {\n    \"value\": \"2487.5\"\n   },\n   \"low\": {\n    \"value\": \"2486.5\"\n   },\n   \"close\": {\n    \"value\": \"2486.5\"\n   },\n   \"volume\": {\n    \"value\": \"381.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-09T04:03:00Z\",\n   \"open\": {\n    \"value\": \"2486.5\"\n   },\n   \"high\": {\n    \"value\": \"2487.0\"\n   },\n   \"low\": {\n    \"value\": \"2486.5\"\n   },\n   \"close\": {\n    \"value\": \"2487.0\"\n   },\n   \"volume\": {\n    \"value\": \"32.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-09T04:04:00Z\",\n   \"open\": {\n    \"value\": \"2487.5\"\n   },\n   \"high\": {\n    \"value\": \"2487.5\"\n   },\n   \"low\": {\n    \"value\": \"2485.0\"\n   },\n   \"close\": {\n    \"value\": \"2485.0\"\n   },\n   \"volume\": {\n    \"value\": \"3323.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-09T04:05:00Z\",\n   \"open\": {\n    \"value\": \"2485.0\"\n   },\n   \"high\": {\n    \"value\": \"2485.0\"\n   },\n   \"low\": {\n    \"value\": \"2481.5\"\n   },\n   \"close\": {\n    \"value\": \"2482.0\"\n   },\n   \"volume\": {\n    \"value\": \"6669.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-09T04:06:00Z\",\n   \"open\": {\n    \"value\": \"2481.5\"\n   },\n   \"high\": {\n    \"value\": \"2482.5\"\n   },\n   \"low\": {\n    \"value\": \"2481.0\"\n   },\n   \"close\": {\n    \"value\": \"2481.5\"\n   },\n   \"volume\": {\n    \"value\": \"2800.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-09T04:07:00Z\",\n   \"open\": {\n    \"value\": \"2481.5\"\n   },\n   \"high\": {\n    \"value\": \"2482.0\"\n   },\n   \"low\": {\n    \"value\": \"2479.0\"\n   },\n   \"close\": {\n    \"value\": \"2482.0\"\n   },\n   \"volume\": {\n    \"value\": \"3728.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-09T04:08:00Z\",\n   \"open\": {\n    \"value\": \"2482.0\"\n   },\n   \"high\": {\n    \"value\": \"2483.5\"\n   },\n   \"low\": {\n    \"value\": \"2481.5\"\n   },\n   \"close\": {\n    \"value\": \"2482.5\"\n   },\n   \"volume\": {\n    \"value\": \"3991.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-09T04:09:00Z\",\n   \"open\": {\n    \"value\": \"2482.5\"\n   },\n   \"high\": {\n    \"value\": \"2483.0\"\n   },\n   \"low\": {\n    \"value\": \"2482.5\"\n   },\n   \"close\": {\n    \"value\": \"2482.5\"\n   },\n   \"volume\": {\n    \"value\": \"1428.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+        "received_at": "2026-11-09T04:10:01.030558738Z",
+        "requested_at": "2026-11-09T04:10:01.003547126Z",
+        "response_sha256": "9568a1a5778a1f811566ebab653ec84c8118b79ef9daa44c7be4f0efde0febba",
+        "start": "2026-11-09T04:00:00Z",
+        "status": 200,
+        "symbol": "IMOEXF@RTSX",
+        "timeframe": "TIME_FRAME_M1",
+        "transport_complete": true
+      }
+    ],
+    "policy": "closed-rest-observed-m1-to-m10-v1",
+    "start": "2026-11-09T04:00:00Z"
+  },
+  "ws_disputed_bar": {
+    "close": "2483.0",
+    "close_ts": "2026-11-09T04:10:00Z",
+    "high": "2483.0",
+    "instrument": {
+      "exchange": "Moex",
+      "market": "Futures",
+      "symbol": "IMOEXF",
+      "venue_symbol": "IMOEXF@RTSX"
+    },
+    "is_final": false,
+    "low": "2482.0",
+    "open": "2482.5",
+    "open_ts": "2026-11-09T04:09:00Z",
+    "source_kind": "LiveStream",
+    "timeframe_sec": 60,
+    "volume": "1582.0"
+  },
+  "ws_receive_time_known": false,
+  "ws_original_wire_frame_retained": false,
+  "replay_scope": "real REST body and reported WS OHLCV pair; surrounding WS/time/strategy context are synthetic fixtures, not provider/latency/parity proof"
+}

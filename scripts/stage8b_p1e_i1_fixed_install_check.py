@@ -59,7 +59,7 @@ def exact(unit: dict[str, list[tuple[str, str]]], section: str, key: str, value:
     require(values(unit, section, key) == [value], f"{section}.{key} drift")
 
 
-def check_shared(unit: dict[str, list[tuple[str, str]]]) -> None:
+def check_shared(unit: dict[str, list[tuple[str, str]]], *, bootstrap: bool = False) -> None:
     shared = {
         "User": "moex-p1-paper",
         "Group": "moex-p1-paper",
@@ -77,7 +77,9 @@ def check_shared(unit: dict[str, list[tuple[str, str]]]) -> None:
         "ProtectKernelTunables": "yes",
         "ProtectSystem": "strict",
         "ProtectProc": "invisible",
-        "ProcSubset": "pid",
+        # O2 bootstrap validates config against the real kernel boot identity.
+        # Main/recovery stay outside this narrowly authorized correction.
+        "ProcSubset": "all" if bootstrap else "pid",
         "RestrictRealtime": "yes",
         "RestrictSUIDSGID": "yes",
         "LockPersonality": "yes",
@@ -105,8 +107,8 @@ def check(root: Path) -> None:
     require(paths["credential_source"] == "/etc/moex-finam-p1-paper/credentials/stage8b-p1-lifecycle.key", "credential path drift")
 
     parsed = {name: parse_unit(root / DEPLOY / name) for name in UNITS}
-    for unit in parsed.values():
-        check_shared(unit)
+    for name, unit in parsed.items():
+        check_shared(unit, bootstrap=name == BOOTSTRAP)
 
     main = parsed[MAIN]
     exact(main, "Unit", "StartLimitIntervalSec", "600")

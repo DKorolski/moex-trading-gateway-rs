@@ -1,0 +1,710 @@
+{
+  "schema": "retained-rest-precision-regression-v1",
+  "original_runtime_commit": "1b0104f90e96f42090148bf5b453a12d2bad80f5",
+  "original_journal_sha256": "893c7f7ace9957dc5a842824f07d0d722ddd8cfcc5fc093ca0b91170d07d8ea5",
+  "scope": "PUBLIC_GET_EVIDENCE_NOT_OPERATIONAL_AUTHORITY",
+  "cases": [
+    {
+      "original_journal_sequence": 10,
+      "snapshot_sha256": "9e203694ee028433dfbb736d1a57066facc1c5142caa162e6ef942c8a929a67c",
+      "evidence": {
+        "end": "2026-11-19T04:10:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 2888,
+            "end": "2026-11-19T04:10:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T04:00:00Z\",\n   \"open\": {\n    \"value\": \"2469.5\"\n   },\n   \"high\": {\n    \"value\": \"2474.0\"\n   },\n   \"low\": {\n    \"value\": \"2468.5\"\n   },\n   \"close\": {\n    \"value\": \"2470.5\"\n   },\n   \"volume\": {\n    \"value\": \"4073.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:01:00Z\",\n   \"open\": {\n    \"value\": \"2471.0\"\n   },\n   \"high\": {\n    \"value\": \"2473.0\"\n   },\n   \"low\": {\n    \"value\": \"2470.5\"\n   },\n   \"close\": {\n    \"value\": \"2473.0\"\n   },\n   \"volume\": {\n    \"value\": \"2286.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:02:00Z\",\n   \"open\": {\n    \"value\": \"2473.0\"\n   },\n   \"high\": {\n    \"value\": \"2475.5\"\n   },\n   \"low\": {\n    \"value\": \"2472.5\"\n   },\n   \"close\": {\n    \"value\": \"2474.0\"\n   },\n   \"volume\": {\n    \"value\": \"2427.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:03:00Z\",\n   \"open\": {\n    \"value\": \"2474.0\"\n   },\n   \"high\": {\n    \"value\": \"2474.0\"\n   },\n   \"low\": {\n    \"value\": \"2473.0\"\n   },\n   \"close\": {\n    \"value\": \"2473.0\"\n   },\n   \"volume\": {\n    \"value\": \"838.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:04:00Z\",\n   \"open\": {\n    \"value\": \"2473.0\"\n   },\n   \"high\": {\n    \"value\": \"2473.0\"\n   },\n   \"low\": {\n    \"value\": \"2472.5\"\n   },\n   \"close\": {\n    \"value\": \"2473.0\"\n   },\n   \"volume\": {\n    \"value\": \"113.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:05:00Z\",\n   \"open\": {\n    \"value\": \"2472.5\"\n   },\n   \"high\": {\n    \"value\": \"2473.0\"\n   },\n   \"low\": {\n    \"value\": \"2472.5\"\n   },\n   \"close\": {\n    \"value\": \"2473.0\"\n   },\n   \"volume\": {\n    \"value\": \"225.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:06:00Z\",\n   \"open\": {\n    \"value\": \"2472.5\"\n   },\n   \"high\": {\n    \"value\": \"2472.5\"\n   },\n   \"low\": {\n    \"value\": \"2470.0\"\n   },\n   \"close\": {\n    \"value\": \"2470.0\"\n   },\n   \"volume\": {\n    \"value\": \"1272.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:07:00Z\",\n   \"open\": {\n    \"value\": \"2470.0\"\n   },\n   \"high\": {\n    \"value\": \"2470.0\"\n   },\n   \"low\": {\n    \"value\": \"2468.0\"\n   },\n   \"close\": {\n    \"value\": \"2469.5\"\n   },\n   \"volume\": {\n    \"value\": \"2975.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:08:00Z\",\n   \"open\": {\n    \"value\": \"2469.5\"\n   },\n   \"high\": {\n    \"value\": \"2470.0\"\n   },\n   \"low\": {\n    \"value\": \"2468.5\"\n   },\n   \"close\": {\n    \"value\": \"2468.5\"\n   },\n   \"volume\": {\n    \"value\": \"917.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:09:00Z\",\n   \"open\": {\n    \"value\": \"2469.0\"\n   },\n   \"high\": {\n    \"value\": \"2469.5\"\n   },\n   \"low\": {\n    \"value\": \"2468.0\"\n   },\n   \"close\": {\n    \"value\": \"2468.0\"\n   },\n   \"volume\": {\n    \"value\": \"707.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T04:10:01.063287124Z",
+            "requested_at": "2026-11-19T04:10:01.007918133Z",
+            "response_sha256": "3de6cc28b3e49c1dcf05d884e2fdd3995b92d05a3325e5e2cb1a7df856a7d706",
+            "start": "2026-11-19T04:00:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T04:00:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 26,
+      "snapshot_sha256": "2a9e80d6d799065fba3168df0211fe949f8a8d323f874df8982eab11601d5e26",
+      "evidence": {
+        "end": "2026-11-19T04:20:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 2885,
+            "end": "2026-11-19T04:20:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T04:10:00Z\",\n   \"open\": {\n    \"value\": \"2468.0\"\n   },\n   \"high\": {\n    \"value\": \"2469.0\"\n   },\n   \"low\": {\n    \"value\": \"2467.0\"\n   },\n   \"close\": {\n    \"value\": \"2468.5\"\n   },\n   \"volume\": {\n    \"value\": \"871.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:11:00Z\",\n   \"open\": {\n    \"value\": \"2468.5\"\n   },\n   \"high\": {\n    \"value\": \"2470.0\"\n   },\n   \"low\": {\n    \"value\": \"2468.5\"\n   },\n   \"close\": {\n    \"value\": \"2469.5\"\n   },\n   \"volume\": {\n    \"value\": \"1934.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:12:00Z\",\n   \"open\": {\n    \"value\": \"2469.0\"\n   },\n   \"high\": {\n    \"value\": \"2469.5\"\n   },\n   \"low\": {\n    \"value\": \"2468.5\"\n   },\n   \"close\": {\n    \"value\": \"2468.5\"\n   },\n   \"volume\": {\n    \"value\": \"873.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:13:00Z\",\n   \"open\": {\n    \"value\": \"2468.5\"\n   },\n   \"high\": {\n    \"value\": \"2468.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"5660.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:14:00Z\",\n   \"open\": {\n    \"value\": \"2465.5\"\n   },\n   \"high\": {\n    \"value\": \"2466.5\"\n   },\n   \"low\": {\n    \"value\": \"2465.0\"\n   },\n   \"close\": {\n    \"value\": \"2466.5\"\n   },\n   \"volume\": {\n    \"value\": \"686.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:15:00Z\",\n   \"open\": {\n    \"value\": \"2465.5\"\n   },\n   \"high\": {\n    \"value\": \"2467.0\"\n   },\n   \"low\": {\n    \"value\": \"2465.5\"\n   },\n   \"close\": {\n    \"value\": \"2467.0\"\n   },\n   \"volume\": {\n    \"value\": \"133.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:16:00Z\",\n   \"open\": {\n    \"value\": \"2467.0\"\n   },\n   \"high\": {\n    \"value\": \"2468.0\"\n   },\n   \"low\": {\n    \"value\": \"2467.0\"\n   },\n   \"close\": {\n    \"value\": \"2467.0\"\n   },\n   \"volume\": {\n    \"value\": \"461.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:17:00Z\",\n   \"open\": {\n    \"value\": \"2467.0\"\n   },\n   \"high\": {\n    \"value\": \"2468.0\"\n   },\n   \"low\": {\n    \"value\": \"2467.0\"\n   },\n   \"close\": {\n    \"value\": \"2468.0\"\n   },\n   \"volume\": {\n    \"value\": \"297.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:18:00Z\",\n   \"open\": {\n    \"value\": \"2468.0\"\n   },\n   \"high\": {\n    \"value\": \"2468.5\"\n   },\n   \"low\": {\n    \"value\": \"2467.5\"\n   },\n   \"close\": {\n    \"value\": \"2468.0\"\n   },\n   \"volume\": {\n    \"value\": \"41.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:19:00Z\",\n   \"open\": {\n    \"value\": \"2467.5\"\n   },\n   \"high\": {\n    \"value\": \"2468.0\"\n   },\n   \"low\": {\n    \"value\": \"2467.5\"\n   },\n   \"close\": {\n    \"value\": \"2467.5\"\n   },\n   \"volume\": {\n    \"value\": \"2135.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T04:20:01.144754371Z",
+            "requested_at": "2026-11-19T04:20:01.097710251Z",
+            "response_sha256": "324f9fb8a9bd62b6882cff859ff8afc57313fb38653886b8e2aad04e97646873",
+            "start": "2026-11-19T04:10:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T04:10:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 41,
+      "snapshot_sha256": "fb6cec6cf0d634f906c6a508fdc0a3a6a71079f968baf7dc10b0a051e8a890df",
+      "evidence": {
+        "end": "2026-11-19T04:30:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 2882,
+            "end": "2026-11-19T04:30:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T04:20:00Z\",\n   \"open\": {\n    \"value\": \"2467.5\"\n   },\n   \"high\": {\n    \"value\": \"2468.5\"\n   },\n   \"low\": {\n    \"value\": \"2467.5\"\n   },\n   \"close\": {\n    \"value\": \"2468.5\"\n   },\n   \"volume\": {\n    \"value\": \"3398.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:21:00Z\",\n   \"open\": {\n    \"value\": \"2468.5\"\n   },\n   \"high\": {\n    \"value\": \"2469.0\"\n   },\n   \"low\": {\n    \"value\": \"2468.5\"\n   },\n   \"close\": {\n    \"value\": \"2469.0\"\n   },\n   \"volume\": {\n    \"value\": \"365.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:22:00Z\",\n   \"open\": {\n    \"value\": \"2469.0\"\n   },\n   \"high\": {\n    \"value\": \"2469.0\"\n   },\n   \"low\": {\n    \"value\": \"2469.0\"\n   },\n   \"close\": {\n    \"value\": \"2469.0\"\n   },\n   \"volume\": {\n    \"value\": \"2.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:23:00Z\",\n   \"open\": {\n    \"value\": \"2469.0\"\n   },\n   \"high\": {\n    \"value\": \"2469.5\"\n   },\n   \"low\": {\n    \"value\": \"2469.0\"\n   },\n   \"close\": {\n    \"value\": \"2469.0\"\n   },\n   \"volume\": {\n    \"value\": \"119.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:24:00Z\",\n   \"open\": {\n    \"value\": \"2469.5\"\n   },\n   \"high\": {\n    \"value\": \"2469.5\"\n   },\n   \"low\": {\n    \"value\": \"2469.0\"\n   },\n   \"close\": {\n    \"value\": \"2469.0\"\n   },\n   \"volume\": {\n    \"value\": \"43.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:25:00Z\",\n   \"open\": {\n    \"value\": \"2469.0\"\n   },\n   \"high\": {\n    \"value\": \"2469.0\"\n   },\n   \"low\": {\n    \"value\": \"2468.5\"\n   },\n   \"close\": {\n    \"value\": \"2468.5\"\n   },\n   \"volume\": {\n    \"value\": \"616.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:26:00Z\",\n   \"open\": {\n    \"value\": \"2468.5\"\n   },\n   \"high\": {\n    \"value\": \"2469.5\"\n   },\n   \"low\": {\n    \"value\": \"2468.5\"\n   },\n   \"close\": {\n    \"value\": \"2469.5\"\n   },\n   \"volume\": {\n    \"value\": \"862.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:27:00Z\",\n   \"open\": {\n    \"value\": \"2469.5\"\n   },\n   \"high\": {\n    \"value\": \"2472.0\"\n   },\n   \"low\": {\n    \"value\": \"2469.5\"\n   },\n   \"close\": {\n    \"value\": \"2472.0\"\n   },\n   \"volume\": {\n    \"value\": \"1426.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:28:00Z\",\n   \"open\": {\n    \"value\": \"2472.0\"\n   },\n   \"high\": {\n    \"value\": \"2474.0\"\n   },\n   \"low\": {\n    \"value\": \"2472.0\"\n   },\n   \"close\": {\n    \"value\": \"2473.5\"\n   },\n   \"volume\": {\n    \"value\": \"771.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:29:00Z\",\n   \"open\": {\n    \"value\": \"2473.0\"\n   },\n   \"high\": {\n    \"value\": \"2474.0\"\n   },\n   \"low\": {\n    \"value\": \"2473.0\"\n   },\n   \"close\": {\n    \"value\": \"2474.0\"\n   },\n   \"volume\": {\n    \"value\": \"430.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T04:30:01.049291616Z",
+            "requested_at": "2026-11-19T04:30:01.004932585Z",
+            "response_sha256": "97894609ea8109305c210a94755974ea71845727cf4d274730b4ed4a32c4b17f",
+            "start": "2026-11-19T04:20:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T04:20:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 56,
+      "snapshot_sha256": "59b6c577c09403da94cec333db19045c527577da1ee34154a9486312c1203700",
+      "evidence": {
+        "end": "2026-11-19T04:40:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 2881,
+            "end": "2026-11-19T04:40:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T04:30:00Z\",\n   \"open\": {\n    \"value\": \"2473.5\"\n   },\n   \"high\": {\n    \"value\": \"2474.0\"\n   },\n   \"low\": {\n    \"value\": \"2473.5\"\n   },\n   \"close\": {\n    \"value\": \"2473.5\"\n   },\n   \"volume\": {\n    \"value\": \"49.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:31:00Z\",\n   \"open\": {\n    \"value\": \"2473.0\"\n   },\n   \"high\": {\n    \"value\": \"2473.0\"\n   },\n   \"low\": {\n    \"value\": \"2471.5\"\n   },\n   \"close\": {\n    \"value\": \"2471.5\"\n   },\n   \"volume\": {\n    \"value\": \"2684.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:32:00Z\",\n   \"open\": {\n    \"value\": \"2471.5\"\n   },\n   \"high\": {\n    \"value\": \"2472.0\"\n   },\n   \"low\": {\n    \"value\": \"2471.0\"\n   },\n   \"close\": {\n    \"value\": \"2471.0\"\n   },\n   \"volume\": {\n    \"value\": \"431.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:33:00Z\",\n   \"open\": {\n    \"value\": \"2471.0\"\n   },\n   \"high\": {\n    \"value\": \"2472.0\"\n   },\n   \"low\": {\n    \"value\": \"2471.0\"\n   },\n   \"close\": {\n    \"value\": \"2472.0\"\n   },\n   \"volume\": {\n    \"value\": \"862.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:34:00Z\",\n   \"open\": {\n    \"value\": \"2472.5\"\n   },\n   \"high\": {\n    \"value\": \"2473.0\"\n   },\n   \"low\": {\n    \"value\": \"2471.5\"\n   },\n   \"close\": {\n    \"value\": \"2472.0\"\n   },\n   \"volume\": {\n    \"value\": \"243.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:35:00Z\",\n   \"open\": {\n    \"value\": \"2472.0\"\n   },\n   \"high\": {\n    \"value\": \"2472.5\"\n   },\n   \"low\": {\n    \"value\": \"2471.5\"\n   },\n   \"close\": {\n    \"value\": \"2472.0\"\n   },\n   \"volume\": {\n    \"value\": \"354.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:36:00Z\",\n   \"open\": {\n    \"value\": \"2472.0\"\n   },\n   \"high\": {\n    \"value\": \"2472.0\"\n   },\n   \"low\": {\n    \"value\": \"2471.5\"\n   },\n   \"close\": {\n    \"value\": \"2471.5\"\n   },\n   \"volume\": {\n    \"value\": \"110.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:37:00Z\",\n   \"open\": {\n    \"value\": \"2472.0\"\n   },\n   \"high\": {\n    \"value\": \"2473.0\"\n   },\n   \"low\": {\n    \"value\": \"2472.0\"\n   },\n   \"close\": {\n    \"value\": \"2473.0\"\n   },\n   \"volume\": {\n    \"value\": \"96.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:38:00Z\",\n   \"open\": {\n    \"value\": \"2472.5\"\n   },\n   \"high\": {\n    \"value\": \"2473.5\"\n   },\n   \"low\": {\n    \"value\": \"2472.5\"\n   },\n   \"close\": {\n    \"value\": \"2473.5\"\n   },\n   \"volume\": {\n    \"value\": \"98.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:39:00Z\",\n   \"open\": {\n    \"value\": \"2473.5\"\n   },\n   \"high\": {\n    \"value\": \"2475.0\"\n   },\n   \"low\": {\n    \"value\": \"2473.5\"\n   },\n   \"close\": {\n    \"value\": \"2475.0\"\n   },\n   \"volume\": {\n    \"value\": \"597.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T04:40:01.191446160Z",
+            "requested_at": "2026-11-19T04:40:01.072067008Z",
+            "response_sha256": "a17bc643cc28bf2bf7041de68f20d090e8d0198e65e5219934d1a63af010e945",
+            "start": "2026-11-19T04:30:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T04:30:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 71,
+      "snapshot_sha256": "30982a52f2d26a2383162018514de3e8fb5f495b91d449689411f5b8a89af754",
+      "evidence": {
+        "end": "2026-11-19T04:50:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 2883,
+            "end": "2026-11-19T04:50:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T04:40:00Z\",\n   \"open\": {\n    \"value\": \"2475.0\"\n   },\n   \"high\": {\n    \"value\": \"2476.0\"\n   },\n   \"low\": {\n    \"value\": \"2475.0\"\n   },\n   \"close\": {\n    \"value\": \"2475.5\"\n   },\n   \"volume\": {\n    \"value\": \"715.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:41:00Z\",\n   \"open\": {\n    \"value\": \"2475.5\"\n   },\n   \"high\": {\n    \"value\": \"2475.5\"\n   },\n   \"low\": {\n    \"value\": \"2473.5\"\n   },\n   \"close\": {\n    \"value\": \"2474.0\"\n   },\n   \"volume\": {\n    \"value\": \"422.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:42:00Z\",\n   \"open\": {\n    \"value\": \"2474.0\"\n   },\n   \"high\": {\n    \"value\": \"2474.5\"\n   },\n   \"low\": {\n    \"value\": \"2474.0\"\n   },\n   \"close\": {\n    \"value\": \"2474.0\"\n   },\n   \"volume\": {\n    \"value\": \"260.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:43:00Z\",\n   \"open\": {\n    \"value\": \"2474.0\"\n   },\n   \"high\": {\n    \"value\": \"2474.5\"\n   },\n   \"low\": {\n    \"value\": \"2473.5\"\n   },\n   \"close\": {\n    \"value\": \"2474.0\"\n   },\n   \"volume\": {\n    \"value\": \"216.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:44:00Z\",\n   \"open\": {\n    \"value\": \"2474.0\"\n   },\n   \"high\": {\n    \"value\": \"2474.0\"\n   },\n   \"low\": {\n    \"value\": \"2474.0\"\n   },\n   \"close\": {\n    \"value\": \"2474.0\"\n   },\n   \"volume\": {\n    \"value\": \"238.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:45:00Z\",\n   \"open\": {\n    \"value\": \"2474.0\"\n   },\n   \"high\": {\n    \"value\": \"2474.0\"\n   },\n   \"low\": {\n    \"value\": \"2473.0\"\n   },\n   \"close\": {\n    \"value\": \"2473.5\"\n   },\n   \"volume\": {\n    \"value\": \"764.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:46:00Z\",\n   \"open\": {\n    \"value\": \"2473.0\"\n   },\n   \"high\": {\n    \"value\": \"2473.0\"\n   },\n   \"low\": {\n    \"value\": \"2473.0\"\n   },\n   \"close\": {\n    \"value\": \"2473.0\"\n   },\n   \"volume\": {\n    \"value\": \"70.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:47:00Z\",\n   \"open\": {\n    \"value\": \"2473.0\"\n   },\n   \"high\": {\n    \"value\": \"2473.5\"\n   },\n   \"low\": {\n    \"value\": \"2473.0\"\n   },\n   \"close\": {\n    \"value\": \"2473.0\"\n   },\n   \"volume\": {\n    \"value\": \"162.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:48:00Z\",\n   \"open\": {\n    \"value\": \"2473.0\"\n   },\n   \"high\": {\n    \"value\": \"2473.0\"\n   },\n   \"low\": {\n    \"value\": \"2471.0\"\n   },\n   \"close\": {\n    \"value\": \"2471.5\"\n   },\n   \"volume\": {\n    \"value\": \"2249.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:49:00Z\",\n   \"open\": {\n    \"value\": \"2471.5\"\n   },\n   \"high\": {\n    \"value\": \"2471.5\"\n   },\n   \"low\": {\n    \"value\": \"2471.0\"\n   },\n   \"close\": {\n    \"value\": \"2471.0\"\n   },\n   \"volume\": {\n    \"value\": \"888.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T04:50:01.070312198Z",
+            "requested_at": "2026-11-19T04:50:01.005331480Z",
+            "response_sha256": "4cfb235f54d81b4092a5b054b09ec5547631e04162d20633fc1e7e9d1c10592c",
+            "start": "2026-11-19T04:40:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T04:40:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 87,
+      "snapshot_sha256": "a26c609e4ef7fe2cf5f01d5f96e7e16de98e16dff8a519e9b57dddcf1c433421",
+      "evidence": {
+        "end": "2026-11-19T05:00:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 2881,
+            "end": "2026-11-19T05:00:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T04:50:00Z\",\n   \"open\": {\n    \"value\": \"2472.5\"\n   },\n   \"high\": {\n    \"value\": \"2472.5\"\n   },\n   \"low\": {\n    \"value\": \"2472.0\"\n   },\n   \"close\": {\n    \"value\": \"2472.5\"\n   },\n   \"volume\": {\n    \"value\": \"27.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:51:00Z\",\n   \"open\": {\n    \"value\": \"2472.0\"\n   },\n   \"high\": {\n    \"value\": \"2472.0\"\n   },\n   \"low\": {\n    \"value\": \"2471.5\"\n   },\n   \"close\": {\n    \"value\": \"2471.5\"\n   },\n   \"volume\": {\n    \"value\": \"47.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:52:00Z\",\n   \"open\": {\n    \"value\": \"2471.0\"\n   },\n   \"high\": {\n    \"value\": \"2471.0\"\n   },\n   \"low\": {\n    \"value\": \"2467.5\"\n   },\n   \"close\": {\n    \"value\": \"2469.0\"\n   },\n   \"volume\": {\n    \"value\": \"1940.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:53:00Z\",\n   \"open\": {\n    \"value\": \"2468.5\"\n   },\n   \"high\": {\n    \"value\": \"2469.0\"\n   },\n   \"low\": {\n    \"value\": \"2467.5\"\n   },\n   \"close\": {\n    \"value\": \"2468.5\"\n   },\n   \"volume\": {\n    \"value\": \"264.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:54:00Z\",\n   \"open\": {\n    \"value\": \"2468.0\"\n   },\n   \"high\": {\n    \"value\": \"2468.5\"\n   },\n   \"low\": {\n    \"value\": \"2468.0\"\n   },\n   \"close\": {\n    \"value\": \"2468.5\"\n   },\n   \"volume\": {\n    \"value\": \"404.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:55:00Z\",\n   \"open\": {\n    \"value\": \"2468.5\"\n   },\n   \"high\": {\n    \"value\": \"2469.5\"\n   },\n   \"low\": {\n    \"value\": \"2468.5\"\n   },\n   \"close\": {\n    \"value\": \"2469.5\"\n   },\n   \"volume\": {\n    \"value\": \"195.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:56:00Z\",\n   \"open\": {\n    \"value\": \"2469.5\"\n   },\n   \"high\": {\n    \"value\": \"2470.5\"\n   },\n   \"low\": {\n    \"value\": \"2469.5\"\n   },\n   \"close\": {\n    \"value\": \"2470.0\"\n   },\n   \"volume\": {\n    \"value\": \"358.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:57:00Z\",\n   \"open\": {\n    \"value\": \"2470.0\"\n   },\n   \"high\": {\n    \"value\": \"2470.5\"\n   },\n   \"low\": {\n    \"value\": \"2470.0\"\n   },\n   \"close\": {\n    \"value\": \"2470.0\"\n   },\n   \"volume\": {\n    \"value\": \"139.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:58:00Z\",\n   \"open\": {\n    \"value\": \"2470.0\"\n   },\n   \"high\": {\n    \"value\": \"2470.5\"\n   },\n   \"low\": {\n    \"value\": \"2470.0\"\n   },\n   \"close\": {\n    \"value\": \"2470.0\"\n   },\n   \"volume\": {\n    \"value\": \"16.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:59:00Z\",\n   \"open\": {\n    \"value\": \"2470.0\"\n   },\n   \"high\": {\n    \"value\": \"2471.0\"\n   },\n   \"low\": {\n    \"value\": \"2470.0\"\n   },\n   \"close\": {\n    \"value\": \"2470.5\"\n   },\n   \"volume\": {\n    \"value\": \"194.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T05:00:01.270808874Z",
+            "requested_at": "2026-11-19T05:00:01.185649350Z",
+            "response_sha256": "9e235072dc5ee9f2245976b367bc342ba0f72d61c90c4081fa689653ca4da019",
+            "start": "2026-11-19T04:50:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T04:50:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 100,
+      "snapshot_sha256": "35a8f9d19a4bc5377fc9e02fc6d799e7bbb8412756adadf1f1888f15dcd26b3c",
+      "evidence": {
+        "end": "2026-11-19T05:00:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 2881,
+            "end": "2026-11-19T05:00:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T04:50:00Z\",\n   \"open\": {\n    \"value\": \"2472.5\"\n   },\n   \"high\": {\n    \"value\": \"2472.5\"\n   },\n   \"low\": {\n    \"value\": \"2472.0\"\n   },\n   \"close\": {\n    \"value\": \"2472.5\"\n   },\n   \"volume\": {\n    \"value\": \"27.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:51:00Z\",\n   \"open\": {\n    \"value\": \"2472.0\"\n   },\n   \"high\": {\n    \"value\": \"2472.0\"\n   },\n   \"low\": {\n    \"value\": \"2471.5\"\n   },\n   \"close\": {\n    \"value\": \"2471.5\"\n   },\n   \"volume\": {\n    \"value\": \"47.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:52:00Z\",\n   \"open\": {\n    \"value\": \"2471.0\"\n   },\n   \"high\": {\n    \"value\": \"2471.0\"\n   },\n   \"low\": {\n    \"value\": \"2467.5\"\n   },\n   \"close\": {\n    \"value\": \"2469.0\"\n   },\n   \"volume\": {\n    \"value\": \"1940.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:53:00Z\",\n   \"open\": {\n    \"value\": \"2468.5\"\n   },\n   \"high\": {\n    \"value\": \"2469.0\"\n   },\n   \"low\": {\n    \"value\": \"2467.5\"\n   },\n   \"close\": {\n    \"value\": \"2468.5\"\n   },\n   \"volume\": {\n    \"value\": \"264.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:54:00Z\",\n   \"open\": {\n    \"value\": \"2468.0\"\n   },\n   \"high\": {\n    \"value\": \"2468.5\"\n   },\n   \"low\": {\n    \"value\": \"2468.0\"\n   },\n   \"close\": {\n    \"value\": \"2468.5\"\n   },\n   \"volume\": {\n    \"value\": \"404.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:55:00Z\",\n   \"open\": {\n    \"value\": \"2468.5\"\n   },\n   \"high\": {\n    \"value\": \"2469.5\"\n   },\n   \"low\": {\n    \"value\": \"2468.5\"\n   },\n   \"close\": {\n    \"value\": \"2469.5\"\n   },\n   \"volume\": {\n    \"value\": \"195.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:56:00Z\",\n   \"open\": {\n    \"value\": \"2469.5\"\n   },\n   \"high\": {\n    \"value\": \"2470.5\"\n   },\n   \"low\": {\n    \"value\": \"2469.5\"\n   },\n   \"close\": {\n    \"value\": \"2470.0\"\n   },\n   \"volume\": {\n    \"value\": \"358.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:57:00Z\",\n   \"open\": {\n    \"value\": \"2470.0\"\n   },\n   \"high\": {\n    \"value\": \"2470.5\"\n   },\n   \"low\": {\n    \"value\": \"2470.0\"\n   },\n   \"close\": {\n    \"value\": \"2470.0\"\n   },\n   \"volume\": {\n    \"value\": \"139.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:58:00Z\",\n   \"open\": {\n    \"value\": \"2470.0\"\n   },\n   \"high\": {\n    \"value\": \"2470.5\"\n   },\n   \"low\": {\n    \"value\": \"2470.0\"\n   },\n   \"close\": {\n    \"value\": \"2470.0\"\n   },\n   \"volume\": {\n    \"value\": \"16.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T04:59:00Z\",\n   \"open\": {\n    \"value\": \"2470.0\"\n   },\n   \"high\": {\n    \"value\": \"2471.0\"\n   },\n   \"low\": {\n    \"value\": \"2470.0\"\n   },\n   \"close\": {\n    \"value\": \"2470.5\"\n   },\n   \"volume\": {\n    \"value\": \"194.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T05:00:01.475578415Z",
+            "requested_at": "2026-11-19T05:00:01.408642498Z",
+            "response_sha256": "9e235072dc5ee9f2245976b367bc342ba0f72d61c90c4081fa689653ca4da019",
+            "start": "2026-11-19T04:50:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T04:50:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 106,
+      "snapshot_sha256": "49500309f4071e493220941ec74272157f95b07aa208c93d04d2dc48df891987",
+      "evidence": {
+        "end": "2026-11-19T05:10:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 2885,
+            "end": "2026-11-19T05:10:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T05:00:00Z\",\n   \"open\": {\n    \"value\": \"2470.5\"\n   },\n   \"high\": {\n    \"value\": \"2471.5\"\n   },\n   \"low\": {\n    \"value\": \"2470.5\"\n   },\n   \"close\": {\n    \"value\": \"2471.0\"\n   },\n   \"volume\": {\n    \"value\": \"930.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:01:00Z\",\n   \"open\": {\n    \"value\": \"2471.0\"\n   },\n   \"high\": {\n    \"value\": \"2471.0\"\n   },\n   \"low\": {\n    \"value\": \"2471.0\"\n   },\n   \"close\": {\n    \"value\": \"2471.0\"\n   },\n   \"volume\": {\n    \"value\": \"39.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:02:00Z\",\n   \"open\": {\n    \"value\": \"2471.0\"\n   },\n   \"high\": {\n    \"value\": \"2471.0\"\n   },\n   \"low\": {\n    \"value\": \"2471.0\"\n   },\n   \"close\": {\n    \"value\": \"2471.0\"\n   },\n   \"volume\": {\n    \"value\": \"36.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:03:00Z\",\n   \"open\": {\n    \"value\": \"2471.0\"\n   },\n   \"high\": {\n    \"value\": \"2471.0\"\n   },\n   \"low\": {\n    \"value\": \"2468.5\"\n   },\n   \"close\": {\n    \"value\": \"2468.5\"\n   },\n   \"volume\": {\n    \"value\": \"303.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:04:00Z\",\n   \"open\": {\n    \"value\": \"2468.5\"\n   },\n   \"high\": {\n    \"value\": \"2469.5\"\n   },\n   \"low\": {\n    \"value\": \"2468.5\"\n   },\n   \"close\": {\n    \"value\": \"2468.5\"\n   },\n   \"volume\": {\n    \"value\": \"138.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:05:00Z\",\n   \"open\": {\n    \"value\": \"2468.5\"\n   },\n   \"high\": {\n    \"value\": \"2468.5\"\n   },\n   \"low\": {\n    \"value\": \"2462.0\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"6613.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:06:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2463.5\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"1494.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:07:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2463.0\"\n   },\n   \"close\": {\n    \"value\": \"2463.0\"\n   },\n   \"volume\": {\n    \"value\": \"398.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:08:00Z\",\n   \"open\": {\n    \"value\": \"2463.5\"\n   },\n   \"high\": {\n    \"value\": \"2463.5\"\n   },\n   \"low\": {\n    \"value\": \"2462.0\"\n   },\n   \"close\": {\n    \"value\": \"2462.5\"\n   },\n   \"volume\": {\n    \"value\": \"4123.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:09:00Z\",\n   \"open\": {\n    \"value\": \"2463.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.5\"\n   },\n   \"low\": {\n    \"value\": \"2463.0\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"1306.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T05:10:01.037037180Z",
+            "requested_at": "2026-11-19T05:10:01.005468363Z",
+            "response_sha256": "67b3ebc365dce139baca454ce147537c0f852ecd64aba094d2ccd922a8b5e272",
+            "start": "2026-11-19T05:00:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T05:00:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 122,
+      "snapshot_sha256": "56adef5eddacec13b9fc417164dab852e82d381228fac675c1531e454806e4b9",
+      "evidence": {
+        "end": "2026-11-19T05:20:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 2888,
+            "end": "2026-11-19T05:20:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T05:10:00Z\",\n   \"open\": {\n    \"value\": \"2464.5\"\n   },\n   \"high\": {\n    \"value\": \"2464.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"99.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:11:00Z\",\n   \"open\": {\n    \"value\": \"2464.5\"\n   },\n   \"high\": {\n    \"value\": \"2464.5\"\n   },\n   \"low\": {\n    \"value\": \"2463.5\"\n   },\n   \"close\": {\n    \"value\": \"2463.5\"\n   },\n   \"volume\": {\n    \"value\": \"1028.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:12:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2462.5\"\n   },\n   \"close\": {\n    \"value\": \"2463.0\"\n   },\n   \"volume\": {\n    \"value\": \"1237.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:13:00Z\",\n   \"open\": {\n    \"value\": \"2463.5\"\n   },\n   \"high\": {\n    \"value\": \"2463.5\"\n   },\n   \"low\": {\n    \"value\": \"2462.0\"\n   },\n   \"close\": {\n    \"value\": \"2462.0\"\n   },\n   \"volume\": {\n    \"value\": \"353.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:14:00Z\",\n   \"open\": {\n    \"value\": \"2463.0\"\n   },\n   \"high\": {\n    \"value\": \"2463.5\"\n   },\n   \"low\": {\n    \"value\": \"2462.0\"\n   },\n   \"close\": {\n    \"value\": \"2462.0\"\n   },\n   \"volume\": {\n    \"value\": \"708.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:15:00Z\",\n   \"open\": {\n    \"value\": \"2462.0\"\n   },\n   \"high\": {\n    \"value\": \"2462.5\"\n   },\n   \"low\": {\n    \"value\": \"2461.0\"\n   },\n   \"close\": {\n    \"value\": \"2462.0\"\n   },\n   \"volume\": {\n    \"value\": \"1539.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:16:00Z\",\n   \"open\": {\n    \"value\": \"2462.5\"\n   },\n   \"high\": {\n    \"value\": \"2462.5\"\n   },\n   \"low\": {\n    \"value\": \"2459.5\"\n   },\n   \"close\": {\n    \"value\": \"2462.0\"\n   },\n   \"volume\": {\n    \"value\": \"11348.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:17:00Z\",\n   \"open\": {\n    \"value\": \"2462.0\"\n   },\n   \"high\": {\n    \"value\": \"2463.5\"\n   },\n   \"low\": {\n    \"value\": \"2461.5\"\n   },\n   \"close\": {\n    \"value\": \"2463.5\"\n   },\n   \"volume\": {\n    \"value\": \"1627.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:18:00Z\",\n   \"open\": {\n    \"value\": \"2463.5\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2463.0\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"175.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:19:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.5\"\n   },\n   \"low\": {\n    \"value\": \"2463.5\"\n   },\n   \"close\": {\n    \"value\": \"2464.5\"\n   },\n   \"volume\": {\n    \"value\": \"940.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T05:20:01.178980113Z",
+            "requested_at": "2026-11-19T05:20:01.144195579Z",
+            "response_sha256": "b3be48c9c5a6a672c51c9c43d0b49a4226cf0cdc956695c34ff99f8612df40e1",
+            "start": "2026-11-19T05:10:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T05:10:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 138,
+      "snapshot_sha256": "21d148ed562192e362f5ae07253dedebf8ff10d3cfc1a9de11b578a4f6ca8881",
+      "evidence": {
+        "end": "2026-11-19T05:30:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 2879,
+            "end": "2026-11-19T05:30:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T05:20:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2462.5\"\n   },\n   \"close\": {\n    \"value\": \"2463.0\"\n   },\n   \"volume\": {\n    \"value\": \"296.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:21:00Z\",\n   \"open\": {\n    \"value\": \"2463.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2462.5\"\n   },\n   \"close\": {\n    \"value\": \"2463.5\"\n   },\n   \"volume\": {\n    \"value\": \"610.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:22:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"94.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:23:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"1325.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:24:00Z\",\n   \"open\": {\n    \"value\": \"2465.5\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2465.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"552.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:25:00Z\",\n   \"open\": {\n    \"value\": \"2464.5\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2464.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"71.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:26:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2463.5\"\n   },\n   \"close\": {\n    \"value\": \"2463.5\"\n   },\n   \"volume\": {\n    \"value\": \"208.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:27:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2463.5\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"29.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:28:00Z\",\n   \"open\": {\n    \"value\": \"2463.5\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2463.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"265.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:29:00Z\",\n   \"open\": {\n    \"value\": \"2465.5\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2465.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"6.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T05:30:01.047347084Z",
+            "requested_at": "2026-11-19T05:30:01.005724955Z",
+            "response_sha256": "3be8118a934718857542191d253e056afb7c3a7296b48e2c90a77d426df14844",
+            "start": "2026-11-19T05:20:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T05:20:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 153,
+      "snapshot_sha256": "b4a54ae8ef0abca66f03ee1fbc76e853219565912a91bad4eed9d8f106a9af6e",
+      "evidence": {
+        "end": "2026-11-19T05:40:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 2884,
+            "end": "2026-11-19T05:40:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T05:30:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"1029.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:31:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"920.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:32:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"14.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:33:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"178.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:34:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"322.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:35:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2465.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"718.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:36:00Z\",\n   \"open\": {\n    \"value\": \"2465.5\"\n   },\n   \"high\": {\n    \"value\": \"2466.0\"\n   },\n   \"low\": {\n    \"value\": \"2465.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"280.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:37:00Z\",\n   \"open\": {\n    \"value\": \"2465.5\"\n   },\n   \"high\": {\n    \"value\": \"2466.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"1879.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:38:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"281.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:39:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2463.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"444.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T05:40:01.129379057Z",
+            "requested_at": "2026-11-19T05:40:01.083723219Z",
+            "response_sha256": "2c764509d57f4df6c54144cee112802a43bba4a3db48fa30e56cdce2fd98a961",
+            "start": "2026-11-19T05:30:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T05:30:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 169,
+      "snapshot_sha256": "d31f0ce2ff8724173c868387b7eb718c8ee776a9f69a96191c6251f198d584d1",
+      "evidence": {
+        "end": "2026-11-19T05:50:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 1180,
+            "end": "2026-11-19T05:50:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T05:40:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2466.0\"\n   },\n   \"low\": {\n    \"value\": \"2465.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"43.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:41:00Z\",\n   \"open\": {\n    \"value\": \"2466.0\"\n   },\n   \"high\": {\n    \"value\": \"2467.5\"\n   },\n   \"low\": {\n    \"value\": \"2465.5\"\n   },\n   \"close\": {\n    \"value\": \"2467.0\"\n   },\n   \"volume\": {\n    \"value\": \"1304.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:42:00Z\",\n   \"open\": {\n    \"value\": \"2467.0\"\n   },\n   \"high\": {\n    \"value\": \"2471.5\"\n   },\n   \"low\": {\n    \"value\": \"2466.5\"\n   },\n   \"close\": {\n    \"value\": \"2471.0\"\n   },\n   \"volume\": {\n    \"value\": \"4787.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:43:00Z\",\n   \"open\": {\n    \"value\": \"2471.0\"\n   },\n   \"high\": {\n    \"value\": \"2471.0\"\n   },\n   \"low\": {\n    \"value\": \"2469.0\"\n   },\n   \"close\": {\n    \"value\": \"2469.0\"\n   },\n   \"volume\": {\n    \"value\": \"920.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T05:50:01.079240407Z",
+            "requested_at": "2026-11-19T05:50:01.004996132Z",
+            "response_sha256": "d70e45d3f4ab0b952016f58b32b58c2c8ba805809094ef051f459b7230b58c55",
+            "start": "2026-11-19T05:40:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T05:40:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 177,
+      "snapshot_sha256": "52d9e6f80e755a18aab5cb00cec17c0c17228035caf4f1cfd4269e9f0df670b0",
+      "evidence": {
+        "end": "2026-11-19T05:50:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 6857,
+            "end": "2026-11-19T05:50:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T05:20:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2462.5\"\n   },\n   \"close\": {\n    \"value\": \"2463.0\"\n   },\n   \"volume\": {\n    \"value\": \"296.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:21:00Z\",\n   \"open\": {\n    \"value\": \"2463.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2462.5\"\n   },\n   \"close\": {\n    \"value\": \"2463.5\"\n   },\n   \"volume\": {\n    \"value\": \"610.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:22:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"94.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:23:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"1325.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:24:00Z\",\n   \"open\": {\n    \"value\": \"2465.5\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2465.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"552.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:25:00Z\",\n   \"open\": {\n    \"value\": \"2464.5\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2464.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"71.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:26:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2463.5\"\n   },\n   \"close\": {\n    \"value\": \"2463.5\"\n   },\n   \"volume\": {\n    \"value\": \"208.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:27:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2463.5\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"29.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:28:00Z\",\n   \"open\": {\n    \"value\": \"2463.5\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2463.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"265.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:29:00Z\",\n   \"open\": {\n    \"value\": \"2465.5\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2465.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"6.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:30:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"1029.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:31:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"920.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:32:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"14.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:33:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"178.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:34:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"322.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:35:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2465.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"718.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:36:00Z\",\n   \"open\": {\n    \"value\": \"2465.5\"\n   },\n   \"high\": {\n    \"value\": \"2466.0\"\n   },\n   \"low\": {\n    \"value\": \"2465.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"280.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:37:00Z\",\n   \"open\": {\n    \"value\": \"2465.5\"\n   },\n   \"high\": {\n    \"value\": \"2466.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"1879.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:38:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"281.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:39:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2463.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"636.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:40:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2466.0\"\n   },\n   \"low\": {\n    \"value\": \"2465.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"43.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:41:00Z\",\n   \"open\": {\n    \"value\": \"2466.0\"\n   },\n   \"high\": {\n    \"value\": \"2467.5\"\n   },\n   \"low\": {\n    \"value\": \"2465.5\"\n   },\n   \"close\": {\n    \"value\": \"2467.0\"\n   },\n   \"volume\": {\n    \"value\": \"1304.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:42:00Z\",\n   \"open\": {\n    \"value\": \"2467.0\"\n   },\n   \"high\": {\n    \"value\": \"2471.5\"\n   },\n   \"low\": {\n    \"value\": \"2466.5\"\n   },\n   \"close\": {\n    \"value\": \"2471.0\"\n   },\n   \"volume\": {\n    \"value\": \"4787.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:43:00Z\",\n   \"open\": {\n    \"value\": \"2471.0\"\n   },\n   \"high\": {\n    \"value\": \"2471.0\"\n   },\n   \"low\": {\n    \"value\": \"2469.0\"\n   },\n   \"close\": {\n    \"value\": \"2469.0\"\n   },\n   \"volume\": {\n    \"value\": \"920.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T05:50:02.161026412Z",
+            "requested_at": "2026-11-19T05:50:02.119489666Z",
+            "response_sha256": "f80409f02b82618539a97a592a2c62017f85435544b7956d283161f23d74b0d5",
+            "start": "2026-11-19T05:20:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T05:20:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 183,
+      "snapshot_sha256": "9784d507b906813cc47160249264212351a22ec3c1bd7261a4e39102d69f0983",
+      "evidence": {
+        "end": "2026-11-19T05:50:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 6857,
+            "end": "2026-11-19T05:50:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T05:20:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2462.5\"\n   },\n   \"close\": {\n    \"value\": \"2463.0\"\n   },\n   \"volume\": {\n    \"value\": \"296.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:21:00Z\",\n   \"open\": {\n    \"value\": \"2463.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2462.5\"\n   },\n   \"close\": {\n    \"value\": \"2463.5\"\n   },\n   \"volume\": {\n    \"value\": \"610.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:22:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"94.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:23:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"1325.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:24:00Z\",\n   \"open\": {\n    \"value\": \"2465.5\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2465.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"552.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:25:00Z\",\n   \"open\": {\n    \"value\": \"2464.5\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2464.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"71.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:26:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2463.5\"\n   },\n   \"close\": {\n    \"value\": \"2463.5\"\n   },\n   \"volume\": {\n    \"value\": \"208.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:27:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2463.5\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"29.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:28:00Z\",\n   \"open\": {\n    \"value\": \"2463.5\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2463.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"265.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:29:00Z\",\n   \"open\": {\n    \"value\": \"2465.5\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2465.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"6.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:30:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"1029.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:31:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"920.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:32:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"14.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:33:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"178.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:34:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"322.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:35:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2465.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"718.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:36:00Z\",\n   \"open\": {\n    \"value\": \"2465.5\"\n   },\n   \"high\": {\n    \"value\": \"2466.0\"\n   },\n   \"low\": {\n    \"value\": \"2465.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"280.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:37:00Z\",\n   \"open\": {\n    \"value\": \"2465.5\"\n   },\n   \"high\": {\n    \"value\": \"2466.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"1879.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:38:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"281.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:39:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2463.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"636.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:40:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2466.0\"\n   },\n   \"low\": {\n    \"value\": \"2465.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"43.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:41:00Z\",\n   \"open\": {\n    \"value\": \"2466.0\"\n   },\n   \"high\": {\n    \"value\": \"2467.5\"\n   },\n   \"low\": {\n    \"value\": \"2465.5\"\n   },\n   \"close\": {\n    \"value\": \"2467.0\"\n   },\n   \"volume\": {\n    \"value\": \"1304.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:42:00Z\",\n   \"open\": {\n    \"value\": \"2467.0\"\n   },\n   \"high\": {\n    \"value\": \"2471.5\"\n   },\n   \"low\": {\n    \"value\": \"2466.5\"\n   },\n   \"close\": {\n    \"value\": \"2471.0\"\n   },\n   \"volume\": {\n    \"value\": \"4787.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:43:00Z\",\n   \"open\": {\n    \"value\": \"2471.0\"\n   },\n   \"high\": {\n    \"value\": \"2471.0\"\n   },\n   \"low\": {\n    \"value\": \"2469.0\"\n   },\n   \"close\": {\n    \"value\": \"2469.0\"\n   },\n   \"volume\": {\n    \"value\": \"920.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T05:50:03.231152538Z",
+            "requested_at": "2026-11-19T05:50:03.203342136Z",
+            "response_sha256": "f80409f02b82618539a97a592a2c62017f85435544b7956d283161f23d74b0d5",
+            "start": "2026-11-19T05:20:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T05:20:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 189,
+      "snapshot_sha256": "ebc9e508c3a614c068d09601f5d3e7a6f54ca0dc9b173a2dc531d07e37c233b4",
+      "evidence": {
+        "end": "2026-11-19T05:50:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 6857,
+            "end": "2026-11-19T05:50:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T05:20:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2462.5\"\n   },\n   \"close\": {\n    \"value\": \"2463.0\"\n   },\n   \"volume\": {\n    \"value\": \"296.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:21:00Z\",\n   \"open\": {\n    \"value\": \"2463.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2462.5\"\n   },\n   \"close\": {\n    \"value\": \"2463.5\"\n   },\n   \"volume\": {\n    \"value\": \"610.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:22:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"94.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:23:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"1325.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:24:00Z\",\n   \"open\": {\n    \"value\": \"2465.5\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2465.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"552.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:25:00Z\",\n   \"open\": {\n    \"value\": \"2464.5\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2464.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"71.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:26:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2463.5\"\n   },\n   \"close\": {\n    \"value\": \"2463.5\"\n   },\n   \"volume\": {\n    \"value\": \"208.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:27:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2463.5\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"29.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:28:00Z\",\n   \"open\": {\n    \"value\": \"2463.5\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2463.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"265.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:29:00Z\",\n   \"open\": {\n    \"value\": \"2465.5\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2465.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"6.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:30:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"1029.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:31:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"920.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:32:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"14.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:33:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"178.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:34:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"322.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:35:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2465.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"718.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:36:00Z\",\n   \"open\": {\n    \"value\": \"2465.5\"\n   },\n   \"high\": {\n    \"value\": \"2466.0\"\n   },\n   \"low\": {\n    \"value\": \"2465.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"280.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:37:00Z\",\n   \"open\": {\n    \"value\": \"2465.5\"\n   },\n   \"high\": {\n    \"value\": \"2466.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"1879.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:38:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"281.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:39:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2463.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"636.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:40:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2466.0\"\n   },\n   \"low\": {\n    \"value\": \"2465.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"43.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:41:00Z\",\n   \"open\": {\n    \"value\": \"2466.0\"\n   },\n   \"high\": {\n    \"value\": \"2467.5\"\n   },\n   \"low\": {\n    \"value\": \"2465.5\"\n   },\n   \"close\": {\n    \"value\": \"2467.0\"\n   },\n   \"volume\": {\n    \"value\": \"1304.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:42:00Z\",\n   \"open\": {\n    \"value\": \"2467.0\"\n   },\n   \"high\": {\n    \"value\": \"2471.5\"\n   },\n   \"low\": {\n    \"value\": \"2466.5\"\n   },\n   \"close\": {\n    \"value\": \"2471.0\"\n   },\n   \"volume\": {\n    \"value\": \"4787.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:43:00Z\",\n   \"open\": {\n    \"value\": \"2471.0\"\n   },\n   \"high\": {\n    \"value\": \"2471.0\"\n   },\n   \"low\": {\n    \"value\": \"2469.0\"\n   },\n   \"close\": {\n    \"value\": \"2469.0\"\n   },\n   \"volume\": {\n    \"value\": \"920.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T05:50:05.281743453Z",
+            "requested_at": "2026-11-19T05:50:05.246985444Z",
+            "response_sha256": "f80409f02b82618539a97a592a2c62017f85435544b7956d283161f23d74b0d5",
+            "start": "2026-11-19T05:20:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T05:20:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 195,
+      "snapshot_sha256": "bf8cf5cb2528069a150b50cad281ade766983e4bb269dff95eee0f70b7a177f7",
+      "evidence": {
+        "end": "2026-11-19T05:50:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 6857,
+            "end": "2026-11-19T05:50:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T05:20:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2462.5\"\n   },\n   \"close\": {\n    \"value\": \"2463.0\"\n   },\n   \"volume\": {\n    \"value\": \"296.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:21:00Z\",\n   \"open\": {\n    \"value\": \"2463.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2462.5\"\n   },\n   \"close\": {\n    \"value\": \"2463.5\"\n   },\n   \"volume\": {\n    \"value\": \"610.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:22:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"94.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:23:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"1325.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:24:00Z\",\n   \"open\": {\n    \"value\": \"2465.5\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2465.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"552.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:25:00Z\",\n   \"open\": {\n    \"value\": \"2464.5\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2464.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"71.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:26:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2463.5\"\n   },\n   \"close\": {\n    \"value\": \"2463.5\"\n   },\n   \"volume\": {\n    \"value\": \"208.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:27:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2463.5\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"29.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:28:00Z\",\n   \"open\": {\n    \"value\": \"2463.5\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2463.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"265.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:29:00Z\",\n   \"open\": {\n    \"value\": \"2465.5\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2465.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"6.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:30:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"1029.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:31:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"920.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:32:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"14.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:33:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2464.0\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"178.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:34:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"322.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:35:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2465.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"718.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:36:00Z\",\n   \"open\": {\n    \"value\": \"2465.5\"\n   },\n   \"high\": {\n    \"value\": \"2466.0\"\n   },\n   \"low\": {\n    \"value\": \"2465.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"280.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:37:00Z\",\n   \"open\": {\n    \"value\": \"2465.5\"\n   },\n   \"high\": {\n    \"value\": \"2466.5\"\n   },\n   \"low\": {\n    \"value\": \"2464.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"1879.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:38:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2464.0\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"281.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:39:00Z\",\n   \"open\": {\n    \"value\": \"2464.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2463.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"636.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:40:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2466.0\"\n   },\n   \"low\": {\n    \"value\": \"2465.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"43.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:41:00Z\",\n   \"open\": {\n    \"value\": \"2466.0\"\n   },\n   \"high\": {\n    \"value\": \"2467.5\"\n   },\n   \"low\": {\n    \"value\": \"2465.5\"\n   },\n   \"close\": {\n    \"value\": \"2467.0\"\n   },\n   \"volume\": {\n    \"value\": \"1304.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:42:00Z\",\n   \"open\": {\n    \"value\": \"2467.0\"\n   },\n   \"high\": {\n    \"value\": \"2471.5\"\n   },\n   \"low\": {\n    \"value\": \"2466.5\"\n   },\n   \"close\": {\n    \"value\": \"2471.0\"\n   },\n   \"volume\": {\n    \"value\": \"4787.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:43:00Z\",\n   \"open\": {\n    \"value\": \"2471.0\"\n   },\n   \"high\": {\n    \"value\": \"2471.0\"\n   },\n   \"low\": {\n    \"value\": \"2469.0\"\n   },\n   \"close\": {\n    \"value\": \"2469.0\"\n   },\n   \"volume\": {\n    \"value\": \"920.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T05:50:09.377441447Z",
+            "requested_at": "2026-11-19T05:50:09.294669461Z",
+            "response_sha256": "f80409f02b82618539a97a592a2c62017f85435544b7956d283161f23d74b0d5",
+            "start": "2026-11-19T05:20:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T05:20:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 213,
+      "snapshot_sha256": "19f7ee5fa01ec29cb50a9834e3d66286ec40e5dfb4d374f96f8daddffcf04367",
+      "evidence": {
+        "end": "2026-11-19T06:00:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 2882,
+            "end": "2026-11-19T06:00:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T05:50:00Z\",\n   \"open\": {\n    \"value\": \"2468.0\"\n   },\n   \"high\": {\n    \"value\": \"2468.0\"\n   },\n   \"low\": {\n    \"value\": \"2468.0\"\n   },\n   \"close\": {\n    \"value\": \"2468.0\"\n   },\n   \"volume\": {\n    \"value\": \"37.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:51:00Z\",\n   \"open\": {\n    \"value\": \"2468.0\"\n   },\n   \"high\": {\n    \"value\": \"2469.0\"\n   },\n   \"low\": {\n    \"value\": \"2468.0\"\n   },\n   \"close\": {\n    \"value\": \"2468.5\"\n   },\n   \"volume\": {\n    \"value\": \"558.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:52:00Z\",\n   \"open\": {\n    \"value\": \"2468.5\"\n   },\n   \"high\": {\n    \"value\": \"2469.0\"\n   },\n   \"low\": {\n    \"value\": \"2468.0\"\n   },\n   \"close\": {\n    \"value\": \"2468.0\"\n   },\n   \"volume\": {\n    \"value\": \"635.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:53:00Z\",\n   \"open\": {\n    \"value\": \"2468.0\"\n   },\n   \"high\": {\n    \"value\": \"2468.0\"\n   },\n   \"low\": {\n    \"value\": \"2467.5\"\n   },\n   \"close\": {\n    \"value\": \"2467.5\"\n   },\n   \"volume\": {\n    \"value\": \"449.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:54:00Z\",\n   \"open\": {\n    \"value\": \"2468.0\"\n   },\n   \"high\": {\n    \"value\": \"2468.0\"\n   },\n   \"low\": {\n    \"value\": \"2467.0\"\n   },\n   \"close\": {\n    \"value\": \"2467.5\"\n   },\n   \"volume\": {\n    \"value\": \"1337.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:55:00Z\",\n   \"open\": {\n    \"value\": \"2467.5\"\n   },\n   \"high\": {\n    \"value\": \"2467.5\"\n   },\n   \"low\": {\n    \"value\": \"2467.0\"\n   },\n   \"close\": {\n    \"value\": \"2467.0\"\n   },\n   \"volume\": {\n    \"value\": \"122.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:56:00Z\",\n   \"open\": {\n    \"value\": \"2467.0\"\n   },\n   \"high\": {\n    \"value\": \"2467.5\"\n   },\n   \"low\": {\n    \"value\": \"2467.0\"\n   },\n   \"close\": {\n    \"value\": \"2467.0\"\n   },\n   \"volume\": {\n    \"value\": \"67.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:57:00Z\",\n   \"open\": {\n    \"value\": \"2467.5\"\n   },\n   \"high\": {\n    \"value\": \"2467.5\"\n   },\n   \"low\": {\n    \"value\": \"2467.0\"\n   },\n   \"close\": {\n    \"value\": \"2467.5\"\n   },\n   \"volume\": {\n    \"value\": \"281.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:58:00Z\",\n   \"open\": {\n    \"value\": \"2467.0\"\n   },\n   \"high\": {\n    \"value\": \"2467.5\"\n   },\n   \"low\": {\n    \"value\": \"2467.0\"\n   },\n   \"close\": {\n    \"value\": \"2467.5\"\n   },\n   \"volume\": {\n    \"value\": \"101.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:59:00Z\",\n   \"open\": {\n    \"value\": \"2467.0\"\n   },\n   \"high\": {\n    \"value\": \"2468.0\"\n   },\n   \"low\": {\n    \"value\": \"2467.0\"\n   },\n   \"close\": {\n    \"value\": \"2467.5\"\n   },\n   \"volume\": {\n    \"value\": \"739.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T06:00:01.226486742Z",
+            "requested_at": "2026-11-19T06:00:01.165230411Z",
+            "response_sha256": "544f466fe97bcc0ddf8e8aeaa2440db86d3754254bab33d23f606a0207aceb75",
+            "start": "2026-11-19T05:50:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T05:50:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 227,
+      "snapshot_sha256": "7bb98a994df5a58198d394b0cca139d83389277bdfeb8f788a9c75a3239e3387",
+      "evidence": {
+        "end": "2026-11-19T06:00:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 2882,
+            "end": "2026-11-19T06:00:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T05:50:00Z\",\n   \"open\": {\n    \"value\": \"2468.0\"\n   },\n   \"high\": {\n    \"value\": \"2468.0\"\n   },\n   \"low\": {\n    \"value\": \"2468.0\"\n   },\n   \"close\": {\n    \"value\": \"2468.0\"\n   },\n   \"volume\": {\n    \"value\": \"37.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:51:00Z\",\n   \"open\": {\n    \"value\": \"2468.0\"\n   },\n   \"high\": {\n    \"value\": \"2469.0\"\n   },\n   \"low\": {\n    \"value\": \"2468.0\"\n   },\n   \"close\": {\n    \"value\": \"2468.5\"\n   },\n   \"volume\": {\n    \"value\": \"558.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:52:00Z\",\n   \"open\": {\n    \"value\": \"2468.5\"\n   },\n   \"high\": {\n    \"value\": \"2469.0\"\n   },\n   \"low\": {\n    \"value\": \"2468.0\"\n   },\n   \"close\": {\n    \"value\": \"2468.0\"\n   },\n   \"volume\": {\n    \"value\": \"635.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:53:00Z\",\n   \"open\": {\n    \"value\": \"2468.0\"\n   },\n   \"high\": {\n    \"value\": \"2468.0\"\n   },\n   \"low\": {\n    \"value\": \"2467.5\"\n   },\n   \"close\": {\n    \"value\": \"2467.5\"\n   },\n   \"volume\": {\n    \"value\": \"449.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:54:00Z\",\n   \"open\": {\n    \"value\": \"2468.0\"\n   },\n   \"high\": {\n    \"value\": \"2468.0\"\n   },\n   \"low\": {\n    \"value\": \"2467.0\"\n   },\n   \"close\": {\n    \"value\": \"2467.5\"\n   },\n   \"volume\": {\n    \"value\": \"1337.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:55:00Z\",\n   \"open\": {\n    \"value\": \"2467.5\"\n   },\n   \"high\": {\n    \"value\": \"2467.5\"\n   },\n   \"low\": {\n    \"value\": \"2467.0\"\n   },\n   \"close\": {\n    \"value\": \"2467.0\"\n   },\n   \"volume\": {\n    \"value\": \"122.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:56:00Z\",\n   \"open\": {\n    \"value\": \"2467.0\"\n   },\n   \"high\": {\n    \"value\": \"2467.5\"\n   },\n   \"low\": {\n    \"value\": \"2467.0\"\n   },\n   \"close\": {\n    \"value\": \"2467.0\"\n   },\n   \"volume\": {\n    \"value\": \"67.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:57:00Z\",\n   \"open\": {\n    \"value\": \"2467.5\"\n   },\n   \"high\": {\n    \"value\": \"2467.5\"\n   },\n   \"low\": {\n    \"value\": \"2467.0\"\n   },\n   \"close\": {\n    \"value\": \"2467.5\"\n   },\n   \"volume\": {\n    \"value\": \"281.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:58:00Z\",\n   \"open\": {\n    \"value\": \"2467.0\"\n   },\n   \"high\": {\n    \"value\": \"2467.5\"\n   },\n   \"low\": {\n    \"value\": \"2467.0\"\n   },\n   \"close\": {\n    \"value\": \"2467.5\"\n   },\n   \"volume\": {\n    \"value\": \"101.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T05:59:00Z\",\n   \"open\": {\n    \"value\": \"2467.0\"\n   },\n   \"high\": {\n    \"value\": \"2468.0\"\n   },\n   \"low\": {\n    \"value\": \"2467.0\"\n   },\n   \"close\": {\n    \"value\": \"2467.5\"\n   },\n   \"volume\": {\n    \"value\": \"739.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T06:00:01.934607665Z",
+            "requested_at": "2026-11-19T06:00:01.884366137Z",
+            "response_sha256": "544f466fe97bcc0ddf8e8aeaa2440db86d3754254bab33d23f606a0207aceb75",
+            "start": "2026-11-19T05:50:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T05:50:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 233,
+      "snapshot_sha256": "322c53c50a2eae091d51f2f16dc956d1cf23ab83381fdbf9b298f7d4b3d4050c",
+      "evidence": {
+        "end": "2026-11-19T06:10:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 2886,
+            "end": "2026-11-19T06:10:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T06:00:00Z\",\n   \"open\": {\n    \"value\": \"2469.0\"\n   },\n   \"high\": {\n    \"value\": \"2469.0\"\n   },\n   \"low\": {\n    \"value\": \"2467.0\"\n   },\n   \"close\": {\n    \"value\": \"2468.0\"\n   },\n   \"volume\": {\n    \"value\": \"660.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:01:00Z\",\n   \"open\": {\n    \"value\": \"2468.0\"\n   },\n   \"high\": {\n    \"value\": \"2469.0\"\n   },\n   \"low\": {\n    \"value\": \"2467.5\"\n   },\n   \"close\": {\n    \"value\": \"2468.0\"\n   },\n   \"volume\": {\n    \"value\": \"1369.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:02:00Z\",\n   \"open\": {\n    \"value\": \"2468.0\"\n   },\n   \"high\": {\n    \"value\": \"2468.0\"\n   },\n   \"low\": {\n    \"value\": \"2467.0\"\n   },\n   \"close\": {\n    \"value\": \"2467.0\"\n   },\n   \"volume\": {\n    \"value\": \"362.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:03:00Z\",\n   \"open\": {\n    \"value\": \"2467.0\"\n   },\n   \"high\": {\n    \"value\": \"2469.0\"\n   },\n   \"low\": {\n    \"value\": \"2467.0\"\n   },\n   \"close\": {\n    \"value\": \"2469.0\"\n   },\n   \"volume\": {\n    \"value\": \"392.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:04:00Z\",\n   \"open\": {\n    \"value\": \"2468.5\"\n   },\n   \"high\": {\n    \"value\": \"2469.0\"\n   },\n   \"low\": {\n    \"value\": \"2468.0\"\n   },\n   \"close\": {\n    \"value\": \"2469.0\"\n   },\n   \"volume\": {\n    \"value\": \"234.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:05:00Z\",\n   \"open\": {\n    \"value\": \"2469.0\"\n   },\n   \"high\": {\n    \"value\": \"2470.0\"\n   },\n   \"low\": {\n    \"value\": \"2468.0\"\n   },\n   \"close\": {\n    \"value\": \"2469.5\"\n   },\n   \"volume\": {\n    \"value\": \"2956.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:06:00Z\",\n   \"open\": {\n    \"value\": \"2470.0\"\n   },\n   \"high\": {\n    \"value\": \"2471.0\"\n   },\n   \"low\": {\n    \"value\": \"2468.5\"\n   },\n   \"close\": {\n    \"value\": \"2469.0\"\n   },\n   \"volume\": {\n    \"value\": \"3471.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:07:00Z\",\n   \"open\": {\n    \"value\": \"2468.5\"\n   },\n   \"high\": {\n    \"value\": \"2470.5\"\n   },\n   \"low\": {\n    \"value\": \"2468.5\"\n   },\n   \"close\": {\n    \"value\": \"2469.5\"\n   },\n   \"volume\": {\n    \"value\": \"760.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:08:00Z\",\n   \"open\": {\n    \"value\": \"2469.0\"\n   },\n   \"high\": {\n    \"value\": \"2469.0\"\n   },\n   \"low\": {\n    \"value\": \"2468.5\"\n   },\n   \"close\": {\n    \"value\": \"2469.0\"\n   },\n   \"volume\": {\n    \"value\": \"182.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:09:00Z\",\n   \"open\": {\n    \"value\": \"2469.0\"\n   },\n   \"high\": {\n    \"value\": \"2469.0\"\n   },\n   \"low\": {\n    \"value\": \"2468.0\"\n   },\n   \"close\": {\n    \"value\": \"2468.0\"\n   },\n   \"volume\": {\n    \"value\": \"234.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T06:10:01.083998487Z",
+            "requested_at": "2026-11-19T06:10:01.004036377Z",
+            "response_sha256": "1dd168be824ed13f6983602e123b02ea765c89b08c86e0846c361925b89b6cb3",
+            "start": "2026-11-19T06:00:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T06:00:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 249,
+      "snapshot_sha256": "5379f46df041ba33036924fe6e926fecfaded63ebadb37cabcc484f0d45562b3",
+      "evidence": {
+        "end": "2026-11-19T06:20:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 2890,
+            "end": "2026-11-19T06:20:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T06:10:00Z\",\n   \"open\": {\n    \"value\": \"2468.0\"\n   },\n   \"high\": {\n    \"value\": \"2469.5\"\n   },\n   \"low\": {\n    \"value\": \"2467.5\"\n   },\n   \"close\": {\n    \"value\": \"2468.5\"\n   },\n   \"volume\": {\n    \"value\": \"978.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:11:00Z\",\n   \"open\": {\n    \"value\": \"2468.5\"\n   },\n   \"high\": {\n    \"value\": \"2470.0\"\n   },\n   \"low\": {\n    \"value\": \"2468.5\"\n   },\n   \"close\": {\n    \"value\": \"2470.0\"\n   },\n   \"volume\": {\n    \"value\": \"775.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:12:00Z\",\n   \"open\": {\n    \"value\": \"2469.5\"\n   },\n   \"high\": {\n    \"value\": \"2472.0\"\n   },\n   \"low\": {\n    \"value\": \"2469.5\"\n   },\n   \"close\": {\n    \"value\": \"2471.5\"\n   },\n   \"volume\": {\n    \"value\": \"3694.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:13:00Z\",\n   \"open\": {\n    \"value\": \"2471.5\"\n   },\n   \"high\": {\n    \"value\": \"2472.0\"\n   },\n   \"low\": {\n    \"value\": \"2471.0\"\n   },\n   \"close\": {\n    \"value\": \"2471.0\"\n   },\n   \"volume\": {\n    \"value\": \"518.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:14:00Z\",\n   \"open\": {\n    \"value\": \"2471.0\"\n   },\n   \"high\": {\n    \"value\": \"2473.5\"\n   },\n   \"low\": {\n    \"value\": \"2471.0\"\n   },\n   \"close\": {\n    \"value\": \"2472.5\"\n   },\n   \"volume\": {\n    \"value\": \"3058.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:15:00Z\",\n   \"open\": {\n    \"value\": \"2472.5\"\n   },\n   \"high\": {\n    \"value\": \"2473.5\"\n   },\n   \"low\": {\n    \"value\": \"2471.5\"\n   },\n   \"close\": {\n    \"value\": \"2471.5\"\n   },\n   \"volume\": {\n    \"value\": \"2384.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:16:00Z\",\n   \"open\": {\n    \"value\": \"2471.5\"\n   },\n   \"high\": {\n    \"value\": \"2471.5\"\n   },\n   \"low\": {\n    \"value\": \"2469.5\"\n   },\n   \"close\": {\n    \"value\": \"2469.5\"\n   },\n   \"volume\": {\n    \"value\": \"3054.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:17:00Z\",\n   \"open\": {\n    \"value\": \"2469.5\"\n   },\n   \"high\": {\n    \"value\": \"2473.0\"\n   },\n   \"low\": {\n    \"value\": \"2469.0\"\n   },\n   \"close\": {\n    \"value\": \"2473.0\"\n   },\n   \"volume\": {\n    \"value\": \"4580.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:18:00Z\",\n   \"open\": {\n    \"value\": \"2473.0\"\n   },\n   \"high\": {\n    \"value\": \"2475.0\"\n   },\n   \"low\": {\n    \"value\": \"2473.0\"\n   },\n   \"close\": {\n    \"value\": \"2474.5\"\n   },\n   \"volume\": {\n    \"value\": \"4233.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:19:00Z\",\n   \"open\": {\n    \"value\": \"2474.0\"\n   },\n   \"high\": {\n    \"value\": \"2474.5\"\n   },\n   \"low\": {\n    \"value\": \"2473.5\"\n   },\n   \"close\": {\n    \"value\": \"2474.5\"\n   },\n   \"volume\": {\n    \"value\": \"1478.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T06:20:01.146259964Z",
+            "requested_at": "2026-11-19T06:20:01.108450437Z",
+            "response_sha256": "4facc5ed800d17242a092ea567229f9f450b27a7802695d5e516a7bef26d6ffd",
+            "start": "2026-11-19T06:10:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T06:10:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 265,
+      "snapshot_sha256": "1ca378d33f62b3b4a1d59f7ea785897f81122c63324722bb0dbb1b0db0b6ba6f",
+      "evidence": {
+        "end": "2026-11-19T06:30:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 2885,
+            "end": "2026-11-19T06:30:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T06:20:00Z\",\n   \"open\": {\n    \"value\": \"2474.5\"\n   },\n   \"high\": {\n    \"value\": \"2474.5\"\n   },\n   \"low\": {\n    \"value\": \"2472.0\"\n   },\n   \"close\": {\n    \"value\": \"2472.0\"\n   },\n   \"volume\": {\n    \"value\": \"1182.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:21:00Z\",\n   \"open\": {\n    \"value\": \"2472.0\"\n   },\n   \"high\": {\n    \"value\": \"2473.5\"\n   },\n   \"low\": {\n    \"value\": \"2472.0\"\n   },\n   \"close\": {\n    \"value\": \"2473.5\"\n   },\n   \"volume\": {\n    \"value\": \"414.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:22:00Z\",\n   \"open\": {\n    \"value\": \"2473.0\"\n   },\n   \"high\": {\n    \"value\": \"2473.0\"\n   },\n   \"low\": {\n    \"value\": \"2472.0\"\n   },\n   \"close\": {\n    \"value\": \"2472.0\"\n   },\n   \"volume\": {\n    \"value\": \"166.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:23:00Z\",\n   \"open\": {\n    \"value\": \"2472.0\"\n   },\n   \"high\": {\n    \"value\": \"2472.5\"\n   },\n   \"low\": {\n    \"value\": \"2472.0\"\n   },\n   \"close\": {\n    \"value\": \"2472.5\"\n   },\n   \"volume\": {\n    \"value\": \"495.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:24:00Z\",\n   \"open\": {\n    \"value\": \"2472.5\"\n   },\n   \"high\": {\n    \"value\": \"2472.5\"\n   },\n   \"low\": {\n    \"value\": \"2471.5\"\n   },\n   \"close\": {\n    \"value\": \"2471.5\"\n   },\n   \"volume\": {\n    \"value\": \"207.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:25:00Z\",\n   \"open\": {\n    \"value\": \"2472.0\"\n   },\n   \"high\": {\n    \"value\": \"2473.0\"\n   },\n   \"low\": {\n    \"value\": \"2472.0\"\n   },\n   \"close\": {\n    \"value\": \"2473.0\"\n   },\n   \"volume\": {\n    \"value\": \"41.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:26:00Z\",\n   \"open\": {\n    \"value\": \"2473.0\"\n   },\n   \"high\": {\n    \"value\": \"2473.5\"\n   },\n   \"low\": {\n    \"value\": \"2473.0\"\n   },\n   \"close\": {\n    \"value\": \"2473.5\"\n   },\n   \"volume\": {\n    \"value\": \"1599.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:27:00Z\",\n   \"open\": {\n    \"value\": \"2473.5\"\n   },\n   \"high\": {\n    \"value\": \"2474.0\"\n   },\n   \"low\": {\n    \"value\": \"2473.0\"\n   },\n   \"close\": {\n    \"value\": \"2473.5\"\n   },\n   \"volume\": {\n    \"value\": \"480.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:28:00Z\",\n   \"open\": {\n    \"value\": \"2473.5\"\n   },\n   \"high\": {\n    \"value\": \"2475.0\"\n   },\n   \"low\": {\n    \"value\": \"2473.5\"\n   },\n   \"close\": {\n    \"value\": \"2474.0\"\n   },\n   \"volume\": {\n    \"value\": \"1725.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:29:00Z\",\n   \"open\": {\n    \"value\": \"2474.0\"\n   },\n   \"high\": {\n    \"value\": \"2474.0\"\n   },\n   \"low\": {\n    \"value\": \"2472.5\"\n   },\n   \"close\": {\n    \"value\": \"2473.5\"\n   },\n   \"volume\": {\n    \"value\": \"672.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T06:30:01.043398990Z",
+            "requested_at": "2026-11-19T06:30:01.004278278Z",
+            "response_sha256": "47aa6c2ce8d57a2689354ac1728d4dfe614862f7fef8c1afb7a61dbd3cdb0e1c",
+            "start": "2026-11-19T06:20:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T06:20:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 281,
+      "snapshot_sha256": "fe23e6d52ee8d1b1e679b57c4e055beaa39d4401b36dc0c877b096ddc69459ee",
+      "evidence": {
+        "end": "2026-11-19T06:40:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 2884,
+            "end": "2026-11-19T06:40:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T06:30:00Z\",\n   \"open\": {\n    \"value\": \"2473.5\"\n   },\n   \"high\": {\n    \"value\": \"2474.0\"\n   },\n   \"low\": {\n    \"value\": \"2473.0\"\n   },\n   \"close\": {\n    \"value\": \"2473.0\"\n   },\n   \"volume\": {\n    \"value\": \"262.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:31:00Z\",\n   \"open\": {\n    \"value\": \"2472.5\"\n   },\n   \"high\": {\n    \"value\": \"2473.0\"\n   },\n   \"low\": {\n    \"value\": \"2472.0\"\n   },\n   \"close\": {\n    \"value\": \"2472.0\"\n   },\n   \"volume\": {\n    \"value\": \"873.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:32:00Z\",\n   \"open\": {\n    \"value\": \"2471.5\"\n   },\n   \"high\": {\n    \"value\": \"2472.5\"\n   },\n   \"low\": {\n    \"value\": \"2471.5\"\n   },\n   \"close\": {\n    \"value\": \"2472.5\"\n   },\n   \"volume\": {\n    \"value\": \"278.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:33:00Z\",\n   \"open\": {\n    \"value\": \"2472.5\"\n   },\n   \"high\": {\n    \"value\": \"2473.5\"\n   },\n   \"low\": {\n    \"value\": \"2472.5\"\n   },\n   \"close\": {\n    \"value\": \"2472.5\"\n   },\n   \"volume\": {\n    \"value\": \"148.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:34:00Z\",\n   \"open\": {\n    \"value\": \"2473.0\"\n   },\n   \"high\": {\n    \"value\": \"2473.5\"\n   },\n   \"low\": {\n    \"value\": \"2472.0\"\n   },\n   \"close\": {\n    \"value\": \"2472.5\"\n   },\n   \"volume\": {\n    \"value\": \"635.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:35:00Z\",\n   \"open\": {\n    \"value\": \"2472.5\"\n   },\n   \"high\": {\n    \"value\": \"2472.5\"\n   },\n   \"low\": {\n    \"value\": \"2472.0\"\n   },\n   \"close\": {\n    \"value\": \"2472.0\"\n   },\n   \"volume\": {\n    \"value\": \"67.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:36:00Z\",\n   \"open\": {\n    \"value\": \"2471.5\"\n   },\n   \"high\": {\n    \"value\": \"2472.5\"\n   },\n   \"low\": {\n    \"value\": \"2471.5\"\n   },\n   \"close\": {\n    \"value\": \"2471.5\"\n   },\n   \"volume\": {\n    \"value\": \"1710.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:37:00Z\",\n   \"open\": {\n    \"value\": \"2472.0\"\n   },\n   \"high\": {\n    \"value\": \"2472.0\"\n   },\n   \"low\": {\n    \"value\": \"2471.5\"\n   },\n   \"close\": {\n    \"value\": \"2472.0\"\n   },\n   \"volume\": {\n    \"value\": \"116.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:38:00Z\",\n   \"open\": {\n    \"value\": \"2472.0\"\n   },\n   \"high\": {\n    \"value\": \"2472.0\"\n   },\n   \"low\": {\n    \"value\": \"2471.5\"\n   },\n   \"close\": {\n    \"value\": \"2472.0\"\n   },\n   \"volume\": {\n    \"value\": \"266.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:39:00Z\",\n   \"open\": {\n    \"value\": \"2472.0\"\n   },\n   \"high\": {\n    \"value\": \"2472.0\"\n   },\n   \"low\": {\n    \"value\": \"2470.0\"\n   },\n   \"close\": {\n    \"value\": \"2470.5\"\n   },\n   \"volume\": {\n    \"value\": \"2806.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T06:40:01.146930291Z",
+            "requested_at": "2026-11-19T06:40:01.106769279Z",
+            "response_sha256": "db9cc308f9b9837fcd9770bb1f6bdd8cfa4f5eac98299ca3d40cee1275a82fe4",
+            "start": "2026-11-19T06:30:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T06:30:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 297,
+      "snapshot_sha256": "22e22ff6c215c62b69133fcb3d119d2f7c10dedea950806921887ba4a216dd92",
+      "evidence": {
+        "end": "2026-11-19T06:50:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 2883,
+            "end": "2026-11-19T06:50:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T06:40:00Z\",\n   \"open\": {\n    \"value\": \"2470.5\"\n   },\n   \"high\": {\n    \"value\": \"2471.5\"\n   },\n   \"low\": {\n    \"value\": \"2470.5\"\n   },\n   \"close\": {\n    \"value\": \"2471.0\"\n   },\n   \"volume\": {\n    \"value\": \"362.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:41:00Z\",\n   \"open\": {\n    \"value\": \"2471.5\"\n   },\n   \"high\": {\n    \"value\": \"2472.0\"\n   },\n   \"low\": {\n    \"value\": \"2471.0\"\n   },\n   \"close\": {\n    \"value\": \"2472.0\"\n   },\n   \"volume\": {\n    \"value\": \"357.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:42:00Z\",\n   \"open\": {\n    \"value\": \"2472.0\"\n   },\n   \"high\": {\n    \"value\": \"2472.5\"\n   },\n   \"low\": {\n    \"value\": \"2471.5\"\n   },\n   \"close\": {\n    \"value\": \"2471.5\"\n   },\n   \"volume\": {\n    \"value\": \"274.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:43:00Z\",\n   \"open\": {\n    \"value\": \"2471.5\"\n   },\n   \"high\": {\n    \"value\": \"2472.0\"\n   },\n   \"low\": {\n    \"value\": \"2471.5\"\n   },\n   \"close\": {\n    \"value\": \"2472.0\"\n   },\n   \"volume\": {\n    \"value\": \"191.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:44:00Z\",\n   \"open\": {\n    \"value\": \"2472.0\"\n   },\n   \"high\": {\n    \"value\": \"2472.0\"\n   },\n   \"low\": {\n    \"value\": \"2471.5\"\n   },\n   \"close\": {\n    \"value\": \"2471.5\"\n   },\n   \"volume\": {\n    \"value\": \"320.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:45:00Z\",\n   \"open\": {\n    \"value\": \"2471.5\"\n   },\n   \"high\": {\n    \"value\": \"2471.5\"\n   },\n   \"low\": {\n    \"value\": \"2470.5\"\n   },\n   \"close\": {\n    \"value\": \"2470.5\"\n   },\n   \"volume\": {\n    \"value\": \"501.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:46:00Z\",\n   \"open\": {\n    \"value\": \"2470.5\"\n   },\n   \"high\": {\n    \"value\": \"2471.0\"\n   },\n   \"low\": {\n    \"value\": \"2469.5\"\n   },\n   \"close\": {\n    \"value\": \"2469.5\"\n   },\n   \"volume\": {\n    \"value\": \"872.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:47:00Z\",\n   \"open\": {\n    \"value\": \"2470.0\"\n   },\n   \"high\": {\n    \"value\": \"2471.0\"\n   },\n   \"low\": {\n    \"value\": \"2470.0\"\n   },\n   \"close\": {\n    \"value\": \"2471.0\"\n   },\n   \"volume\": {\n    \"value\": \"366.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:48:00Z\",\n   \"open\": {\n    \"value\": \"2470.5\"\n   },\n   \"high\": {\n    \"value\": \"2471.0\"\n   },\n   \"low\": {\n    \"value\": \"2470.0\"\n   },\n   \"close\": {\n    \"value\": \"2470.0\"\n   },\n   \"volume\": {\n    \"value\": \"145.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:49:00Z\",\n   \"open\": {\n    \"value\": \"2470.0\"\n   },\n   \"high\": {\n    \"value\": \"2470.5\"\n   },\n   \"low\": {\n    \"value\": \"2469.5\"\n   },\n   \"close\": {\n    \"value\": \"2470.5\"\n   },\n   \"volume\": {\n    \"value\": \"347.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T06:50:01.067162137Z",
+            "requested_at": "2026-11-19T06:50:01.003637723Z",
+            "response_sha256": "5775f6ed9ae1f2671f0f903b7bb05bacaecb47437a20f6384ade2d77a469380a",
+            "start": "2026-11-19T06:40:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T06:40:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 313,
+      "snapshot_sha256": "d317fae8a50365d88e163854585952101c5e044979625eb627461118076b91b4",
+      "evidence": {
+        "end": "2026-11-19T07:00:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 2316,
+            "end": "2026-11-19T07:00:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T06:50:00Z\",\n   \"open\": {\n    \"value\": \"2470.5\"\n   },\n   \"high\": {\n    \"value\": \"2471.5\"\n   },\n   \"low\": {\n    \"value\": \"2470.0\"\n   },\n   \"close\": {\n    \"value\": \"2471.5\"\n   },\n   \"volume\": {\n    \"value\": \"615.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:51:00Z\",\n   \"open\": {\n    \"value\": \"2471.5\"\n   },\n   \"high\": {\n    \"value\": \"2471.5\"\n   },\n   \"low\": {\n    \"value\": \"2470.5\"\n   },\n   \"close\": {\n    \"value\": \"2470.5\"\n   },\n   \"volume\": {\n    \"value\": \"241.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:52:00Z\",\n   \"open\": {\n    \"value\": \"2470.0\"\n   },\n   \"high\": {\n    \"value\": \"2470.5\"\n   },\n   \"low\": {\n    \"value\": \"2469.0\"\n   },\n   \"close\": {\n    \"value\": \"2469.0\"\n   },\n   \"volume\": {\n    \"value\": \"976.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:53:00Z\",\n   \"open\": {\n    \"value\": \"2469.0\"\n   },\n   \"high\": {\n    \"value\": \"2469.5\"\n   },\n   \"low\": {\n    \"value\": \"2468.5\"\n   },\n   \"close\": {\n    \"value\": \"2469.5\"\n   },\n   \"volume\": {\n    \"value\": \"718.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:54:00Z\",\n   \"open\": {\n    \"value\": \"2469.0\"\n   },\n   \"high\": {\n    \"value\": \"2471.0\"\n   },\n   \"low\": {\n    \"value\": \"2469.0\"\n   },\n   \"close\": {\n    \"value\": \"2471.0\"\n   },\n   \"volume\": {\n    \"value\": \"672.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:55:00Z\",\n   \"open\": {\n    \"value\": \"2471.0\"\n   },\n   \"high\": {\n    \"value\": \"2472.5\"\n   },\n   \"low\": {\n    \"value\": \"2469.0\"\n   },\n   \"close\": {\n    \"value\": \"2472.0\"\n   },\n   \"volume\": {\n    \"value\": \"7247.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:56:00Z\",\n   \"open\": {\n    \"value\": \"2471.5\"\n   },\n   \"high\": {\n    \"value\": \"2472.0\"\n   },\n   \"low\": {\n    \"value\": \"2470.5\"\n   },\n   \"close\": {\n    \"value\": \"2470.5\"\n   },\n   \"volume\": {\n    \"value\": \"663.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:57:00Z\",\n   \"open\": {\n    \"value\": \"2470.5\"\n   },\n   \"high\": {\n    \"value\": \"2471.0\"\n   },\n   \"low\": {\n    \"value\": \"2470.0\"\n   },\n   \"close\": {\n    \"value\": \"2470.0\"\n   },\n   \"volume\": {\n    \"value\": \"263.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T07:00:01.202510812Z",
+            "requested_at": "2026-11-19T07:00:01.118175123Z",
+            "response_sha256": "9f9beb12a56c8ba94ee097ce89f5c9debedc190424e7311698de5fa42f754601",
+            "start": "2026-11-19T06:50:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T06:50:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 326,
+      "snapshot_sha256": "f4f21ba2d5188d3576f09c392e81e6f520a7bf3a171a3be920f233eeecd18ce7",
+      "evidence": {
+        "end": "2026-11-19T07:00:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 2316,
+            "end": "2026-11-19T07:00:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T06:50:00Z\",\n   \"open\": {\n    \"value\": \"2470.5\"\n   },\n   \"high\": {\n    \"value\": \"2471.5\"\n   },\n   \"low\": {\n    \"value\": \"2470.0\"\n   },\n   \"close\": {\n    \"value\": \"2471.5\"\n   },\n   \"volume\": {\n    \"value\": \"615.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:51:00Z\",\n   \"open\": {\n    \"value\": \"2471.5\"\n   },\n   \"high\": {\n    \"value\": \"2471.5\"\n   },\n   \"low\": {\n    \"value\": \"2470.5\"\n   },\n   \"close\": {\n    \"value\": \"2470.5\"\n   },\n   \"volume\": {\n    \"value\": \"241.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:52:00Z\",\n   \"open\": {\n    \"value\": \"2470.0\"\n   },\n   \"high\": {\n    \"value\": \"2470.5\"\n   },\n   \"low\": {\n    \"value\": \"2469.0\"\n   },\n   \"close\": {\n    \"value\": \"2469.0\"\n   },\n   \"volume\": {\n    \"value\": \"976.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:53:00Z\",\n   \"open\": {\n    \"value\": \"2469.0\"\n   },\n   \"high\": {\n    \"value\": \"2469.5\"\n   },\n   \"low\": {\n    \"value\": \"2468.5\"\n   },\n   \"close\": {\n    \"value\": \"2469.5\"\n   },\n   \"volume\": {\n    \"value\": \"718.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:54:00Z\",\n   \"open\": {\n    \"value\": \"2469.0\"\n   },\n   \"high\": {\n    \"value\": \"2471.0\"\n   },\n   \"low\": {\n    \"value\": \"2469.0\"\n   },\n   \"close\": {\n    \"value\": \"2471.0\"\n   },\n   \"volume\": {\n    \"value\": \"672.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:55:00Z\",\n   \"open\": {\n    \"value\": \"2471.0\"\n   },\n   \"high\": {\n    \"value\": \"2472.5\"\n   },\n   \"low\": {\n    \"value\": \"2469.0\"\n   },\n   \"close\": {\n    \"value\": \"2472.0\"\n   },\n   \"volume\": {\n    \"value\": \"7247.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:56:00Z\",\n   \"open\": {\n    \"value\": \"2471.5\"\n   },\n   \"high\": {\n    \"value\": \"2472.0\"\n   },\n   \"low\": {\n    \"value\": \"2470.5\"\n   },\n   \"close\": {\n    \"value\": \"2470.5\"\n   },\n   \"volume\": {\n    \"value\": \"663.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T06:57:00Z\",\n   \"open\": {\n    \"value\": \"2470.5\"\n   },\n   \"high\": {\n    \"value\": \"2471.0\"\n   },\n   \"low\": {\n    \"value\": \"2470.0\"\n   },\n   \"close\": {\n    \"value\": \"2470.0\"\n   },\n   \"volume\": {\n    \"value\": \"263.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T07:00:02.723590738Z",
+            "requested_at": "2026-11-19T07:00:02.697634275Z",
+            "response_sha256": "9f9beb12a56c8ba94ee097ce89f5c9debedc190424e7311698de5fa42f754601",
+            "start": "2026-11-19T06:50:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T06:50:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 332,
+      "snapshot_sha256": "16f5fb15af492a43822e88a43a63fa7c24db6f22a4d6e568740ebe8558eb6f05",
+      "evidence": {
+        "end": "2026-11-19T07:10:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 2884,
+            "end": "2026-11-19T07:10:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T07:00:00Z\",\n   \"open\": {\n    \"value\": \"2472.0\"\n   },\n   \"high\": {\n    \"value\": \"2472.5\"\n   },\n   \"low\": {\n    \"value\": \"2471.0\"\n   },\n   \"close\": {\n    \"value\": \"2471.5\"\n   },\n   \"volume\": {\n    \"value\": \"582.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T07:01:00Z\",\n   \"open\": {\n    \"value\": \"2471.0\"\n   },\n   \"high\": {\n    \"value\": \"2471.0\"\n   },\n   \"low\": {\n    \"value\": \"2470.0\"\n   },\n   \"close\": {\n    \"value\": \"2470.5\"\n   },\n   \"volume\": {\n    \"value\": \"583.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T07:02:00Z\",\n   \"open\": {\n    \"value\": \"2471.0\"\n   },\n   \"high\": {\n    \"value\": \"2471.5\"\n   },\n   \"low\": {\n    \"value\": \"2470.5\"\n   },\n   \"close\": {\n    \"value\": \"2470.5\"\n   },\n   \"volume\": {\n    \"value\": \"76.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T07:03:00Z\",\n   \"open\": {\n    \"value\": \"2470.0\"\n   },\n   \"high\": {\n    \"value\": \"2470.0\"\n   },\n   \"low\": {\n    \"value\": \"2469.0\"\n   },\n   \"close\": {\n    \"value\": \"2469.0\"\n   },\n   \"volume\": {\n    \"value\": \"104.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T07:04:00Z\",\n   \"open\": {\n    \"value\": \"2468.5\"\n   },\n   \"high\": {\n    \"value\": \"2470.5\"\n   },\n   \"low\": {\n    \"value\": \"2468.5\"\n   },\n   \"close\": {\n    \"value\": \"2470.0\"\n   },\n   \"volume\": {\n    \"value\": \"3360.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T07:05:00Z\",\n   \"open\": {\n    \"value\": \"2470.0\"\n   },\n   \"high\": {\n    \"value\": \"2471.5\"\n   },\n   \"low\": {\n    \"value\": \"2469.5\"\n   },\n   \"close\": {\n    \"value\": \"2469.5\"\n   },\n   \"volume\": {\n    \"value\": \"465.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T07:06:00Z\",\n   \"open\": {\n    \"value\": \"2469.5\"\n   },\n   \"high\": {\n    \"value\": \"2471.0\"\n   },\n   \"low\": {\n    \"value\": \"2469.0\"\n   },\n   \"close\": {\n    \"value\": \"2471.0\"\n   },\n   \"volume\": {\n    \"value\": \"136.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T07:07:00Z\",\n   \"open\": {\n    \"value\": \"2470.5\"\n   },\n   \"high\": {\n    \"value\": \"2470.5\"\n   },\n   \"low\": {\n    \"value\": \"2469.5\"\n   },\n   \"close\": {\n    \"value\": \"2469.5\"\n   },\n   \"volume\": {\n    \"value\": \"48.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T07:08:00Z\",\n   \"open\": {\n    \"value\": \"2469.0\"\n   },\n   \"high\": {\n    \"value\": \"2469.0\"\n   },\n   \"low\": {\n    \"value\": \"2467.0\"\n   },\n   \"close\": {\n    \"value\": \"2467.5\"\n   },\n   \"volume\": {\n    \"value\": \"1549.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T07:09:00Z\",\n   \"open\": {\n    \"value\": \"2467.5\"\n   },\n   \"high\": {\n    \"value\": \"2467.5\"\n   },\n   \"low\": {\n    \"value\": \"2465.5\"\n   },\n   \"close\": {\n    \"value\": \"2467.0\"\n   },\n   \"volume\": {\n    \"value\": \"4757.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T07:10:01.038324392Z",
+            "requested_at": "2026-11-19T07:10:01.003919555Z",
+            "response_sha256": "61b9c515d4b00246ea2cb7c6e4607178e695452551e83c8daf5247d4c0701882",
+            "start": "2026-11-19T07:00:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T07:00:00Z"
+      }
+    },
+    {
+      "original_journal_sequence": 348,
+      "snapshot_sha256": "75b23ce5ce18d6b56db3b974853e9d8034b2aa914dd7ab0298c9619efe5f2f61",
+      "evidence": {
+        "end": "2026-11-19T07:20:00Z",
+        "parts": [
+          {
+            "declared_body_bytes": 2888,
+            "end": "2026-11-19T07:20:00Z",
+            "endpoint": "https://api.finam.ru/v1/instruments/IMOEXF@RTSX/bars",
+            "method": "GET",
+            "raw_body": "{\n \"symbol\": \"IMOEXF@RTSX\",\n \"bars\": [\n  {\n   \"timestamp\": \"2026-11-19T07:10:00Z\",\n   \"open\": {\n    \"value\": \"2466.5\"\n   },\n   \"high\": {\n    \"value\": \"2468.5\"\n   },\n   \"low\": {\n    \"value\": \"2466.5\"\n   },\n   \"close\": {\n    \"value\": \"2467.0\"\n   },\n   \"volume\": {\n    \"value\": \"1196.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T07:11:00Z\",\n   \"open\": {\n    \"value\": \"2467.0\"\n   },\n   \"high\": {\n    \"value\": \"2467.0\"\n   },\n   \"low\": {\n    \"value\": \"2465.5\"\n   },\n   \"close\": {\n    \"value\": \"2466.5\"\n   },\n   \"volume\": {\n    \"value\": \"420.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T07:12:00Z\",\n   \"open\": {\n    \"value\": \"2466.5\"\n   },\n   \"high\": {\n    \"value\": \"2468.0\"\n   },\n   \"low\": {\n    \"value\": \"2466.0\"\n   },\n   \"close\": {\n    \"value\": \"2467.5\"\n   },\n   \"volume\": {\n    \"value\": \"1208.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T07:13:00Z\",\n   \"open\": {\n    \"value\": \"2467.5\"\n   },\n   \"high\": {\n    \"value\": \"2467.5\"\n   },\n   \"low\": {\n    \"value\": \"2466.5\"\n   },\n   \"close\": {\n    \"value\": \"2466.5\"\n   },\n   \"volume\": {\n    \"value\": \"157.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T07:14:00Z\",\n   \"open\": {\n    \"value\": \"2467.0\"\n   },\n   \"high\": {\n    \"value\": \"2467.0\"\n   },\n   \"low\": {\n    \"value\": \"2466.0\"\n   },\n   \"close\": {\n    \"value\": \"2466.5\"\n   },\n   \"volume\": {\n    \"value\": \"527.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T07:15:00Z\",\n   \"open\": {\n    \"value\": \"2466.0\"\n   },\n   \"high\": {\n    \"value\": \"2468.0\"\n   },\n   \"low\": {\n    \"value\": \"2466.0\"\n   },\n   \"close\": {\n    \"value\": \"2468.0\"\n   },\n   \"volume\": {\n    \"value\": \"312.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T07:16:00Z\",\n   \"open\": {\n    \"value\": \"2468.0\"\n   },\n   \"high\": {\n    \"value\": \"2468.5\"\n   },\n   \"low\": {\n    \"value\": \"2466.0\"\n   },\n   \"close\": {\n    \"value\": \"2466.5\"\n   },\n   \"volume\": {\n    \"value\": \"1541.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T07:17:00Z\",\n   \"open\": {\n    \"value\": \"2466.0\"\n   },\n   \"high\": {\n    \"value\": \"2466.0\"\n   },\n   \"low\": {\n    \"value\": \"2465.0\"\n   },\n   \"close\": {\n    \"value\": \"2465.5\"\n   },\n   \"volume\": {\n    \"value\": \"1939.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T07:18:00Z\",\n   \"open\": {\n    \"value\": \"2465.0\"\n   },\n   \"high\": {\n    \"value\": \"2465.0\"\n   },\n   \"low\": {\n    \"value\": \"2463.5\"\n   },\n   \"close\": {\n    \"value\": \"2464.0\"\n   },\n   \"volume\": {\n    \"value\": \"2359.0\"\n   },\n   \"is_data_snapshot\": false\n  },\n  {\n   \"timestamp\": \"2026-11-19T07:19:00Z\",\n   \"open\": {\n    \"value\": \"2463.5\"\n   },\n   \"high\": {\n    \"value\": \"2465.5\"\n   },\n   \"low\": {\n    \"value\": \"2463.5\"\n   },\n   \"close\": {\n    \"value\": \"2465.0\"\n   },\n   \"volume\": {\n    \"value\": \"941.0\"\n   },\n   \"is_data_snapshot\": false\n  }\n ]\n}\n",
+            "received_at": "2026-11-19T07:20:01.160296447Z",
+            "requested_at": "2026-11-19T07:20:01.119588516Z",
+            "response_sha256": "c33597c90b312b080a4438275a418b1189dda779bbea33ac04a46637be8a6224",
+            "start": "2026-11-19T07:10:00Z",
+            "status": 200,
+            "symbol": "IMOEXF@RTSX",
+            "timeframe": "TIME_FRAME_M1",
+            "transport_complete": true
+          }
+        ],
+        "policy": "closed-rest-observed-m1-to-m10-v1",
+        "start": "2026-11-19T07:10:00Z"
+      }
+    }
+  ]
+}

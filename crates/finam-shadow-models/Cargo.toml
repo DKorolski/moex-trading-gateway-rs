@@ -1,0 +1,32 @@
+[package]
+name = "finam-shadow-models"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT"
+description = "Offline numeric ports of the pinned ALOR shadow models; no broker transport"
+
+# Separate numerical qualification workspace. Native integration is opt-in via
+# finam-signal-shadow/models-bridge; no default runtime entry activates it.
+[workspace]
+resolver = "2"
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+sha2 = "0.10"
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+[[bin]]
+name = "finam-shadow-reaction-fixture"
+path = "src/main.rs"
+
+[[bin]]
+name = "finam-shadow-ri-fixture"
+path = "src/ri_main.rs"
+
+[[bin]]
+name = "finam-shadow-local-session"
+path = "src/local_main.rs"

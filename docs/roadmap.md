@@ -27,6 +27,66 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
+2026-11-21 current: accepted shadow source `10e74757` and its Linux release;
+USD/RI R1 execution accepted and installed/armed for one bounded 23-Nov window.
+Separate IMOEXF 23-Nov candidate is not armed. Next: actual bounded result,
+then necessary full-session/EOD and same-session ALOR comparisons before a
+separate live-micro gate. Paper expansion is not the current critical path.
+No new mandatory session count, order authority or macro-stage is introduced.
+See the [engineering checkpoint](stage-8/shadow-accepted-sync-20261121.md).
+The Git synchronization does not install, activate or change VPS packages.
+
+The dated entries below retain their historical status at the stated date.
+
+2026-10-09 current: O3 release/installation `0e89208` accepted and installed;
+fresh O3 preparation stopped before activation on a config Redis-manifest pin
+mismatch. Next: [one-field config-binding correction](stage-8/stage8b-p1f-o3-config-binding-correction.md)
+and local regressions → focused review → separately permitted stopped apply
+preserving O2 root/receipts/history/P0 → fresh bounded O3. Reuse accepted ELFs;
+no new architecture stage, root bootstrap or automatic main merge. O3 remains
+NOT_RUN; O4/WS/freshness/reconnect/EOD/ALOR parity and live-micro gates unchanged.
+
+2026-10-09 latest: O3 source `fb1ceb3` independently accepted; P1-O301 closed.
+Now: one [release/authority/installation package](stage-8/stage8b-p1f-o3-release-installation.md),
+with unchanged accepted Rust/five release ELFs, a narrowly corrected supervisor
+identity directive, native isolated start/stop evidence and old→new inventory.
+Then separately permitted stopped installation → fresh
+bounded O3 → operational review → O4 WS/freshness/reconnect/REST overlap/EOD
+and multi-session frozen ALOR comparison. No new framework/design round or
+automatic per-patch main merge. Runtime-live and real orders remain closed.
+Native systemd qualification passed in a disposable VPS container; full accepted
+host before/after snapshots match. This proves start/stop only, not operational
+O3 or permission to install. Review the corrected template and retained evidence
+now; do not reopen the accepted source history or add a new architecture stage.
+
+2026-10-09 P1-O301 correction is ready for focused source re-review against
+held source `6f0a6bf`; see [retained shutdown evidence](stage-8/stage8b-p1f-o3-shutdown-correction.md).
+No new design macro-stage or supervision framework. Early stop and normal
+production lifecycle are locally qualified; O3 operation remains NOT_RUN.
+After SOURCE ACCEPT: exact artifact/authority/install package → authorized
+stopped update preserving O2 → authorized bounded O3 → O4 WS/EOD/ALOR parity.
+No GitHub operation or deployment is part of this source correction.
+
+2026-10-09 O3 source candidate: fixed executable composition is implemented and
+qualified in a local production-process witness (paper Market, next M10,
+SIGKILL/readmission, graceful stop). See the
+[source handoff](stage-8/stage8b-p1f-o3-source-handoff.md). Review comes now,
+before release/installation and separately authorized bounded O3 on the accepted
+O2 root. No operational matrix row is closed by the local witness. O4 retains
+WS subscriptions/reconnect, freshness, REST overlap, session/EOD and ALOR parity.
+No new macro-stage, automatic main merge or live permission is introduced.
+
+2026-10-08 O2 closure: independent **O2 OPERATIONAL ACCEPT**, terminal
+COMPLETED/1/26; one existing adopted root, one Replay callback, zero requests
+and journal frames. See the [bounded O3 preparation](stage-8/stage8b-p1f-o3-preparation.md).
+Reuse accepted lifecycle/restart components; qualify only missing operational
+wiring for the current sparse/no-riskgate profile. Do not recreate the root,
+repeat O2 or claim a fixture as execution on the accepted VPS root. Next:
+O3 synthetic paper/restart evidence → O4 bounded FINAM bars windows with
+WS/freshness/reconnect/REST overlap/EOD and ALOR comparison → P1F-A aggregate.
+O3 execution needs its own reviewed artifact and explicit owner authorization;
+FINAM writes/live micro remain closed. Older dated entries are historical.
+
 2026-10-07 terminal recovery closure: independent OPERATIONAL EVIDENCE ACCEPT
 confirms EXPIRED/1/12, unchanged installed payload/P0 and stopped P1. The incident
 is closed, not O2. Next is the [full accepted-ELF installation successor](stage-8/stage8b-p1f-o2-terminal-successor-installation.md)

@@ -333,6 +333,18 @@ pub trait Stage8bP1eScheduleSigner {
         &self,
         digest: &[u8; 32],
     ) -> Result<[u8; 64], Stage8bP1eSchedulePublisherError>;
+
+    /// An out-of-process signer must inspect the exact unsigned envelope,
+    /// rather than expose an unrestricted digest-signing socket. Existing
+    /// in-process signers retain the same raw-prehash signature contract.
+    fn sign_schedule_envelope(
+        &self,
+        envelope: &Stage8bP1eScheduleEnvelopeV3,
+    ) -> Result<[u8; 64], Stage8bP1eSchedulePublisherError> {
+        let hash = stage8b_p1e_schedule_unsigned_signature_sha256(envelope)
+            .map_err(|_| Stage8bP1eSchedulePublisherError::SigningFailed)?;
+        self.sign_raw_prehash(&decode_fixed_hex::<32>(&hash)?)
+    }
 }
 
 /// Explicit one-shot authority. Missing state on restart does not create this
@@ -658,7 +670,7 @@ fn prepare_stage8b_p1e_schedule_publication_with_key(
         .map_err(|_| Stage8bP1eSchedulePublisherError::InvalidInput)?;
     let digest = decode_fixed_hex::<32>(&signature_digest)?;
     let signature = signer
-        .sign_raw_prehash(&digest)
+        .sign_schedule_envelope(&envelope)
         .map_err(|_| Stage8bP1eSchedulePublisherError::SigningFailed)?;
     verify_raw_signature(expected_public_key_hex, &signature, &digest)?;
     envelope.signature_ed25519_hex = encode_lower_hex(&signature);
@@ -713,7 +725,24 @@ fn load_stage8b_p1e_schedule_publisher_state_with_validator(
     ) -> Result<(), Stage8bP1eSchedulePublisherError>,
 ) -> Result<Stage8bP1eSchedulePublisherStateV1, Stage8bP1eSchedulePublisherError> {
     let bytes = fs::read(path)?;
-    let state: Stage8bP1eSchedulePublisherStateV1 = serde_json::from_slice(&bytes)
+    parse_state_with_validator(&bytes, validate_state)
+}
+
+/// O3 reads a bounded, custody-checked descriptor before decoding. Keep exactly
+/// the ordinary canonical-state and production signature validation here.
+pub(crate) fn parse_stage8b_p1e_schedule_publisher_state(
+    bytes: &[u8],
+) -> Result<Stage8bP1eSchedulePublisherStateV1, Stage8bP1eSchedulePublisherError> {
+    parse_state_with_validator(bytes, &Stage8bP1eSchedulePublisherStateV1::validate)
+}
+
+fn parse_state_with_validator(
+    bytes: &[u8],
+    validate_state: &impl Fn(
+        &Stage8bP1eSchedulePublisherStateV1,
+    ) -> Result<(), Stage8bP1eSchedulePublisherError>,
+) -> Result<Stage8bP1eSchedulePublisherStateV1, Stage8bP1eSchedulePublisherError> {
+    let state: Stage8bP1eSchedulePublisherStateV1 = serde_json::from_slice(bytes)
         .map_err(|_| Stage8bP1eSchedulePublisherError::DurableStateConflict)?;
     validate_state(&state)?;
     if stage8b_p1e_canonical_json(&state)
@@ -758,10 +787,14 @@ fn persist_stage8b_p1e_schedule_publisher_state_with_validator(
         std::process::id(),
         TEMP_COUNTER.fetch_add(1, Ordering::SeqCst)
     ));
-    let mut file = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&temporary)?;
+    let mut options = OpenOptions::new();
+    options.create_new(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&temporary)?;
     file.write_all(&bytes)?;
     file.sync_all()?;
     fs::rename(&temporary, path)?;

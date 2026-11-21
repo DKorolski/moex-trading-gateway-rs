@@ -289,6 +289,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror 1.0.69",
+ "tokio",
  "uuid",
  "zeroize",
 ]
@@ -665,6 +666,39 @@ dependencies = [
  "tokio-rustls",
  "uuid",
  "zeroize",
+]
+
+[[package]]
+name = "finam-shadow-models"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "finam-signal-shadow"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "broker-core",
+ "broker-finam",
+ "chrono",
+ "csv",
+ "finam-shadow-models",
+ "futures-util",
+ "runtime-durable-service",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "sha2",
+ "strategy-runtime-core",
+ "tokio",
+ "tokio-tungstenite",
 ]
 
 [[package]]

@@ -1,0 +1,456 @@
+//! Static, fail-stop consumers of ONE admitted instrument stream. No cache,
+//! network client, proof/audit scheduler or independent feed frontier per model.
+//! The existing executable still opens one runtime. A multi-consumer cohort is
+//! bounded library composition, not aggregate EOD/restart qualification.
+use super::*;
+#[cfg(feature = "models-bridge")]
+use crate::primary::models_bridge::{ImoexfModelBridge, Projection};
+use crate::{session::CanonicalPublication, transport::StopHandle, ValidatedConfig};
+use serde_json::json;
+
+pub(crate) struct RuntimeSettings {
+    pub config_sha256: String,
+    pub deadline_ms: i64,
+    pub clock_uncertainty_ms: u64,
+    pub stop_timeout_ms: u64,
+    pub policy: crate::primary::PrimaryPolicy,
+}
+pub(super) struct Runtimes {
+    #[cfg(feature = "models-bridge")]
+    additional: Option<crate::primary::additional_models::managed::Lane>,
+    members: Vec<ObservedSession>,
+    model_eod_sealed: bool,
+    #[cfg(feature = "models-bridge")]
+    models: Option<ImoexfModelBridge>,
+    #[cfg(test)]
+    barrier_fault: Option<(u64, bool)>,
+}
+impl Runtimes {
+    pub fn single(session: ObservedSession) -> Self {
+        Self {
+            members: vec![session],
+            model_eod_sealed: false,
+            #[cfg(feature = "models-bridge")]
+            additional: None,
+            #[cfg(feature = "models-bridge")]
+            models: None,
+            #[cfg(test)]
+            barrier_fault: None,
+        }
+    }
+    pub fn group(members: Vec<ObservedSession>) -> Result<Self, CoordinatorError> {
+        if members.is_empty() || members.len() > 8 {
+            return Err(CoordinatorError::Binding);
+        }
+        let first = &members[0];
+        let (hash, label, _) = first.primary_binding().ok_or(CoordinatorError::Binding)?;
+        let (_, root) = first.primary_runtime().ok_or(CoordinatorError::Binding)?;
+        if members.iter().any(|s| {
+            !s.recoverable_primary()
+                || s.primary_binding().map(|(h, t, _)| (h, t)) != Some((hash, label))
+                || !s
+                    .primary_runtime()
+                    .is_some_and(|(_, stop)| root.same_run(&stop))
+        }) {
+            return Err(CoordinatorError::Binding);
+        }
+        let mut result = Self {
+            members,
+            model_eod_sealed: false,
+            #[cfg(feature = "models-bridge")]
+            additional: None,
+            #[cfg(feature = "models-bridge")]
+            models: None,
+            #[cfg(test)]
+            barrier_fault: None,
+        };
+        if result.members.len() > 1 {
+            let count = result.members.len();
+            for (index, session) in result.members.iter_mut().enumerate() {
+                session.record_transport(&json!({"event":"primary_runtime_cohort_bound",
+                    "runtime_index":index,"runtime_count":count,
+                    "same_config_policy_and_stop":true,"aggregate_eod_and_restart_qualified":false}))
+                    .map_err(CoordinatorError::Session)?;
+            }
+        }
+        Ok(result)
+    }
+    #[cfg(feature = "models-bridge")]
+    pub fn with_imoexf_models(
+        mut self,
+        models: ImoexfModelBridge,
+    ) -> Result<Self, CoordinatorError> {
+        // A control observer and two INDEPENDENT reaction arms. They do not
+        // share its old close-fill book or count as observed ALOR parity.
+        if self.members.len() != 1 || self.models.is_some() {
+            return Err(CoordinatorError::Binding);
+        }
+        let binding = models.export().map_err(|_| CoordinatorError::Binding)?;
+        self.models = Some(models);
+        self.record_transport(&json!({"event":"primary_runtime_cohort_bound",
+            "runtime_count":3,"model_arms":2,"model_instrument":"IMOEXF",
+            "manifest_sha256":binding["manifest_sha256"],
+            "initial_model_chain_sha256":binding["chain_sha256"],
+            "source_config_sha256":self.primary_binding().unwrap().0,
+            "model_evidence":"declared_clock_replay","order_emission_allowed":false,
+            "aggregate_eod_and_restart_qualified":false}))
+            .map_err(CoordinatorError::Session)?;
+        Ok(self)
+    }
+    pub fn has_models(&self) -> bool {
+        #[cfg(feature = "models-bridge")]
+        {
+            self.models.is_some() || self.additional.is_some()
+        }
+        #[cfg(not(feature = "models-bridge"))]
+        {
+            false
+        }
+    }
+    #[cfg(feature = "models-bridge")]
+    pub fn model_export(&self) -> Result<Option<serde_json::Value>, SessionError> {
+        if let Some(lane) = &self.additional {
+            return lane.export().map(Some);
+        }
+        self.models
+            .as_ref()
+            .map(|m| m.export().map_err(|_| SessionError::Evidence))
+            .transpose()
+    }
+    pub fn primary_binding(&self) -> Option<(&str, i64, &crate::primary::PrimaryPolicy)> {
+        #[cfg(feature = "models-bridge")]
+        if let Some(lane) = &self.additional {
+            return Some(lane.binding());
+        }
+        self.members[0].primary_binding()
+    }
+    pub fn runtime_settings(&self) -> Option<(RuntimeSettings, StopHandle)> {
+        #[cfg(feature = "models-bridge")]
+        if let Some(lane) = &self.additional {
+            return Some(lane.settings());
+        }
+        self.primary_runtime().map(|(c, stop)| {
+            (
+                RuntimeSettings {
+                    config_sha256: c.fingerprint().into(),
+                    deadline_ms: c.config().run_deadline_utc_ms,
+                    clock_uncertainty_ms: c.config().clock_uncertainty_ms,
+                    stop_timeout_ms: c.config().stop_timeout_ms,
+                    policy: c.primary_policy().unwrap().clone(),
+                },
+                stop,
+            )
+        })
+    }
+    #[cfg(feature = "models-bridge")]
+    pub fn additional(lane: crate::primary::additional_models::managed::Lane) -> Self {
+        Self {
+            additional: Some(lane),
+            members: vec![],
+            model_eod_sealed: false,
+            models: None,
+            #[cfg(test)]
+            barrier_fault: None,
+        }
+    }
+    pub fn consume_canonical(
+        &mut self,
+        p: &mut crate::primary::PrimaryProcessor,
+        input: crate::primary::AdmittedCanonicalM10,
+    ) -> Result<CanonicalPublication, CoordinatorError> {
+        #[cfg(feature = "models-bridge")]
+        if let Some(lane) = &mut self.additional {
+            return lane
+                .consume(
+                    p,
+                    crate::primary::additional_models::managed::Input::Canonical(input),
+                )
+                .map_err(CoordinatorError::Session);
+        }
+        let publication = self.canonical(&input).map_err(CoordinatorError::Session)?;
+        p.committed(input, publication.committed_at_ms)
+            .map_err(CoordinatorError::Source)?;
+        Ok(publication)
+    }
+    pub fn consume_recovery(
+        &mut self,
+        p: &mut crate::primary::PrimaryProcessor,
+        input: crate::primary::RecoveryInput,
+        source: &AdmittedClosedM1Snapshot,
+    ) -> Result<CanonicalPublication, CoordinatorError> {
+        #[cfg(feature = "models-bridge")]
+        if let Some(lane) = &mut self.additional {
+            return lane
+                .consume(
+                    p,
+                    crate::primary::additional_models::managed::Input::Rest(input, source),
+                )
+                .map_err(CoordinatorError::Session);
+        }
+        let publication = self
+            .recovery(&input, source)
+            .map_err(CoordinatorError::Session)?;
+        p.recovered(input, publication.committed_at_ms)
+            .map_err(CoordinatorError::Source)?;
+        Ok(publication)
+    }
+    pub fn consume_ws(
+        &mut self,
+        p: &mut crate::primary::PrimaryProcessor,
+        input: crate::primary::WsRecoveryInput,
+    ) -> Result<CanonicalPublication, CoordinatorError> {
+        #[cfg(feature = "models-bridge")]
+        if let Some(lane) = &mut self.additional {
+            return lane
+                .consume(
+                    p,
+                    crate::primary::additional_models::managed::Input::Ws(input),
+                )
+                .map_err(CoordinatorError::Session);
+        }
+        let publication = self
+            .ws_recovery(&input)
+            .map_err(CoordinatorError::Session)?;
+        p.recovered_ws(input, publication.committed_at_ms)
+            .map_err(CoordinatorError::Source)?;
+        Ok(publication)
+    }
+    pub fn primary_runtime(&self) -> Option<(&ValidatedConfig, StopHandle)> {
+        self.members[0].primary_runtime()
+    }
+    pub fn recoverable_primary(&self) -> bool {
+        #[cfg(feature = "models-bridge")]
+        if self.additional.is_some() {
+            return true;
+        }
+        self.members
+            .iter()
+            .all(ObservedSession::recoverable_primary)
+    }
+    pub fn bind_live_continuity(&mut self, gate: crate::primary::ContinuityGate) {
+        #[cfg(feature = "models-bridge")]
+        if let Some(lane) = &mut self.additional {
+            lane.bind_gate(gate);
+            return;
+        }
+        for session in &mut self.members {
+            session.bind_live_continuity(gate.clone());
+        }
+    }
+    fn stop_group_on_error<T>(&self, result: Result<T, SessionError>) -> Result<T, SessionError> {
+        if result.is_err() && (self.members.len() > 1 || self.has_models()) {
+            if let Some((_, root)) = self.primary_runtime() {
+                root.stop();
+            }
+        }
+        result
+    }
+    /// Diagnostic writes/finish visit all members even if one journal refuses.
+    fn each(
+        &mut self,
+        mut work: impl FnMut(&mut ObservedSession) -> Result<(), SessionError>,
+    ) -> Result<(), SessionError> {
+        let mut error = None;
+        for session in &mut self.members {
+            if let Err(e) = work(session) {
+                error.get_or_insert(e);
+            }
+        }
+        self.stop_group_on_error(error.map_or(Ok(()), Err))
+    }
+    pub fn record_transport(&mut self, event: &impl Serialize) -> Result<(), SessionError> {
+        #[cfg(feature = "models-bridge")]
+        if let Some(lane) = &mut self.additional {
+            return lane.event(serde_json::to_value(event).map_err(|_| SessionError::Evidence)?);
+        }
+        self.each(|s| s.record_transport(event))
+    }
+    pub fn record_primary_reference(
+        &mut self,
+        source: &AdmittedClosedM1Snapshot,
+    ) -> Result<(), SessionError> {
+        #[cfg(feature = "models-bridge")]
+        if let Some(lane) = &mut self.additional {
+            return lane.reference(source);
+        }
+        self.each(|s| s.record_primary_reference(source))
+    }
+    fn publish(
+        &mut self,
+        label: i64,
+        close: i64,
+        replay_deadline: Option<i64>,
+        #[cfg(feature = "models-bridge")] model_input: Projection<'_>,
+        mut work: impl FnMut(&mut ObservedSession) -> Result<CanonicalPublication, SessionError>,
+    ) -> Result<CanonicalPublication, SessionError> {
+        let result = (|| {
+            let mut publications = Vec::with_capacity(self.members.len());
+            for session in &mut self.members {
+                publications.push(work(session)?);
+            }
+            let first = &publications[0];
+            if publications
+                .iter()
+                .any(|p| p.label_ms != label || p.source_sha256 != first.source_sha256)
+            {
+                return Err(SessionError::Input);
+            }
+            #[cfg(feature = "models-bridge")]
+            if self.models.is_some() {
+                for session in &mut self.members {
+                    session.check_shared_publication(close, replay_deadline)?;
+                }
+                let committed =
+                    self.models
+                        .as_mut()
+                        .unwrap()
+                        .publish(model_input)
+                        .map_err(|error| {
+                            #[cfg(test)]
+                            eprintln!("synthetic model commit error: {error:#}");
+                            let _ = error;
+                            SessionError::Model
+                        })?;
+                self.record_transport(&json!({"event":"primary_imoexf_models_commit",
+                    "label_ms":label,"source_sha256":first.source_sha256,
+                    "commit":committed,"readback_verified":true,
+                    "readback_completed_at_ms":crate::timing::now_ms(),
+                    "source_frontier_not_yet_advanced":true}))?;
+            }
+            if self.members.len() > 1 || self.has_models() {
+                self.record_transport(&json!({"event":"primary_runtime_cohort_barrier",
+                    "label_ms":label,"source_sha256":first.source_sha256,
+                    "runtime_count":self.members.len() + if self.has_models(){2}else{0},
+                    "additional_sqlite_model_arms":if self.has_models(){2}else{0},
+                    "consumer_commits":publications.iter().enumerate().map(|(index,p)|json!({
+                        "runtime_index":index,"committed_at_ms":p.committed_at_ms})).collect::<Vec<_>>(),
+                    "shared_frontier_not_yet_advanced":true,"recovery":replay_deadline.is_some()}))?;
+                #[cfg(test)]
+                if let Some((delay_ms, stop)) = self.barrier_fault {
+                    crate::timing::advance_fixture_clock(delay_ms);
+                    if stop {
+                        self.primary_runtime().unwrap().1.stop();
+                    }
+                }
+                for session in &mut self.members {
+                    session.check_shared_publication(close, replay_deadline)?;
+                }
+            }
+            let mut publication = publications.remove(0);
+            if self.members.len() > 1 || self.has_models() {
+                publication.committed_at_ms = crate::timing::now_ms();
+            }
+            Ok(publication)
+        })();
+        self.stop_group_on_error(result)
+    }
+    pub fn canonical(
+        &mut self,
+        input: &crate::primary::AdmittedCanonicalM10,
+    ) -> Result<CanonicalPublication, SessionError> {
+        self.publish(
+            input.receipt().label_ms,
+            input.receipt().close_ms,
+            None,
+            #[cfg(feature = "models-bridge")]
+            Projection::Canonical(input),
+            |s| s.canonical(input),
+        )
+    }
+    pub fn recovery(
+        &mut self,
+        input: &crate::primary::RecoveryInput,
+        source: &AdmittedClosedM1Snapshot,
+    ) -> Result<CanonicalPublication, SessionError> {
+        self.publish(
+            input.receipt().canonical.label_ms,
+            input.receipt().canonical.close_ms,
+            Some(input.receipt().replay_deadline_ms),
+            #[cfg(feature = "models-bridge")]
+            Projection::Rest(input, source),
+            |s| s.recovery(input, source),
+        )
+    }
+    pub fn finish(&mut self, reason: &str) -> Result<(), SessionError> {
+        #[cfg(feature = "models-bridge")]
+        if let Some(lane) = &mut self.additional {
+            return lane.finish(reason);
+        }
+        let result = self.each(|s| s.finish(reason));
+        self.model_eod_sealed =
+            self.has_models() && reason == crate::primary::eod::PREPARED_REASON && result.is_ok();
+        result
+    }
+    pub fn ws_recovery(
+        &mut self,
+        input: &crate::primary::WsRecoveryInput,
+    ) -> Result<CanonicalPublication, SessionError> {
+        self.publish(
+            input.receipt().canonical.label_ms,
+            input.receipt().canonical.close_ms,
+            Some(input.receipt().replay_deadline_ms),
+            #[cfg(feature = "models-bridge")]
+            Projection::Ws(input),
+            |s| s.ws_recovery(input),
+        )
+    }
+    /// A single-journal Completion cannot attest all independent cohort files.
+    /// Fail closed rather than present a primary consumer's EOD as cohort PASS.
+    pub fn eod_model_ready(&self) -> bool {
+        #[cfg(feature = "models-bridge")]
+        if self.additional.is_some() {
+            return false;
+        }
+        let ready = self.members.len() == 1 && self.members[0].eod_model_ready();
+        #[cfg(feature = "models-bridge")]
+        if let Some(models) = &self.models {
+            return ready && models.model_eod_ready();
+        }
+        ready
+    }
+    pub fn eod_snapshot(&self) -> serde_json::Value {
+        #[cfg(feature = "models-bridge")]
+        if self.additional.is_some() {
+            return json!({"scope":"usd_ri_managed_source_only","full_session_qualified":false});
+        }
+        let mut value = self.members[0].eod_snapshot();
+        if self.has_models() {
+            value["additional_imoexf_model_arms"] = json!(2);
+            value["aggregate_eod_qualified"] = json!(false);
+        }
+        if self.members.len() > 1 {
+            value["runtime_cohort"] = json!(self
+                .members
+                .iter()
+                .map(ObservedSession::eod_snapshot)
+                .collect::<Vec<_>>());
+        }
+        value
+    }
+    pub fn journal_seal(&self) -> Option<crate::primary::eod::JournalSeal> {
+        #[cfg(feature = "models-bridge")]
+        if self.additional.is_some() {
+            return None;
+        }
+        if self.members.len() != 1 {
+            return None;
+        }
+        if self.has_models() && !self.model_eod_sealed {
+            return None;
+        }
+        // Called AFTER finish closed the control session. Readiness was checked
+        // before finish; do not re-test the control's !closed predicate here.
+        self.members[0].journal_seal()
+    }
+    #[cfg(test)]
+    pub fn fail_primary_evidence(&mut self, kind: &'static str) {
+        self.members[0].fail_primary_evidence(kind);
+    }
+    #[cfg(all(test, feature = "models-bridge"))]
+    pub fn stop_after_model_sql(&mut self) {
+        self.barrier_fault = Some((0, true));
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests;
